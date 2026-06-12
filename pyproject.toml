@@ -1,0 +1,85 @@
+[project]
+name = "avm"
+version = "0.1.0"
+description = "Automated Valuation Model for Chilean real estate"
+requires-python = ">=3.11"
+authors = [{ name = "AVM Team" }]
+
+dependencies = [
+    # API
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.9",
+
+    # Validation / config
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.28",
+    "greenlet>=3.0.0",                 # requerido por SQLAlchemy async
+    "alembic>=1.13.0",
+    "psycopg[binary]>=3.1.18",
+    "asyncpg>=0.29.0",
+    "aiosqlite>=0.20.0",           # para tests locales
+
+    # Cache
+    "redis>=5.0.0",
+
+    # Auth
+    "python-jose[cryptography]>=3.3.0",
+    "bcrypt>=4.0.0",
+
+    # HTTP clients
+    "httpx>=0.27.0",
+
+    # Scrapers
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.1.0",
+
+    # UI
+    "streamlit>=1.32.0",
+    "pandas>=2.2.0",
+    "plotly>=5.19.0",
+
+    # Jobs
+    "apscheduler>=3.10.0",
+
+    # Utils
+    "python-dotenv>=1.0.0",
+    "structlog>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["config*", "core*", "domain*", "infrastructure*", "api*", "ui*", "services*", "workers*", "scripts*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true

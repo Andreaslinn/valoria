@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head><title>Portal Inmobiliario - Departamentos en venta</title></head>
+<body>
+<ol class="ui-search-layout">
+
+  <!-- Card 1: layout SSR confirmado (a.poly-component__title + .poly-component__location).
+       Ubicación multi-segmento: la comuna es el ÚLTIMO segmento. -->
+  <li class="ui-search-layout__item">
+    <div class="andes-card poly-card">
+      <div class="poly-card__content">
+
+        <a class="poly-component__title" href="https://portalinmobiliario.com/MLC-3892121810-departamento-en-venta-de-3-dorm-en-las-condes_JM">
+          Departamento En Venta De 3 Dorm. En Las Condes
+        </a>
+
+        <span class="poly-component__seller">Ascui Propiedades</span>
+
+        <div class="poly-component__price">UF 12.400</div>
+
+        <span class="poly-component__location">
+          Rosa O'Higgins / Del Inca, Metro Escuela Militar, Las Condes
+        </span>
+
+        <ul class="poly-attributes-list poly-attributes-list--grid">
+          <li class="poly-attributes-list__item">3 dormitorios</li>
+          <li class="poly-attributes-list__item">3 baños</li>
+          <li class="poly-attributes-list__item">160 m² útiles</li>
+        </ul>
+
+      </div>
+    </div>
+  </li>
+
+  <!-- Card 2: layout hidratado SPA (nested andes-money-amount + comuna en attrs).
+       Comuna es el PRIMER segmento del string. Coexiste con el layout anterior
+       porque el sitio sirve HTML distinto según User-Agent / path. -->
+  <li class="ui-search-layout__item">
+    <div class="andes-card poly-card poly-card--grid-card">
+      <div class="poly-card__content">
+
+        <h3 class="poly-component__title">
+          <a class="poly-component__title poly-component__link"
+             href="https://portalinmobiliario.com/MLC-9876543210-departamento-en-venta_JM">
+            Departamento Exclusivo Las Condes vista panorámica
+          </a>
+        </h3>
+
+        <span class="poly-component__seller">Maudier Propiedades</span>
+
+        <div class="poly-component__price">
+          <div class="poly-price__current">
+            <span class="andes-money-amount">
+              <span class="andes-money-amount__currency">
+                <span class="andes-money-amount__currency-symbol">UF</span>
+              </span>
+              <span class="andes-money-amount__fraction">12.500</span>
+            </span>
+          </div>
+        </div>
+
+        <ul class="poly-attributes-list poly-attributes-list--grid">
+          <li class="poly-attributes-list__item">3 dormitorios</li>
+          <li class="poly-attributes-list__item">3 baños</li>
+          <li class="poly-attributes-list__item">166 m² útiles</li>
+          <li class="poly-attributes-list__item">Las Condes, Región Metropolitana</li>
+        </ul>
+
+      </div>
+    </div>
+  </li>
+
+  <!-- Card malformada: sin precio. Debe descartarse silenciosamente. -->
+  <li class="ui-search-layout__item">
+    <div class="poly-card">
+      <div class="poly-card__content">
+        <a class="poly-component__title" href="https://portalinmobiliario.com/MLC-bad">
+          Sin precio
+        </a>
+        <span class="poly-component__location">Providencia, Región Metropolitana</span>
+      </div>
+    </div>
+  </li>
+
+</ol>
+</body>
+</html>

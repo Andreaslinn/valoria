@@ -1,0 +1,22 @@
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PORT=8501
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY config ./config
+COPY core ./core
+COPY domain ./domain
+COPY infrastructure ./infrastructure
+COPY services ./services
+COPY ui ./ui
+
+RUN python -m pip install --upgrade pip && python -m pip install -e .
+
+EXPOSE 8501
+
+CMD ["sh", "-c", "python -m streamlit run ui/app.py --server.address=0.0.0.0 --server.port=${PORT:-8501} --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=true"]

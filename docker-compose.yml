@@ -1,0 +1,131 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-avm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-avm}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-avm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-avm}
+      SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-avm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-avm}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRATION_MINUTES: ${JWT_EXPIRATION_MINUTES:-60}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ENVIRONMENT: ${DOCKER_ENVIRONMENT:-beta}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      UF_API_URL: ${UF_API_URL:-https://mindicador.cl/api/uf}
+      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org/search}
+      NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT:-AVM-v2-beta/1.0}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\"",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["python", "-m", "workers.scheduler"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-avm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-avm}
+      SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-avm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-avm}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      ENVIRONMENT: ${DOCKER_ENVIRONMENT:-beta}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      UF_API_URL: ${UF_API_URL:-https://mindicador.cl/api/uf}
+      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org/search}
+      NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT:-AVM-v2-beta/1.0}
+      SCHEDULER_DISCOVERY_CRON: ${SCHEDULER_DISCOVERY_CRON:-0 10 * * *}
+      SCHEDULER_REFRESH_CRON: ${SCHEDULER_REFRESH_CRON:-0 12 * * mon,wed,fri}
+      SCHEDULER_ALERTS_CRON: ${SCHEDULER_ALERTS_CRON:-0 13 * * *}
+      SCHEDULER_REFRESH_LIMIT: ${SCHEDULER_REFRESH_LIMIT:-80}
+      SCHEDULER_REFRESH_STALE_DAYS: ${SCHEDULER_REFRESH_STALE_DAYS:-14}
+      SCHEDULER_REFRESH_COOLDOWN_HOURS: ${SCHEDULER_REFRESH_COOLDOWN_HOURS:-12}
+      SCHEDULER_ALERTS_THRESHOLD_PCT: ${SCHEDULER_ALERTS_THRESHOLD_PCT:-5.0}
+      SCHEDULER_ALERTS_LOOKBACK_DAYS: ${SCHEDULER_ALERTS_LOOKBACK_DAYS:-30}
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      AVM_API_BASE_URL: http://api:8000
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-avm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-avm}
+      SYNC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-avm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-avm}
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: ${DOCKER_ENVIRONMENT:-beta}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BETA_PASSWORD: ${BETA_PASSWORD:?Set BETA_PASSWORD in .env}
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)\"",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

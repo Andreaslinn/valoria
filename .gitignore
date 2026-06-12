@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.venv-win/
+venv/
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+users.json
+.pycache_compile/
+
+# Testing
+.pytest_cache/
+.pytest-basetemp*/
+.pytest-tmp/
+.pytest_tmp*/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
+# Runtime artifacts
+audit_export/
+releases/
+reports/*
+!reports/valuation_engine_rebuild/
+!reports/valuation_engine_rebuild/*.md
+!reports/valuation_engine_rebuild/*.json
+reports/valuation_engine_rebuild/backups/
+!reports/valuation_engine_benchmark/
+!reports/valuation_engine_benchmark/**
+logs/
+!logs/.gitkeep
+*.log
+*.zip
+*.sha256
+*.tar
+*.tar.gz
+*.bak
+*.backup
+*.tmp

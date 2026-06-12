@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><title>Yapo.cl - Departamentos en venta</title></head>
+<body>
+<main>
+<div class="d3-ads-grid">
+
+  <!-- Card 1: CLP, fuera de Santiago (Arica). La pipeline la rechazará por
+       comuna desconocida — es el comportamiento correcto: el scraper es
+       dumb, el dominio filtra. -->
+  <div class="d3-ad-tile d3-ads-grid__item d3-ad-tile--fullwidth d3-ad-tile--bordered">
+    <div class="d3-ad-tile__cover">
+      <a href="/bienes-raices-venta-de-propiedades-apartamentos/city-center-departamento-venta-novacion/31672033"></a>
+    </div>
+    <div class="d3-ad-tile__content">
+      <a class="d3-ad-tile__description" href="/bienes-raices-venta-de-propiedades-apartamentos/city-center-departamento-venta-novacion/31672033">
+        <div class="d3-ad-tile__seller">
+          <span>CKPropiedades m.r.</span>
+        </div>
+        <div class="d3-ad-tile__location">
+          <span>Arica</span>
+        </div>
+        <span class="d3-ad-tile__title">City Center Departamento VENTA - NOVACION</span>
+        <div class="d3-ad-tile__price-wrapper">
+          <span class="d3-ad-tile__price">$260.000.000</span>
+          <span class="d3-ad-tile__price-reduction">-10%</span>
+        </div>
+        <div class="d3-ad-tile__hallmarks">
+          <div class="d3-ad-tile__hallmark">Exclusivo</div>
+        </div>
+        <div class="d3-ad-tile__details-wrapper">
+          <ul class="d3-ad-tile__details">
+            <li class="d3-ad-tile__details-item">115 m²</li>
+            <li class="d3-ad-tile__details-item">3</li>
+            <li class="d3-ad-tile__details-item">1</li>
+            <li class="d3-ad-tile__details-item">3</li>
+          </ul>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Card 2: UF, fuera de Santiago (Viña del Mar). Requiere conversión UF→CLP. -->
+  <div class="d3-ad-tile d3-ads-grid__item d3-ad-tile--fullwidth d3-ad-tile--bordered">
+    <div class="d3-ad-tile__cover">
+      <a href="/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-san-martin/32321098"></a>
+    </div>
+    <div class="d3-ad-tile__content">
+      <a class="d3-ad-tile__description" href="/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-san-martin/32321098">
+        <div class="d3-ad-tile__seller">
+          <span>Liberona Rodríguez</span>
+        </div>
+        <div class="d3-ad-tile__location">
+          <span>Viña del Mar</span>
+        </div>
+        <h2 class="d3-ad-tile__title">Departamento en venta, San Martín</h2>
+        <div class="d3-ad-tile__price-wrapper">
+          <span class="d3-ad-tile__price">UF8.200,00</span>
+        </div>
+        <div class="d3-ad-tile__details-wrapper">
+          <ul class="d3-ad-tile__details">
+            <li class="d3-ad-tile__details-item">110 m²</li>
+            <li class="d3-ad-tile__details-item">3</li>
+            <li class="d3-ad-tile__details-item">3</li>
+          </ul>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Card 3: Sintetizada en Ñuñoa (comuna válida) para ejercitar el happy path.
+       La estructura es idéntica a las anteriores — solo cambian los valores. -->
+  <div class="d3-ad-tile d3-ads-grid__item d3-ad-tile--fullwidth d3-ad-tile--bordered">
+    <div class="d3-ad-tile__cover">
+      <a href="/bienes-raices-venta-de-propiedades-apartamentos/depto-nunoa-centro/99000001"></a>
+    </div>
+    <div class="d3-ad-tile__content">
+      <a class="d3-ad-tile__description" href="/bienes-raices-venta-de-propiedades-apartamentos/depto-nunoa-centro/99000001">
+        <div class="d3-ad-tile__seller">
+          <span>Inmobiliaria Test</span>
+        </div>
+        <div class="d3-ad-tile__location">
+          <span>Ñuñoa</span>
+        </div>
+        <h2 class="d3-ad-tile__title">Depto luminoso Ñuñoa centro estación Irarrázaval</h2>
+        <div class="d3-ad-tile__price-wrapper">
+          <span class="d3-ad-tile__price">$180.000.000</span>
+        </div>
+        <div class="d3-ad-tile__details-wrapper">
+          <ul class="d3-ad-tile__details">
+            <li class="d3-ad-tile__details-item">75 m²</li>
+            <li class="d3-ad-tile__details-item">3</li>
+            <li class="d3-ad-tile__details-item">2</li>
+            <li class="d3-ad-tile__details-item">1</li>
+          </ul>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Card malformada: sin precio. Debe descartarse silenciosamente. -->
+  <div class="d3-ad-tile d3-ads-grid__item">
+    <div class="d3-ad-tile__content">
+      <a class="d3-ad-tile__description" href="/bad/99999">
+        <h2 class="d3-ad-tile__title">Sin precio</h2>
+        <div class="d3-ad-tile__location"><span>Ñuñoa</span></div>
+      </a>
+    </div>
+  </div>
+
+</div>
+</main>
+</body>
+</html>

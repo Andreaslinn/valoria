@@ -1,0 +1,3 @@
+# Keep dependency declarations in pyproject.toml.
+# This file exists so Windows setup can use: pip install -r requirements.txt
+-e .[dev]
