@@ -55,10 +55,17 @@ def test_registry_raises_for_unknown_engine() -> None:
         registry.get("missing")
 
 
-def test_default_registry_registers_valoria_consensus() -> None:
+def test_default_registry_registers_legacy_and_canonical() -> None:
     registry = default_engine_registry()
 
-    assert registry.list() == ["comparables_legacy"]
+    assert registry.list() == [
+        "comparables_canonical",
+        "comparables_canonical_outliers",
+        "comparables_canonical_price_only",
+        "comparables_canonical_product",
+        "comparables_legacy",
+    ]
+    assert registry.get("comparables_canonical").version == "phase1_canonical_v1"
     assert registry.get("comparables_legacy").version == "phase0b_legacy_v1"
 
 
