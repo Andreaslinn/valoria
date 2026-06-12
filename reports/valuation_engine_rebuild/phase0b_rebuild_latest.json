@@ -1,0 +1,223 @@
+{
+  "report": "phase0b_rebuild_latest",
+  "date": "2026-06-12",
+  "project_path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2",
+  "status": "completed_with_residual_unrelated_test_failures",
+  "initial_state": {
+    "dot_git_present": false,
+    "approx_file_count": 60415,
+    "approx_bytes_including_ignored_candidates": 1687313259,
+    "inventory": [
+      "reports/valuation_engine_rebuild/phase0b_initial_inventory.md",
+      "reports/valuation_engine_rebuild/phase0b_initial_inventory.json"
+    ],
+    "backup": {
+      "path": "reports/valuation_engine_rebuild/backups/phase0b_source_snapshot_20260612.zip",
+      "sha256": "FFF472453B0925C0A1CAE190DAA3014E19535AB1E7085AA44F3FD13A5EE3FD2A",
+      "tracked_by_git": false
+    }
+  },
+  "git": {
+    "baseline_branch": "main",
+    "baseline_commit": "6a4e8e3",
+    "working_branch": "codex/rebuild-valuation-engines-phase0b",
+    "head_before_report_commit": "14bf144b2a0816070277279ce129de140cab0efe",
+    "remotes_configured": [],
+    "commits": [
+      {
+        "hash": "6a4e8e3",
+        "message": "chore: establish recovered AVM-v2 baseline"
+      },
+      {
+        "hash": "f2fc541",
+        "message": "feat: add minimal valuation engine registry and legacy wrapper"
+      },
+      {
+        "hash": "3aa0966",
+        "message": "feat: add offline valuation engine evaluation CLI"
+      },
+      {
+        "hash": "14bf144",
+        "message": "test: cover phase0b legacy engine evaluation"
+      }
+    ]
+  },
+  "architecture": {
+    "contracts": "domain/valuation/engines/contracts.py",
+    "registry": "domain/valuation/engines/registry.py",
+    "registered_engines": [
+      {
+        "name": "comparables_legacy",
+        "version": "phase0b_legacy_v1",
+        "path": "domain/valuation/engines/legacy_comparables.py"
+      }
+    ],
+    "production_service_changed": false
+  },
+  "disconnected_skeleton": {
+    "paths": [
+      "domain/valuation/engines/valoria_consensus/"
+    ],
+    "decision": "kept_unregistered_and_documented_as_deprecated_experimental",
+    "used_as_contract_source": false,
+    "documentation": "domain/valuation/engines/valoria_consensus/README.md"
+  },
+  "parity": {
+    "tested": true,
+    "cases": [
+      "homogeneous apartment",
+      "house with land",
+      "house without land",
+      "insufficient comparables",
+      "canonical mode passthrough"
+    ],
+    "fields": [
+      "estimated_price_clp",
+      "range_low_clp",
+      "range_high_clp",
+      "confidence",
+      "comparables_used",
+      "comparable order",
+      "warnings",
+      "reliability",
+      "comparable_quality",
+      "beta_scope",
+      "price_surface"
+    ],
+    "result": "passed"
+  },
+  "evaluation_framework": {
+    "paths": [
+      "domain/valuation/evaluation/dataset.py",
+      "domain/valuation/evaluation/evaluator.py",
+      "domain/valuation/evaluation/metrics.py",
+      "domain/valuation/evaluation/reports.py",
+      "scripts/evaluate_valuation_engines.py"
+    ],
+    "leakage_guards": [
+      "target listing excluded",
+      "same fingerprint excluded",
+      "same source/external_id excluded",
+      "same URL excluded",
+      "optional cutoff excludes later listings",
+      "positive price and area only"
+    ],
+    "limitations": [
+      "active-listing benchmark, not a complete temporal backtest unless cutoff is supplied",
+      "UF is inferred from local canonical price_uf values when --uf-rate is omitted"
+    ]
+  },
+  "tests": [
+    {
+      "command": "pytest tests/unit/test_valuation_engine_registry.py tests/unit/test_comparables_legacy_engine.py tests/unit/test_valuation_evaluation_framework.py tests/unit/test_evaluate_valuation_engines_cli.py",
+      "passed": 15,
+      "failed": 0,
+      "errors": 0
+    },
+    {
+      "command": "pytest tests/unit/test_valuation.py tests/unit/test_valuation_service.py tests/unit/test_valuation_reliability.py tests/unit/test_comparable_quality.py tests/unit/test_comparable_metrics.py tests/unit/test_price_surface.py tests/unit/test_valuation_canonical_mode.py tests/unit/test_valuation_canonical_price.py",
+      "passed": 89,
+      "failed": 0,
+      "errors": 0
+    },
+    {
+      "command": "pytest tests/unit",
+      "passed": 954,
+      "failed": 2,
+      "errors": 7,
+      "residual_failures": [
+        "tests/unit/test_nominatim_client.py::test_address_metadata_wins",
+        "tests/unit/test_nominatim_client.py::test_address_fallback_selection"
+      ],
+      "residual_errors": [
+        "tests/unit/test_create_release_zip.py tmp_path setup PermissionError for C:\\Users\\heiko\\AppData\\Local\\Temp\\pytest-of-heiko"
+      ]
+    }
+  ],
+  "benchmark": {
+    "smoke_command": "python scripts/evaluate_valuation_engines.py --engines comparables_legacy --output-dir reports/valuation_engine_benchmark/phase0b_legacy_smoke --limit 20",
+    "full_command": "python scripts/evaluate_valuation_engines.py --engines comparables_legacy --output-dir reports/valuation_engine_benchmark/phase0b_legacy",
+    "status": "completed",
+    "reports": [
+      "reports/valuation_engine_benchmark/phase0b_legacy/valuation_engine_benchmark.json",
+      "reports/valuation_engine_benchmark/phase0b_legacy/valuation_engine_benchmark.md",
+      "reports/valuation_engine_benchmark/phase0b_legacy/valuation_engine_benchmark_rows.csv"
+    ],
+    "dataset": {
+      "active_listings": 2742,
+      "cases": 2740,
+      "uf_to_clp": 40644.55,
+      "uf_rate_source": "local_listing_price_uf_median"
+    },
+    "global": {
+      "total_cases": 2740,
+      "successful": 2636,
+      "failed": 104,
+      "coverage_pct": 96.2,
+      "mape_pct": 24.71,
+      "median_ape_pct": 17.01,
+      "p90_ape_pct": 54.07,
+      "mae_clp": 76928040.29,
+      "signed_bias_pct": 9.75,
+      "error_gt_50_pct": 11.68,
+      "error_gt_100_pct": 2.62
+    },
+    "segments": {
+      "apartment": {
+        "total_cases": 1472,
+        "successful": 1432,
+        "coverage_pct": 97.28,
+        "mape_pct": 17.36,
+        "median_ape_pct": 12.95,
+        "p90_ape_pct": 36.63
+      },
+      "house": {
+        "total_cases": 1268,
+        "successful": 1204,
+        "coverage_pct": 94.95,
+        "mape_pct": 33.45,
+        "median_ape_pct": 23.7,
+        "p90_ape_pct": 71.83
+      },
+      "house_with_land": {
+        "total_cases": 89,
+        "successful": 87,
+        "coverage_pct": 97.75,
+        "mape_pct": 25.53,
+        "median_ape_pct": 17.35,
+        "p90_ape_pct": 50.39
+      },
+      "house_without_land": {
+        "total_cases": 1179,
+        "successful": 1117,
+        "coverage_pct": 94.74,
+        "mape_pct": 34.07,
+        "median_ape_pct": 24.28,
+        "p90_ape_pct": 74.58
+      }
+    }
+  },
+  "production_impact": {
+    "db_modified": false,
+    "migrations_created_or_executed": false,
+    "public_endpoints_modified": false,
+    "ui_modified": false,
+    "legacy_filters_modified": false,
+    "legacy_weights_modified": false,
+    "legacy_scoring_modified": false,
+    "canonical_price_modified": false,
+    "price_surface_modified": false,
+    "reliability_modified": false,
+    "new_engine_enabled_in_production": false,
+    "comparables_canonical_implemented": false,
+    "remote_configured": false,
+    "push_performed": false
+  },
+  "pending": [
+    "Decide whether production ValuationService should eventually use the registry.",
+    "Implement comparables_canonical in a later phase.",
+    "Resolve unrelated nominatim test expectation drift.",
+    "Resolve pytest global temp permission issue for test_create_release_zip.",
+    "Consider temporal backtest support with cutoff-based candidate history."
+  ]
+}
