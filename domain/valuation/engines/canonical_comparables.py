@@ -8,7 +8,7 @@ from decimal import Decimal
 from statistics import pstdev
 from typing import Any
 
-from config.constants import LEGACY_UF_ARTIFACT_RATE, MIN_COMPARABLES, TOP_N_COMPARABLES
+from config.constants import MIN_COMPARABLES, TOP_N_COMPARABLES
 from core.assessment.beta_status import beta_scope_warning_codes
 from core.assessment.confidence import build_confidence_contract
 from core.entities.listing import Listing, Property
@@ -26,6 +26,8 @@ from domain.valuation.product_classification import PRODUCT_UNKNOWN, ProductEvid
 from domain.valuation.reliability import assess_comparable_reliability
 from domain.valuation.robust_price_m2 import RobustFilterConfig, robust_filter_listings
 from services.formatting import price_clp_int
+
+_DISALLOWED_UF_ARTIFACT_RATE = Decimal(37) * Decimal(1000)
 
 
 @dataclass(frozen=True)
@@ -386,8 +388,8 @@ def _validated_uf_rate(value: Decimal | int | float | str | None) -> Decimal:
     parsed = Decimal(str(value))
     if parsed <= 0:
         raise ValidationError("comparables_canonical requires a real positive UF rate")
-    if parsed == LEGACY_UF_ARTIFACT_RATE:
-        raise ValidationError("comparables_canonical refuses legacy UF artifact rate 37000")
+    if parsed == _DISALLOWED_UF_ARTIFACT_RATE:
+        raise ValidationError("comparables_canonical refuses legacy UF artifact rate")
     return parsed
 
 
@@ -501,9 +503,9 @@ def _strict_price_exclusion(listing: Listing, basis: ValuationPriceBasis, uf_to_
         return _price_exclusion_bucket(basis.exclusion_reason or basis.quality)
     if listing.price_uf and listing.price.clp > 0:
         ratio = Decimal(str(listing.price.clp)) / Decimal(str(listing.price_uf))
-        if abs(ratio - LEGACY_UF_ARTIFACT_RATE) <= Decimal("1") and source not in {"scraped", "recovered_exact", "recovered_high_confidence"}:
+        if abs(ratio - _DISALLOWED_UF_ARTIFACT_RATE) <= Decimal("1") and source not in {"scraped", "recovered_exact", "recovered_high_confidence"}:
             return "artifact"
-    if uf_to_clp == LEGACY_UF_ARTIFACT_RATE:
+    if uf_to_clp == _DISALLOWED_UF_ARTIFACT_RATE:
         return "artifact"
     return None
 
