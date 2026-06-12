@@ -7,6 +7,7 @@ from domain.valuation.engines.contracts import (
     EngineStatus,
     ValuationEngine,
 )
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine
 from domain.valuation.engines.legacy_comparables import ComparablesLegacyEngine
 from domain.valuation.engines.registry import (
     DuplicateValuationEngineError,
@@ -16,6 +17,7 @@ from domain.valuation.engines.registry import (
 )
 
 __all__ = [
+    "ComparablesCanonicalEngine",
     "ComparablesLegacyEngine",
     "DuplicateValuationEngineError",
     "EngineComparable",

@@ -36,10 +36,30 @@ class EngineRegistry:
 
 
 def default_engine_registry() -> EngineRegistry:
+    from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine
     from domain.valuation.engines.legacy_comparables import ComparablesLegacyEngine
 
     registry = EngineRegistry()
     registry.register(ComparablesLegacyEngine())
+    registry.register(ComparablesCanonicalEngine())
+    registry.register(
+        ComparablesCanonicalEngine(
+            name="comparables_canonical_price_only",
+            variant="price_only",
+        )
+    )
+    registry.register(
+        ComparablesCanonicalEngine(
+            name="comparables_canonical_product",
+            variant="product",
+        )
+    )
+    registry.register(
+        ComparablesCanonicalEngine(
+            name="comparables_canonical_outliers",
+            variant="outliers",
+        )
+    )
     return registry
 
 

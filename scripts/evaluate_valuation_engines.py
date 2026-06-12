@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import json
 import subprocess
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -64,6 +66,7 @@ async def main() -> int:
         "cutoff": args.cutoff,
         "dataset_active_listings": len(listings),
         "dataset_cases": len(cases),
+        "dataset_signature": _dataset_signature(cases),
         "uf_to_clp": float(uf_to_clp),
         "uf_rate_source": "cli" if args.uf_rate else "local_listing_price_uf_median",
         "git_commit": _git("rev-parse", "HEAD"),
@@ -143,6 +146,22 @@ def _git(*args: str) -> str:
         return "git_unavailable"
     text = (result.stdout or result.stderr).strip()
     return text or "clean"
+
+
+def _dataset_signature(cases) -> str:
+    payload = [
+        {
+            "target_id": case.target_id,
+            "fingerprint": case.listing.fingerprint,
+            "comuna": case.target.comuna,
+            "property_type": case.target.property_type,
+            "actual_price_clp": str(case.actual_price_clp),
+            "candidate_count": len(case.candidates),
+        }
+        for case in cases
+    ]
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 if __name__ == "__main__":

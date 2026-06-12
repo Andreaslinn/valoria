@@ -97,6 +97,9 @@ def infer_uf_rate(listings: Iterable[Listing]) -> Decimal | None:
 
 def _property_from_listing(listing: Listing) -> Property:
     built_area = listing.built_area_m2 or listing.usable_area_m2 or listing.m2
+    raw_metadata = dict(listing.raw_metadata or {})
+    if listing.title:
+        raw_metadata.setdefault("title", listing.title)
     return Property(
         id=listing.property_id or listing.id,
         comuna=listing.comuna,
@@ -110,7 +113,7 @@ def _property_from_listing(listing: Listing) -> Property:
         usable_area_m2=listing.usable_area_m2,
         coordinates=listing.coordinates,
         geocode_precision=listing.geocode_precision,
-        raw_metadata=dict(listing.raw_metadata or {}),
+        raw_metadata=raw_metadata,
     )
 
 
