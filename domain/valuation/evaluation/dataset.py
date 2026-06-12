@@ -38,9 +38,10 @@ def build_evaluation_cases(
     """
 
     normalized_type = normalize_property_type(property_type) if property_type else None
+    stable_listings = sorted(listings, key=_listing_sort_key)
     eligible = [
         listing
-        for listing in listings
+        for listing in stable_listings
         if _is_eligible_target(listing, property_type=normalized_type, cutoff=cutoff)
     ]
     rng = random.Random(seed)
@@ -53,7 +54,7 @@ def build_evaluation_cases(
         target = _property_from_listing(listing)
         candidates = tuple(
             candidate
-            for candidate in listings
+            for candidate in stable_listings
             if _is_eligible_candidate(candidate, target=listing, cutoff=cutoff)
         )
         cases.append(
@@ -160,3 +161,12 @@ def _is_eligible_candidate(
 def _built_area(listing: Listing) -> float | None:
     value = listing.built_area_m2 or listing.usable_area_m2 or listing.m2
     return value if value and value > 0 else None
+
+
+def _listing_sort_key(listing: Listing) -> tuple[str, str, str, str]:
+    return (
+        str(listing.id if listing.id is not None else ""),
+        str(listing.source or ""),
+        str(listing.external_id or ""),
+        str(listing.fingerprint or ""),
+    )

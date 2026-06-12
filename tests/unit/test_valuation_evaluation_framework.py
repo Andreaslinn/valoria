@@ -40,6 +40,20 @@ def test_dataset_excludes_target_and_duplicates() -> None:
     assert [listing.fingerprint for listing in first.candidates] == ["other"]
 
 
+def test_dataset_order_is_stable_before_seed_shuffle() -> None:
+    listings = [
+        make_listing(fingerprint=f"row-{idx}", price_clp=100_000_000 + idx, price_uf=Decimal("2500"))
+        for idx in range(8)
+    ]
+
+    forward = build_evaluation_cases(listings, limit=5, seed=7)
+    reversed_input = build_evaluation_cases(list(reversed(listings)), limit=5, seed=7)
+
+    assert [case.listing.fingerprint for case in forward] == [
+        case.listing.fingerprint for case in reversed_input
+    ]
+
+
 def test_infer_uf_rate_uses_local_canonical_prices() -> None:
     listings = [
         make_listing(fingerprint="a", price_clp=100_000_000, price_uf=Decimal("2500")),
