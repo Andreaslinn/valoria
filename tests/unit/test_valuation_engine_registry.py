@@ -58,5 +58,21 @@ def test_registry_raises_for_unknown_engine() -> None:
 def test_default_registry_registers_valoria_consensus() -> None:
     registry = default_engine_registry()
 
-    assert registry.list() == ["valoria_consensus"]
-    assert registry.get("valoria_consensus").version == "valoria_consensus_v1"
+    assert registry.list() == ["comparables_legacy"]
+    assert registry.get("comparables_legacy").version == "phase0b_legacy_v1"
+
+
+def test_engine_result_is_serializable() -> None:
+    payload = EngineResult(
+        engine_name="dummy",
+        engine_version="v1",
+        status=EngineStatus.OK,
+        estimated_price_clp="100000000",
+        confidence=1.5,
+        warnings=("a",),
+        diagnostics={"nested": {"value": 1}},
+    ).to_dict()
+
+    assert payload["estimated_price_clp"] == 100000000.0
+    assert payload["confidence"] == 1.0
+    assert payload["warnings"] == ["a"]
