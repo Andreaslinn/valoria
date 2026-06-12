@@ -1,4 +1,9 @@
-"""Common contracts for offline valuation engines."""
+"""Common contracts for offline valuation engines.
+
+These contracts are intentionally small. They let offline evaluators run
+multiple engines while the productive valuation service keeps its current
+legacy flow and public DTOs unchanged.
+"""
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -13,28 +18,29 @@ from core.entities.listing import Listing, Property
 class EngineStatus:
     OK = "ok"
     INSUFFICIENT_DATA = "insufficient_data"
-    NOT_APPLICABLE = "not_applicable"
     VALIDATION_ERROR = "validation_error"
+    NOT_APPLICABLE = "not_applicable"
     ERROR = "error"
 
 
 @dataclass(frozen=True)
 class EngineRequest:
-    """Engine-level request metadata.
-
-    The normalized physical target belongs in ``EngineContext.target``. This
-    request object carries run intent and optional metadata shared by offline
-    evaluation tools.
-    """
+    """Stable request metadata shared by offline engine runs."""
 
     evaluation_id: str | None = None
     engine_name: str | None = None
+    published_price_provided: bool = True
+    canonical_price_enabled: bool | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class EngineContext:
-    """Shared immutable input context for valuation engines."""
+    """Preloaded inputs for a valuation engine.
+
+    Engines should consume this context instead of fetching the same target,
+    candidates, UF rate or configuration repeatedly.
+    """
 
     target: Property | Listing | None = None
     candidates: Sequence[Listing] = field(default_factory=tuple)
@@ -49,12 +55,24 @@ class EngineContext:
 
 
 @dataclass(frozen=True)
-class EngineResult:
-    """Common engine output.
+class EngineComparable:
+    listing_id: int | None
+    fingerprint: str | None
+    score: float
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
-    Engines may leave fields as ``None`` when a quantity is not available. The
-    diagnostics dict is the extension point for engine-specific detail.
-    """
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "listing_id": self.listing_id,
+            "fingerprint": self.fingerprint,
+            "score": self.score,
+            "diagnostics": _json_safe(dict(self.diagnostics)),
+        }
+
+
+@dataclass(frozen=True)
+class EngineResult:
+    """Serializable output for any valuation engine."""
 
     engine_name: str
     engine_version: str
@@ -69,6 +87,7 @@ class EngineResult:
     diagnostics: Mapping[str, Any] = field(default_factory=dict)
     error_code: str | None = None
     error_message: str | None = None
+    selected_comparables: Sequence[EngineComparable] = field(default_factory=tuple)
     coverage_status: str | None = None
 
     def __post_init__(self) -> None:
@@ -78,6 +97,7 @@ class EngineResult:
         object.__setattr__(self, "range_high_clp", _decimal_or_none(self.range_high_clp))
         object.__setattr__(self, "warnings", tuple(str(item) for item in self.warnings))
         object.__setattr__(self, "diagnostics", dict(self.diagnostics))
+        object.__setattr__(self, "selected_comparables", tuple(self.selected_comparables))
         if self.confidence is not None:
             object.__setattr__(self, "confidence", max(0.0, min(1.0, float(self.confidence))))
 
@@ -100,6 +120,7 @@ class EngineResult:
             "diagnostics": _json_safe(dict(self.diagnostics)),
             "error_code": self.error_code,
             "error_message": self.error_message,
+            "selected_comparables": [item.to_dict() for item in self.selected_comparables],
             "coverage_status": self.coverage_status,
         }
 
@@ -125,7 +146,9 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
     if isinstance(value, dict):
-        return {key: _json_safe(item) for key, item in value.items()}
+        return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _json_safe(value.to_dict())
     return value

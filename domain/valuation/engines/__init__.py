@@ -1,15 +1,13 @@
-"""Valuation engine contracts and registry.
-
-This package is intentionally independent from production entrypoints. Engines
-can be registered and evaluated offline without changing API/UI behavior.
-"""
+"""Offline valuation engine contracts and registry."""
 from domain.valuation.engines.contracts import (
+    EngineComparable,
     EngineContext,
     EngineRequest,
     EngineResult,
     EngineStatus,
     ValuationEngine,
 )
+from domain.valuation.engines.legacy_comparables import ComparablesLegacyEngine
 from domain.valuation.engines.registry import (
     DuplicateValuationEngineError,
     EngineRegistry,
@@ -18,7 +16,9 @@ from domain.valuation.engines.registry import (
 )
 
 __all__ = [
+    "ComparablesLegacyEngine",
     "DuplicateValuationEngineError",
+    "EngineComparable",
     "EngineContext",
     "EngineRegistry",
     "EngineRequest",

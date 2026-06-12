@@ -19,15 +19,13 @@ class EngineRegistry:
     _engines: dict[str, ValuationEngine] = field(default_factory=dict)
 
     def register(self, engine: ValuationEngine) -> None:
-        name = str(engine.name or "").strip()
-        if not name:
-            raise ValueError("engine name cannot be empty")
+        name = _normalize_name(getattr(engine, "name", None))
         if name in self._engines:
             raise DuplicateValuationEngineError(f"valuation engine already registered: {name}")
         self._engines[name] = engine
 
     def get(self, name: str) -> ValuationEngine:
-        key = str(name or "").strip()
+        key = _normalize_name(name)
         try:
             return self._engines[key]
         except KeyError as exc:
@@ -38,9 +36,15 @@ class EngineRegistry:
 
 
 def default_engine_registry() -> EngineRegistry:
-    """Return the offline engine registry available in this checkout."""
-    from domain.valuation.engines.valoria_consensus import ValoriaConsensusEngine
+    from domain.valuation.engines.legacy_comparables import ComparablesLegacyEngine
 
     registry = EngineRegistry()
-    registry.register(ValoriaConsensusEngine())
+    registry.register(ComparablesLegacyEngine())
     return registry
+
+
+def _normalize_name(value: object) -> str:
+    name = str(value or "").strip()
+    if not name:
+        raise ValueError("engine name cannot be empty")
+    return name
