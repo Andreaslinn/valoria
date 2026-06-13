@@ -88,7 +88,7 @@ async def main() -> int:
         "head": run_git("rev-parse", "HEAD"),
         "git_status": run_git("status", "--short", "--untracked-files=no"),
         "remotes": run_git("remote", "-v"),
-        "uncommitted_files": run_git("status", "--short"),
+        "uncommitted_files": run_git("status", "--short", "--untracked-files=no"),
         "last_commits": run_git("log", "--oneline", "-8").splitlines(),
         "registered_engines": [
             {"name": name, "version": getattr(registry.get(name), "version", None)}
