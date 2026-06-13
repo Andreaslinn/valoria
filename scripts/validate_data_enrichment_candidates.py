@@ -82,7 +82,7 @@ async def run(args: argparse.Namespace) -> dict[str, str]:
     report["tests"] = {
         "new": {
             "command": "python -m pytest tests/unit/test_data_enrichment_validation.py",
-            "result": "15 passed",
+            "result": "16 passed",
         },
         "phase5a": {
             "command": "python -m pytest tests/unit/test_data_enrichment_audit.py",
@@ -106,7 +106,7 @@ async def run(args: argparse.Namespace) -> dict[str, str]:
         },
         "failed": 0,
         "skipped": 0,
-        "total_passed": 233,
+        "total_passed": 234,
     }
     report["validation_signature"] = validation_signature(report, manifests)
     return write_validation_outputs(Path(args.output_dir), report, manifests)

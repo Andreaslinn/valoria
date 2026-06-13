@@ -12,6 +12,7 @@ import pytest
 
 from domain.data_quality.enrichment_audit import dataset_signature
 from domain.data_quality.enrichment_validation import (
+    _csv_value,
     build_enrichment_validation,
     select_department_refresh_sample,
     validate_duplicate_groups,
@@ -248,6 +249,10 @@ def test_outputs_include_json_manifests_and_utf8_sig_csv() -> None:
     assert len(opened) == 4
     assert all(encoding == "utf-8-sig" for encoding in opened)
     assert paths["land_area_backfill_candidates_json"].endswith(".json")
+
+
+def test_csv_serialization_removes_trailing_space_from_embedded_lines() -> None:
+    assert _csv_value("first line  \nsecond line ") == "first line\nsecond line"
 
 
 @pytest.mark.asyncio

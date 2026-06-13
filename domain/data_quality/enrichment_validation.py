@@ -912,7 +912,7 @@ def _csv_value(value: Any) -> Any:
     if isinstance(value, (dict, list, tuple)):
         return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
     if isinstance(value, str):
-        return value.rstrip()
+        return "\n".join(line.rstrip() for line in value.splitlines())
     return value
 
 
