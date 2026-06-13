@@ -1,0 +1,3994 @@
+{
+  "dataset": {
+    "signature": "c65a72673d729bc4c27da8be53a8891bd3c41496b8b79042e7aab0935ef24c20",
+    "total_listings": 3218,
+    "active_listings": 2780,
+    "benchmark_cases": 2778,
+    "uf_to_clp": 40644.549955947135
+  },
+  "coverage": {
+    "global": {
+      "total": 3218,
+      "active": 2780,
+      "property_type": {
+        "apartment": 1487,
+        "house": 1293
+      },
+      "source": {
+        "yapo": 2780
+      },
+      "comuna": {
+        "colina": 1,
+        "conchali": 2,
+        "el_bosque": 2,
+        "estacion_central": 200,
+        "independencia": 197,
+        "la_cisterna": 2,
+        "la_florida": 223,
+        "la_granja": 1,
+        "la_reina": 135,
+        "las_condes": 266,
+        "macul": 147,
+        "maipu": 250,
+        "nunoa": 258,
+        "penalolen": 33,
+        "providencia": 208,
+        "recoleta": 175,
+        "san_joaquin": 6,
+        "san_miguel": 170,
+        "santiago": 303,
+        "vitacura": 201
+      },
+      "currency": {
+        "CLP": 646,
+        "UF": 2134
+      },
+      "geocode_precision": {
+        "address": 39,
+        "comuna": 1353,
+        "comuna_centroid": 64,
+        "street": 1273,
+        "unknown": 51
+      },
+      "canonical_price": {
+        "valid_count": 1534,
+        "total": 2780,
+        "valid_pct": 55.18
+      },
+      "microzone": {
+        "valid_count": 523,
+        "total": 2780,
+        "valid_pct": 18.81
+      },
+      "land_area": {
+        "valid_count": 74,
+        "total": 2780,
+        "valid_pct": 2.66
+      }
+    },
+    "house": {
+      "total": 1293,
+      "built_area_m2": {
+        "valid_count": 1291,
+        "total": 1293,
+        "valid_pct": 99.85
+      },
+      "usable_area_m2": {
+        "valid_count": 2,
+        "total": 1293,
+        "valid_pct": 0.15
+      },
+      "land_area_m2": {
+        "valid_count": 74,
+        "total": 1293,
+        "valid_pct": 5.72
+      },
+      "bedrooms": {
+        "valid_count": 1293,
+        "total": 1293,
+        "valid_pct": 100.0
+      },
+      "bathrooms": {
+        "valid_count": 1293,
+        "total": 1293,
+        "valid_pct": 100.0
+      },
+      "parking": {
+        "valid_count": 1293,
+        "total": 1293,
+        "valid_pct": 100.0
+      },
+      "canonical_price": {
+        "valid_count": 995,
+        "total": 1293,
+        "valid_pct": 76.95
+      },
+      "useful_geocode": {
+        "valid_count": 650,
+        "total": 1293,
+        "valid_pct": 50.27
+      },
+      "coordinates": {
+        "valid_count": 8,
+        "total": 1293,
+        "valid_pct": 0.62
+      },
+      "microzone": {
+        "valid_count": 237,
+        "total": 1293,
+        "valid_pct": 18.33
+      },
+      "title": {
+        "valid_count": 1293,
+        "total": 1293,
+        "valid_pct": 100.0
+      },
+      "description": {
+        "valid_count": 696,
+        "total": 1293,
+        "valid_pct": 53.83
+      },
+      "product_classification": {
+        "valid_count": 1293,
+        "total": 1293,
+        "valid_pct": 100.0
+      },
+      "built_and_land": {
+        "valid_count": 72,
+        "total": 1293,
+        "valid_pct": 5.57
+      }
+    },
+    "apartment": {
+      "total": 1487,
+      "built_area_m2": {
+        "valid_count": 1487,
+        "total": 1487,
+        "valid_pct": 100.0
+      },
+      "usable_area_m2": {
+        "valid_count": 1487,
+        "total": 1487,
+        "valid_pct": 100.0
+      },
+      "land_area_m2": {
+        "valid_count": 0,
+        "total": 1487,
+        "valid_pct": 0.0
+      },
+      "bedrooms": {
+        "valid_count": 1487,
+        "total": 1487,
+        "valid_pct": 100.0
+      },
+      "bathrooms": {
+        "valid_count": 1487,
+        "total": 1487,
+        "valid_pct": 100.0
+      },
+      "parking": {
+        "valid_count": 1487,
+        "total": 1487,
+        "valid_pct": 100.0
+      },
+      "canonical_price": {
+        "valid_count": 539,
+        "total": 1487,
+        "valid_pct": 36.25
+      },
+      "useful_geocode": {
+        "valid_count": 662,
+        "total": 1487,
+        "valid_pct": 44.52
+      },
+      "coordinates": {
+        "valid_count": 120,
+        "total": 1487,
+        "valid_pct": 8.07
+      },
+      "microzone": {
+        "valid_count": 286,
+        "total": 1487,
+        "valid_pct": 19.23
+      },
+      "title": {
+        "valid_count": 1487,
+        "total": 1487,
+        "valid_pct": 100.0
+      },
+      "description": {
+        "valid_count": 106,
+        "total": 1487,
+        "valid_pct": 7.13
+      },
+      "product_classification": {
+        "valid_count": 1487,
+        "total": 1487,
+        "valid_pct": 100.0
+      }
+    },
+    "by_comuna": {
+      "colina": {
+        "active": 1,
+        "houses": 0,
+        "apartments": 1,
+        "useful_geocode_pct": 0.0,
+        "microzone_pct": 0.0,
+        "canonical_price_pct": 100.0
+      },
+      "conchali": {
+        "active": 2,
+        "houses": 2,
+        "apartments": 0,
+        "useful_geocode_pct": 50.0,
+        "microzone_pct": 0.0,
+        "canonical_price_pct": 100.0
+      },
+      "el_bosque": {
+        "active": 2,
+        "houses": 0,
+        "apartments": 2,
+        "useful_geocode_pct": 50.0,
+        "microzone_pct": 50.0,
+        "canonical_price_pct": 0.0
+      },
+      "estacion_central": {
+        "active": 200,
+        "houses": 69,
+        "apartments": 131,
+        "useful_geocode_pct": 96.0,
+        "microzone_pct": 73.0,
+        "canonical_price_pct": 53.0
+      },
+      "independencia": {
+        "active": 197,
+        "houses": 77,
+        "apartments": 120,
+        "useful_geocode_pct": 47.72,
+        "microzone_pct": 9.64,
+        "canonical_price_pct": 48.73
+      },
+      "la_cisterna": {
+        "active": 2,
+        "houses": 1,
+        "apartments": 1,
+        "useful_geocode_pct": 50.0,
+        "microzone_pct": 0.0,
+        "canonical_price_pct": 100.0
+      },
+      "la_florida": {
+        "active": 223,
+        "houses": 109,
+        "apartments": 114,
+        "useful_geocode_pct": 52.02,
+        "microzone_pct": 17.94,
+        "canonical_price_pct": 62.78
+      },
+      "la_granja": {
+        "active": 1,
+        "houses": 1,
+        "apartments": 0,
+        "useful_geocode_pct": 100.0,
+        "microzone_pct": 100.0,
+        "canonical_price_pct": 100.0
+      },
+      "la_reina": {
+        "active": 135,
+        "houses": 86,
+        "apartments": 49,
+        "useful_geocode_pct": 40.0,
+        "microzone_pct": 20.74,
+        "canonical_price_pct": 50.37
+      },
+      "las_condes": {
+        "active": 266,
+        "houses": 138,
+        "apartments": 128,
+        "useful_geocode_pct": 39.47,
+        "microzone_pct": 18.8,
+        "canonical_price_pct": 44.36
+      },
+      "macul": {
+        "active": 147,
+        "houses": 75,
+        "apartments": 72,
+        "useful_geocode_pct": 44.22,
+        "microzone_pct": 26.53,
+        "canonical_price_pct": 55.1
+      },
+      "maipu": {
+        "active": 250,
+        "houses": 159,
+        "apartments": 91,
+        "useful_geocode_pct": 46.8,
+        "microzone_pct": 5.2,
+        "canonical_price_pct": 80.0
+      },
+      "nunoa": {
+        "active": 258,
+        "houses": 119,
+        "apartments": 139,
+        "useful_geocode_pct": 39.53,
+        "microzone_pct": 15.5,
+        "canonical_price_pct": 55.43
+      },
+      "penalolen": {
+        "active": 33,
+        "houses": 28,
+        "apartments": 5,
+        "useful_geocode_pct": 39.39,
+        "microzone_pct": 24.24,
+        "canonical_price_pct": 87.88
+      },
+      "providencia": {
+        "active": 208,
+        "houses": 104,
+        "apartments": 104,
+        "useful_geocode_pct": 52.4,
+        "microzone_pct": 26.92,
+        "canonical_price_pct": 56.73
+      },
+      "recoleta": {
+        "active": 175,
+        "houses": 76,
+        "apartments": 99,
+        "useful_geocode_pct": 52.0,
+        "microzone_pct": 8.57,
+        "canonical_price_pct": 58.86
+      },
+      "san_joaquin": {
+        "active": 6,
+        "houses": 1,
+        "apartments": 5,
+        "useful_geocode_pct": 50.0,
+        "microzone_pct": 33.33,
+        "canonical_price_pct": 66.67
+      },
+      "san_miguel": {
+        "active": 170,
+        "houses": 69,
+        "apartments": 101,
+        "useful_geocode_pct": 35.29,
+        "microzone_pct": 12.35,
+        "canonical_price_pct": 49.41
+      },
+      "santiago": {
+        "active": 303,
+        "houses": 76,
+        "apartments": 227,
+        "useful_geocode_pct": 37.62,
+        "microzone_pct": 10.56,
+        "canonical_price_pct": 44.88
+      },
+      "vitacura": {
+        "active": 201,
+        "houses": 103,
+        "apartments": 98,
+        "useful_geocode_pct": 36.32,
+        "microzone_pct": 5.97,
+        "canonical_price_pct": 50.75
+      }
+    }
+  },
+  "land_area": {
+    "total": 1293,
+    "category_counts": {
+      "inconsistent_area_fields": 6,
+      "land_mentioned_without_value": 47,
+      "not_in_available_publication_text": 567,
+      "present": 74,
+      "refresh_candidate": 565,
+      "text_recoverable": 28,
+      "text_recoverable_thousands_normalized": 6
+    },
+    "recoverable_or_candidate_count": 599,
+    "recoverable_or_candidate_pct": 46.33,
+    "examples": [
+      {
+        "listing_id": 1296,
+        "source": "yapo",
+        "comuna": "la_granja",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1297,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1298,
+        "source": "yapo",
+        "comuna": "recoleta",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1299,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1300,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1301,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1302,
+        "source": "yapo",
+        "comuna": "maipu",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1303,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1304,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1305,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1306,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1307,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "land_mentioned_without_value",
+        "confidence": "low",
+        "evidence": "text_land_term",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1308,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "text_recoverable",
+        "confidence": "high",
+        "evidence": "text.land_area_context",
+        "suggested_value": 483.0
+      },
+      {
+        "listing_id": 1309,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1310,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "inconsistent_area_fields",
+        "confidence": "review",
+        "evidence": "['ignored_built_area_m2_from_text.built_area_without_unit']",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1311,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1312,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1313,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1314,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "house",
+        "category": "refresh_candidate",
+        "confidence": "medium",
+        "evidence": "yapo_url_without_detail_text",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1315,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1316,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1317,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1318,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1319,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "refresh_candidate",
+        "confidence": "medium",
+        "evidence": "yapo_url_without_detail_text",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1320,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1321,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1322,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1323,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1324,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1325,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "refresh_candidate",
+        "confidence": "medium",
+        "evidence": "yapo_url_without_detail_text",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1326,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1327,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "refresh_candidate",
+        "confidence": "medium",
+        "evidence": "yapo_url_without_detail_text",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1328,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "text_recoverable",
+        "confidence": "high",
+        "evidence": "text.land_area_context",
+        "suggested_value": 784.0
+      },
+      {
+        "listing_id": 1329,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1330,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1331,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "land_mentioned_without_value",
+        "confidence": "low",
+        "evidence": "text_land_term",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1332,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1333,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1334,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "text_recoverable",
+        "confidence": "high",
+        "evidence": "text.land_area_context",
+        "suggested_value": 220.0
+      },
+      {
+        "listing_id": 1335,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1336,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "house",
+        "category": "refresh_candidate",
+        "confidence": "medium",
+        "evidence": "yapo_url_without_detail_text",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1337,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1338,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1339,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1340,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1341,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1342,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "house",
+        "category": "present",
+        "confidence": "observed",
+        "evidence": "listing.land_area_m2",
+        "suggested_value": 619.0
+      },
+      {
+        "listing_id": 1343,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "house",
+        "category": "refresh_candidate",
+        "confidence": "medium",
+        "evidence": "yapo_url_without_detail_text",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 1344,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "house",
+        "category": "present",
+        "confidence": "observed",
+        "evidence": "listing.land_area_m2",
+        "suggested_value": 124.0
+      },
+      {
+        "listing_id": 1345,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "house",
+        "category": "not_in_available_publication_text",
+        "confidence": "low",
+        "evidence": "detail_text_without_land_signal",
+        "suggested_value": null
+      }
+    ],
+    "recovery_tiers": {
+      "current_count": 74,
+      "current_pct": 5.72,
+      "direct_high_confidence_count": 34,
+      "direct_high_confidence_potential_pct": 8.35,
+      "refresh_candidate_count": 565,
+      "refresh_theoretical_ceiling_pct": 52.05,
+      "warning": "refresh candidates are not guaranteed recoveries; sample yield must be measured before any apply"
+    }
+  },
+  "geocoding": {
+    "total": 2780,
+    "category_counts": {
+      "already_reliable": 1312,
+      "commune_only": 1370,
+      "coordinates_low_precision": 70,
+      "recoverable_geo_signal": 18,
+      "recoverable_title_street": 10
+    },
+    "recoverable_or_candidate_count": 28,
+    "recoverable_or_candidate_pct": 1.01,
+    "examples": [
+      {
+        "listing_id": 7,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 10,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 11,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 15,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 20,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 25,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 28,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 34,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "street",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 35,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 37,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 38,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "street",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 40,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 42,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 43,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "street",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 44,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 48,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 53,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 54,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "street",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 62,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 63,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 65,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 66,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 68,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 74,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 75,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 78,
+        "source": "yapo",
+        "comuna": "colina",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "unknown",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 90,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 93,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 98,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 99,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 101,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 102,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 103,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 104,
+        "source": "yapo",
+        "comuna": "la_cisterna",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "unknown",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 106,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 107,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 110,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 111,
+        "source": "yapo",
+        "comuna": "recoleta",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 113,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 117,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 119,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 124,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 129,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 130,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "unknown",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 131,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 132,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 133,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "coordinates_low_precision",
+        "confidence": "review",
+        "evidence": "comuna_centroid",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 143,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 145,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "street",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 149,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "already_reliable",
+        "confidence": "observed",
+        "evidence": "address",
+        "suggested_value": null
+      }
+    ],
+    "precision_counts": {
+      "address": 39,
+      "comuna": 1353,
+      "comuna_centroid": 64,
+      "street": 1273,
+      "unknown": 51
+    },
+    "coordinates_valid": 128
+  },
+  "microzone": {
+    "total": 2780,
+    "category_counts": {
+      "current": 480,
+      "no_current_signal": 2245,
+      "potential_from_description": 5,
+      "potential_from_metadata": 26,
+      "potential_from_title": 24
+    },
+    "recoverable_or_candidate_count": 55,
+    "recoverable_or_candidate_pct": 1.98,
+    "examples": [
+      {
+        "listing_id": 7,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 10,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 11,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 15,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 20,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "potential_from_title",
+        "confidence": "medium",
+        "evidence": "text_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 25,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "current",
+        "confidence": "high",
+        "evidence": "avenue:rodrigo de araya,metro:rodrigo de araya",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 28,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "potential_from_metadata",
+        "confidence": "high",
+        "evidence": "text_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 34,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "current",
+        "confidence": "high",
+        "evidence": "avenue:portugal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 35,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 37,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 38,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 40,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "current",
+        "confidence": "high",
+        "evidence": "landmark:cal y canto,metro:cal y canto",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 42,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "category": "potential_from_metadata",
+        "confidence": "high",
+        "evidence": "text_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 43,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 44,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "current",
+        "confidence": "high",
+        "evidence": "metro:departamental",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 48,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 53,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 54,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 62,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 63,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 65,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 66,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "potential_from_metadata",
+        "confidence": "high",
+        "evidence": "text_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 68,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "current",
+        "confidence": "high",
+        "evidence": "landmark:cal y canto,metro:cal y canto",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 74,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 75,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 78,
+        "source": "yapo",
+        "comuna": "colina",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 90,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 93,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 98,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 99,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 101,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 102,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 103,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "potential_from_metadata",
+        "confidence": "high",
+        "evidence": "text_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 104,
+        "source": "yapo",
+        "comuna": "la_cisterna",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 106,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 107,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 110,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 111,
+        "source": "yapo",
+        "comuna": "recoleta",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 113,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "current",
+        "confidence": "high",
+        "evidence": "avenue:santa rosa",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 117,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 119,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "potential_from_metadata",
+        "confidence": "high",
+        "evidence": "text_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 124,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "current",
+        "confidence": "high",
+        "evidence": "avenue:ossa,metro:simon bolivar",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 129,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 130,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 131,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "potential_from_title",
+        "confidence": "medium",
+        "evidence": "text_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 132,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 133,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 143,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "current",
+        "confidence": "high",
+        "evidence": "avenue:vicuna mackenna",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 145,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "category": "potential_from_title",
+        "confidence": "medium",
+        "evidence": "text_microzone_signal",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 149,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "no_current_signal",
+        "confidence": "none",
+        "evidence": "no_microzone_signal",
+        "suggested_value": null
+      }
+    ],
+    "signals": {
+      "avenue": 186,
+      "landmark": 523,
+      "metro": 334,
+      "neighborhood": 127
+    },
+    "persisted_current": {
+      "valid_count": 480,
+      "total": 2780,
+      "valid_pct": 17.27
+    },
+    "operational_or_derived": {
+      "valid_count": 523,
+      "total": 2780,
+      "valid_pct": 18.81
+    }
+  },
+  "canonical_price_apartments": {
+    "total": 1487,
+    "category_counts": {
+      "estimated_low_confidence": 2,
+      "legacy_unrecoverable_refresh_candidate": 946,
+      "usable_clp_converted": 210,
+      "usable_native_uf": 329
+    },
+    "recoverable_or_candidate_count": 946,
+    "recoverable_or_candidate_pct": 63.62,
+    "examples": [
+      {
+        "listing_id": 7,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 10,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 11,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 15,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 20,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 25,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 28,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 34,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 1950.0
+      },
+      {
+        "listing_id": 35,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 1500.0
+      },
+      {
+        "listing_id": 37,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "usable_clp_converted",
+        "confidence": "high",
+        "evidence": "canonical_clp",
+        "suggested_value": 5117.54
+      },
+      {
+        "listing_id": 38,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 40,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 1650.0
+      },
+      {
+        "listing_id": 42,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 43,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 2090.0
+      },
+      {
+        "listing_id": 44,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 2790.0
+      },
+      {
+        "listing_id": 48,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 53,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 54,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "canonical_uf",
+        "suggested_value": 10490.0
+      },
+      {
+        "listing_id": 62,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 63,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 1250.0
+      },
+      {
+        "listing_id": 65,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 66,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 68,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 74,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 75,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 78,
+        "source": "yapo",
+        "comuna": "colina",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 2450.0
+      },
+      {
+        "listing_id": 90,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "usable_clp_converted",
+        "confidence": "high",
+        "evidence": "canonical_clp",
+        "suggested_value": 1107.16
+      },
+      {
+        "listing_id": 93,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 98,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 99,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 101,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 102,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "usable_clp_converted",
+        "confidence": "high",
+        "evidence": "canonical_clp",
+        "suggested_value": 1599.23
+      },
+      {
+        "listing_id": 103,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 104,
+        "source": "yapo",
+        "comuna": "la_cisterna",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 3100.0
+      },
+      {
+        "listing_id": 106,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "category": "usable_clp_converted",
+        "confidence": "high",
+        "evidence": "canonical_clp",
+        "suggested_value": 8611.24
+      },
+      {
+        "listing_id": 107,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "usable_clp_converted",
+        "confidence": "high",
+        "evidence": "canonical_clp",
+        "suggested_value": 1719.79
+      },
+      {
+        "listing_id": 110,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 111,
+        "source": "yapo",
+        "comuna": "recoleta",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 113,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 1900.0
+      },
+      {
+        "listing_id": 117,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 119,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 124,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 129,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 130,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 3550.0
+      },
+      {
+        "listing_id": 131,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 132,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 133,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 143,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 145,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "category": "legacy_unrecoverable_refresh_candidate",
+        "confidence": "none",
+        "evidence": "legacy_uf_missing_price_uf",
+        "suggested_value": null
+      },
+      {
+        "listing_id": 149,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "category": "usable_native_uf",
+        "confidence": "high",
+        "evidence": "recovered_high_confidence",
+        "suggested_value": 3400.0
+      }
+    ],
+    "currency_counts": {
+      "CLP": 210,
+      "UF": 1277
+    },
+    "price_uf_source_counts": {
+      "estimated": 2,
+      "legacy_unrecoverable": 249,
+      "missing": 750,
+      "recovered_exact": 1,
+      "recovered_high_confidence": 237,
+      "scraped": 248
+    },
+    "recovery_tiers": {
+      "current_count": 539,
+      "current_pct": 36.25,
+      "refresh_candidate_count": 946,
+      "refresh_theoretical_ceiling_pct": 99.87,
+      "recoveries_needed_for_60_pct": 354,
+      "required_refresh_yield_pct": 37.42,
+      "warning": "legacy UF recovery requires fresh source evidence; old CLP snapshots must not be reverse-engineered with UF 37000"
+    }
+  },
+  "product_classification": {
+    "class_counts": {
+      "commercial_use": 65,
+      "investment_or_income": 41,
+      "land_or_site": 85,
+      "multi_unit": 20,
+      "needs_remodeling": 29,
+      "standard_residential": 2540
+    },
+    "strength_counts": {
+      "strong": 107,
+      "structured": 2540,
+      "weak": 133
+    },
+    "unknown_count": 0,
+    "strong_special_count": 107,
+    "potential_false_positive_counts": {
+      "apartment_bodega_storage_ambiguity": 22,
+      "weak_investment_language": 35,
+      "weak_land_context": 81
+    },
+    "examples": [
+      {
+        "listing_id": 7,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 10,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "product_class": "commercial_use",
+        "strength": "strong",
+        "terms": [
+          "bodega"
+        ],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "strong_text_signal"
+      },
+      {
+        "listing_id": 11,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 15,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 20,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 25,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 28,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "product_class": "investment_or_income",
+        "strength": "strong",
+        "terms": [
+          "rentabilidad"
+        ],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "strong_text_signal"
+      },
+      {
+        "listing_id": 34,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 35,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 37,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 38,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 40,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 42,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 43,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 44,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 48,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 53,
+        "source": "yapo",
+        "comuna": "macul",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 54,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title",
+          "description"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 62,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 63,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 65,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 66,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 68,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 74,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 75,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 78,
+        "source": "yapo",
+        "comuna": "colina",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 90,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 93,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 98,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 99,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 101,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 102,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 103,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 104,
+        "source": "yapo",
+        "comuna": "la_cisterna",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 106,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 107,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 110,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 111,
+        "source": "yapo",
+        "comuna": "recoleta",
+        "property_type": "apartment",
+        "product_class": "commercial_use",
+        "strength": "strong",
+        "terms": [
+          "bodega"
+        ],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "strong_text_signal"
+      },
+      {
+        "listing_id": 113,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 117,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 119,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "product_class": "commercial_use",
+        "strength": "strong",
+        "terms": [
+          "bodega"
+        ],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "strong_text_signal"
+      },
+      {
+        "listing_id": 124,
+        "source": "yapo",
+        "comuna": "la_reina",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 129,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 130,
+        "source": "yapo",
+        "comuna": "san_joaquin",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 131,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 132,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "commercial_use",
+        "strength": "strong",
+        "terms": [
+          "bodega"
+        ],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "strong_text_signal"
+      },
+      {
+        "listing_id": 133,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 143,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 145,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      },
+      {
+        "listing_id": 149,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "product_class": "standard_residential",
+        "strength": "structured",
+        "terms": [],
+        "fields_used": [
+          "title"
+        ],
+        "reason": "structured_residential_without_special_signal"
+      }
+    ]
+  },
+  "duplicates_and_leakage": {
+    "active_listings": 2780,
+    "group_counts": {
+      "near_duplicate": 35
+    },
+    "affected_listings": 79,
+    "affected_pct": 2.84,
+    "near_duplicate_groups": 35,
+    "benchmark_leakage_risk": "medium",
+    "examples": [
+      {
+        "kind": "near_duplicate",
+        "group_key": "0cc1d067cde6f7ef",
+        "listing_ids": [
+          1571,
+          1573
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "recoleta"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "15f5381d03ef8ae6",
+        "listing_ids": [
+          2421,
+          2869
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "las_condes"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "1ee617e68ef2b35d",
+        "listing_ids": [
+          798,
+          2393
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "estacion_central"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "289aff45b36a8ab8",
+        "listing_ids": [
+          820,
+          1191,
+          1271,
+          1286
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "estacion_central"
+        ],
+        "group_size": 4,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "2ef8efd5aec49feb",
+        "listing_ids": [
+          1737,
+          3130
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "386deffdf517551b",
+        "listing_ids": [
+          637,
+          2947
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "las_condes"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "425113512f48997d",
+        "listing_ids": [
+          775,
+          3023
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "independencia"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "4806ec5a4537d8a6",
+        "listing_ids": [
+          2449,
+          2742,
+          3162
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "san_miguel"
+        ],
+        "group_size": 3,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "4c0c6706c445322c",
+        "listing_ids": [
+          2272,
+          2813
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "589e6901b73510d4",
+        "listing_ids": [
+          488,
+          2320
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "san_miguel"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "5bf67fb08de472dc",
+        "listing_ids": [
+          2854,
+          2856
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "estacion_central"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "5e8441c419dfe574",
+        "listing_ids": [
+          201,
+          843
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "613e3d55c12b55a3",
+        "listing_ids": [
+          1166,
+          1188
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "estacion_central"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "70d7321592c13437",
+        "listing_ids": [
+          217,
+          229
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "nunoa"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "7b06d8165156c7c7",
+        "listing_ids": [
+          1132,
+          2366
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "independencia"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "7fcefd8b0d002a13",
+        "listing_ids": [
+          15,
+          183
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "8106bda8cfa716d1",
+        "listing_ids": [
+          20,
+          132
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "952c8a285aed5663",
+        "listing_ids": [
+          338,
+          2604
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "las_condes"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "95a7297b9cf3e588",
+        "listing_ids": [
+          1035,
+          1036
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "maipu"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "9943a1bb01150221",
+        "listing_ids": [
+          508,
+          717
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "san_miguel"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "9e8be44426847495",
+        "listing_ids": [
+          831,
+          2392
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "estacion_central"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "ae2d35f79f456190",
+        "listing_ids": [
+          535,
+          3010
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "la_florida"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "b205d8eec2164b16",
+        "listing_ids": [
+          2334,
+          3011
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "vitacura"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "cd83388f29f3798a",
+        "listing_ids": [
+          211,
+          213
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "nunoa"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "d01b761d670b734b",
+        "listing_ids": [
+          102,
+          117
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "d282c5aff76b931d",
+        "listing_ids": [
+          2055,
+          3173
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "vitacura"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "d7adc4d8220d1c15",
+        "listing_ids": [
+          169,
+          199
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "e2312b94236dcb99",
+        "listing_ids": [
+          1719,
+          1725
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "e84757e0ceb1d788",
+        "listing_ids": [
+          1167,
+          1170
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "estacion_central"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "f3f8cf540d9532d0",
+        "listing_ids": [
+          170,
+          193
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "f5cc9054cacc1c08",
+        "listing_ids": [
+          1499,
+          2025
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "vitacura"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "f697f689cc93abab",
+        "listing_ids": [
+          172,
+          190
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "f762832bff4c1bb8",
+        "listing_ids": [
+          2662,
+          2664,
+          3102,
+          3103
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "la_reina"
+        ],
+        "group_size": 4,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "fc62a29e4ca35e91",
+        "listing_ids": [
+          417,
+          442
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "la_reina"
+        ],
+        "group_size": 2,
+        "leakage_risk": "medium_high"
+      },
+      {
+        "kind": "near_duplicate",
+        "group_key": "fcb92946a067f118",
+        "listing_ids": [
+          1118,
+          1129,
+          1136,
+          1141,
+          2368,
+          2372
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "independencia"
+        ],
+        "group_size": 6,
+        "leakage_risk": "medium_high"
+      }
+    ]
+  },
+  "dates": {
+    "scraped_at": {
+      "valid_count": 2780,
+      "total": 2780,
+      "valid_pct": 100.0
+    },
+    "last_seen_at": {
+      "valid_count": 2780,
+      "total": 2780,
+      "valid_pct": 100.0
+    },
+    "publication_date_metadata": {
+      "valid_count": 0,
+      "total": 2780,
+      "valid_pct": 0.0
+    },
+    "temporal_evaluation_note": "scraped_at is an observation timestamp, not necessarily the original publication date"
+  },
+  "source_audit": {
+    "yapo_card_parser": "card data is structurally sparse; detail parser is the main source for land area, description and native UF",
+    "yapo_detail_parser": "supports structured built/usable/total area labels, land text patterns and thousands separators",
+    "portal_parser": "card parser exposes basic attributes but no equivalent detail enrichment path in the audited module",
+    "refresh_scraper": "--dry-run selects and reports candidates without fetching URLs; non-dry-run performs external requests and writes, so it was not executed",
+    "geocoding": "existing CLI supports --dry-run --no-external; title-inferred apply requires an explicit opt-in",
+    "microzones": "mappers enrich microzone signals in memory on read; persisted metadata and operational derived coverage must be distinguished",
+    "canonical_price": "native strong UF and CLP converted with a real inferred UF are usable; weak, fallback and legacy-unrecoverable UF are excluded",
+    "deduplication": "fingerprint is source-agnostic for complete listings and excludes price; ORM also enforces unique fingerprint and source/external_id",
+    "dates": "scraped_at and last_seen_at exist, but original publication date is absent in current metadata"
+  },
+  "enrichment_plan": {
+    "quick_wins": [
+      {
+        "field": "land_area_m2",
+        "current_count": 74,
+        "current_pct": 5.72,
+        "potential_count": 108,
+        "potential_pct": 8.35,
+        "recoverable_count": 34,
+        "risk": "low",
+        "difficulty": "medium",
+        "migration_needed": false,
+        "future_db_apply_needed": true,
+        "tests_required": "parser/backfill dry-run tests and area conflict tests"
+      },
+      {
+        "field": "geocode_precision",
+        "current_count": 1312,
+        "current_pct": 47.19,
+        "potential_count": 1340,
+        "potential_pct": 48.2,
+        "recoverable_count": 28,
+        "risk": "medium",
+        "difficulty": "medium",
+        "migration_needed": false,
+        "future_db_apply_needed": true,
+        "tests_required": "cache-only/no-external classification and comuna guardrails"
+      },
+      {
+        "field": "microzone",
+        "current_count": 523,
+        "current_pct": 18.81,
+        "potential_count": 578,
+        "potential_pct": 20.79,
+        "recoverable_count": 55,
+        "risk": "medium",
+        "difficulty": "low",
+        "migration_needed": false,
+        "future_db_apply_needed": true,
+        "tests_required": "false-positive corpus for title/description/metadata"
+      },
+      {
+        "field": "canonical_price_apartment",
+        "current_count": 539,
+        "current_pct": 36.25,
+        "potential_count": 893,
+        "potential_pct": 60.05,
+        "recoverable_count": 354,
+        "risk": "high",
+        "difficulty": "medium",
+        "migration_needed": false,
+        "future_db_apply_needed": true,
+        "tests_required": "price provenance, refresh sampling and artifact fixtures"
+      },
+      {
+        "field": "duplicate_diagnostics",
+        "current_count": 0,
+        "current_pct": 0.0,
+        "potential_count": 0,
+        "potential_pct": 0.0,
+        "recoverable_count": 0,
+        "risk": "low",
+        "difficulty": "low",
+        "migration_needed": false,
+        "future_db_apply_needed": false,
+        "tests_required": "deterministic exact/near duplicate tests"
+      }
+    ],
+    "phases": [
+      {
+        "phase": "D1_report_only",
+        "actions": [
+          "land parser opportunity report",
+          "canonical price provenance report",
+          "duplicate candidate report"
+        ],
+        "apply": false
+      },
+      {
+        "phase": "D2_cache_only",
+        "actions": [
+          "geocoding cache-only validation",
+          "microzone extraction corpus validation",
+          "refresh candidate sampling"
+        ],
+        "apply": false
+      },
+      {
+        "phase": "D3_limited_backfill_candidate",
+        "actions": [
+          "review high-confidence land and canonical price candidates",
+          "define rollback and acceptance thresholds"
+        ],
+        "apply": false
+      },
+      {
+        "phase": "D4_future_controlled_apply",
+        "actions": [
+          "separate approved implementation after benchmark gate"
+        ],
+        "apply": "not_in_phase5a"
+      }
+    ],
+    "future_commands": [
+      "python scripts/audit_data_enrichment_opportunities.py --output-dir reports/data_quality/phase5a --no-external-requests --examples 50",
+      "python scripts/geocode_listings.py --dry-run --no-external --limit 100 --examples 25",
+      "python scripts/refresh_scraper.py --dry-run --limit 100",
+      "python scripts/preview_property_type_backfill.py --changed-only --summary-only"
+    ],
+    "coverage_targets": {
+      "houses_land_area_m2": [
+        25,
+        40,
+        70
+      ],
+      "houses_microzone": [
+        35,
+        50
+      ],
+      "houses_useful_geocode": [
+        60,
+        70
+      ],
+      "apartments_canonical_price": [
+        60
+      ],
+      "apartments_microzone": [
+        35,
+        50
+      ],
+      "apartments_useful_geocode": [
+        60,
+        70
+      ]
+    },
+    "expected_engine_impact": {
+      "comparables_legacy": "better candidate geography and house land completeness; no guaranteed MAPE change",
+      "comparables_canonical": "higher canonical/product/geographic coverage and fewer insufficient-data outcomes",
+      "comparables_canonical_outliers": "same robust logic with denser, cleaner candidate pools",
+      "hedonic_house_minimal": "larger usable sample and missingness reduction",
+      "ml_lab": "better feature coverage and lower duplicate leakage risk",
+      "house_land_building_future": "land_area and local geography are hard prerequisites",
+      "consensus_future": "more comparable coverage and better segment calibration inputs"
+    }
+  },
+  "implementation_guardrails": {
+    "read_only": true,
+    "database_writes": 0,
+    "external_requests": 0,
+    "apply_mode": false,
+    "uf_37000_operational": false
+  },
+  "preflight": {
+    "generated_at": "2026-06-13T16:17:26.538347+00:00",
+    "branch": "codex/phase5a-data-quality-enrichment-audit",
+    "head": "249e6d0a857cb06be69ad1597e89fc082f195893",
+    "phase5a_base_head": "98e3b05e0aed5328396df5f8b598704d518391cd",
+    "git_status": "clean",
+    "database_mode": "select_only_session_with_explicit_rollback",
+    "external_requests": 0,
+    "scripts_audited": [
+      "infrastructure/scrapers/yapo.py",
+      "infrastructure/scrapers/portalinmobiliario.py",
+      "scripts/refresh_scraper.py",
+      "scripts/geocode_listings.py",
+      "scripts/geocoding_readiness_audit.py",
+      "domain/geocoding/microzones.py",
+      "domain/geocoding/geo_signals.py",
+      "domain/valuation/canonical_price.py",
+      "domain/valuation/product_classification.py",
+      "domain/ingestion/deduplication.py",
+      "infrastructure/db/models.py",
+      "infrastructure/db/repositories/listing_repo.py"
+    ]
+  },
+  "phase4a_closure": {
+    "commits": [
+      "0154ff3 feat: stabilize canonical outliers valuation engine",
+      "bb1aa48 test: cover canonical outliers variant",
+      "98e3b05 docs: add phase4a canonical outliers benchmark report"
+    ],
+    "tests": [
+      "16 passed",
+      "35 passed"
+    ],
+    "benchmark": "reports/valuation_engine_benchmark/phase4a_canonical_outliers",
+    "working_tree_clean_before_phase5a": true
+  },
+  "tests": {
+    "new": {
+      "command": "python -m pytest tests/unit/test_data_enrichment_audit.py",
+      "result": "9 passed"
+    },
+    "parser_refresh": {
+      "command": "python -m pytest tests/unit/test_yapo_parser.py tests/unit/test_portal_parser.py tests/unit/test_refresh_scraper_cli.py tests/unit/test_scraper_base.py",
+      "result": "91 passed"
+    },
+    "geocoding_microzones": {
+      "command": "python -m pytest tests/unit/test_geocoding_readiness_audit.py tests/unit/test_geographic_microzones.py tests/unit/test_microzones.py tests/unit/test_geocoding_quality.py tests/unit/test_geocode_precision_normalization.py tests/unit/test_diagnose_geocoding_quality.py",
+      "result": "40 passed"
+    },
+    "canonical_price": {
+      "command": "python -m pytest tests/unit/test_valuation_canonical_price.py tests/unit/test_product_classification.py tests/unit/test_robust_price_m2.py",
+      "result": "16 passed"
+    },
+    "engines_evaluation_legacy": {
+      "command": "python -m pytest tests/unit/test_valuation_evaluation_framework.py tests/unit/test_evaluate_valuation_engines_cli.py tests/unit/test_comparables_legacy_engine.py tests/unit/test_comparables_canonical_engine.py tests/unit/test_valuation_engine_registry.py tests/unit/test_valuation.py tests/unit/test_valuation_service.py",
+      "result": "62 passed"
+    },
+    "failed": 0,
+    "skipped": 0,
+    "warnings": [
+      "Known pytest temporary-directory permission issue was avoided by filesystem-independent output tests."
+    ]
+  }
+}
