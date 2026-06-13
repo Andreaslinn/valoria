@@ -3,7 +3,7 @@
 ## Preflight
 
 - Branch: `codex/phase5b-data-enrichment-dry-run-validation`
-- HEAD: `d32d6dd16c237764342bb24e1a228e79e7de119a`
+- HEAD: `6e3cf04f813e5262dac4ad8c07ef346084f89d1d`
 - Git status before generation: `clean`
 - Phase 5A signature matches: `True`
 - Database mode: `select_only_session_with_explicit_rollback`
@@ -90,9 +90,9 @@
 ## Git
 
 - Branch: `codex/phase5b-data-enrichment-dry-run-validation`
-- HEAD at report generation: `d32d6dd16c237764342bb24e1a228e79e7de119a`
+- HEAD at report generation: `6e3cf04f813e5262dac4ad8c07ef346084f89d1d`
 - Working tree before report generation: `clean`
-- Recent commits: `['d32d6dd fix: complete phase5b validation diagnostics', 'b4b9a7c test: cover phase5b enrichment validation', '8f708f9 feat: add phase5b enrichment candidate validation', '5533bdf docs: add phase5a data enrichment audit', '249e6d0 test: cover data enrichment audit']`
+- Recent commits: `['6e3cf04 fix: normalize phase5b csv text output', '95a3ba9 docs: add phase5b enrichment validation reports', 'd32d6dd fix: complete phase5b validation diagnostics', 'b4b9a7c test: cover phase5b enrichment validation', '8f708f9 feat: add phase5b enrichment candidate validation']`
 - Configured remotes: `0`
 
 ## Guardrails

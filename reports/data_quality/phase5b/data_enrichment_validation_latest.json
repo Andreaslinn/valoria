@@ -1513,9 +1513,9 @@
     "benchmark_default_changed": false
   },
   "preflight": {
-    "generated_at": "2026-06-13T16:36:11.003127+00:00",
+    "generated_at": "2026-06-13T16:37:32.684075+00:00",
     "branch": "codex/phase5b-data-enrichment-dry-run-validation",
-    "head": "d32d6dd16c237764342bb24e1a228e79e7de119a",
+    "head": "6e3cf04f813e5262dac4ad8c07ef346084f89d1d",
     "git_status": "clean",
     "phase5a_report": "reports\\data_quality\\phase5a\\data_enrichment_audit_latest.json",
     "phase5a_head": "5533bdf0f6dcc26999309b5068f5e549cbde25e4",
@@ -1523,11 +1523,11 @@
     "external_requests": 0,
     "remote_count": 0,
     "recent_commits": [
+      "6e3cf04 fix: normalize phase5b csv text output",
+      "95a3ba9 docs: add phase5b enrichment validation reports",
       "d32d6dd fix: complete phase5b validation diagnostics",
       "b4b9a7c test: cover phase5b enrichment validation",
-      "8f708f9 feat: add phase5b enrichment candidate validation",
-      "5533bdf docs: add phase5a data enrichment audit",
-      "249e6d0 test: cover data enrichment audit"
+      "8f708f9 feat: add phase5b enrichment candidate validation"
     ]
   },
   "tests": {
@@ -1559,5 +1559,5 @@
     "skipped": 0,
     "total_passed": 233
   },
-  "validation_signature": "89865dd600da8ddf1dd0dc11591bbeb03248948e5178de206d477e49b51ec32c"
+  "validation_signature": "d1a227615b0245331b3bc0f442edce0a3cfe0379cf541abc79478bb58608a1ae"
 }
