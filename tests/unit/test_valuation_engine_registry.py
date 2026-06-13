@@ -66,6 +66,7 @@ def test_default_registry_registers_legacy_and_canonical() -> None:
         "comparables_legacy",
     ]
     assert registry.get("comparables_canonical").version == "phase1_canonical_v1"
+    assert registry.get("comparables_canonical_outliers").version == "phase4a_canonical_outliers_v1"
     assert registry.get("comparables_legacy").version == "phase0b_legacy_v1"
 
 
