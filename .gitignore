@@ -48,6 +48,8 @@ reports/valuation_engine_rebuild/backups/
 !reports/valuation_engine_canonical/**
 !reports/hedonic_viability/
 !reports/hedonic_viability/**
+!reports/model_strategy/
+!reports/model_strategy/**
 logs/
 !logs/.gitkeep
 *.log
