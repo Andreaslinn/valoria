@@ -3,8 +3,8 @@
   "date": "2026-06-13",
   "preflight": {
     "branch": "codex/phase2-hedonic-viability-audit",
-    "head": "b42af2a1704bdf06d141f1c1e69ec356bd6e07bf",
-    "git_status": "M .gitignore\n?? domain/valuation/evaluation/hedonic_coverage.py\n?? reports/hedonic_viability/\n?? scripts/audit_hedonic_viability.py\n?? tests/unit/test_hedonic_coverage_audit.py",
+    "head": "c29d73e44a105ad3c1e1364d496fdf0756d2c6fd",
+    "git_status": "M reports/hedonic_viability/phase2_hedonic_coverage_latest.json\n M scripts/audit_hedonic_viability.py",
     "remotes": "clean",
     "engines": [
       {

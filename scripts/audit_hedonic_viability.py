@@ -86,7 +86,7 @@ async def main() -> int:
         "preflight": {
             "branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
             "head": _git("rev-parse", "HEAD"),
-            "git_status": _git("status", "--short"),
+            "git_status": _git("status", "--short", "--untracked-files=no"),
             "remotes": _git("remote", "-v"),
             "engines": [
                 {"name": name, "version": getattr(registry.get(name), "version", None)}
