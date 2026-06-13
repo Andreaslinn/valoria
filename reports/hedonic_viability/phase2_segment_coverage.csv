@@ -1,0 +1,10 @@
+﻿benchmark_coverage_count,benchmark_coverage_pct,can_split_train_validation_test,communes_covered,communes_ge_30,communes_ge_50,communes_lt_10,communes_lt_20,coverage_pct,median_observations_per_comuna,observations,p10_observations_per_comuna,p25_observations_per_comuna,p75_observations_per_comuna,p90_observations_per_comuna,spec
+539,19.4,True,17,9,4,4,5,36.25,34.0,539,2.2,16.0,44.0,56.8,apartment_H0_min_structural
+539,19.4,True,17,9,4,4,5,36.25,34.0,539,2.2,16.0,44.0,56.8,apartment_H1_basic
+277,9.97,True,17,3,0,7,11,18.63,10.0,277,1.6,5.0,23.0,36.6,apartment_H2_expanded
+254,9.14,True,15,3,0,5,9,17.08,17.0,254,3.6,8.5,23.0,31.8,apartment_H3_fine_geo
+994,35.78,True,18,13,13,4,4,76.88,61.0,994,1.0,31.75,78.5,83.5,house_H0_min_structural
+994,35.78,True,18,13,13,4,4,76.88,61.0,994,1.0,31.75,78.5,83.5,house_H1_basic
+68,2.45,False,13,0,0,11,13,5.26,3.0,68,1.2,3.0,7.0,9.8,house_H2_land
+59,2.12,False,13,0,0,12,13,4.56,3.0,59,1.2,2.0,6.0,8.8,house_H3_land_geo
+59,2.12,False,13,0,0,12,13,4.56,3.0,59,1.2,2.0,6.0,8.8,house_H4_product

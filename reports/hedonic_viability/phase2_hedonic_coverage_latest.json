@@ -1,0 +1,2744 @@
+{
+  "report": "phase2_hedonic_coverage_latest",
+  "date": "2026-06-13",
+  "preflight": {
+    "branch": "codex/phase2-hedonic-viability-audit",
+    "head": "b42af2a1704bdf06d141f1c1e69ec356bd6e07bf",
+    "git_status": "M .gitignore\n?? domain/valuation/evaluation/hedonic_coverage.py\n?? reports/hedonic_viability/\n?? scripts/audit_hedonic_viability.py\n?? tests/unit/test_hedonic_coverage_audit.py",
+    "remotes": "clean",
+    "engines": [
+      {
+        "name": "comparables_canonical",
+        "version": "phase1_canonical_v1"
+      },
+      {
+        "name": "comparables_canonical_outliers",
+        "version": "phase1_canonical_v1"
+      },
+      {
+        "name": "comparables_canonical_price_only",
+        "version": "phase1_canonical_v1"
+      },
+      {
+        "name": "comparables_canonical_product",
+        "version": "phase1_canonical_v1"
+      },
+      {
+        "name": "comparables_legacy",
+        "version": "phase0b_legacy_v1"
+      }
+    ],
+    "reference_engines": [
+      "comparables_legacy",
+      "comparables_canonical_outliers",
+      "comparables_canonical"
+    ],
+    "canonical_variant": "comparables_canonical_outliers",
+    "dataset_signature": "f2305597971dd93d6bc88ee0ab6656170ae69f820c38546f97c7b9aa972503da",
+    "seed": 42,
+    "limit": null,
+    "cutoff": null
+  },
+  "universe": {
+    "active_listings": 2780,
+    "benchmark_cases": 2778,
+    "potential_training_rows_minimal": 1533,
+    "canonical_price_usable": 1534,
+    "apartment_rows": 1487,
+    "house_rows": 1293,
+    "house_with_land_rows": 74,
+    "house_without_land_rows": 1219,
+    "sources": {
+      "yapo": 2780
+    },
+    "property_types": {
+      "apartment": 1487,
+      "house": 1293
+    }
+  },
+  "target_quality": {
+    "canonical_usable": {
+      "total": 2780,
+      "present_count": 1534,
+      "present_pct": 55.18,
+      "valid_count": 1534,
+      "valid_pct": 55.18,
+      "invalid_count": 1246
+    },
+    "canonical_exclusion_reasons": {
+      "legacy_uf_missing_price_uf": 1244,
+      "usable": 1534,
+      "estimated_uf_not_strong": 2
+    },
+    "price_clp_distribution": {
+      "count": 1534,
+      "min": 38200000.0,
+      "p10": 78270000.0,
+      "p25": 120000000.0,
+      "p50": 199883289.5,
+      "p75": 440245280.5,
+      "p90": 772407026.3,
+      "max": 3465338650.0
+    },
+    "price_uf_distribution": {
+      "count": 477,
+      "min": 1000.0,
+      "p10": 2100.0,
+      "p25": 3400.0,
+      "p50": 6200.0,
+      "p75": 12700.0,
+      "p90": 20200.0,
+      "max": 70000.0
+    },
+    "log_price_clp_distribution": {
+      "count": 1534,
+      "min": 17.4583,
+      "p10": 18.18,
+      "p25": 18.6,
+      "p50": 19.11,
+      "p75": 19.9,
+      "p90": 20.47,
+      "max": 21.9661
+    },
+    "source_counts": {
+      "yapo": 2780
+    },
+    "product_class_counts": {
+      "commercial_use": 65,
+      "standard_residential": 2540,
+      "investment_or_income": 41,
+      "land_or_site": 85,
+      "needs_remodeling": 29,
+      "multi_unit": 20
+    },
+    "geocode_precision_counts": {
+      "comuna_centroid": 83,
+      "comuna": 1353,
+      "street": 1272,
+      "address": 23,
+      "unknown": 49
+    }
+  },
+  "feature_coverage": {
+    "global": {
+      "canonical_price_clp": {
+        "total": 2780,
+        "present_count": 1534,
+        "present_pct": 55.18,
+        "valid_count": 1534,
+        "valid_pct": 55.18,
+        "invalid_count": 1246
+      },
+      "price_uf_real": {
+        "total": 2780,
+        "present_count": 479,
+        "present_pct": 17.23,
+        "valid_count": 479,
+        "valid_pct": 17.23,
+        "invalid_count": 2301
+      },
+      "property_type": {
+        "total": 2780,
+        "present_count": 2780,
+        "present_pct": 100.0,
+        "valid_count": 2780,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "comuna": {
+        "total": 2780,
+        "present_count": 2780,
+        "present_pct": 100.0,
+        "valid_count": 2780,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "built_area_m2": {
+        "total": 2780,
+        "present_count": 2778,
+        "present_pct": 99.93,
+        "valid_count": 2778,
+        "valid_pct": 99.93,
+        "invalid_count": 2
+      },
+      "usable_area_m2": {
+        "total": 2780,
+        "present_count": 1489,
+        "present_pct": 53.56,
+        "valid_count": 1489,
+        "valid_pct": 53.56,
+        "invalid_count": 1291
+      },
+      "land_area_m2": {
+        "total": 2780,
+        "present_count": 74,
+        "present_pct": 2.66,
+        "valid_count": 74,
+        "valid_pct": 2.66,
+        "invalid_count": 2706
+      },
+      "effective_area": {
+        "total": 2780,
+        "present_count": 2778,
+        "present_pct": 99.93,
+        "valid_count": 2778,
+        "valid_pct": 99.93,
+        "invalid_count": 2
+      },
+      "land_building_ratio": {
+        "total": 2780,
+        "present_count": 72,
+        "present_pct": 2.59,
+        "valid_count": 72,
+        "valid_pct": 2.59,
+        "invalid_count": 2708
+      },
+      "bedrooms": {
+        "total": 2780,
+        "present_count": 2780,
+        "present_pct": 100.0,
+        "valid_count": 2780,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "bathrooms": {
+        "total": 2780,
+        "present_count": 2780,
+        "present_pct": 100.0,
+        "valid_count": 2780,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "parking": {
+        "total": 2780,
+        "present_count": 2780,
+        "present_pct": 100.0,
+        "valid_count": 2780,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "scraped_at": {
+        "total": 2780,
+        "present_count": 2780,
+        "present_pct": 100.0,
+        "valid_count": 2780,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "lat_lon": {
+        "total": 2780,
+        "present_count": 128,
+        "present_pct": 4.6,
+        "valid_count": 128,
+        "valid_pct": 4.6,
+        "invalid_count": 2652
+      },
+      "geocode_address": {
+        "total": 2780,
+        "present_count": 23,
+        "present_pct": 0.83,
+        "valid_count": 23,
+        "valid_pct": 0.83,
+        "invalid_count": 2757
+      },
+      "geocode_street": {
+        "total": 2780,
+        "present_count": 1272,
+        "present_pct": 45.76,
+        "valid_count": 1272,
+        "valid_pct": 45.76,
+        "invalid_count": 1508
+      },
+      "useful_geocode": {
+        "total": 2780,
+        "present_count": 1382,
+        "present_pct": 49.71,
+        "valid_count": 1382,
+        "valid_pct": 49.71,
+        "invalid_count": 1398
+      },
+      "microzone": {
+        "total": 2780,
+        "present_count": 528,
+        "present_pct": 18.99,
+        "valid_count": 528,
+        "valid_pct": 18.99,
+        "invalid_count": 2252
+      },
+      "product_classification": {
+        "total": 2780,
+        "present_count": 2780,
+        "present_pct": 100.0,
+        "valid_count": 2780,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      }
+    },
+    "apartment": {
+      "canonical_price_clp": {
+        "total": 1487,
+        "present_count": 539,
+        "present_pct": 36.25,
+        "valid_count": 539,
+        "valid_pct": 36.25,
+        "invalid_count": 948
+      },
+      "price_uf_real": {
+        "total": 1487,
+        "present_count": 278,
+        "present_pct": 18.7,
+        "valid_count": 278,
+        "valid_pct": 18.7,
+        "invalid_count": 1209
+      },
+      "property_type": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "comuna": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "built_area_m2": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "usable_area_m2": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "land_area_m2": {
+        "total": 1487,
+        "present_count": 0,
+        "present_pct": 0.0,
+        "valid_count": 0,
+        "valid_pct": 0.0,
+        "invalid_count": 1487
+      },
+      "effective_area": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "land_building_ratio": {
+        "total": 1487,
+        "present_count": 0,
+        "present_pct": 0.0,
+        "valid_count": 0,
+        "valid_pct": 0.0,
+        "invalid_count": 1487
+      },
+      "bedrooms": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "bathrooms": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "parking": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "scraped_at": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "lat_lon": {
+        "total": 1487,
+        "present_count": 120,
+        "present_pct": 8.07,
+        "valid_count": 120,
+        "valid_pct": 8.07,
+        "invalid_count": 1367
+      },
+      "geocode_address": {
+        "total": 1487,
+        "present_count": 23,
+        "present_pct": 1.55,
+        "valid_count": 23,
+        "valid_pct": 1.55,
+        "invalid_count": 1464
+      },
+      "geocode_street": {
+        "total": 1487,
+        "present_count": 622,
+        "present_pct": 41.83,
+        "valid_count": 622,
+        "valid_pct": 41.83,
+        "invalid_count": 865
+      },
+      "useful_geocode": {
+        "total": 1487,
+        "present_count": 732,
+        "present_pct": 49.23,
+        "valid_count": 732,
+        "valid_pct": 49.23,
+        "invalid_count": 755
+      },
+      "microzone": {
+        "total": 1487,
+        "present_count": 287,
+        "present_pct": 19.3,
+        "valid_count": 287,
+        "valid_pct": 19.3,
+        "invalid_count": 1200
+      },
+      "product_classification": {
+        "total": 1487,
+        "present_count": 1487,
+        "present_pct": 100.0,
+        "valid_count": 1487,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      }
+    },
+    "house": {
+      "canonical_price_clp": {
+        "total": 1293,
+        "present_count": 995,
+        "present_pct": 76.95,
+        "valid_count": 995,
+        "valid_pct": 76.95,
+        "invalid_count": 298
+      },
+      "price_uf_real": {
+        "total": 1293,
+        "present_count": 201,
+        "present_pct": 15.55,
+        "valid_count": 201,
+        "valid_pct": 15.55,
+        "invalid_count": 1092
+      },
+      "property_type": {
+        "total": 1293,
+        "present_count": 1293,
+        "present_pct": 100.0,
+        "valid_count": 1293,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "comuna": {
+        "total": 1293,
+        "present_count": 1293,
+        "present_pct": 100.0,
+        "valid_count": 1293,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "built_area_m2": {
+        "total": 1293,
+        "present_count": 1291,
+        "present_pct": 99.85,
+        "valid_count": 1291,
+        "valid_pct": 99.85,
+        "invalid_count": 2
+      },
+      "usable_area_m2": {
+        "total": 1293,
+        "present_count": 2,
+        "present_pct": 0.15,
+        "valid_count": 2,
+        "valid_pct": 0.15,
+        "invalid_count": 1291
+      },
+      "land_area_m2": {
+        "total": 1293,
+        "present_count": 74,
+        "present_pct": 5.72,
+        "valid_count": 74,
+        "valid_pct": 5.72,
+        "invalid_count": 1219
+      },
+      "effective_area": {
+        "total": 1293,
+        "present_count": 1291,
+        "present_pct": 99.85,
+        "valid_count": 1291,
+        "valid_pct": 99.85,
+        "invalid_count": 2
+      },
+      "land_building_ratio": {
+        "total": 1293,
+        "present_count": 72,
+        "present_pct": 5.57,
+        "valid_count": 72,
+        "valid_pct": 5.57,
+        "invalid_count": 1221
+      },
+      "bedrooms": {
+        "total": 1293,
+        "present_count": 1293,
+        "present_pct": 100.0,
+        "valid_count": 1293,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "bathrooms": {
+        "total": 1293,
+        "present_count": 1293,
+        "present_pct": 100.0,
+        "valid_count": 1293,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "parking": {
+        "total": 1293,
+        "present_count": 1293,
+        "present_pct": 100.0,
+        "valid_count": 1293,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "scraped_at": {
+        "total": 1293,
+        "present_count": 1293,
+        "present_pct": 100.0,
+        "valid_count": 1293,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "lat_lon": {
+        "total": 1293,
+        "present_count": 8,
+        "present_pct": 0.62,
+        "valid_count": 8,
+        "valid_pct": 0.62,
+        "invalid_count": 1285
+      },
+      "geocode_address": {
+        "total": 1293,
+        "present_count": 0,
+        "present_pct": 0.0,
+        "valid_count": 0,
+        "valid_pct": 0.0,
+        "invalid_count": 1293
+      },
+      "geocode_street": {
+        "total": 1293,
+        "present_count": 650,
+        "present_pct": 50.27,
+        "valid_count": 650,
+        "valid_pct": 50.27,
+        "invalid_count": 643
+      },
+      "useful_geocode": {
+        "total": 1293,
+        "present_count": 650,
+        "present_pct": 50.27,
+        "valid_count": 650,
+        "valid_pct": 50.27,
+        "invalid_count": 643
+      },
+      "microzone": {
+        "total": 1293,
+        "present_count": 241,
+        "present_pct": 18.64,
+        "valid_count": 241,
+        "valid_pct": 18.64,
+        "invalid_count": 1052
+      },
+      "product_classification": {
+        "total": 1293,
+        "present_count": 1293,
+        "present_pct": 100.0,
+        "valid_count": 1293,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      }
+    },
+    "house_with_land": {
+      "canonical_price_clp": {
+        "total": 74,
+        "present_count": 69,
+        "present_pct": 93.24,
+        "valid_count": 69,
+        "valid_pct": 93.24,
+        "invalid_count": 5
+      },
+      "price_uf_real": {
+        "total": 74,
+        "present_count": 43,
+        "present_pct": 58.11,
+        "valid_count": 43,
+        "valid_pct": 58.11,
+        "invalid_count": 31
+      },
+      "property_type": {
+        "total": 74,
+        "present_count": 74,
+        "present_pct": 100.0,
+        "valid_count": 74,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "comuna": {
+        "total": 74,
+        "present_count": 74,
+        "present_pct": 100.0,
+        "valid_count": 74,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "built_area_m2": {
+        "total": 74,
+        "present_count": 72,
+        "present_pct": 97.3,
+        "valid_count": 72,
+        "valid_pct": 97.3,
+        "invalid_count": 2
+      },
+      "usable_area_m2": {
+        "total": 74,
+        "present_count": 1,
+        "present_pct": 1.35,
+        "valid_count": 1,
+        "valid_pct": 1.35,
+        "invalid_count": 73
+      },
+      "land_area_m2": {
+        "total": 74,
+        "present_count": 74,
+        "present_pct": 100.0,
+        "valid_count": 74,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "effective_area": {
+        "total": 74,
+        "present_count": 72,
+        "present_pct": 97.3,
+        "valid_count": 72,
+        "valid_pct": 97.3,
+        "invalid_count": 2
+      },
+      "land_building_ratio": {
+        "total": 74,
+        "present_count": 72,
+        "present_pct": 97.3,
+        "valid_count": 72,
+        "valid_pct": 97.3,
+        "invalid_count": 2
+      },
+      "bedrooms": {
+        "total": 74,
+        "present_count": 74,
+        "present_pct": 100.0,
+        "valid_count": 74,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "bathrooms": {
+        "total": 74,
+        "present_count": 74,
+        "present_pct": 100.0,
+        "valid_count": 74,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "parking": {
+        "total": 74,
+        "present_count": 74,
+        "present_pct": 100.0,
+        "valid_count": 74,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "scraped_at": {
+        "total": 74,
+        "present_count": 74,
+        "present_pct": 100.0,
+        "valid_count": 74,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "lat_lon": {
+        "total": 74,
+        "present_count": 3,
+        "present_pct": 4.05,
+        "valid_count": 3,
+        "valid_pct": 4.05,
+        "invalid_count": 71
+      },
+      "geocode_address": {
+        "total": 74,
+        "present_count": 0,
+        "present_pct": 0.0,
+        "valid_count": 0,
+        "valid_pct": 0.0,
+        "invalid_count": 74
+      },
+      "geocode_street": {
+        "total": 74,
+        "present_count": 63,
+        "present_pct": 85.14,
+        "valid_count": 63,
+        "valid_pct": 85.14,
+        "invalid_count": 11
+      },
+      "useful_geocode": {
+        "total": 74,
+        "present_count": 63,
+        "present_pct": 85.14,
+        "valid_count": 63,
+        "valid_pct": 85.14,
+        "invalid_count": 11
+      },
+      "microzone": {
+        "total": 74,
+        "present_count": 43,
+        "present_pct": 58.11,
+        "valid_count": 43,
+        "valid_pct": 58.11,
+        "invalid_count": 31
+      },
+      "product_classification": {
+        "total": 74,
+        "present_count": 74,
+        "present_pct": 100.0,
+        "valid_count": 74,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      }
+    },
+    "house_without_land": {
+      "canonical_price_clp": {
+        "total": 1219,
+        "present_count": 926,
+        "present_pct": 75.96,
+        "valid_count": 926,
+        "valid_pct": 75.96,
+        "invalid_count": 293
+      },
+      "price_uf_real": {
+        "total": 1219,
+        "present_count": 158,
+        "present_pct": 12.96,
+        "valid_count": 158,
+        "valid_pct": 12.96,
+        "invalid_count": 1061
+      },
+      "property_type": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "comuna": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "built_area_m2": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "usable_area_m2": {
+        "total": 1219,
+        "present_count": 1,
+        "present_pct": 0.08,
+        "valid_count": 1,
+        "valid_pct": 0.08,
+        "invalid_count": 1218
+      },
+      "land_area_m2": {
+        "total": 1219,
+        "present_count": 0,
+        "present_pct": 0.0,
+        "valid_count": 0,
+        "valid_pct": 0.0,
+        "invalid_count": 1219
+      },
+      "effective_area": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "land_building_ratio": {
+        "total": 1219,
+        "present_count": 0,
+        "present_pct": 0.0,
+        "valid_count": 0,
+        "valid_pct": 0.0,
+        "invalid_count": 1219
+      },
+      "bedrooms": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "bathrooms": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "parking": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "scraped_at": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      },
+      "lat_lon": {
+        "total": 1219,
+        "present_count": 5,
+        "present_pct": 0.41,
+        "valid_count": 5,
+        "valid_pct": 0.41,
+        "invalid_count": 1214
+      },
+      "geocode_address": {
+        "total": 1219,
+        "present_count": 0,
+        "present_pct": 0.0,
+        "valid_count": 0,
+        "valid_pct": 0.0,
+        "invalid_count": 1219
+      },
+      "geocode_street": {
+        "total": 1219,
+        "present_count": 587,
+        "present_pct": 48.15,
+        "valid_count": 587,
+        "valid_pct": 48.15,
+        "invalid_count": 632
+      },
+      "useful_geocode": {
+        "total": 1219,
+        "present_count": 587,
+        "present_pct": 48.15,
+        "valid_count": 587,
+        "valid_pct": 48.15,
+        "invalid_count": 632
+      },
+      "microzone": {
+        "total": 1219,
+        "present_count": 198,
+        "present_pct": 16.24,
+        "valid_count": 198,
+        "valid_pct": 16.24,
+        "invalid_count": 1021
+      },
+      "product_classification": {
+        "total": 1219,
+        "present_count": 1219,
+        "present_pct": 100.0,
+        "valid_count": 1219,
+        "valid_pct": 100.0,
+        "invalid_count": 0
+      }
+    }
+  },
+  "joint_eligibility": {
+    "apartment_H0_min_structural": {
+      "observations": 539,
+      "coverage_pct": 36.25,
+      "communes_covered": 17,
+      "median_observations_per_comuna": 34.0,
+      "p10_observations_per_comuna": 2.2,
+      "p25_observations_per_comuna": 16.0,
+      "p75_observations_per_comuna": 44.0,
+      "p90_observations_per_comuna": 56.8,
+      "communes_lt_10": 4,
+      "communes_lt_20": 5,
+      "communes_ge_30": 9,
+      "communes_ge_50": 4,
+      "benchmark_coverage_count": 539,
+      "benchmark_coverage_pct": 19.4,
+      "can_split_train_validation_test": true
+    },
+    "apartment_H1_basic": {
+      "observations": 539,
+      "coverage_pct": 36.25,
+      "communes_covered": 17,
+      "median_observations_per_comuna": 34.0,
+      "p10_observations_per_comuna": 2.2,
+      "p25_observations_per_comuna": 16.0,
+      "p75_observations_per_comuna": 44.0,
+      "p90_observations_per_comuna": 56.8,
+      "communes_lt_10": 4,
+      "communes_lt_20": 5,
+      "communes_ge_30": 9,
+      "communes_ge_50": 4,
+      "benchmark_coverage_count": 539,
+      "benchmark_coverage_pct": 19.4,
+      "can_split_train_validation_test": true
+    },
+    "apartment_H2_expanded": {
+      "observations": 277,
+      "coverage_pct": 18.63,
+      "communes_covered": 17,
+      "median_observations_per_comuna": 10.0,
+      "p10_observations_per_comuna": 1.6,
+      "p25_observations_per_comuna": 5.0,
+      "p75_observations_per_comuna": 23.0,
+      "p90_observations_per_comuna": 36.6,
+      "communes_lt_10": 7,
+      "communes_lt_20": 11,
+      "communes_ge_30": 3,
+      "communes_ge_50": 0,
+      "benchmark_coverage_count": 277,
+      "benchmark_coverage_pct": 9.97,
+      "can_split_train_validation_test": true
+    },
+    "apartment_H3_fine_geo": {
+      "observations": 254,
+      "coverage_pct": 17.08,
+      "communes_covered": 15,
+      "median_observations_per_comuna": 17.0,
+      "p10_observations_per_comuna": 3.6,
+      "p25_observations_per_comuna": 8.5,
+      "p75_observations_per_comuna": 23.0,
+      "p90_observations_per_comuna": 31.8,
+      "communes_lt_10": 5,
+      "communes_lt_20": 9,
+      "communes_ge_30": 3,
+      "communes_ge_50": 0,
+      "benchmark_coverage_count": 254,
+      "benchmark_coverage_pct": 9.14,
+      "can_split_train_validation_test": true
+    },
+    "house_H0_min_structural": {
+      "observations": 994,
+      "coverage_pct": 76.88,
+      "communes_covered": 18,
+      "median_observations_per_comuna": 61.0,
+      "p10_observations_per_comuna": 1.0,
+      "p25_observations_per_comuna": 31.75,
+      "p75_observations_per_comuna": 78.5,
+      "p90_observations_per_comuna": 83.5,
+      "communes_lt_10": 4,
+      "communes_lt_20": 4,
+      "communes_ge_30": 13,
+      "communes_ge_50": 13,
+      "benchmark_coverage_count": 994,
+      "benchmark_coverage_pct": 35.78,
+      "can_split_train_validation_test": true
+    },
+    "house_H1_basic": {
+      "observations": 994,
+      "coverage_pct": 76.88,
+      "communes_covered": 18,
+      "median_observations_per_comuna": 61.0,
+      "p10_observations_per_comuna": 1.0,
+      "p25_observations_per_comuna": 31.75,
+      "p75_observations_per_comuna": 78.5,
+      "p90_observations_per_comuna": 83.5,
+      "communes_lt_10": 4,
+      "communes_lt_20": 4,
+      "communes_ge_30": 13,
+      "communes_ge_50": 13,
+      "benchmark_coverage_count": 994,
+      "benchmark_coverage_pct": 35.78,
+      "can_split_train_validation_test": true
+    },
+    "house_H2_land": {
+      "observations": 68,
+      "coverage_pct": 5.26,
+      "communes_covered": 13,
+      "median_observations_per_comuna": 3.0,
+      "p10_observations_per_comuna": 1.2,
+      "p25_observations_per_comuna": 3.0,
+      "p75_observations_per_comuna": 7.0,
+      "p90_observations_per_comuna": 9.8,
+      "communes_lt_10": 11,
+      "communes_lt_20": 13,
+      "communes_ge_30": 0,
+      "communes_ge_50": 0,
+      "benchmark_coverage_count": 68,
+      "benchmark_coverage_pct": 2.45,
+      "can_split_train_validation_test": false
+    },
+    "house_H3_land_geo": {
+      "observations": 59,
+      "coverage_pct": 4.56,
+      "communes_covered": 13,
+      "median_observations_per_comuna": 3.0,
+      "p10_observations_per_comuna": 1.2,
+      "p25_observations_per_comuna": 2.0,
+      "p75_observations_per_comuna": 6.0,
+      "p90_observations_per_comuna": 8.8,
+      "communes_lt_10": 12,
+      "communes_lt_20": 13,
+      "communes_ge_30": 0,
+      "communes_ge_50": 0,
+      "benchmark_coverage_count": 59,
+      "benchmark_coverage_pct": 2.12,
+      "can_split_train_validation_test": false
+    },
+    "house_H4_product": {
+      "observations": 59,
+      "coverage_pct": 4.56,
+      "communes_covered": 13,
+      "median_observations_per_comuna": 3.0,
+      "p10_observations_per_comuna": 1.2,
+      "p25_observations_per_comuna": 2.0,
+      "p75_observations_per_comuna": 6.0,
+      "p90_observations_per_comuna": 8.8,
+      "communes_lt_10": 12,
+      "communes_lt_20": 13,
+      "communes_ge_30": 0,
+      "communes_ge_50": 0,
+      "benchmark_coverage_count": 59,
+      "benchmark_coverage_pct": 2.12,
+      "can_split_train_validation_test": false
+    }
+  },
+  "residual_error": {
+    "comparables_canonical": {
+      "coordinates": {
+        "not_useful": {
+          "total_cases": 2650,
+          "successful": 2245,
+          "coverage_pct": 84.72,
+          "mape_pct": 23.09,
+          "median_ape_pct": 17.24,
+          "p90_ape_pct": 47.63,
+          "bias_pct": 2.54,
+          "error_gt_50_pct": 8.78,
+          "error_gt_100_pct": 1.74
+        },
+        "useful": {
+          "total_cases": 128,
+          "successful": 106,
+          "coverage_pct": 82.81,
+          "mape_pct": 16.42,
+          "median_ape_pct": 13.78,
+          "p90_ape_pct": 38.6,
+          "bias_pct": 1.79,
+          "error_gt_50_pct": 2.83,
+          "error_gt_100_pct": 0.0
+        }
+      },
+      "microzone": {
+        "missing": {
+          "total_cases": 2251,
+          "successful": 1915,
+          "coverage_pct": 85.07,
+          "mape_pct": 22.64,
+          "median_ape_pct": 17.08,
+          "p90_ape_pct": 47.14,
+          "bias_pct": 2.13,
+          "error_gt_50_pct": 8.25,
+          "error_gt_100_pct": 1.46
+        },
+        "useful": {
+          "total_cases": 527,
+          "successful": 436,
+          "coverage_pct": 82.73,
+          "mape_pct": 23.45,
+          "median_ape_pct": 17.47,
+          "p90_ape_pct": 48.81,
+          "bias_pct": 4.14,
+          "error_gt_50_pct": 9.63,
+          "error_gt_100_pct": 2.52
+        }
+      },
+      "land_area": {
+        "missing": {
+          "total_cases": 2706,
+          "successful": 2312,
+          "coverage_pct": 85.44,
+          "mape_pct": 22.79,
+          "median_ape_pct": 17.11,
+          "p90_ape_pct": 47.37,
+          "bias_pct": 2.5,
+          "error_gt_50_pct": 8.52,
+          "error_gt_100_pct": 1.64
+        },
+        "present": {
+          "total_cases": 72,
+          "successful": 39,
+          "coverage_pct": 54.17,
+          "mape_pct": 22.5,
+          "median_ape_pct": 16.51,
+          "p90_ape_pct": 43.77,
+          "bias_pct": 3.06,
+          "error_gt_50_pct": 7.69,
+          "error_gt_100_pct": 2.56
+        }
+      },
+      "bed_bath": {
+        "complete": {
+          "total_cases": 2778,
+          "successful": 2351,
+          "coverage_pct": 84.63,
+          "mape_pct": 22.79,
+          "median_ape_pct": 17.11,
+          "p90_ape_pct": 47.38,
+          "bias_pct": 2.51,
+          "error_gt_50_pct": 8.51,
+          "error_gt_100_pct": 1.66
+        }
+      },
+      "product_class": {
+        "available": {
+          "total_cases": 2778,
+          "successful": 2351,
+          "coverage_pct": 84.63,
+          "mape_pct": 22.79,
+          "median_ape_pct": 17.11,
+          "p90_ape_pct": 47.38,
+          "bias_pct": 2.51,
+          "error_gt_50_pct": 8.51,
+          "error_gt_100_pct": 1.66
+        }
+      },
+      "density": {
+        "dense_comuna": {
+          "total_cases": 2731,
+          "successful": 2336,
+          "coverage_pct": 85.54,
+          "mape_pct": 22.56,
+          "median_ape_pct": 17.08,
+          "p90_ape_pct": 47.21,
+          "bias_pct": 2.36,
+          "error_gt_50_pct": 8.43,
+          "error_gt_100_pct": 1.54
+        },
+        "sparse_comuna": {
+          "total_cases": 47,
+          "successful": 15,
+          "coverage_pct": 31.91,
+          "mape_pct": 58.7,
+          "median_ape_pct": 30.18,
+          "p90_ape_pct": 197.15,
+          "bias_pct": 25.52,
+          "error_gt_50_pct": 20.0,
+          "error_gt_100_pct": 20.0
+        }
+      },
+      "property_type": {
+        "apartment": {
+          "total_cases": 1487,
+          "successful": 1329,
+          "coverage_pct": 89.37,
+          "mape_pct": 17.34,
+          "median_ape_pct": 13.9,
+          "p90_ape_pct": 35.82,
+          "bias_pct": -1.1,
+          "error_gt_50_pct": 3.31,
+          "error_gt_100_pct": 0.38
+        },
+        "house": {
+          "total_cases": 1291,
+          "successful": 1022,
+          "coverage_pct": 79.16,
+          "mape_pct": 29.87,
+          "median_ape_pct": 22.61,
+          "p90_ape_pct": 60.28,
+          "bias_pct": 7.19,
+          "error_gt_50_pct": 15.26,
+          "error_gt_100_pct": 3.33
+        }
+      }
+    },
+    "comparables_canonical_outliers": {
+      "coordinates": {
+        "not_useful": {
+          "total_cases": 2650,
+          "successful": 2465,
+          "coverage_pct": 93.02,
+          "mape_pct": 23.99,
+          "median_ape_pct": 17.96,
+          "p90_ape_pct": 50.12,
+          "bias_pct": 2.98,
+          "error_gt_50_pct": 10.02,
+          "error_gt_100_pct": 1.87
+        },
+        "useful": {
+          "total_cases": 128,
+          "successful": 114,
+          "coverage_pct": 89.06,
+          "mape_pct": 16.41,
+          "median_ape_pct": 13.18,
+          "p90_ape_pct": 36.96,
+          "bias_pct": 1.26,
+          "error_gt_50_pct": 2.63,
+          "error_gt_100_pct": 0.0
+        }
+      },
+      "microzone": {
+        "missing": {
+          "total_cases": 2251,
+          "successful": 2091,
+          "coverage_pct": 92.89,
+          "mape_pct": 23.59,
+          "median_ape_pct": 17.6,
+          "p90_ape_pct": 49.59,
+          "bias_pct": 2.55,
+          "error_gt_50_pct": 9.66,
+          "error_gt_100_pct": 1.67
+        },
+        "useful": {
+          "total_cases": 527,
+          "successful": 488,
+          "coverage_pct": 92.6,
+          "mape_pct": 23.94,
+          "median_ape_pct": 17.74,
+          "p90_ape_pct": 49.33,
+          "bias_pct": 4.4,
+          "error_gt_50_pct": 9.84,
+          "error_gt_100_pct": 2.25
+        }
+      },
+      "land_area": {
+        "missing": {
+          "total_cases": 2706,
+          "successful": 2511,
+          "coverage_pct": 92.79,
+          "mape_pct": 23.68,
+          "median_ape_pct": 17.67,
+          "p90_ape_pct": 49.78,
+          "bias_pct": 2.94,
+          "error_gt_50_pct": 9.8,
+          "error_gt_100_pct": 1.79
+        },
+        "present": {
+          "total_cases": 72,
+          "successful": 68,
+          "coverage_pct": 94.44,
+          "mape_pct": 22.67,
+          "median_ape_pct": 17.21,
+          "p90_ape_pct": 45.33,
+          "bias_pct": 1.34,
+          "error_gt_50_pct": 5.88,
+          "error_gt_100_pct": 1.47
+        }
+      },
+      "bed_bath": {
+        "complete": {
+          "total_cases": 2778,
+          "successful": 2579,
+          "coverage_pct": 92.84,
+          "mape_pct": 23.65,
+          "median_ape_pct": 17.65,
+          "p90_ape_pct": 49.5,
+          "bias_pct": 2.9,
+          "error_gt_50_pct": 9.69,
+          "error_gt_100_pct": 1.78
+        }
+      },
+      "product_class": {
+        "available": {
+          "total_cases": 2778,
+          "successful": 2579,
+          "coverage_pct": 92.84,
+          "mape_pct": 23.65,
+          "median_ape_pct": 17.65,
+          "p90_ape_pct": 49.5,
+          "bias_pct": 2.9,
+          "error_gt_50_pct": 9.69,
+          "error_gt_100_pct": 1.78
+        }
+      },
+      "density": {
+        "dense_comuna": {
+          "total_cases": 2731,
+          "successful": 2563,
+          "coverage_pct": 93.85,
+          "mape_pct": 23.39,
+          "median_ape_pct": 17.52,
+          "p90_ape_pct": 49.43,
+          "bias_pct": 2.73,
+          "error_gt_50_pct": 9.56,
+          "error_gt_100_pct": 1.64
+        },
+        "sparse_comuna": {
+          "total_cases": 47,
+          "successful": 16,
+          "coverage_pct": 34.04,
+          "mape_pct": 66.15,
+          "median_ape_pct": 32.38,
+          "p90_ape_pct": 195.48,
+          "bias_pct": 30.38,
+          "error_gt_50_pct": 31.25,
+          "error_gt_100_pct": 25.0
+        }
+      },
+      "property_type": {
+        "apartment": {
+          "total_cases": 1487,
+          "successful": 1376,
+          "coverage_pct": 92.54,
+          "mape_pct": 17.4,
+          "median_ape_pct": 13.94,
+          "p90_ape_pct": 36.02,
+          "bias_pct": -1.04,
+          "error_gt_50_pct": 3.42,
+          "error_gt_100_pct": 0.36
+        },
+        "house": {
+          "total_cases": 1291,
+          "successful": 1203,
+          "coverage_pct": 93.18,
+          "mape_pct": 30.81,
+          "median_ape_pct": 23.45,
+          "p90_ape_pct": 64.03,
+          "bias_pct": 7.41,
+          "error_gt_50_pct": 16.87,
+          "error_gt_100_pct": 3.41
+        }
+      }
+    },
+    "comparables_legacy": {
+      "coordinates": {
+        "not_useful": {
+          "total_cases": 2650,
+          "successful": 2554,
+          "coverage_pct": 96.38,
+          "mape_pct": 25.15,
+          "median_ape_pct": 17.37,
+          "p90_ape_pct": 54.85,
+          "bias_pct": 9.88,
+          "error_gt_50_pct": 11.94,
+          "error_gt_100_pct": 2.82
+        },
+        "useful": {
+          "total_cases": 128,
+          "successful": 118,
+          "coverage_pct": 92.19,
+          "mape_pct": 17.73,
+          "median_ape_pct": 13.22,
+          "p90_ape_pct": 39.86,
+          "bias_pct": 7.07,
+          "error_gt_50_pct": 5.08,
+          "error_gt_100_pct": 0.0
+        }
+      },
+      "microzone": {
+        "missing": {
+          "total_cases": 2251,
+          "successful": 2164,
+          "coverage_pct": 96.14,
+          "mape_pct": 24.64,
+          "median_ape_pct": 17.08,
+          "p90_ape_pct": 52.7,
+          "bias_pct": 9.24,
+          "error_gt_50_pct": 11.23,
+          "error_gt_100_pct": 2.63
+        },
+        "useful": {
+          "total_cases": 527,
+          "successful": 508,
+          "coverage_pct": 96.39,
+          "mape_pct": 25.57,
+          "median_ape_pct": 17.05,
+          "p90_ape_pct": 55.1,
+          "bias_pct": 11.93,
+          "error_gt_50_pct": 13.39,
+          "error_gt_100_pct": 2.95
+        }
+      },
+      "land_area": {
+        "missing": {
+          "total_cases": 2706,
+          "successful": 2601,
+          "coverage_pct": 96.12,
+          "mape_pct": 24.84,
+          "median_ape_pct": 17.01,
+          "p90_ape_pct": 53.74,
+          "bias_pct": 9.9,
+          "error_gt_50_pct": 11.69,
+          "error_gt_100_pct": 2.77
+        },
+        "present": {
+          "total_cases": 72,
+          "successful": 71,
+          "coverage_pct": 98.61,
+          "mape_pct": 23.89,
+          "median_ape_pct": 18.24,
+          "p90_ape_pct": 48.79,
+          "bias_pct": 4.63,
+          "error_gt_50_pct": 9.86,
+          "error_gt_100_pct": 0.0
+        }
+      },
+      "bed_bath": {
+        "complete": {
+          "total_cases": 2778,
+          "successful": 2672,
+          "coverage_pct": 96.18,
+          "mape_pct": 24.82,
+          "median_ape_pct": 17.08,
+          "p90_ape_pct": 53.48,
+          "bias_pct": 9.76,
+          "error_gt_50_pct": 11.64,
+          "error_gt_100_pct": 2.69
+        }
+      },
+      "product_class": {
+        "available": {
+          "total_cases": 2778,
+          "successful": 2672,
+          "coverage_pct": 96.18,
+          "mape_pct": 24.82,
+          "median_ape_pct": 17.08,
+          "p90_ape_pct": 53.48,
+          "bias_pct": 9.76,
+          "error_gt_50_pct": 11.64,
+          "error_gt_100_pct": 2.69
+        }
+      },
+      "density": {
+        "dense_comuna": {
+          "total_cases": 2731,
+          "successful": 2654,
+          "coverage_pct": 97.18,
+          "mape_pct": 24.45,
+          "median_ape_pct": 16.99,
+          "p90_ape_pct": 52.84,
+          "bias_pct": 9.49,
+          "error_gt_50_pct": 11.45,
+          "error_gt_100_pct": 2.52
+        },
+        "sparse_comuna": {
+          "total_cases": 47,
+          "successful": 18,
+          "coverage_pct": 38.3,
+          "mape_pct": 79.61,
+          "median_ape_pct": 35.98,
+          "p90_ape_pct": 190.7,
+          "bias_pct": 48.7,
+          "error_gt_50_pct": 38.89,
+          "error_gt_100_pct": 27.78
+        }
+      },
+      "property_type": {
+        "apartment": {
+          "total_cases": 1487,
+          "successful": 1446,
+          "coverage_pct": 97.24,
+          "mape_pct": 17.35,
+          "median_ape_pct": 12.94,
+          "p90_ape_pct": 36.57,
+          "bias_pct": 4.9,
+          "error_gt_50_pct": 4.15,
+          "error_gt_100_pct": 0.48
+        },
+        "house": {
+          "total_cases": 1291,
+          "successful": 1226,
+          "coverage_pct": 94.97,
+          "mape_pct": 33.62,
+          "median_ape_pct": 24.22,
+          "p90_ape_pct": 73.22,
+          "bias_pct": 15.49,
+          "error_gt_50_pct": 20.47,
+          "error_gt_100_pct": 5.3
+        }
+      }
+    }
+  },
+  "improvement_scenarios": {
+    "comparables_canonical": {
+      "current": {
+        "total_cases": 2351,
+        "successful": 2351,
+        "coverage_pct": 100.0,
+        "mape_pct": 22.79,
+        "median_ape_pct": 17.11,
+        "p90_ape_pct": 47.38,
+        "bias_pct": 2.51,
+        "error_gt_50_pct": 8.51,
+        "error_gt_100_pct": 1.66
+      },
+      "specs": {
+        "apartment_H0_min_structural": {
+          "eligible_cases": 481,
+          "eligible_share_pct": 20.46,
+          "mape_eligible_pct": 18.26,
+          "mape_non_eligible_pct": 23.95,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.6,
+              "improvement_pp": 0.19
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.42,
+              "improvement_pp": 0.37
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.23,
+              "improvement_pp": 0.56
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.04,
+              "improvement_pp": 0.75
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 21.86,
+              "improvement_pp": 0.93
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 21.67,
+              "improvement_pp": 1.12
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 19.05,
+            "improvement_pp": 3.74
+          }
+        },
+        "apartment_H1_basic": {
+          "eligible_cases": 481,
+          "eligible_share_pct": 20.46,
+          "mape_eligible_pct": 18.26,
+          "mape_non_eligible_pct": 23.95,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.6,
+              "improvement_pp": 0.19
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.42,
+              "improvement_pp": 0.37
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.23,
+              "improvement_pp": 0.56
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.04,
+              "improvement_pp": 0.75
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 21.86,
+              "improvement_pp": 0.93
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 21.67,
+              "improvement_pp": 1.12
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 19.05,
+            "improvement_pp": 3.74
+          }
+        },
+        "apartment_H2_expanded": {
+          "eligible_cases": 246,
+          "eligible_share_pct": 10.46,
+          "mape_eligible_pct": 19.35,
+          "mape_non_eligible_pct": 23.19,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.69,
+              "improvement_pp": 0.1
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.59,
+              "improvement_pp": 0.2
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.49,
+              "improvement_pp": 0.3
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.38,
+              "improvement_pp": 0.41
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 22.28,
+              "improvement_pp": 0.51
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 22.18,
+              "improvement_pp": 0.61
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 20.76,
+            "improvement_pp": 2.03
+          }
+        },
+        "apartment_H3_fine_geo": {
+          "eligible_cases": 226,
+          "eligible_share_pct": 9.61,
+          "mape_eligible_pct": 19.27,
+          "mape_non_eligible_pct": 23.16,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.7,
+              "improvement_pp": 0.09
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.6,
+              "improvement_pp": 0.19
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.51,
+              "improvement_pp": 0.28
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.42,
+              "improvement_pp": 0.37
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 22.33,
+              "improvement_pp": 0.46
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 22.23,
+              "improvement_pp": 0.56
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 20.94,
+            "improvement_pp": 1.85
+          }
+        },
+        "house_H0_min_structural": {
+          "eligible_cases": 760,
+          "eligible_share_pct": 32.33,
+          "mape_eligible_pct": 30.91,
+          "mape_non_eligible_pct": 18.91,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.29,
+              "improvement_pp": 0.5
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 21.79,
+              "improvement_pp": 1.0
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 21.29,
+              "improvement_pp": 1.5
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 20.79,
+              "improvement_pp": 2.0
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 20.29,
+              "improvement_pp": 2.5
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 19.79,
+              "improvement_pp": 3.0
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 12.8,
+            "improvement_pp": 9.99
+          }
+        },
+        "house_H1_basic": {
+          "eligible_cases": 760,
+          "eligible_share_pct": 32.33,
+          "mape_eligible_pct": 30.91,
+          "mape_non_eligible_pct": 18.91,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.29,
+              "improvement_pp": 0.5
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 21.79,
+              "improvement_pp": 1.0
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 21.29,
+              "improvement_pp": 1.5
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 20.79,
+              "improvement_pp": 2.0
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 20.29,
+              "improvement_pp": 2.5
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 19.79,
+              "improvement_pp": 3.0
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 12.8,
+            "improvement_pp": 9.99
+          }
+        },
+        "house_H2_land": {
+          "eligible_cases": 37,
+          "eligible_share_pct": 1.57,
+          "mape_eligible_pct": 22.63,
+          "mape_non_eligible_pct": 22.79,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.77,
+              "improvement_pp": 0.02
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.75,
+              "improvement_pp": 0.04
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.74,
+              "improvement_pp": 0.05
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.72,
+              "improvement_pp": 0.07
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 22.7,
+              "improvement_pp": 0.09
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 22.68,
+              "improvement_pp": 0.11
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 22.43,
+            "improvement_pp": 0.36
+          }
+        },
+        "house_H3_land_geo": {
+          "eligible_cases": 33,
+          "eligible_share_pct": 1.4,
+          "mape_eligible_pct": 22.15,
+          "mape_non_eligible_pct": 22.8,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.77,
+              "improvement_pp": 0.02
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.76,
+              "improvement_pp": 0.03
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.74,
+              "improvement_pp": 0.05
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.73,
+              "improvement_pp": 0.06
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 22.71,
+              "improvement_pp": 0.08
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 22.7,
+              "improvement_pp": 0.09
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 22.48,
+            "improvement_pp": 0.31
+          }
+        },
+        "house_H4_product": {
+          "eligible_cases": 33,
+          "eligible_share_pct": 1.4,
+          "mape_eligible_pct": 22.15,
+          "mape_non_eligible_pct": 22.8,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 22.77,
+              "improvement_pp": 0.02
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.76,
+              "improvement_pp": 0.03
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.74,
+              "improvement_pp": 0.05
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.73,
+              "improvement_pp": 0.06
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 22.71,
+              "improvement_pp": 0.08
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 22.7,
+              "improvement_pp": 0.09
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 22.48,
+            "improvement_pp": 0.31
+          }
+        }
+      }
+    },
+    "comparables_canonical_outliers": {
+      "current": {
+        "total_cases": 2579,
+        "successful": 2579,
+        "coverage_pct": 100.0,
+        "mape_pct": 23.65,
+        "median_ape_pct": 17.65,
+        "p90_ape_pct": 49.5,
+        "bias_pct": 2.9,
+        "error_gt_50_pct": 9.69,
+        "error_gt_100_pct": 1.78
+      },
+      "specs": {
+        "apartment_H0_min_structural": {
+          "eligible_cases": 499,
+          "eligible_share_pct": 19.35,
+          "mape_eligible_pct": 18.41,
+          "mape_non_eligible_pct": 24.91,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.48,
+              "improvement_pp": 0.17
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.3,
+              "improvement_pp": 0.35
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 23.12,
+              "improvement_pp": 0.53
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.94,
+              "improvement_pp": 0.71
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 22.76,
+              "improvement_pp": 0.89
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 22.59,
+              "improvement_pp": 1.06
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 20.09,
+            "improvement_pp": 3.56
+          }
+        },
+        "apartment_H1_basic": {
+          "eligible_cases": 499,
+          "eligible_share_pct": 19.35,
+          "mape_eligible_pct": 18.41,
+          "mape_non_eligible_pct": 24.91,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.48,
+              "improvement_pp": 0.17
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.3,
+              "improvement_pp": 0.35
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 23.12,
+              "improvement_pp": 0.53
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.94,
+              "improvement_pp": 0.71
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 22.76,
+              "improvement_pp": 0.89
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 22.59,
+              "improvement_pp": 1.06
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 20.09,
+            "improvement_pp": 3.56
+          }
+        },
+        "apartment_H2_expanded": {
+          "eligible_cases": 255,
+          "eligible_share_pct": 9.89,
+          "mape_eligible_pct": 19.55,
+          "mape_non_eligible_pct": 24.1,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.56,
+              "improvement_pp": 0.09
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.46,
+              "improvement_pp": 0.19
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 23.36,
+              "improvement_pp": 0.29
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 23.27,
+              "improvement_pp": 0.38
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 23.17,
+              "improvement_pp": 0.48
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 23.07,
+              "improvement_pp": 0.58
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 21.72,
+            "improvement_pp": 1.93
+          }
+        },
+        "apartment_H3_fine_geo": {
+          "eligible_cases": 235,
+          "eligible_share_pct": 9.11,
+          "mape_eligible_pct": 19.49,
+          "mape_non_eligible_pct": 24.07,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.57,
+              "improvement_pp": 0.08
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.48,
+              "improvement_pp": 0.17
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 23.39,
+              "improvement_pp": 0.26
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 23.3,
+              "improvement_pp": 0.35
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 23.21,
+              "improvement_pp": 0.44
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 23.12,
+              "improvement_pp": 0.53
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 21.88,
+            "improvement_pp": 1.77
+          }
+        },
+        "house_H0_min_structural": {
+          "eligible_cases": 925,
+          "eligible_share_pct": 35.87,
+          "mape_eligible_pct": 31.9,
+          "mape_non_eligible_pct": 19.04,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.08,
+              "improvement_pp": 0.57
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.51,
+              "improvement_pp": 1.14
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 21.94,
+              "improvement_pp": 1.71
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 21.37,
+              "improvement_pp": 2.28
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 20.79,
+              "improvement_pp": 2.86
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 20.22,
+              "improvement_pp": 3.43
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 12.21,
+            "improvement_pp": 11.44
+          }
+        },
+        "house_H1_basic": {
+          "eligible_cases": 925,
+          "eligible_share_pct": 35.87,
+          "mape_eligible_pct": 31.9,
+          "mape_non_eligible_pct": 19.04,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.08,
+              "improvement_pp": 0.57
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 22.51,
+              "improvement_pp": 1.14
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 21.94,
+              "improvement_pp": 1.71
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 21.37,
+              "improvement_pp": 2.28
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 20.79,
+              "improvement_pp": 2.86
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 20.22,
+              "improvement_pp": 3.43
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 12.21,
+            "improvement_pp": 11.44
+          }
+        },
+        "house_H2_land": {
+          "eligible_cases": 65,
+          "eligible_share_pct": 2.52,
+          "mape_eligible_pct": 23.23,
+          "mape_non_eligible_pct": 23.67,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.63,
+              "improvement_pp": 0.02
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.6,
+              "improvement_pp": 0.05
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 23.57,
+              "improvement_pp": 0.08
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 23.54,
+              "improvement_pp": 0.11
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 23.51,
+              "improvement_pp": 0.14
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 23.48,
+              "improvement_pp": 0.17
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 23.07,
+            "improvement_pp": 0.58
+          }
+        },
+        "house_H3_land_geo": {
+          "eligible_cases": 56,
+          "eligible_share_pct": 2.17,
+          "mape_eligible_pct": 23.28,
+          "mape_non_eligible_pct": 23.66,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.63,
+              "improvement_pp": 0.02
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.6,
+              "improvement_pp": 0.05
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 23.58,
+              "improvement_pp": 0.07
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 23.55,
+              "improvement_pp": 0.1
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 23.53,
+              "improvement_pp": 0.12
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 23.5,
+              "improvement_pp": 0.15
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 23.15,
+            "improvement_pp": 0.5
+          }
+        },
+        "house_H4_product": {
+          "eligible_cases": 56,
+          "eligible_share_pct": 2.17,
+          "mape_eligible_pct": 23.28,
+          "mape_non_eligible_pct": 23.66,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 23.63,
+              "improvement_pp": 0.02
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.6,
+              "improvement_pp": 0.05
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 23.58,
+              "improvement_pp": 0.07
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 23.55,
+              "improvement_pp": 0.1
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 23.53,
+              "improvement_pp": 0.12
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 23.5,
+              "improvement_pp": 0.15
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 23.15,
+            "improvement_pp": 0.5
+          }
+        }
+      }
+    },
+    "comparables_legacy": {
+      "current": {
+        "total_cases": 2672,
+        "successful": 2672,
+        "coverage_pct": 100.0,
+        "mape_pct": 24.82,
+        "median_ape_pct": 17.08,
+        "p90_ape_pct": 53.48,
+        "bias_pct": 9.76,
+        "error_gt_50_pct": 11.64,
+        "error_gt_100_pct": 2.69
+      },
+      "specs": {
+        "apartment_H0_min_structural": {
+          "eligible_cases": 522,
+          "eligible_share_pct": 19.54,
+          "mape_eligible_pct": 19.97,
+          "mape_non_eligible_pct": 25.99,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.62,
+              "improvement_pp": 0.2
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 24.43,
+              "improvement_pp": 0.39
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 24.23,
+              "improvement_pp": 0.59
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 24.04,
+              "improvement_pp": 0.78
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 23.84,
+              "improvement_pp": 0.98
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 23.65,
+              "improvement_pp": 1.17
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 20.92,
+            "improvement_pp": 3.9
+          }
+        },
+        "apartment_H1_basic": {
+          "eligible_cases": 522,
+          "eligible_share_pct": 19.54,
+          "mape_eligible_pct": 19.97,
+          "mape_non_eligible_pct": 25.99,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.62,
+              "improvement_pp": 0.2
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 24.43,
+              "improvement_pp": 0.39
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 24.23,
+              "improvement_pp": 0.59
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 24.04,
+              "improvement_pp": 0.78
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 23.84,
+              "improvement_pp": 0.98
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 23.65,
+              "improvement_pp": 1.17
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 20.92,
+            "improvement_pp": 3.9
+          }
+        },
+        "apartment_H2_expanded": {
+          "eligible_cases": 267,
+          "eligible_share_pct": 9.99,
+          "mape_eligible_pct": 21.21,
+          "mape_non_eligible_pct": 25.22,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.71,
+              "improvement_pp": 0.11
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 24.61,
+              "improvement_pp": 0.21
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 24.5,
+              "improvement_pp": 0.32
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 24.39,
+              "improvement_pp": 0.43
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 24.29,
+              "improvement_pp": 0.53
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 24.18,
+              "improvement_pp": 0.64
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 22.7,
+            "improvement_pp": 2.12
+          }
+        },
+        "apartment_H3_fine_geo": {
+          "eligible_cases": 248,
+          "eligible_share_pct": 9.28,
+          "mape_eligible_pct": 21.12,
+          "mape_non_eligible_pct": 25.2,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.72,
+              "improvement_pp": 0.1
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 24.62,
+              "improvement_pp": 0.2
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 24.52,
+              "improvement_pp": 0.3
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 24.43,
+              "improvement_pp": 0.39
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 24.33,
+              "improvement_pp": 0.49
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 24.23,
+              "improvement_pp": 0.59
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 22.86,
+            "improvement_pp": 1.96
+          }
+        },
+        "house_H0_min_structural": {
+          "eligible_cases": 943,
+          "eligible_share_pct": 35.29,
+          "mape_eligible_pct": 35.27,
+          "mape_non_eligible_pct": 19.12,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.2,
+              "improvement_pp": 0.62
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.57,
+              "improvement_pp": 1.25
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.95,
+              "improvement_pp": 1.87
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.33,
+              "improvement_pp": 2.49
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 21.71,
+              "improvement_pp": 3.11
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 21.08,
+              "improvement_pp": 3.74
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 12.37,
+            "improvement_pp": 12.45
+          }
+        },
+        "house_H1_basic": {
+          "eligible_cases": 943,
+          "eligible_share_pct": 35.29,
+          "mape_eligible_pct": 35.27,
+          "mape_non_eligible_pct": 19.12,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.2,
+              "improvement_pp": 0.62
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 23.57,
+              "improvement_pp": 1.25
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 22.95,
+              "improvement_pp": 1.87
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 22.33,
+              "improvement_pp": 2.49
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 21.71,
+              "improvement_pp": 3.11
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 21.08,
+              "improvement_pp": 3.74
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 12.37,
+            "improvement_pp": 12.45
+          }
+        },
+        "house_H2_land": {
+          "eligible_cases": 67,
+          "eligible_share_pct": 2.51,
+          "mape_eligible_pct": 24.06,
+          "mape_non_eligible_pct": 24.84,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.79,
+              "improvement_pp": 0.03
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 24.76,
+              "improvement_pp": 0.06
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 24.73,
+              "improvement_pp": 0.09
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 24.7,
+              "improvement_pp": 0.12
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 24.67,
+              "improvement_pp": 0.15
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 24.64,
+              "improvement_pp": 0.18
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 24.21,
+            "improvement_pp": 0.61
+          }
+        },
+        "house_H3_land_geo": {
+          "eligible_cases": 58,
+          "eligible_share_pct": 2.17,
+          "mape_eligible_pct": 23.87,
+          "mape_non_eligible_pct": 24.84,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.79,
+              "improvement_pp": 0.03
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 24.77,
+              "improvement_pp": 0.05
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 24.74,
+              "improvement_pp": 0.08
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 24.71,
+              "improvement_pp": 0.11
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 24.69,
+              "improvement_pp": 0.13
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 24.66,
+              "improvement_pp": 0.16
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 24.3,
+            "improvement_pp": 0.52
+          }
+        },
+        "house_H4_product": {
+          "eligible_cases": 58,
+          "eligible_share_pct": 2.17,
+          "mape_eligible_pct": 23.87,
+          "mape_non_eligible_pct": 24.84,
+          "scenarios": {
+            "conservative_5pct": {
+              "estimated_mape_pct": 24.79,
+              "improvement_pp": 0.03
+            },
+            "conservative_10pct": {
+              "estimated_mape_pct": 24.77,
+              "improvement_pp": 0.05
+            },
+            "base_15pct": {
+              "estimated_mape_pct": 24.74,
+              "improvement_pp": 0.08
+            },
+            "base_20pct": {
+              "estimated_mape_pct": 24.71,
+              "improvement_pp": 0.11
+            },
+            "aggressive_25pct": {
+              "estimated_mape_pct": 24.69,
+              "improvement_pp": 0.13
+            },
+            "aggressive_30pct": {
+              "estimated_mape_pct": 24.66,
+              "improvement_pp": 0.16
+            }
+          },
+          "upper_bound_unrealistic": {
+            "estimated_mape_pct": 24.3,
+            "improvement_pp": 0.52
+          }
+        }
+      }
+    }
+  },
+  "candidate_specs": [
+    {
+      "name": "apartment_minimal",
+      "formula": "log(price) ~ log(area) + bedrooms + bathrooms + parking + comuna + time_effect",
+      "eligibility_level": "apartment_H1_basic",
+      "coverage": {
+        "observations": 539,
+        "coverage_pct": 36.25,
+        "communes_covered": 17,
+        "median_observations_per_comuna": 34.0,
+        "p10_observations_per_comuna": 2.2,
+        "p25_observations_per_comuna": 16.0,
+        "p75_observations_per_comuna": 44.0,
+        "p90_observations_per_comuna": 56.8,
+        "communes_lt_10": 4,
+        "communes_lt_20": 5,
+        "communes_ge_30": 9,
+        "communes_ge_50": 4,
+        "benchmark_coverage_count": 539,
+        "benchmark_coverage_pct": 19.4,
+        "can_split_train_validation_test": true
+      },
+      "incremental_reference": {
+        "eligible_cases": 499,
+        "eligible_share_pct": 19.35,
+        "mape_eligible_pct": 18.41,
+        "mape_non_eligible_pct": 24.91,
+        "scenarios": {
+          "conservative_5pct": {
+            "estimated_mape_pct": 23.48,
+            "improvement_pp": 0.17
+          },
+          "conservative_10pct": {
+            "estimated_mape_pct": 23.3,
+            "improvement_pp": 0.35
+          },
+          "base_15pct": {
+            "estimated_mape_pct": 23.12,
+            "improvement_pp": 0.53
+          },
+          "base_20pct": {
+            "estimated_mape_pct": 22.94,
+            "improvement_pp": 0.71
+          },
+          "aggressive_25pct": {
+            "estimated_mape_pct": 22.76,
+            "improvement_pp": 0.89
+          },
+          "aggressive_30pct": {
+            "estimated_mape_pct": 22.59,
+            "improvement_pp": 1.06
+          }
+        },
+        "upper_bound_unrealistic": {
+          "estimated_mape_pct": 20.09,
+          "improvement_pp": 3.56
+        }
+      },
+      "decision": "defer",
+      "risk": "No training yet; validate against canonical_plus_outliers and keep geography optional."
+    },
+    {
+      "name": "house_minimal_with_missing_land_indicator",
+      "formula": "log(price) ~ log(built_area) + land_area_missing + log(land_area when present) + bedrooms + bathrooms + comuna + time_effect",
+      "eligibility_level": "house_H1_basic",
+      "coverage": {
+        "observations": 994,
+        "coverage_pct": 76.88,
+        "communes_covered": 18,
+        "median_observations_per_comuna": 61.0,
+        "p10_observations_per_comuna": 1.0,
+        "p25_observations_per_comuna": 31.75,
+        "p75_observations_per_comuna": 78.5,
+        "p90_observations_per_comuna": 83.5,
+        "communes_lt_10": 4,
+        "communes_lt_20": 4,
+        "communes_ge_30": 13,
+        "communes_ge_50": 13,
+        "benchmark_coverage_count": 994,
+        "benchmark_coverage_pct": 35.78,
+        "can_split_train_validation_test": true
+      },
+      "incremental_reference": {
+        "eligible_cases": 925,
+        "eligible_share_pct": 35.87,
+        "mape_eligible_pct": 31.9,
+        "mape_non_eligible_pct": 19.04,
+        "scenarios": {
+          "conservative_5pct": {
+            "estimated_mape_pct": 23.08,
+            "improvement_pp": 0.57
+          },
+          "conservative_10pct": {
+            "estimated_mape_pct": 22.51,
+            "improvement_pp": 1.14
+          },
+          "base_15pct": {
+            "estimated_mape_pct": 21.94,
+            "improvement_pp": 1.71
+          },
+          "base_20pct": {
+            "estimated_mape_pct": 21.37,
+            "improvement_pp": 2.28
+          },
+          "aggressive_25pct": {
+            "estimated_mape_pct": 20.79,
+            "improvement_pp": 2.86
+          },
+          "aggressive_30pct": {
+            "estimated_mape_pct": 20.22,
+            "improvement_pp": 3.43
+          }
+        },
+        "upper_bound_unrealistic": {
+          "estimated_mape_pct": 12.21,
+          "improvement_pp": 11.44
+        }
+      },
+      "decision": "limited_pilot",
+      "risk": "Land is too sparse for a strict land model; use missing indicator only in a future pilot."
+    },
+    {
+      "name": "geographic_variant",
+      "formula": "minimal model + microzone or reliable coordinates",
+      "eligibility_level": "house_H3_land_geo",
+      "coverage": {
+        "observations": 59,
+        "coverage_pct": 4.56,
+        "communes_covered": 13,
+        "median_observations_per_comuna": 3.0,
+        "p10_observations_per_comuna": 1.2,
+        "p25_observations_per_comuna": 2.0,
+        "p75_observations_per_comuna": 6.0,
+        "p90_observations_per_comuna": 8.8,
+        "communes_lt_10": 12,
+        "communes_lt_20": 13,
+        "communes_ge_30": 0,
+        "communes_ge_50": 0,
+        "benchmark_coverage_count": 59,
+        "benchmark_coverage_pct": 2.12,
+        "can_split_train_validation_test": false
+      },
+      "incremental_reference": {
+        "eligible_cases": 56,
+        "eligible_share_pct": 2.17,
+        "mape_eligible_pct": 23.28,
+        "mape_non_eligible_pct": 23.66,
+        "scenarios": {
+          "conservative_5pct": {
+            "estimated_mape_pct": 23.63,
+            "improvement_pp": 0.02
+          },
+          "conservative_10pct": {
+            "estimated_mape_pct": 23.6,
+            "improvement_pp": 0.05
+          },
+          "base_15pct": {
+            "estimated_mape_pct": 23.58,
+            "improvement_pp": 0.07
+          },
+          "base_20pct": {
+            "estimated_mape_pct": 23.55,
+            "improvement_pp": 0.1
+          },
+          "aggressive_25pct": {
+            "estimated_mape_pct": 23.53,
+            "improvement_pp": 0.12
+          },
+          "aggressive_30pct": {
+            "estimated_mape_pct": 23.5,
+            "improvement_pp": 0.15
+          }
+        },
+        "upper_bound_unrealistic": {
+          "estimated_mape_pct": 23.15,
+          "improvement_pp": 0.5
+        }
+      },
+      "decision": "defer",
+      "risk": "Fine geography coverage is the limiting factor."
+    }
+  ],
+  "decision": {
+    "apartments": "defer",
+    "houses": "limited_pilot",
+    "geographic": "defer",
+    "land": "defer"
+  },
+  "roadmap": [
+    {
+      "item": "house_land_area_m2",
+      "current_pct": 5.72,
+      "target_pct": 70.0,
+      "gap_pct": 64.28,
+      "priority": "high",
+      "impact": "Enables strict land-building hedonic variants."
+    },
+    {
+      "item": "house_microzone",
+      "current_pct": 18.64,
+      "target_pct": 50.0,
+      "gap_pct": 31.36,
+      "priority": "high",
+      "impact": "Enables geographic hedonic effects without overusing comuna dummies."
+    },
+    {
+      "item": "useful_geocode",
+      "current_pct": 50.27,
+      "target_pct": 60.0,
+      "gap_pct": 9.73,
+      "priority": "medium",
+      "impact": "Improves local segmentation and residual diagnostics."
+    },
+    {
+      "item": "product_classification",
+      "current_pct": 100.0,
+      "target_pct": 90.0,
+      "gap_pct": 0.0,
+      "priority": "low",
+      "impact": "Reduces product mixing in both comparables and future hedonic samples."
+    }
+  ],
+  "guardrails": {
+    "db_modified": false,
+    "migrations_created_or_executed": false,
+    "models_trained": false,
+    "model_artifacts_created": false,
+    "hedonic_engine_registered": false,
+    "production_changed": false
+  }
+}
