@@ -1,0 +1,1491 @@
+[
+  {
+    "group_id": "2ef8efd5aec49feb",
+    "listing_ids": [
+      1737,
+      3130
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "house"
+    ],
+    "prices_clp": [
+      "407279213.00",
+      "407279213.00"
+    ],
+    "areas_m2": [
+      160.0,
+      160.0
+    ],
+    "bedrooms": [
+      3,
+      3
+    ],
+    "bathrooms": [
+      2,
+      2
+    ],
+    "normalized_titles": [
+      "conectividad a santiago carretera san martin ruta 5 y autopista nor oriente",
+      "conectividad a santiago carretera san martin ruta 5 y autopista nor oriente"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "near_duplicate_high_confidence",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "7b06d8165156c7c7",
+    "listing_ids": [
+      1132,
+      2366
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "independencia"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "63191469.00",
+      "63191469.00"
+    ],
+    "areas_m2": [
+      36.0,
+      36.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en avenida independencia",
+      "departamento en avenida independencia"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "near_duplicate_high_confidence",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "ae2d35f79f456190",
+    "listing_ids": [
+      535,
+      3010
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "la_florida"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "141593323.00",
+      "141593323.00"
+    ],
+    "areas_m2": [
+      50.0,
+      50.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en avenida departamental",
+      "departamento en avenida departamental"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "near_duplicate_high_confidence",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "d282c5aff76b931d",
+    "listing_ids": [
+      2055,
+      3173
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "vitacura"
+    ],
+    "property_types": [
+      "house"
+    ],
+    "prices_clp": [
+      "1100754630.00",
+      "1100754630.00"
+    ],
+    "areas_m2": [
+      283.0,
+      283.0
+    ],
+    "bedrooms": [
+      8,
+      8
+    ],
+    "bathrooms": [
+      3,
+      3
+    ],
+    "normalized_titles": [
+      "casa en vitacura 283 m2 rotonda i frei",
+      "casa en vitacura 283 m2 rotonda i frei"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "near_duplicate_high_confidence",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "f5cc9054cacc1c08",
+    "listing_ids": [
+      1499,
+      2025
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "vitacura"
+    ],
+    "property_types": [
+      "house"
+    ],
+    "prices_clp": [
+      "440075566.00",
+      "440075566.00"
+    ],
+    "areas_m2": [
+      110.0,
+      110.0
+    ],
+    "bedrooms": [
+      3,
+      3
+    ],
+    "bathrooms": [
+      3,
+      3
+    ],
+    "normalized_titles": [
+      "casa en venta de 4 dorm en vitacura",
+      "casa en venta de 4 dorm en vitacura"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "near_duplicate_high_confidence",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "70d7321592c13437",
+    "listing_ids": [
+      217,
+      229
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "nunoa"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "150761236.00",
+      "150353773.00"
+    ],
+    "areas_m2": [
+      50.0,
+      52.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en pedro torres",
+      "departamento en zanartu"
+    ],
+    "max_title_similarity": 0.4,
+    "group_size": 2,
+    "classification": "not_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "7fcefd8b0d002a13",
+    "listing_ids": [
+      15,
+      183
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "58640668.00",
+      "60711957.00"
+    ],
+    "areas_m2": [
+      29.0,
+      29.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "en venta departamento 1d1b metro parque santa lu",
+      "departamento en nataniel cox"
+    ],
+    "max_title_similarity": 0.2,
+    "group_size": 2,
+    "classification": "not_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "8106bda8cfa716d1",
+    "listing_ids": [
+      20,
+      132
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "64706944.00",
+      "66729036.00"
+    ],
+    "areas_m2": [
+      32.0,
+      32.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "en venta 1d 1b amplio dpto av portugal sta isabel",
+      "departamento radall 66 metro ecuador 1d 1b bodega"
+    ],
+    "max_title_similarity": 0.125,
+    "group_size": 2,
+    "classification": "not_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "d01b761d670b734b",
+    "listing_ids": [
+      102,
+      117
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "65000000.00",
+      "63828733.00"
+    ],
+    "areas_m2": [
+      36.0,
+      35.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento 36m2 dos ambientes en pleno barrio universitario santiago",
+      "departamento en venta en santiago"
+    ],
+    "max_title_similarity": 0.3,
+    "group_size": 2,
+    "classification": "not_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "d7adc4d8220d1c15",
+    "listing_ids": [
+      169,
+      199
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "105807988.00",
+      "106947458.00"
+    ],
+    "areas_m2": [
+      44.0,
+      43.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en apostol santiago",
+      "departamento en arturo prat"
+    ],
+    "max_title_similarity": 0.3333,
+    "group_size": 2,
+    "classification": "not_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "f3f8cf540d9532d0",
+    "listing_ids": [
+      170,
+      193
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "83390781.00",
+      "83425529.00"
+    ],
+    "areas_m2": [
+      34.0,
+      36.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en morande",
+      "departamento en santa victoria"
+    ],
+    "max_title_similarity": 0.4,
+    "group_size": 2,
+    "classification": "not_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "0cc1d067cde6f7ef",
+    "listing_ids": [
+      1571,
+      1573
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "recoleta"
+    ],
+    "property_types": [
+      "house"
+    ],
+    "prices_clp": [
+      "480435379.00",
+      "480635526.00"
+    ],
+    "areas_m2": [
+      206.0,
+      206.0
+    ],
+    "bedrooms": [
+      6,
+      6
+    ],
+    "bathrooms": [
+      4,
+      4
+    ],
+    "normalized_titles": [
+      "venta se liquida terreno comercial con 2 casas",
+      "venta se liquida terreno comercial con 2 casas"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "15f5381d03ef8ae6",
+    "listing_ids": [
+      2421,
+      2869
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "las_condes"
+    ],
+    "property_types": [
+      "house"
+    ],
+    "prices_clp": [
+      "1138114825.00",
+      "1141115633.00"
+    ],
+    "areas_m2": [
+      545.0,
+      545.0
+    ],
+    "bedrooms": [
+      6,
+      6
+    ],
+    "bathrooms": [
+      4,
+      4
+    ],
+    "normalized_titles": [
+      "en venta casa carlos pena otaegui 124328",
+      "en venta casa carlos pena otaegui 167200"
+    ],
+    "max_title_similarity": 0.75,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "1ee617e68ef2b35d",
+    "listing_ids": [
+      798,
+      2393
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "estacion_central"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "91501823.00",
+      "92055702.00"
+    ],
+    "areas_m2": [
+      49.0,
+      52.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      2,
+      2
+    ],
+    "normalized_titles": [
+      "departamento en santa petronila",
+      "departamento en santa petronila"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "289aff45b36a8ab8",
+    "listing_ids": [
+      820,
+      1191,
+      1271,
+      1286
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "estacion_central"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "59082106.00",
+      "61153035.00",
+      "61500000.00",
+      "59082106.00"
+    ],
+    "areas_m2": [
+      28.0,
+      32.0,
+      32.0,
+      30.0
+    ],
+    "bedrooms": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en avenida maria rozas velasquez",
+      "departamento en coronel souper",
+      "departamento en coronel souper",
+      "departamento en avenida maria rozas velasquez"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 4,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "386deffdf517551b",
+    "listing_ids": [
+      637,
+      2947
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "las_condes"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "203028076.00",
+      "203843450.00"
+    ],
+    "areas_m2": [
+      37.0,
+      33.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en venta de 1 dorm en las condes",
+      "departamento en venta de 1 dorm en las condes"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "425113512f48997d",
+    "listing_ids": [
+      775,
+      3023
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "independencia"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "63395312.00",
+      "64006843.00"
+    ],
+    "areas_m2": [
+      32.0,
+      30.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en avenida inglaterra",
+      "departamento en avenida inglaterra"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "4806ec5a4537d8a6",
+    "listing_ids": [
+      2449,
+      2742,
+      3162
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "san_miguel"
+    ],
+    "property_types": [
+      "house"
+    ],
+    "prices_clp": [
+      "235011317.00",
+      "236287677.00",
+      "236417633.00"
+    ],
+    "areas_m2": [
+      140.0,
+      140.0,
+      140.0
+    ],
+    "bedrooms": [
+      3,
+      3,
+      3
+    ],
+    "bathrooms": [
+      1,
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "hermosa casa esquina solida con gran terreno 161849",
+      "hermosa casa esquina solida con gran terreno 167514",
+      "hermosa casa esquina solida con gran terreno 169261"
+    ],
+    "max_title_similarity": 0.7778,
+    "group_size": 3,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "4c0c6706c445322c",
+    "listing_ids": [
+      2272,
+      2813
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "99289141.00",
+      "97587552.00"
+    ],
+    "areas_m2": [
+      38.0,
+      42.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en san isidro",
+      "departamento en san isidro"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "589e6901b73510d4",
+    "listing_ids": [
+      488,
+      2320
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "san_miguel"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "110000000.00",
+      "112113897.00"
+    ],
+    "areas_m2": [
+      42.0,
+      40.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en decima avenida",
+      "departamento en decima avenida"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "5bf67fb08de472dc",
+    "listing_ids": [
+      2854,
+      2856
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "estacion_central"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "71238912.00",
+      "68677239.00"
+    ],
+    "areas_m2": [
+      27.0,
+      24.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en conde del maule",
+      "departamento en conde del maule"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "5e8441c419dfe574",
+    "listing_ids": [
+      201,
+      843
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "113947064.00",
+      "113744645.00"
+    ],
+    "areas_m2": [
+      35.0,
+      33.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en avenida vicuna mackenna",
+      "departamento en avenida vicuna mackenna"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "613e3d55c12b55a3",
+    "listing_ids": [
+      1166,
+      1188
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "estacion_central"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "69999840.00",
+      "69999840.00"
+    ],
+    "areas_m2": [
+      28.0,
+      30.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en blanco garces",
+      "departamento en blanco garces"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "952c8a285aed5663",
+    "listing_ids": [
+      338,
+      2604
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "las_condes"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "221505295.00",
+      "218071722.00"
+    ],
+    "areas_m2": [
+      39.0,
+      40.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en avenida las condes",
+      "departamento en venta en las condes"
+    ],
+    "max_title_similarity": 0.6667,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "95a7297b9cf3e588",
+    "listing_ids": [
+      1035,
+      1036
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "maipu"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "62000000.00",
+      "61000000.00"
+    ],
+    "areas_m2": [
+      48.0,
+      50.0
+    ],
+    "bedrooms": [
+      3,
+      3
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en venta de 3 dorm 1 bano en maipu",
+      "departamento en venta de 3 dorm subsidio maipu"
+    ],
+    "max_title_similarity": 0.7,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "9943a1bb01150221",
+    "listing_ids": [
+      508,
+      717
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "san_miguel"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "81492560.00",
+      "81537380.00"
+    ],
+    "areas_m2": [
+      33.0,
+      34.0
+    ],
+    "bedrooms": [
+      1,
+      1
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en vargas buston",
+      "departamento en vargas buston"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "9e8be44426847495",
+    "listing_ids": [
+      831,
+      2392
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "estacion_central"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "85000000.00",
+      "85614249.00"
+    ],
+    "areas_m2": [
+      43.0,
+      47.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en avenida ecuador",
+      "departamento en avenida ecuador"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "b205d8eec2164b16",
+    "listing_ids": [
+      2334,
+      3011
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "vitacura"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "608399400.00",
+      "611530350.00"
+    ],
+    "areas_m2": [
+      162.0,
+      162.0
+    ],
+    "bedrooms": [
+      4,
+      4
+    ],
+    "bathrooms": [
+      2,
+      2
+    ],
+    "normalized_titles": [
+      "seminuevo ampliado con vista despejada 166269",
+      "seminuevo ampliado con vista despejada 168725"
+    ],
+    "max_title_similarity": 0.7143,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "e2312b94236dcb99",
+    "listing_ids": [
+      1719,
+      1725
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "house"
+    ],
+    "prices_clp": [
+      "1406519805.00",
+      "1406519805.00"
+    ],
+    "areas_m2": [
+      430.0,
+      430.0
+    ],
+    "bedrooms": [
+      6,
+      6
+    ],
+    "bathrooms": [
+      2,
+      2
+    ],
+    "normalized_titles": [
+      "venta casa estilo ingles frente al santiago college los trapenses",
+      "venta casa estilo ingles frente al santiago college los trapenses uf 34 500"
+    ],
+    "max_title_similarity": 0.7692,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "e84757e0ceb1d788",
+    "listing_ids": [
+      1167,
+      1170
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "estacion_central"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "107833185.00",
+      "108933939.00"
+    ],
+    "areas_m2": [
+      50.0,
+      52.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      2,
+      2
+    ],
+    "normalized_titles": [
+      "departamento en coronel souper",
+      "departamento en coronel souper"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "f762832bff4c1bb8",
+    "listing_ids": [
+      2662,
+      2664,
+      3102,
+      3103
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "la_reina"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "248511561.00",
+      "248348576.00",
+      "248485165.00",
+      "248648240.00"
+    ],
+    "areas_m2": [
+      61.0,
+      61.0,
+      61.0,
+      61.0
+    ],
+    "bedrooms": [
+      2,
+      2,
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "baja comision alta conectividad plaza egana 167499",
+      "baja comision alta conectividad plaza egana 167502",
+      "baja comision alta conectividad plaza egana 169257",
+      "baja comision alta conectividad plaza egana 169256"
+    ],
+    "max_title_similarity": 0.75,
+    "group_size": 4,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "fc62a29e4ca35e91",
+    "listing_ids": [
+      417,
+      442
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "la_reina"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "247375196.00",
+      "247212956.00"
+    ],
+    "areas_m2": [
+      61.0,
+      61.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "alta conectividad metro y mall plaza egana 161846",
+      "alta conectividad metro y mall plaza egana 161847"
+    ],
+    "max_title_similarity": 0.7778,
+    "group_size": 2,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "fcb92946a067f118",
+    "listing_ids": [
+      1118,
+      1129,
+      1136,
+      1141,
+      2368,
+      2372
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "independencia"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "73383642.00",
+      "75013901.00",
+      "73383642.00",
+      "73343304.00",
+      "73383642.00",
+      "72568268.00"
+    ],
+    "areas_m2": [
+      40.0,
+      39.0,
+      39.0,
+      38.0,
+      42.0,
+      42.0
+    ],
+    "bedrooms": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en gamero",
+      "departamento en inglaterra 1144",
+      "departamento en avenida independencia",
+      "departamento en gamero",
+      "departamento en inglaterra 1144 departamento",
+      "departamento en avenida independencia"
+    ],
+    "max_title_similarity": 1.0,
+    "group_size": 6,
+    "classification": "possible_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "cd83388f29f3798a",
+    "listing_ids": [
+      211,
+      213
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "nunoa"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "183358260.00",
+      "185395574.00"
+    ],
+    "areas_m2": [
+      64.0,
+      65.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en los alerces",
+      "departamento en los cerezos"
+    ],
+    "max_title_similarity": 0.6,
+    "group_size": 2,
+    "classification": "weak_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  },
+  {
+    "group_id": "f697f689cc93abab",
+    "listing_ids": [
+      172,
+      190
+    ],
+    "sources": [
+      "yapo"
+    ],
+    "comunas": [
+      "santiago"
+    ],
+    "property_types": [
+      "apartment"
+    ],
+    "prices_clp": [
+      "134462724.00",
+      "134536677.00"
+    ],
+    "areas_m2": [
+      55.0,
+      57.0
+    ],
+    "bedrooms": [
+      2,
+      2
+    ],
+    "bathrooms": [
+      1,
+      1
+    ],
+    "normalized_titles": [
+      "departamento en mapocho",
+      "departamento en serrano"
+    ],
+    "max_title_similarity": 0.5,
+    "group_size": 2,
+    "classification": "weak_duplicate",
+    "grouping_reason": "near_duplicate",
+    "leakage_risk": "medium_high"
+  }
+]

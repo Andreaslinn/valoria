@@ -1,0 +1,1563 @@
+{
+  "dataset": {
+    "signature": "c65a72673d729bc4c27da8be53a8891bd3c41496b8b79042e7aab0935ef24c20",
+    "phase5a_signature": "c65a72673d729bc4c27da8be53a8891bd3c41496b8b79042e7aab0935ef24c20",
+    "matches_phase5a": true,
+    "total_listings": 3218,
+    "active_listings": 2780,
+    "uf_to_clp": 40644.549955947135
+  },
+  "land_area": {
+    "houses": 1293,
+    "current_land_area": 74,
+    "candidates_recalculated": 34,
+    "status_counts": {
+      "accept_high_confidence": 25,
+      "review_required": 9
+    },
+    "accepted": 25,
+    "review": 9,
+    "rejected": 0,
+    "current_coverage_pct": 5.72,
+    "potential_accepted_coverage_pct": 7.66,
+    "potential_with_review_coverage_pct": 8.35,
+    "examples": [
+      {
+        "listing_id": 1308,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-en-santiago/32179716",
+        "comuna": "santiago",
+        "property_type": "house",
+        "title": "Casa en Venta en Santiago",
+        "description_or_metadata": "Venta de Casas en Santiago : Antigua casona del año 1933 de 461 m2 construidos y 483 m2 de Terreno.Ideal para Universidades y ... : 8 Dormitorios por 21973.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 483.0,
+        "unit": "m2",
+        "evidence_text": "enta de Casas en Santiago : Antigua casona del año 1933 de 461 m2 construidos y 483 m2 de Terreno.Ideal para Universidades y ... : 8 Dormitorios por 21973.00 en venta",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 460.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 483.0,
+        "land_to_built_ratio": 1.05,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [
+          "ignored_built_area_m2_from_text.built_area_without_unit"
+        ],
+        "explicit_land_values": [
+          483.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1328,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/venta-casa-gran-terreno-nunoa-metro-villa-freire/32221213",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "title": "Venta Casa Gran terreno Ñuñoa Metro Villa Freire",
+        "description_or_metadata": "Venta de Casas en Ñuñoa : Gran Casa en Venta en Ñuñoa784 m² de terreno y 200 m² construidos más azotea.En primer piso ... : 4 Dormitorios por 23200.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 784.0,
+        "unit": "m2",
+        "evidence_text": "Venta Casa Gran terreno Ñuñoa Metro Villa Freire Venta de Casas en Ñuñoa : Gran Casa en Venta en Ñuñoa784 m² de t",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 231.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 784.0,
+        "land_to_built_ratio": 3.394,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [
+          "ignored_land_area_m2_from_text.land_area_context",
+          "ignored_land_area_m2_from_text.land_area_without_unit"
+        ],
+        "explicit_land_values": [
+          784.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1334,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/venta-casa-nunoa-metro-grecia-de-3-dorm-remodelada/32205542",
+        "comuna": "nunoa",
+        "property_type": "house",
+        "title": "Venta Casa Ñuñoa Metro Grecia de 3 dorm. Remodelada",
+        "description_or_metadata": "Venta de Casas en Ñuñoa : Venta Casa Ñuñoa. Metro Grecia . 3 pisos , 195,83 m2 construidos, 220m2 terreno, Primer Piso: ... : 3 Dormitorios por 10100.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 220.0,
+        "unit": "m2",
+        "evidence_text": "Casas en Ñuñoa : Venta Casa Ñuñoa. Metro Grecia . 3 pisos , 195,83 m2 construidos, 220m2 terreno, Primer Piso: ... : 3 Dormitorios por 10100.00 en venta",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 195.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 220.0,
+        "land_to_built_ratio": 1.128,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [],
+        "explicit_land_values": [
+          220.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1381,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-de-4-dorm-en-las-condes/32203449",
+        "comuna": "las_condes",
+        "property_type": "house",
+        "title": "Casa en venta de 4 dorm. en Las Condes",
+        "description_or_metadata": "Venta de Casas en Las Condes : *PM*_Alexander Fleming/Padre Hurtado_206/ 218m2_Casa remodelada, 3 pisos y terraza 360°.1er Piso: ... : 4 Dormitorios por 18500.00 en venta",
+        "origin_field": "text.house_slash_area_pair",
+        "detected_value": 218.0,
+        "unit": "m2",
+        "evidence_text": "m. en Las Condes Venta de Casas en Las Condes : *PM*_Alexander Fleming/Padre Hurtado_206/ 218m2_Casa remodelada, 3 pisos y terraza 360°.1er Piso: ... : 4 Dormitorios por 18500.00 en v",
+        "parser_rule": "text.house_slash_area_pair",
+        "parser_confidence": "medium",
+        "built_area_m2_current": 206.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 218.0,
+        "land_to_built_ratio": 1.058,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [],
+        "explicit_land_values": [],
+        "status": "review_required",
+        "decision_reason": "slash_pair_requires_human_confirmation",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1386,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-de-6-dorm-ss-en-las-condes-san-damian/32188978",
+        "comuna": "las_condes",
+        "property_type": "house",
+        "title": "Casa en venta de 6 dorm. + ss en Las Condes - San Damián",
+        "description_or_metadata": "Venta de Casas en Las Condes : Casa mediterráneaNorte, no perimetral en condominio de tres casasTerreno de 1.170m2, con precioso ... : 6 Dormitorios por 44900.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 1170.0,
+        "unit": "m2",
+        "evidence_text": "de Casas en Las Condes : Casa mediterráneaNorte, no perimetral en condominio de tres casasTerreno de 1.170m2, con precioso ... : 6 Dormitorios por 44900.00 en venta",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 414.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 1170.0,
+        "land_to_built_ratio": 2.826,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [],
+        "explicit_land_values": [
+          1170.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1441,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-de-4-dorm-en-san-miguel/32203110",
+        "comuna": "san_miguel",
+        "property_type": "house",
+        "title": "Casa en venta de 4 dorm. en San Miguel",
+        "description_or_metadata": "Venta de Casas en San Miguel : terreno de 1360 mts2 en San Miguel, a solo 2 cuadras de Gran Avenida y metro estación Ciudad del ... : 4 Dormitorios por 17700.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 1360.0,
+        "unit": "m2",
+        "evidence_text": "Casa en venta de 4 dorm. en San Miguel Venta de Casas en San Miguel : terreno de 1360 mts2 en San Miguel, a solo 2 cuadras de Gran Avenida y metro estación Ciudad del",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 300.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 1360.0,
+        "land_to_built_ratio": 4.533,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [],
+        "explicit_land_values": [
+          1360.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1451,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/moderna-casa-ideal-para-familias-grandes-146755/32001500",
+        "comuna": "san_miguel",
+        "property_type": "house",
+        "title": "Moderna Casa Ideal para Familias Grandes (146755)",
+        "description_or_metadata": "Venta de Casas en San Miguel : GRAN OPORTUNIDAD EN SAN MIGUEL! CASA DE 4D/2B/ PISCINA Y JARDÍN *SUP. TERRENO: 300 M2 *SUP. ÚTIL ... : 4 Dormitorios por 10800.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 300.0,
+        "unit": "m2",
+        "evidence_text": "as en San Miguel : GRAN OPORTUNIDAD EN SAN MIGUEL! CASA DE 4D/2B/ PISCINA Y JARDÍN *SUP. TERRENO: 300 M2 *SUP. ÚTIL ... : 4 Dormitorios por 10800.00 en venta",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 300.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 300.0,
+        "land_to_built_ratio": 1.0,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [],
+        "explicit_land_values": [
+          300.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1454,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-de-3-dorm-en-san-miguel/32220531",
+        "comuna": "san_miguel",
+        "property_type": "house",
+        "title": "Casa en venta de 3 dorm. en San Miguel",
+        "description_or_metadata": "Venta de Casas en San Miguel : Vendo Propiedad Habitacional e Industrial Terreno de 469 m2Casa de 102,7 m2 edificados Galpón y ... : 3 Dormitorios por 8800.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 469.0,
+        "unit": "m2",
+        "evidence_text": "m. en San Miguel Venta de Casas en San Miguel : Vendo Propiedad Habitacional e Industrial Terreno de 469 m2Casa de 102,7 m2 edificados Galpón y ... : 3 Dormitorios por 8800.00 en venta",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 291.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 469.0,
+        "land_to_built_ratio": 1.612,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [
+          "ignored_land_area_m2_from_text.land_area_context"
+        ],
+        "explicit_land_values": [
+          469.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1472,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/venta-casa-gran-terreno-calle-tranquila/29957980",
+        "comuna": "la_florida",
+        "property_type": "house",
+        "title": "Venta Casa Gran Terreno / Calle Tranquila",
+        "description_or_metadata": "Venta de Casas en La Florida : Casa familiar en terreno de 580 m2 con gran potencial. - Living-Comedor. - Cocina. - 3 Dormitorios ... : 3 Dormitorios por 6220.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 580.0,
+        "unit": "m2",
+        "evidence_text": "Venta Casa Gran Terreno / Calle Tranquila Venta de Casas en La Florida : Casa familiar en terreno de 580 m2 con gran potencial. - Living-Comedor. - Cocina. - 3 Dormitorios ... : 3 Dormit",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 78.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 580.0,
+        "land_to_built_ratio": 7.436,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [],
+        "explicit_land_values": [
+          580.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1479,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-de-4-dorm-en-la-florida/32203773",
+        "comuna": "la_florida",
+        "property_type": "house",
+        "title": "Casa en venta de 4 dorm. en La Florida",
+        "description_or_metadata": "Venta de Casas en La Florida : vende casa en La Florida, propiedad aislada, de 396 m2 de terreno, 165 m2 construídos, (toda la ... : 4 Dormitorios por 8040.00 en venta",
+        "origin_field": "text.land_area_context",
+        "detected_value": 396.0,
+        "unit": "m2",
+        "evidence_text": "Venta de Casas en La Florida : vende casa en La Florida, propiedad aislada, de 396 m2 de terreno, 165 m2 construídos, (toda la ... : 4 Dormitorios por 8040.00 en venta",
+        "parser_rule": "text.land_area_context",
+        "parser_confidence": "high",
+        "built_area_m2_current": 165.0,
+        "land_area_m2_current": null,
+        "land_area_m2_proposed": 396.0,
+        "land_to_built_ratio": 2.4,
+        "plausible_range_m2": "20-20000",
+        "parser_warnings": [
+          "ignored_land_area_m2_from_text.land_area_context",
+          "ignored_land_area_m2_from_text.land_area_without_unit"
+        ],
+        "explicit_land_values": [
+          396.0
+        ],
+        "status": "accept_high_confidence",
+        "decision_reason": "explicit_land_context_with_plausible_value",
+        "dry_run_only": true
+      }
+    ]
+  },
+  "land_mentions_without_value": {
+    "total": 47,
+    "counts": {
+      "opportunity_or_site_without_surface": 4,
+      "possible_special_product_classification": 7,
+      "real_land_attribute_without_surface": 27,
+      "requires_detail_refresh": 9
+    },
+    "examples": [
+      {
+        "listing_id": 1307,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-de-5d-1b-amplio-terreno-santiago/32233411",
+        "comuna": "santiago",
+        "title": "Casa en venta de 5D+1B, Amplio terreno, Santiago",
+        "evidence_text": "Casa en venta de 5D+1B, Amplio terreno, Santiago",
+        "classification": "real_land_attribute_without_surface",
+        "utility": "refresh_prioritization",
+        "product_class": "land_or_site",
+        "product_strength": "weak",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1331,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/rebajada-hermosa-casa-5dorm-3banos-amplio-terreno-nunoa/32337256",
+        "comuna": "nunoa",
+        "title": "REBAJADA!!! HERMOSA CASA 5DORM 3BAÑOS AMPLIO TERRENO ÑUÑOA",
+        "evidence_text": "REBAJADA!!! HERMOSA CASA 5DORM 3BAÑOS AMPLIO TERRENO ÑUÑOA",
+        "classification": "real_land_attribute_without_surface",
+        "utility": "refresh_prioritization",
+        "product_class": "standard_residential",
+        "product_strength": "structured",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1353,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/venta-casa-con-gran-terreno-barrio-las-lilas-providencia/32283803",
+        "comuna": "providencia",
+        "title": "VENTA CASA CON GRAN TERRENO BARRIO LAS LILAS PROVIDENCIA",
+        "evidence_text": "VENTA CASA CON GRAN TERRENO BARRIO LAS LILAS PROVIDENCIA Venta de Casas en Providencia : Propiedad Única en Plaza Las",
+        "classification": "possible_special_product_classification",
+        "utility": "product_classification_and_canonical_filtering",
+        "product_class": "commercial_use",
+        "product_strength": "strong",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1374,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-en-las-condes/32083444",
+        "comuna": "las_condes",
+        "title": "Casa en Venta en Las Condes | 6 Dormitorios por 70000.00 en Las Condes",
+        "evidence_text": "Venta de Casas en Las Condes : Excelente Casa de reconocida Arquitecto Mirene Pérez, gran terreno que incluye una cancha de Tenis ... : 6 Dormitorios por 70000.00 en venta",
+        "classification": "real_land_attribute_without_surface",
+        "utility": "refresh_prioritization",
+        "product_class": "land_or_site",
+        "product_strength": "weak",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1389,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-de-5-dorm-sector-los-frailes-las-condes/32179902",
+        "comuna": "las_condes",
+        "title": "Casa en venta de 5 dorm sector Los Frailes Las Condes",
+        "evidence_text": "ailes Las Condes Venta de Casas en Las Condes : Vendemos especial para REMODELAR con GRAN TERRENO, casa de estilo chalet en una de las zonas más ... : 5 Dormitorios por 27000.00 en venta",
+        "classification": "real_land_attribute_without_surface",
+        "utility": "refresh_prioritization",
+        "product_class": "land_or_site",
+        "product_strength": "weak",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1390,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-en-la-reina-con-amplio-terreno-oportunidad-de-inversion/31930654",
+        "comuna": "la_reina",
+        "title": "Casa en venta en La Reina con amplio terreno, oportunidad de inversión",
+        "evidence_text": "Casa en venta en La Reina con amplio terreno, oportunidad de inversión Venta de Casas en La Reina : Casa en venta ubicada en un sector",
+        "classification": "opportunity_or_site_without_surface",
+        "utility": "product_classification_and_refresh_prioritization",
+        "product_class": "land_or_site",
+        "product_strength": "weak",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1424,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/vendo-terreno-san-vicente-de-paul-comuna-macul/32337507",
+        "comuna": "macul",
+        "title": "VENDO TERRENO  SAN VICENTE DE PAUL COMUNA MACUL",
+        "evidence_text": "VENDO TERRENO SAN VICENTE DE PAUL COMUNA MACUL",
+        "classification": "opportunity_or_site_without_surface",
+        "utility": "product_classification_and_refresh_prioritization",
+        "product_class": "standard_residential",
+        "product_strength": "structured",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1427,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-aislada-gran-terreno-4d-1b-6-estc-macul/32374247",
+        "comuna": "macul",
+        "title": "CASA AISLADA GRAN TERRENO 4D 1B 6 ESTC  MACÚL",
+        "evidence_text": "CASA AISLADA GRAN TERRENO 4D 1B 6 ESTC MACÚL Venta de Casas en Macul : Casa en Venta comuna MACÚL. Sector Residenc",
+        "classification": "real_land_attribute_without_surface",
+        "utility": "refresh_prioritization",
+        "product_class": "land_or_site",
+        "product_strength": "weak",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1428,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-amplia-en-venta-de-3d-2b-en-macul/32413847",
+        "comuna": "macul",
+        "title": "Casa amplia en venta de 3D 2B en Macul",
+        "evidence_text": "en Macul Venta de Casas en Macul : Amplia casa en venta con excelente distribución y gran terreno libre en la entrada, ideal para ... : 3 Dormitorios por 850586880.00 en venta",
+        "classification": "real_land_attribute_without_surface",
+        "utility": "refresh_prioritization",
+        "product_class": "land_or_site",
+        "product_strength": "weak",
+        "surface_invented": false
+      },
+      {
+        "listing_id": 1435,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-amplio-terreno-villa-macul-4d-2b-162372/32380220",
+        "comuna": "macul",
+        "title": "Casa Amplio Terreno Villa Macul 4D 2B (162372)",
+        "evidence_text": "Casa Amplio Terreno Villa Macul 4D 2B (162372) Venta de Casas en Macul : Casa en venta en Macul Ubicada en u",
+        "classification": "real_land_attribute_without_surface",
+        "utility": "refresh_prioritization",
+        "product_class": "land_or_site",
+        "product_strength": "weak",
+        "surface_invented": false
+      }
+    ]
+  },
+  "surface_inconsistencies": {
+    "total": 6,
+    "counts": {
+      "future_parser_correction": 6
+    },
+    "examples": [
+      {
+        "listing_id": 1310,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-de-4-dorm-en-santiago/32157120",
+        "comuna": "santiago",
+        "built_area_m2_current": 129.0,
+        "usable_area_m2_current": null,
+        "land_area_m2_current": null,
+        "m2_raw": 129.0,
+        "metadata_area_sources": {
+          "area_parse_source": "raw.m2.fallback",
+          "area_parse_version": "area_parser_v2",
+          "area_parse_warnings": [
+            "ignored_built_area_m2_from_text.built_area_without_unit"
+          ],
+          "built_area_parse_source": "raw.m2.fallback",
+          "land_area_parse_source": "raw.land_area_m2"
+        },
+        "evidence_text": "Casa en venta de 4 dorm. en Santiago Venta de Casas en Santiago : Se Vende encantadora casa vintage en tradicional barrio de Santiago .(129 metros construidos , 123 ... : 4 Dormitorios por 4550.00 en venta",
+        "parser_warnings": [
+          "ignored_built_area_m2_from_text.built_area_without_unit"
+        ],
+        "possible_parser_error": true,
+        "probable_impact": "built_area_candidate_was_ignored",
+        "recommendation": "future_parser_correction",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1531,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/venta-casa-condominio-los-vinedos-penalolen/31525098",
+        "comuna": "penalolen",
+        "built_area_m2_current": 145.0,
+        "usable_area_m2_current": null,
+        "land_area_m2_current": null,
+        "m2_raw": 145.0,
+        "metadata_area_sources": {
+          "area_parse_source": "raw.m2.fallback",
+          "area_parse_version": "area_parser_v2",
+          "area_parse_warnings": [
+            "ignored_built_area_m2_from_text.built_area_context",
+            "ignored_built_area_m2_from_text.built_area_without_unit"
+          ],
+          "built_area_parse_source": "raw.m2.fallback"
+        },
+        "evidence_text": "Venta casa condominio / los viñedos peñalolen Venta de Casas en Peñalolén : VENTA CASA SECTOR RESIDENCIAL CONDOMINIO VALOR UF 10300 Casa-de 145 m² de construida En 330 m² ... : 4 Dormitorios por 10300.00 en venta",
+        "parser_warnings": [
+          "ignored_built_area_m2_from_text.built_area_context",
+          "ignored_built_area_m2_from_text.built_area_without_unit"
+        ],
+        "possible_parser_error": true,
+        "probable_impact": "built_area_candidate_was_ignored",
+        "recommendation": "future_parser_correction",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1596,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/venta-casa-independencia-mirador-viejo-4-dormitorios-2-banos/32207907",
+        "comuna": "independencia",
+        "built_area_m2_current": 117.0,
+        "usable_area_m2_current": null,
+        "land_area_m2_current": null,
+        "m2_raw": 117.0,
+        "metadata_area_sources": {
+          "area_parse_source": "raw.m2.fallback",
+          "area_parse_version": "area_parser_v2",
+          "area_parse_warnings": [
+            "ignored_built_area_m2_from_text.built_area_context",
+            "ignored_built_area_m2_from_text.built_area_without_unit"
+          ],
+          "built_area_parse_source": "raw.m2.fallback"
+        },
+        "evidence_text": "Venta casa Independencia Mirador Viejo 4 dormitorios 2 baños Venta de Casas en Independencia : Mirador Viejo, casa de 184 M2 y construidos 117 M2, ubicada frente al parque Mirador viejo en el ... : 4 Dormitorios por 180000000.00 en venta",
+        "parser_warnings": [
+          "ignored_built_area_m2_from_text.built_area_context",
+          "ignored_built_area_m2_from_text.built_area_without_unit"
+        ],
+        "possible_parser_error": true,
+        "probable_impact": "built_area_candidate_was_ignored",
+        "recommendation": "future_parser_correction",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1934,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/vende-excelente-propiedad-en-macusel-iran-4d-y-1b-con-6est/32278252",
+        "comuna": "macul",
+        "built_area_m2_current": 325.0,
+        "usable_area_m2_current": null,
+        "land_area_m2_current": null,
+        "m2_raw": 325.0,
+        "metadata_area_sources": {
+          "area_parse_source": "raw.m2.fallback",
+          "area_parse_version": "area_parser_v2",
+          "area_parse_warnings": [
+            "ignored_built_area_m2_from_text.built_area_context",
+            "ignored_built_area_m2_from_text.built_area_without_unit"
+          ],
+          "built_area_parse_source": "raw.m2.fallback"
+        },
+        "evidence_text": "VENDE EXCELENTE PROPIEDAD EN MACUSEL IRAN 4D Y 1B CON 6EST Venta de Casas en Macul : Casa Esquina en venta en Macul por 5990 U.F., con 112 m2 de construcción y 325 m2 de superficie ... : 4 Dormitorios por 4800.00 en venta",
+        "parser_warnings": [
+          "ignored_built_area_m2_from_text.built_area_context",
+          "ignored_built_area_m2_from_text.built_area_without_unit"
+        ],
+        "possible_parser_error": true,
+        "probable_impact": "built_area_candidate_was_ignored",
+        "recommendation": "future_parser_correction",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 1946,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-en-venta-3d-2b-360-m2-totales-en-san-miguel/32330081",
+        "comuna": "san_miguel",
+        "built_area_m2_current": 180.0,
+        "usable_area_m2_current": null,
+        "land_area_m2_current": null,
+        "m2_raw": 180.0,
+        "metadata_area_sources": {
+          "area_parse_source": "raw.m2.fallback",
+          "area_parse_version": "area_parser_v2",
+          "area_parse_warnings": [
+            "ignored_built_area_m2_from_text.built_area_context"
+          ],
+          "built_area_parse_source": "raw.m2.fallback"
+        },
+        "evidence_text": "Casa en venta 3D 2B, 360 m2 totales en San Miguel Venta de Casas en San Miguel : En venta excelente propiedad de 360 m2 totales y 180 m2 construidos, en San Miguel, con ubicación ... : 3 Dormitorios por 300000000.00 en venta",
+        "parser_warnings": [
+          "ignored_built_area_m2_from_text.built_area_context"
+        ],
+        "possible_parser_error": true,
+        "probable_impact": "built_area_candidate_was_ignored",
+        "recommendation": "future_parser_correction",
+        "dry_run_only": true
+      },
+      {
+        "listing_id": 2554,
+        "source": "yapo",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas/casa-superficie-total-de-624m2-y-construidos-198m2/26826299",
+        "comuna": "macul",
+        "built_area_m2_current": 624.0,
+        "usable_area_m2_current": null,
+        "land_area_m2_current": null,
+        "m2_raw": 624.0,
+        "metadata_area_sources": {
+          "area_parse_source": "text.built_area_context",
+          "area_parse_version": "area_parser_v2",
+          "area_parse_warnings": [
+            "ignored_built_area_m2_from_text.built_area_context"
+          ],
+          "built_area_parse_source": "text.built_area_context",
+          "land_area_parse_source": "raw.land_area_m2"
+        },
+        "evidence_text": "Casa superficie total de 624m2 y construidos 198m2 Venta de Casas en Macul : Grandiosa casa en venta, ubicada en la comuna de Macul, con una superficie construida de 198 m² y ... : 4 Dormitorios por 12500.00 en venta",
+        "parser_warnings": [
+          "ignored_built_area_m2_from_text.built_area_context",
+          "ignored_built_area_m2_from_text.built_area_without_unit"
+        ],
+        "possible_parser_error": true,
+        "probable_impact": "built_area_candidate_was_ignored",
+        "recommendation": "future_parser_correction",
+        "dry_run_only": true
+      }
+    ]
+  },
+  "microzone": {
+    "candidates": 55,
+    "recommendation_counts": {
+      "accept_high_confidence": 25,
+      "review_required": 1,
+      "use_only_as_soft_signal": 29
+    },
+    "accepted": 25,
+    "review": 1,
+    "soft_signal_only": 29,
+    "rejected": 0,
+    "persistence_recommendation": "persist_only_accepted_after_corpus_review; keep avenues and landmarks as soft signals",
+    "examples": [
+      {
+        "listing_id": 20,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "title": "EN VENTA 1D+1B AMPLIO DPTO. AV.PORTUGAL/STA. ISABEL",
+        "description_or_metadata": "EN VENTA 1D+1B AMPLIO DPTO. AV.PORTUGAL/STA. ISABEL",
+        "source_field": "title",
+        "signal_detected": "avenue:portugal",
+        "signal_type": "avenue",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "medium",
+        "normalized_microzone": "avenue:portugal",
+        "confidence": 1.0,
+        "recommendation": "use_only_as_soft_signal",
+        "decision_reason": "valid_but_not_unique_within_comuna",
+        "persisted": false
+      },
+      {
+        "listing_id": 28,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "title": "Inversión segura en Estación Central ---- alta rentabilidad",
+        "description_or_metadata": "address_label=Metro Central | street_hint=Metro Central | location_text=Estación Central | location=Estación Central",
+        "source_field": "metadata",
+        "signal_detected": "metro:central",
+        "signal_type": "metro",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "low",
+        "normalized_microzone": "metro:central",
+        "confidence": 1.0,
+        "recommendation": "accept_high_confidence",
+        "decision_reason": "specific_known_geographic_signal",
+        "persisted": false
+      },
+      {
+        "listing_id": 42,
+        "source": "yapo",
+        "comuna": "las_condes",
+        "property_type": "apartment",
+        "title": "VENTA DEPTO 2D 1B 1E - UBICADO EN LAS CONDES",
+        "description_or_metadata": "address_label=AV. AMERICO VESPUCIO SUR RED Global Team | street_hint=AV. AMERICO VESPUCIO SUR RED Global Team | location_text=Las Condes | location=Las Condes",
+        "source_field": "metadata",
+        "signal_detected": "avenue:americo vespucio",
+        "signal_type": "avenue",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "medium",
+        "normalized_microzone": "avenue:americo vespucio",
+        "confidence": 1.0,
+        "recommendation": "use_only_as_soft_signal",
+        "decision_reason": "valid_but_not_unique_within_comuna",
+        "persisted": false
+      },
+      {
+        "listing_id": 66,
+        "source": "yapo",
+        "comuna": "san_miguel",
+        "property_type": "apartment",
+        "title": "OFERTA VENTA DPTO 3HA+1 BA PISO4 DEPARTAMENTAL",
+        "description_or_metadata": "address_label=Av. Santa Rosa y Av. ... UF | street_hint=Av. Santa Rosa y Av. ... UF | location_text=San Miguel | location=San Miguel",
+        "source_field": "metadata",
+        "signal_detected": "avenue:santa rosa",
+        "signal_type": "avenue",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "medium",
+        "normalized_microzone": "avenue:santa rosa",
+        "confidence": 1.0,
+        "recommendation": "use_only_as_soft_signal",
+        "decision_reason": "valid_but_not_unique_within_comuna",
+        "persisted": false
+      },
+      {
+        "listing_id": 103,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "title": "VENTA DEPARTAMENTO CONDE DEL MAULE METRO ECUADOR 2D+1B+E",
+        "description_or_metadata": "address_label=Metro ECUADOR | street_hint=Metro ECUADOR | location_text=Estación Central | location=Estación Central",
+        "source_field": "metadata",
+        "signal_detected": "metro:central",
+        "signal_type": "metro",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "low",
+        "normalized_microzone": "metro:central",
+        "confidence": 1.0,
+        "recommendation": "accept_high_confidence",
+        "decision_reason": "specific_known_geographic_signal",
+        "persisted": false
+      },
+      {
+        "listing_id": 119,
+        "source": "yapo",
+        "comuna": "estacion_central",
+        "property_type": "apartment",
+        "title": "Departamento En Venta Estación Central 1d, 1b, Parking + Bodega",
+        "description_or_metadata": "address_label=Metro Central | street_hint=Metro Central | location_text=Estación Central | location=Estación Central",
+        "source_field": "metadata",
+        "signal_detected": "metro:central",
+        "signal_type": "metro",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "low",
+        "normalized_microzone": "metro:central",
+        "confidence": 1.0,
+        "recommendation": "accept_high_confidence",
+        "decision_reason": "specific_known_geographic_signal",
+        "persisted": false
+      },
+      {
+        "listing_id": 131,
+        "source": "yapo",
+        "comuna": "independencia",
+        "property_type": "apartment",
+        "title": "DEPARTAMENTO EN VENTA EN METRO PLAZA CHACABUCO",
+        "description_or_metadata": "DEPARTAMENTO EN VENTA EN METRO PLAZA CHACABUCO",
+        "source_field": "title",
+        "signal_detected": "metro:plaza chacabuco",
+        "signal_type": "metro",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "low",
+        "normalized_microzone": "metro:plaza chacabuco",
+        "confidence": 1.0,
+        "recommendation": "accept_high_confidence",
+        "decision_reason": "specific_known_geographic_signal",
+        "persisted": false
+      },
+      {
+        "listing_id": 145,
+        "source": "yapo",
+        "comuna": "providencia",
+        "property_type": "apartment",
+        "title": "Venta departamento av. Antonio Varas comuna Providencia",
+        "description_or_metadata": "Venta departamento av. Antonio Varas comuna Providencia",
+        "source_field": "title",
+        "signal_detected": "avenue:providencia",
+        "signal_type": "avenue",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "medium",
+        "normalized_microzone": "avenue:providencia",
+        "confidence": 1.0,
+        "recommendation": "use_only_as_soft_signal",
+        "decision_reason": "valid_but_not_unique_within_comuna",
+        "persisted": false
+      },
+      {
+        "listing_id": 204,
+        "source": "yapo",
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "title": "Departamento en Portugal",
+        "description_or_metadata": "Departamento en Portugal",
+        "source_field": "title",
+        "signal_detected": "avenue:portugal",
+        "signal_type": "avenue",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "medium",
+        "normalized_microzone": "avenue:portugal",
+        "confidence": 1.0,
+        "recommendation": "use_only_as_soft_signal",
+        "decision_reason": "valid_but_not_unique_within_comuna",
+        "persisted": false
+      },
+      {
+        "listing_id": 263,
+        "source": "yapo",
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "title": "DEPARTAMENTO Metro principe de gales",
+        "description_or_metadata": "DEPARTAMENTO Metro principe de gales",
+        "source_field": "title",
+        "signal_detected": "metro:principe de gales",
+        "signal_type": "metro",
+        "evidence": "text_microzone_signal",
+        "false_positive_risk": "low",
+        "normalized_microzone": "metro:principe de gales",
+        "confidence": 1.0,
+        "recommendation": "accept_high_confidence",
+        "decision_reason": "specific_known_geographic_signal",
+        "persisted": false
+      }
+    ]
+  },
+  "duplicates_and_leakage": {
+    "groups": 35,
+    "affected_listings": 79,
+    "validated_duplicate_groups": 29,
+    "validated_affected_listings": 67,
+    "classification_counts": {
+      "near_duplicate_high_confidence": 5,
+      "not_duplicate": 6,
+      "possible_duplicate": 22,
+      "weak_duplicate": 2
+    },
+    "leakage_risk": "medium",
+    "evaluator_proposal": {
+      "default_behavior": "unchanged",
+      "future_flag": "--dedupe-diagnostics",
+      "target_rule": "report whether target belongs to a validated duplicate group",
+      "candidate_rule": "diagnose and optionally exclude copies of target in experimental runs",
+      "metrics": "report benchmark metrics with and without validated high-confidence groups"
+    },
+    "examples": [
+      {
+        "group_id": "2ef8efd5aec49feb",
+        "listing_ids": [
+          1737,
+          3130
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "property_types": [
+          "house"
+        ],
+        "prices_clp": [
+          "407279213.00",
+          "407279213.00"
+        ],
+        "areas_m2": [
+          160.0,
+          160.0
+        ],
+        "bedrooms": [
+          3,
+          3
+        ],
+        "bathrooms": [
+          2,
+          2
+        ],
+        "normalized_titles": [
+          "conectividad a santiago carretera san martin ruta 5 y autopista nor oriente",
+          "conectividad a santiago carretera san martin ruta 5 y autopista nor oriente"
+        ],
+        "max_title_similarity": 1.0,
+        "group_size": 2,
+        "classification": "near_duplicate_high_confidence",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "7b06d8165156c7c7",
+        "listing_ids": [
+          1132,
+          2366
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "independencia"
+        ],
+        "property_types": [
+          "apartment"
+        ],
+        "prices_clp": [
+          "63191469.00",
+          "63191469.00"
+        ],
+        "areas_m2": [
+          36.0,
+          36.0
+        ],
+        "bedrooms": [
+          1,
+          1
+        ],
+        "bathrooms": [
+          1,
+          1
+        ],
+        "normalized_titles": [
+          "departamento en avenida independencia",
+          "departamento en avenida independencia"
+        ],
+        "max_title_similarity": 1.0,
+        "group_size": 2,
+        "classification": "near_duplicate_high_confidence",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "ae2d35f79f456190",
+        "listing_ids": [
+          535,
+          3010
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "la_florida"
+        ],
+        "property_types": [
+          "apartment"
+        ],
+        "prices_clp": [
+          "141593323.00",
+          "141593323.00"
+        ],
+        "areas_m2": [
+          50.0,
+          50.0
+        ],
+        "bedrooms": [
+          2,
+          2
+        ],
+        "bathrooms": [
+          1,
+          1
+        ],
+        "normalized_titles": [
+          "departamento en avenida departamental",
+          "departamento en avenida departamental"
+        ],
+        "max_title_similarity": 1.0,
+        "group_size": 2,
+        "classification": "near_duplicate_high_confidence",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "d282c5aff76b931d",
+        "listing_ids": [
+          2055,
+          3173
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "vitacura"
+        ],
+        "property_types": [
+          "house"
+        ],
+        "prices_clp": [
+          "1100754630.00",
+          "1100754630.00"
+        ],
+        "areas_m2": [
+          283.0,
+          283.0
+        ],
+        "bedrooms": [
+          8,
+          8
+        ],
+        "bathrooms": [
+          3,
+          3
+        ],
+        "normalized_titles": [
+          "casa en vitacura 283 m2 rotonda i frei",
+          "casa en vitacura 283 m2 rotonda i frei"
+        ],
+        "max_title_similarity": 1.0,
+        "group_size": 2,
+        "classification": "near_duplicate_high_confidence",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "f5cc9054cacc1c08",
+        "listing_ids": [
+          1499,
+          2025
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "vitacura"
+        ],
+        "property_types": [
+          "house"
+        ],
+        "prices_clp": [
+          "440075566.00",
+          "440075566.00"
+        ],
+        "areas_m2": [
+          110.0,
+          110.0
+        ],
+        "bedrooms": [
+          3,
+          3
+        ],
+        "bathrooms": [
+          3,
+          3
+        ],
+        "normalized_titles": [
+          "casa en venta de 4 dorm en vitacura",
+          "casa en venta de 4 dorm en vitacura"
+        ],
+        "max_title_similarity": 1.0,
+        "group_size": 2,
+        "classification": "near_duplicate_high_confidence",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "70d7321592c13437",
+        "listing_ids": [
+          217,
+          229
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "nunoa"
+        ],
+        "property_types": [
+          "apartment"
+        ],
+        "prices_clp": [
+          "150761236.00",
+          "150353773.00"
+        ],
+        "areas_m2": [
+          50.0,
+          52.0
+        ],
+        "bedrooms": [
+          2,
+          2
+        ],
+        "bathrooms": [
+          1,
+          1
+        ],
+        "normalized_titles": [
+          "departamento en pedro torres",
+          "departamento en zanartu"
+        ],
+        "max_title_similarity": 0.4,
+        "group_size": 2,
+        "classification": "not_duplicate",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "7fcefd8b0d002a13",
+        "listing_ids": [
+          15,
+          183
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "property_types": [
+          "apartment"
+        ],
+        "prices_clp": [
+          "58640668.00",
+          "60711957.00"
+        ],
+        "areas_m2": [
+          29.0,
+          29.0
+        ],
+        "bedrooms": [
+          1,
+          1
+        ],
+        "bathrooms": [
+          1,
+          1
+        ],
+        "normalized_titles": [
+          "en venta departamento 1d1b metro parque santa lu",
+          "departamento en nataniel cox"
+        ],
+        "max_title_similarity": 0.2,
+        "group_size": 2,
+        "classification": "not_duplicate",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "8106bda8cfa716d1",
+        "listing_ids": [
+          20,
+          132
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "property_types": [
+          "apartment"
+        ],
+        "prices_clp": [
+          "64706944.00",
+          "66729036.00"
+        ],
+        "areas_m2": [
+          32.0,
+          32.0
+        ],
+        "bedrooms": [
+          1,
+          1
+        ],
+        "bathrooms": [
+          1,
+          1
+        ],
+        "normalized_titles": [
+          "en venta 1d 1b amplio dpto av portugal sta isabel",
+          "departamento radall 66 metro ecuador 1d 1b bodega"
+        ],
+        "max_title_similarity": 0.125,
+        "group_size": 2,
+        "classification": "not_duplicate",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "d01b761d670b734b",
+        "listing_ids": [
+          102,
+          117
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "property_types": [
+          "apartment"
+        ],
+        "prices_clp": [
+          "65000000.00",
+          "63828733.00"
+        ],
+        "areas_m2": [
+          36.0,
+          35.0
+        ],
+        "bedrooms": [
+          1,
+          1
+        ],
+        "bathrooms": [
+          1,
+          1
+        ],
+        "normalized_titles": [
+          "departamento 36m2 dos ambientes en pleno barrio universitario santiago",
+          "departamento en venta en santiago"
+        ],
+        "max_title_similarity": 0.3,
+        "group_size": 2,
+        "classification": "not_duplicate",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      },
+      {
+        "group_id": "d7adc4d8220d1c15",
+        "listing_ids": [
+          169,
+          199
+        ],
+        "sources": [
+          "yapo"
+        ],
+        "comunas": [
+          "santiago"
+        ],
+        "property_types": [
+          "apartment"
+        ],
+        "prices_clp": [
+          "105807988.00",
+          "106947458.00"
+        ],
+        "areas_m2": [
+          44.0,
+          43.0
+        ],
+        "bedrooms": [
+          2,
+          2
+        ],
+        "bathrooms": [
+          1,
+          1
+        ],
+        "normalized_titles": [
+          "departamento en apostol santiago",
+          "departamento en arturo prat"
+        ],
+        "max_title_similarity": 0.3333,
+        "group_size": 2,
+        "classification": "not_duplicate",
+        "grouping_reason": "near_duplicate",
+        "leakage_risk": "medium_high"
+      }
+    ]
+  },
+  "department_price_refresh_sample": {
+    "requested": 50,
+    "selected": 50,
+    "comunas_represented": 16,
+    "price_bands": {
+      "high": 11,
+      "low": 18,
+      "mid": 21
+    },
+    "surface_bands": {
+      "large_gt_90": 7,
+      "medium_50_90": 18,
+      "small_lt_50": 25
+    },
+    "metadata_textual_uf_hint": {
+      "False": 50
+    },
+    "metadata_uf_signal_kinds": {
+      "structured_currency_only": 50
+    },
+    "metadata_signal_limitation": "all eligible legacy candidates retain structured UF currency, but none in the selected sample retains local textual UF evidence",
+    "selection_method": "deterministic coverage-first sample by comuna, price, surface, age and metadata UF hint",
+    "external_visits": 0,
+    "examples": [
+      {
+        "listing_id": 2249,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-san-francisco/32364453",
+        "comuna": "santiago",
+        "title": "Departamento en San Francisco",
+        "price_clp_current": "99289141.00",
+        "currency_current": "UF",
+        "price_uf_source": "legacy_unrecoverable",
+        "price_uf_confidence": "unknown",
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-05-26T19:25:47.041220+00:00",
+        "surface_m2": 42.0,
+        "price_band": "mid",
+        "surface_band": "small_lt_50",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 3099,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-4-dorm-vespucio-martin-de-zamora/32179906",
+        "comuna": "las_condes",
+        "title": "Departamento en venta de 4 dorm. Vespucio Martín de Zamora",
+        "price_clp_current": "383225686.00",
+        "currency_current": "UF",
+        "price_uf_source": null,
+        "price_uf_confidence": null,
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-06-12T10:01:23.908578+00:00",
+        "surface_m2": 164.0,
+        "price_band": "high",
+        "surface_band": "large_gt_90",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 2385,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-avenida-maria-rozas-velasquez/30057069",
+        "comuna": "estacion_central",
+        "title": "Departamento en Avenida María Rozas Velásquez",
+        "price_clp_current": "85104978.00",
+        "currency_current": "UF",
+        "price_uf_source": "legacy_unrecoverable",
+        "price_uf_confidence": "unknown",
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-05-26T19:26:56.478051+00:00",
+        "surface_m2": 41.0,
+        "price_band": "low",
+        "surface_band": "small_lt_50",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 786,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-cruz/29357079",
+        "comuna": "independencia",
+        "title": "Departamento en Cruz",
+        "price_clp_current": "78533695.00",
+        "currency_current": "UF",
+        "price_uf_source": "legacy_unrecoverable",
+        "price_uf_confidence": "unknown",
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-05-12T10:28:55.233590+00:00",
+        "surface_m2": 30.0,
+        "price_band": "low",
+        "surface_band": "small_lt_50",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 2941,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/amplio-departamento-en-venta-nunoa/32516186",
+        "comuna": "nunoa",
+        "title": "AMPLIO DEPARTAMENTO EN VENTA ÑUÑOA",
+        "price_clp_current": "197728146.00",
+        "currency_current": "UF",
+        "price_uf_source": null,
+        "price_uf_confidence": null,
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-06-11T14:06:35.786782+00:00",
+        "surface_m2": 88.0,
+        "price_band": "mid",
+        "surface_band": "medium_50_90",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 482,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-carlos-silva-vildosola/28701794",
+        "comuna": "san_miguel",
+        "title": "Departamento en Carlos Silva Vildósola",
+        "price_clp_current": "114089584.00",
+        "currency_current": "UF",
+        "price_uf_source": null,
+        "price_uf_confidence": null,
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-06-08T10:37:28.616993+00:00",
+        "surface_m2": 31.0,
+        "price_band": "mid",
+        "surface_band": "small_lt_50",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 581,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-3-dorm-en-vitacura/32181594",
+        "comuna": "vitacura",
+        "title": "Departamento en venta de 3 dorm. en Vitacura",
+        "price_clp_current": "538146708.00",
+        "currency_current": "UF",
+        "price_uf_source": null,
+        "price_uf_confidence": null,
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-06-11T14:07:08.208594+00:00",
+        "surface_m2": 112.0,
+        "price_band": "high",
+        "surface_band": "large_gt_90",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 305,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/oportunidad-se-vende-departamento-de-2d2b-en-puerto-rodo-providencia/32309589",
+        "comuna": "providencia",
+        "title": "OPORTUNIDAD!! Se Vende Departamento de 2D2B en Puerto Rodó, Providencia",
+        "price_clp_current": "330226389.00",
+        "currency_current": "UF",
+        "price_uf_source": null,
+        "price_uf_confidence": null,
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-06-12T10:01:17.980363+00:00",
+        "surface_m2": 73.0,
+        "price_band": "high",
+        "surface_band": "medium_50_90",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 965,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-avenida-vicuna-mackenna-poniente/32101221",
+        "comuna": "la_florida",
+        "title": "Departamento en Avenida Vicuña Mackenna Poniente",
+        "price_clp_current": "126382939.00",
+        "currency_current": "UF",
+        "price_uf_source": null,
+        "price_uf_confidence": null,
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-06-12T10:01:42.011156+00:00",
+        "surface_m2": 50.0,
+        "price_band": "mid",
+        "surface_band": "medium_50_90",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      },
+      {
+        "listing_id": 1257,
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/venta-de-departamento-recoleta-3-dorm-estacionamiento-bod/32207806",
+        "comuna": "recoleta",
+        "title": "Venta de departamento Recoleta 3 dorm, Estacionamiento, Bod",
+        "price_clp_current": "122306070.00",
+        "currency_current": "UF",
+        "price_uf_source": null,
+        "price_uf_confidence": null,
+        "legacy_unrecoverable_reason": "legacy_uf_missing_price_uf",
+        "last_seen_at": "2026-06-12T10:02:06.128807+00:00",
+        "surface_m2": 62.0,
+        "price_band": "mid",
+        "surface_band": "medium_50_90",
+        "metadata_textual_uf_hint": false,
+        "metadata_uf_signal_kind": "structured_currency_only",
+        "refresh_priority": "medium",
+        "priority_reason": "url_available_for_future_controlled_refresh",
+        "visit_performed": false
+      }
+    ]
+  },
+  "phase5c_plan": {
+    "land_area": {
+      "apply_candidates": 25,
+      "review_candidates": 9,
+      "rejected_candidates": 0,
+      "expected_coverage_pct": 7.66,
+      "minimum_tests": "candidate fixture corpus, parser provenance, idempotency, row-count and before/after snapshot",
+      "rollback": "export listing_id and previous land_area_m2; one transaction; rollback on count/value mismatch",
+      "future_command": "python scripts/backfill_house_area_corrections.py --manifest <approved.json> --limit <N> --dry-run",
+      "safety_limits": "approved IDs only, one transaction, max rows equal manifest, no parser-wide apply"
+    },
+    "microzone": {
+      "persist_candidates": 25,
+      "soft_or_review_candidates": 30,
+      "recommendation": "prefer soft signals until a comuna-aware false-positive corpus passes",
+      "minimum_tests": "known metro/intersection positives and avenue/marketing false positives",
+      "rollback": "snapshot raw_metadata keys and restore only touched IDs in one transaction"
+    },
+    "duplicates": {
+      "diagnostic_groups": 35,
+      "recommendation": "add opt-in evaluator diagnostics before any exclusion behavior",
+      "measurement": "same split and seed; compare metrics, coverage and extreme errors with/without high-confidence dedupe"
+    },
+    "department_price_refresh": {
+      "pilot_recommended": true,
+      "pilot_size": 50,
+      "mode_order": "cache-only/no-external first, then separately approved limited network pilot",
+      "stop_conditions": "captcha/block, >10% parse errors, unexpected currency, missing real UF, or DB delta outside approved IDs",
+      "rollback": "snapshot canonical price/provenance fields and price history; transactional apply in a separate phase",
+      "success_metric": "valid strong canonical UF recovery rate >=37.42% with zero fallback UF and audited provenance"
+    }
+  },
+  "implementation_guardrails": {
+    "read_only": true,
+    "database_writes": 0,
+    "external_requests": 0,
+    "apply_mode": false,
+    "microzones_persisted": 0,
+    "land_area_updated": 0,
+    "duplicates_deleted": 0,
+    "uf_37000_operational": false,
+    "benchmark_default_changed": false
+  },
+  "preflight": {
+    "generated_at": "2026-06-13T16:36:11.003127+00:00",
+    "branch": "codex/phase5b-data-enrichment-dry-run-validation",
+    "head": "d32d6dd16c237764342bb24e1a228e79e7de119a",
+    "git_status": "clean",
+    "phase5a_report": "reports\\data_quality\\phase5a\\data_enrichment_audit_latest.json",
+    "phase5a_head": "5533bdf0f6dcc26999309b5068f5e549cbde25e4",
+    "database_mode": "select_only_session_with_explicit_rollback",
+    "external_requests": 0,
+    "remote_count": 0,
+    "recent_commits": [
+      "d32d6dd fix: complete phase5b validation diagnostics",
+      "b4b9a7c test: cover phase5b enrichment validation",
+      "8f708f9 feat: add phase5b enrichment candidate validation",
+      "5533bdf docs: add phase5a data enrichment audit",
+      "249e6d0 test: cover data enrichment audit"
+    ]
+  },
+  "tests": {
+    "new": {
+      "command": "python -m pytest tests/unit/test_data_enrichment_validation.py",
+      "result": "15 passed"
+    },
+    "phase5a": {
+      "command": "python -m pytest tests/unit/test_data_enrichment_audit.py",
+      "result": "9 passed"
+    },
+    "parser_refresh": {
+      "command": "python -m pytest tests/unit/test_yapo_parser.py tests/unit/test_portal_parser.py tests/unit/test_refresh_scraper_cli.py tests/unit/test_scraper_base.py",
+      "result": "91 passed"
+    },
+    "geocoding_microzone": {
+      "command": "python -m pytest tests/unit/test_geocoding_readiness_audit.py tests/unit/test_geographic_microzones.py tests/unit/test_microzones.py tests/unit/test_geocoding_quality.py tests/unit/test_geocode_precision_normalization.py tests/unit/test_diagnose_geocoding_quality.py",
+      "result": "40 passed"
+    },
+    "canonical_price": {
+      "command": "python -m pytest tests/unit/test_valuation_canonical_price.py tests/unit/test_product_classification.py tests/unit/test_robust_price_m2.py",
+      "result": "16 passed"
+    },
+    "evaluation_engines": {
+      "command": "python -m pytest tests/unit/test_valuation_evaluation_framework.py tests/unit/test_evaluate_valuation_engines_cli.py tests/unit/test_comparables_legacy_engine.py tests/unit/test_comparables_canonical_engine.py tests/unit/test_valuation_engine_registry.py tests/unit/test_valuation.py tests/unit/test_valuation_service.py",
+      "result": "62 passed"
+    },
+    "failed": 0,
+    "skipped": 0,
+    "total_passed": 233
+  },
+  "validation_signature": "89865dd600da8ddf1dd0dc11591bbeb03248948e5178de206d477e49b51ec32c"
+}
