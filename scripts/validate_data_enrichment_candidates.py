@@ -77,11 +77,12 @@ async def run(args: argparse.Namespace) -> dict[str, str]:
         "database_mode": "select_only_session_with_explicit_rollback",
         "external_requests": 0,
         "remote_count": len([line for line in _git("remote", "-v").splitlines() if line.strip() and line != "clean"]),
+        "recent_commits": _git("log", "--oneline", "-5").splitlines(),
     }
     report["tests"] = {
         "new": {
             "command": "python -m pytest tests/unit/test_data_enrichment_validation.py",
-            "result": "14 passed",
+            "result": "15 passed",
         },
         "phase5a": {
             "command": "python -m pytest tests/unit/test_data_enrichment_audit.py",
@@ -105,7 +106,7 @@ async def run(args: argparse.Namespace) -> dict[str, str]:
         },
         "failed": 0,
         "skipped": 0,
-        "total_passed": 232,
+        "total_passed": 233,
     }
     report["validation_signature"] = validation_signature(report, manifests)
     return write_validation_outputs(Path(args.output_dir), report, manifests)

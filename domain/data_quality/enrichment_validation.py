@@ -486,6 +486,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Rejected: `{land['rejected']}`",
         f"- Current coverage: `{land['current_coverage_pct']}%`",
         f"- Potential accepted coverage: `{land['potential_accepted_coverage_pct']}%`",
+        f"- Potential coverage including review cases: `{land['potential_with_review_coverage_pct']}%`",
         "",
         "## Land Mentions Without Numeric Value",
         "",
@@ -505,12 +506,15 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Review: `{microzone['review']}`",
         f"- Soft signal only: `{microzone['soft_signal_only']}`",
         f"- Rejected: `{microzone['rejected']}`",
+        f"- Persistence recommendation: `{microzone['persistence_recommendation']}`",
         "- No microzone was persisted.",
         "",
         "## Duplicates And Leakage",
         "",
         f"- Groups: `{duplicates['groups']}`",
         f"- Affected listings: `{duplicates['affected_listings']}`",
+        f"- Validated duplicate groups: `{duplicates['validated_duplicate_groups']}`",
+        f"- Validated affected listings: `{duplicates['validated_affected_listings']}`",
         f"- Classifications: `{duplicates['classification_counts']}`",
         f"- Proposal: `{duplicates['evaluator_proposal']}`",
         "",
@@ -519,6 +523,10 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Requested sample: `{refresh['requested']}`",
         f"- Selected: `{refresh['selected']}`",
         f"- Comunas represented: `{refresh['comunas_represented']}`",
+        f"- Price bands: `{refresh['price_bands']}`",
+        f"- Surface bands: `{refresh['surface_bands']}`",
+        f"- UF metadata signals: `{refresh['metadata_uf_signal_kinds']}`",
+        f"- Limitation: `{refresh['metadata_signal_limitation']}`",
         "- URLs were not visited.",
         "",
         "## Phase 5C Plan",
@@ -530,6 +538,18 @@ def markdown_report(report: dict[str, Any]) -> str:
     for name, payload in tests.items():
         if isinstance(payload, dict):
             lines.append(f"- `{name}`: `{payload.get('result')}` - `{payload.get('command')}`")
+    lines.extend(
+        (
+            "",
+            "## Git",
+            "",
+            f"- Branch: `{preflight.get('branch', 'pending')}`",
+            f"- HEAD at report generation: `{preflight.get('head', 'pending')}`",
+            f"- Working tree before report generation: `{preflight.get('git_status', 'pending') or 'clean'}`",
+            f"- Recent commits: `{preflight.get('recent_commits', [])}`",
+            f"- Configured remotes: `{preflight.get('remote_count', 0)}`",
+        )
+    )
     lines.extend(("", "## Guardrails", ""))
     lines.extend(f"- `{key}`: `{value}`" for key, value in report["implementation_guardrails"].items())
     return "\n".join(lines) + "\n"

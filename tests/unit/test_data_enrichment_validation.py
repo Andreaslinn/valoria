@@ -214,6 +214,17 @@ def test_validation_is_deterministic() -> None:
     )
 
 
+def test_validation_does_not_attempt_external_requests() -> None:
+    listing = _listing(1, raw_metadata={"description": "Superficie terreno 450 m2"})
+
+    with patch("socket.create_connection", side_effect=AssertionError("network call attempted")):
+        report, _ = build_enrichment_validation(
+            [listing], phase5a_report=_phase5a([listing]), uf_to_clp=UF
+        )
+
+    assert report["implementation_guardrails"]["external_requests"] == 0
+
+
 def test_outputs_include_json_manifests_and_utf8_sig_csv() -> None:
     listing = _listing(1, raw_metadata={"description": "Superficie terreno 450 m2"})
     report, manifests = build_enrichment_validation(
