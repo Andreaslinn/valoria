@@ -1,0 +1,319 @@
+{
+  "report": "phase1_canonical_latest",
+  "date": "2026-06-12",
+  "status": "completed_mixed",
+  "recommendation": "mixed",
+  "preflight": {
+    "source_branch": "codex/rebuild-valuation-engines-phase0b",
+    "source_commit": "9135fe34f218ac4a2adead5b8da98932d4ffa3ef",
+    "working_branch": "codex/phase1-comparables-canonical-quick-win",
+    "required_files_found": [
+      ".git",
+      "domain/valuation/engines/contracts.py",
+      "domain/valuation/engines/registry.py",
+      "domain/valuation/engines/legacy_comparables.py",
+      "domain/valuation/evaluation/",
+      "scripts/evaluate_valuation_engines.py",
+      "tests/unit/test_comparables_legacy_engine.py",
+      "reports/valuation_engine_benchmark/phase0b_legacy/valuation_engine_benchmark.json"
+    ],
+    "registry_before_phase1": {
+      "registered_engines": [
+        "comparables_legacy"
+      ],
+      "legacy_version": "phase0b_legacy_v1"
+    },
+    "baseline_reproduced": {
+      "command": "python scripts/evaluate_valuation_engines.py --engines comparables_legacy --output-dir reports/valuation_engine_benchmark/phase1_baseline",
+      "dataset_signature": "56460740a7619d1fc3d9eb5add54e118a5978ecaa19a817a8846577fdea02fc8",
+      "cases": 2740,
+      "successful": 2636,
+      "coverage_pct": 96.2,
+      "global_mape_pct": 24.72,
+      "global_median_ape_pct": 17.0,
+      "global_p90_ape_pct": 54.13,
+      "house_mape_pct": 33.45,
+      "house_median_ape_pct": 23.7,
+      "house_p90_ape_pct": 72.17
+    }
+  },
+  "design": {
+    "engine_name": "comparables_canonical",
+    "engine_version": "phase1_canonical_v1",
+    "registered_offline": true,
+    "production_connected": false,
+    "files": [
+      "domain/valuation/engines/canonical_comparables.py",
+      "domain/valuation/product_classification.py",
+      "domain/valuation/robust_price_m2.py"
+    ],
+    "canonical_price_rules": {
+      "allowed": [
+        "strong UF price",
+        "valid CLP converted with real UF from EngineContext"
+      ],
+      "excluded": [
+        "legacy_unrecoverable",
+        "artifact/fallback UF",
+        "estimated or low-confidence UF",
+        "null or non-positive price",
+        "disallowed legacy UF artifact rate"
+      ]
+    },
+    "product_classes": [
+      "standard_residential",
+      "land_or_site",
+      "demolition_candidate",
+      "needs_remodeling",
+      "commercial_use",
+      "investment_or_income",
+      "multi_unit",
+      "unknown"
+    ],
+    "robust_filter": {
+      "min_iqr_samples": 8,
+      "min_percentile_samples": 5,
+      "iqr_multiplier": 2.0,
+      "fallback_iqr_multiplier": 2.75,
+      "min_deviation_ratio": 0.35,
+      "max_deviation_ratio": 2.25,
+      "house_high_tail_ratio": 1.85,
+      "house_high_tail_enabled": true
+    },
+    "fallbacks": [
+      "relax robust threshold if final pool falls below MIN_COMPARABLES",
+      "do not recover product-incompatible candidates",
+      "return insufficient_data if still below MIN_COMPARABLES"
+    ],
+    "confidence_penalties": [
+      "low comparable count",
+      "statistical fallback",
+      "unknown target product class",
+      "weak geocode precision",
+      "large exclusion share"
+    ]
+  },
+  "ablation": {
+    "dataset_signature": "56460740a7619d1fc3d9eb5add54e118a5978ecaa19a817a8846577fdea02fc8",
+    "command": "python scripts/evaluate_valuation_engines.py --engines comparables_canonical_price_only,comparables_canonical_product,comparables_canonical_outliers,comparables_canonical --output-dir reports/valuation_engine_benchmark/phase1_canonical_ablation",
+    "variants_house": {
+      "canonical_price_only": {
+        "coverage_pct": 93.61,
+        "mape_pct": 32.86,
+        "median_ape_pct": 23.98,
+        "p90_ape_pct": 71.49,
+        "error_gt_50_pct": 19.12,
+        "error_gt_100_pct": 4.97
+      },
+      "canonical_plus_product": {
+        "coverage_pct": 79.73,
+        "mape_pct": 32.09,
+        "median_ape_pct": 23.63,
+        "p90_ape_pct": 68.61,
+        "error_gt_50_pct": 17.71,
+        "error_gt_100_pct": 4.55
+      },
+      "canonical_plus_outliers": {
+        "coverage_pct": 93.22,
+        "mape_pct": 30.81,
+        "median_ape_pct": 23.12,
+        "p90_ape_pct": 64.32,
+        "error_gt_50_pct": 16.75,
+        "error_gt_100_pct": 3.38
+      },
+      "canonical_full": {
+        "coverage_pct": 78.94,
+        "mape_pct": 29.88,
+        "median_ape_pct": 22.56,
+        "p90_ape_pct": 60.15,
+        "error_gt_50_pct": 14.79,
+        "error_gt_100_pct": 3.3
+      }
+    },
+    "interpretation": {
+      "main_gain_driver": "robust price/m2 outlier filtering",
+      "product_filter_effect": "helps tail risk but currently loses material coverage",
+      "full_variant_effect": "best error metrics, weakest coverage"
+    }
+  },
+  "benchmark": {
+    "command": "python scripts/evaluate_valuation_engines.py --engines comparables_legacy,comparables_canonical --output-dir reports/valuation_engine_benchmark/phase1_canonical",
+    "dataset_signature": "56460740a7619d1fc3d9eb5add54e118a5978ecaa19a817a8846577fdea02fc8",
+    "uf_to_clp": 40644.55,
+    "global": {
+      "legacy": {
+        "coverage_pct": 96.2,
+        "mape_pct": 24.72,
+        "median_ape_pct": 17.0,
+        "p90_ape_pct": 54.13,
+        "overvaluation_rate_pct": 55.84,
+        "error_gt_50_pct": 11.65,
+        "error_gt_100_pct": 2.62
+      },
+      "canonical": {
+        "coverage_pct": 85.26,
+        "mape_pct": 22.71,
+        "median_ape_pct": 16.99,
+        "p90_ape_pct": 47.38,
+        "overvaluation_rate_pct": 47.6,
+        "error_gt_50_pct": 8.3,
+        "error_gt_100_pct": 1.63
+      }
+    },
+    "segments": {
+      "apartment": {
+        "legacy": {
+          "coverage_pct": 97.28,
+          "mape_pct": 17.38,
+          "median_ape_pct": 12.88,
+          "p90_ape_pct": 36.73
+        },
+        "canonical": {
+          "coverage_pct": 90.69,
+          "mape_pct": 17.33,
+          "median_ape_pct": 13.79,
+          "p90_ape_pct": 36.0
+        }
+      },
+      "house": {
+        "legacy": {
+          "coverage_pct": 94.95,
+          "mape_pct": 33.45,
+          "median_ape_pct": 23.7,
+          "p90_ape_pct": 72.17,
+          "overvaluation_rate_pct": 56.81,
+          "error_gt_50_pct": 20.43,
+          "error_gt_100_pct": 5.15
+        },
+        "canonical": {
+          "coverage_pct": 78.94,
+          "mape_pct": 29.88,
+          "median_ape_pct": 22.56,
+          "p90_ape_pct": 60.15,
+          "overvaluation_rate_pct": 50.85,
+          "error_gt_50_pct": 14.79,
+          "error_gt_100_pct": 3.3
+        }
+      },
+      "house_with_land": {
+        "legacy": {
+          "coverage_pct": 97.75,
+          "mape_pct": 25.7,
+          "median_ape_pct": 17.35,
+          "p90_ape_pct": 50.39
+        },
+        "canonical": {
+          "coverage_pct": 57.3,
+          "mape_pct": 24.05,
+          "median_ape_pct": 14.46,
+          "p90_ape_pct": 48.03
+        }
+      },
+      "house_without_land": {
+        "legacy": {
+          "coverage_pct": 94.74,
+          "mape_pct": 34.05,
+          "median_ape_pct": 24.28,
+          "p90_ape_pct": 74.58
+        },
+        "canonical": {
+          "coverage_pct": 80.58,
+          "mape_pct": 30.19,
+          "median_ape_pct": 22.73,
+          "p90_ape_pct": 60.51
+        }
+      }
+    },
+    "intersection": {
+      "cases": 2336,
+      "legacy_mape_pct": 23.59,
+      "canonical_mape_pct": 22.71,
+      "legacy_p90_pct": 51.39,
+      "canonical_p90_pct": 47.38,
+      "legacy_error_gt_50_pct": 10.45,
+      "canonical_error_gt_50_pct": 8.3
+    }
+  },
+  "quick_win": {
+    "house_mape_improvement_pp": 3.57,
+    "capture_of_2pp_estimate_pct": 178.5,
+    "house_coverage_change_pp": -16.01,
+    "house_p90_change_pp": -12.02,
+    "house_overvaluation_change_pp": -5.96,
+    "house_error_gt_50_change_pp": -5.64,
+    "house_error_gt_100_change_pp": -1.85
+  },
+  "large_error_diagnostics": {
+    "house_corrected_gt50_count": 60,
+    "house_worsened_to_gt50_count": 18,
+    "house_improved_by_10pp_count": 182,
+    "house_worsened_by_10pp_count": 119,
+    "canonical_house_errors": {
+      "insufficient_data": 267
+    },
+    "canonical_house_exclusions_top": {
+      "legacy_unrecoverable": 9234,
+      "product_incompatible": 4586,
+      "price_m2_high_outlier": 1200,
+      "price_m2_low_outlier": 175,
+      "land_outside_tolerance": 97
+    },
+    "high_outlier_cases_with_effect": 603,
+    "high_outlier_avg_estimate_delta_pct": 7.56
+  },
+  "tests": [
+    {
+      "command": "pytest tests/unit/test_valuation_evaluation_framework.py tests/unit/test_product_classification.py tests/unit/test_robust_price_m2.py tests/unit/test_comparables_canonical_engine.py tests/unit/test_valuation_engine_registry.py",
+      "passed": 23,
+      "failed": 0,
+      "errors": 0
+    },
+    {
+      "command": "pytest tests/unit/test_product_classification.py tests/unit/test_robust_price_m2.py tests/unit/test_comparables_canonical_engine.py tests/unit/test_valuation_engine_registry.py tests/unit/test_valuation_evaluation_framework.py tests/unit/test_evaluate_valuation_engines_cli.py",
+      "passed": 23,
+      "failed": 0,
+      "errors": 0
+    },
+    {
+      "command": "pytest tests/unit/test_valuation.py tests/unit/test_valuation_service.py tests/unit/test_valuation_reliability.py tests/unit/test_comparable_quality.py tests/unit/test_comparable_metrics.py tests/unit/test_price_surface.py tests/unit/test_valuation_canonical_mode.py tests/unit/test_valuation_canonical_price.py tests/unit/test_comparables_legacy_engine.py",
+      "passed": 95,
+      "failed": 0,
+      "errors": 0
+    },
+    {
+      "command": "pytest tests/unit",
+      "passed": 968,
+      "failed": 2,
+      "errors": 7,
+      "preexisting_failures": [
+        "tests/unit/test_nominatim_client.py::test_address_metadata_wins",
+        "tests/unit/test_nominatim_client.py::test_address_fallback_selection"
+      ],
+      "preexisting_errors": [
+        "tests/unit/test_create_release_zip.py tmp_path PermissionError for C:/Users/heiko/AppData/Local/Temp/pytest-of-heiko"
+      ]
+    }
+  ],
+  "git": {
+    "head_before_report_commit": "c854faf1a550798d0706fb139732e6e0ea143178",
+    "commits": [
+      "32feb18 feat: add deterministic property product classification",
+      "0728176 feat: add canonical comparable selection and robust filtering",
+      "34ecfb6 test: cover canonical comparable engine",
+      "cb4308e fix: preserve uf artifact guardrail in canonical engine",
+      "c854faf fix: stabilize valuation evaluation dataset order"
+    ]
+  },
+  "guardrails": {
+    "db_modified": false,
+    "migrations_created_or_executed": false,
+    "production_changed": false,
+    "comparables_legacy_modified": false,
+    "legacy_weights_or_filters_modified": false,
+    "canonical_connected_to_valuation_service": false,
+    "target_actual_price_used_for_selection": false,
+    "other_engines_implemented": false,
+    "remote_configured": false,
+    "push_performed": false
+  }
+}
