@@ -28,13 +28,19 @@ from domain.valuation.robust_price_m2 import RobustFilterConfig, robust_filter_l
 from services.formatting import price_clp_int
 
 _DISALLOWED_UF_ARTIFACT_RATE = Decimal(37) * Decimal(1000)
+CANONICAL_ENGINE_VERSION = "phase1_canonical_v1"
+CANONICAL_OUTLIERS_ENGINE_VERSION = "phase4a_canonical_outliers_v1"
 
 
 @dataclass(frozen=True)
 class CanonicalComparableConfig:
     variant: str = "full"
+    config_version: str = CANONICAL_ENGINE_VERSION
+    engine_version: str = CANONICAL_ENGINE_VERSION
+    canonical_price_enabled: bool = True
     enable_product_filter: bool = True
     enable_robust_filter: bool = True
+    product_hard_filtering_mode: str = "strict"
     min_comparables: int = MIN_COMPARABLES
     top_n: int = TOP_N_COMPARABLES
     robust_filter: RobustFilterConfig = RobustFilterConfig()
@@ -42,11 +48,18 @@ class CanonicalComparableConfig:
     @classmethod
     def for_variant(cls, variant: str) -> "CanonicalComparableConfig":
         if variant == "price_only":
-            return cls(variant=variant, enable_product_filter=False, enable_robust_filter=False)
+            return cls(variant=variant, enable_product_filter=False, enable_robust_filter=False, product_hard_filtering_mode="disabled")
         if variant == "product":
             return cls(variant=variant, enable_product_filter=True, enable_robust_filter=False)
         if variant == "outliers":
-            return cls(variant=variant, enable_product_filter=False, enable_robust_filter=True)
+            return cls(
+                variant=variant,
+                config_version=CANONICAL_OUTLIERS_ENGINE_VERSION,
+                engine_version=CANONICAL_OUTLIERS_ENGINE_VERSION,
+                enable_product_filter=False,
+                enable_robust_filter=True,
+                product_hard_filtering_mode="disabled",
+            )
         if variant == "full":
             return cls(variant=variant, enable_product_filter=True, enable_robust_filter=True)
         raise ValueError(f"unknown canonical variant: {variant}")
@@ -54,11 +67,12 @@ class CanonicalComparableConfig:
 
 class ComparablesCanonicalEngine:
     name = "comparables_canonical"
-    version = "phase1_canonical_v1"
+    version = CANONICAL_ENGINE_VERSION
 
     def __init__(self, *, name: str | None = None, variant: str = "full") -> None:
         self.name = name or self.name
         self.config = CanonicalComparableConfig.for_variant(variant)
+        self.version = self.config.engine_version
 
     def valuate(self, request: EngineRequest, context: EngineContext) -> EngineResult:
         try:
@@ -309,6 +323,7 @@ class ComparablesCanonicalEngine:
             "base_estimated_price_clp": base_estimated_clp,
             "base_estimated_price_uf": _clp_to_uf(base_estimated_clp, uf_to_clp),
             "base_confidence": base_confidence.value,
+            "confidence_penalties": _confidence_penalties(diagnostics=diagnostics, target=target, selected_count=len(scored)),
             "confidence_label": confidence_contract.confidence_label,
             "confidence_reasons": list(confidence_contract.confidence_reasons),
             "confidence_risk_flags": list(confidence_contract.confidence_risk_flags),
@@ -358,26 +373,61 @@ class _Diagnostics:
             bucket.append(_candidate_key(listing))
 
     def to_dict(self, *, config: CanonicalComparableConfig, selected: Sequence[EngineComparable]) -> dict[str, Any]:
+        pool = dict(self.pool)
+        exclusions = dict(sorted(self.exclusions.items()))
+        local_reference = dict(self.local_reference)
+        result = dict(self.result)
+        flat_diagnostics = {
+            "variant": config.variant,
+            "config_version": config.config_version,
+            "canonical_price_enabled": config.canonical_price_enabled,
+            "product_filter_enabled": config.enable_product_filter,
+            "robust_filter_enabled": config.enable_robust_filter,
+            "product_hard_filtering_mode": config.product_hard_filtering_mode,
+            "candidates_loaded": pool.get("candidates_loaded", 0),
+            "structurally_eligible": pool.get("candidates_structurally_eligible", 0),
+            "canonical_price_usable": pool.get("canonical_price_usable", 0),
+            "robust_filter_input": pool.get("robust_filter_input", 0),
+            "robust_filter_output": pool.get("robust_filter_output", 0),
+            "high_outliers_excluded": exclusions.get("price_m2_high_outlier", 0),
+            "low_outliers_excluded": exclusions.get("price_m2_low_outlier", 0),
+            "fallback_applied": bool(result.get("comparables_recovered_by_fallback")),
+            "selected_comparables": pool.get("selected_comparables", len(selected)),
+            "local_reference_level": local_reference.get("local_reference_level"),
+            "local_median_price_m2": local_reference.get("local_median_price_m2"),
+            "lower_threshold": local_reference.get("lower_threshold"),
+            "upper_threshold": local_reference.get("upper_threshold"),
+            "threshold_method": local_reference.get("method"),
+            "confidence_penalties": result.get("confidence_penalties", []),
+            "comparables_used": len(selected),
+            "price_basis_by_comparable": dict(self.price_basis_by_comparable),
+            "estimate_before_outlier_filter": result.get("estimate_before_robust_filter"),
+            "estimate_after_outlier_filter": result.get("estimate_after_robust_filter"),
+        }
         return {
+            **flat_diagnostics,
             "engine_config": {
-                "version": ComparablesCanonicalEngine.version,
+                "version": config.engine_version,
                 "variant": config.variant,
+                "config_version": config.config_version,
+                "canonical_price_enabled": config.canonical_price_enabled,
                 "enable_product_filter": config.enable_product_filter,
                 "enable_robust_filter": config.enable_robust_filter,
+                "product_hard_filtering_mode": config.product_hard_filtering_mode,
                 "min_comparables": config.min_comparables,
                 "top_n": config.top_n,
                 "robust_filter": asdict(config.robust_filter),
             },
-            "pool": dict(self.pool),
-            "exclusions": dict(sorted(self.exclusions.items())),
+            "pool": pool,
+            "exclusions": exclusions,
             "exclusion_ids": dict(self.exclusion_ids),
-            "local_reference": dict(self.local_reference),
+            "local_reference": local_reference,
             "product": {
                 **self.product,
                 "candidate_product_class": self.product_classes,
                 "candidates_excluded_by_class": self.product_exclusions,
             },
-            "result": dict(self.result),
+            "result": result,
             "selected_comparable_fingerprints": [item.fingerprint for item in selected],
         }
 
@@ -463,19 +513,26 @@ def _confidence(scored: Sequence[tuple[Score, Listing]], target: Property) -> Sc
 
 def _penalized_confidence(value: float, *, diagnostics: _Diagnostics, target: Property, selected_count: int) -> Score:
     factor = 1.0
+    for penalty in _confidence_penalties(diagnostics=diagnostics, target=target, selected_count=selected_count):
+        factor *= float(penalty["factor"])
+    return Score.clamped(max(0.0, min(1.0, value * factor)))
+
+
+def _confidence_penalties(*, diagnostics: _Diagnostics, target: Property, selected_count: int) -> list[dict[str, Any]]:
+    penalties: list[dict[str, Any]] = []
     if selected_count < 8:
-        factor *= 0.90
+        penalties.append({"code": "few_selected_comparables", "factor": 0.90})
     if diagnostics.local_reference.get("method") in {"sample_too_small", "disabled"}:
-        factor *= 0.92
+        penalties.append({"code": "weak_robust_reference", "factor": 0.92})
     if diagnostics.product.get("target_product_class") == PRODUCT_UNKNOWN:
-        factor *= 0.90
+        penalties.append({"code": "target_product_class_unknown", "factor": 0.90})
     if str(getattr(target, "geocode_precision", "") or "unknown").lower() not in {"address", "street"}:
-        factor *= 0.92
+        penalties.append({"code": "low_geocode_precision", "factor": 0.92})
     excluded = sum(diagnostics.exclusions.values())
     loaded = diagnostics.pool.get("candidates_loaded") or 0
     if loaded and excluded / loaded > 0.5:
-        factor *= 0.93
-    return Score.clamped(max(0.0, min(1.0, value * factor)))
+        penalties.append({"code": "high_exclusion_rate", "factor": 0.93})
+    return penalties
 
 
 def _strict_price_exclusion(listing: Listing, basis: ValuationPriceBasis, uf_to_clp: Decimal) -> str | None:
