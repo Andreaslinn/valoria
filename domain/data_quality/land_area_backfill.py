@@ -581,8 +581,8 @@ def final_markdown(report: dict[str, Any]) -> str:
         "",
         "## Benchmark Comparison",
         "",
-        "| Engine | Segment | F4A MAPE | F5C MAPE | F4A Median | F5C Median | F4A P90 | F5C P90 | F4A Coverage | F5C Coverage |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Engine | Segment | F4A MAPE | F5C MAPE | F4A Median | F5C Median | F4A P90 | F5C P90 | F4A >50 | F5C >50 | F4A >100 | F5C >100 | F4A Coverage | F5C Coverage |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for engine, segments in comparison.items():
         for segment, values in segments.items():
@@ -592,6 +592,8 @@ def final_markdown(report: dict[str, Any]) -> str:
                 f"| `{engine}` | `{segment}` | {before.get('mape_pct')} | {after.get('mape_pct')} | "
                 f"{before.get('median_ape_pct')} | {after.get('median_ape_pct')} | "
                 f"{before.get('p90_ape_pct')} | {after.get('p90_ape_pct')} | "
+                f"{before.get('error_gt_50_pct')} | {after.get('error_gt_50_pct')} | "
+                f"{before.get('error_gt_100_pct')} | {after.get('error_gt_100_pct')} | "
                 f"{before.get('coverage_pct')} | {after.get('coverage_pct')} |"
             )
     lines.extend(("", "## Rollback", "", f"- `{report['rollback']}`", "", "## Tests", ""))

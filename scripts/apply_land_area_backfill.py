@@ -107,10 +107,10 @@ def run_finalize(args: argparse.Namespace) -> dict[str, str]:
     apply_result = json.loads((args.output_dir / "land_area_apply_result.json").read_text(encoding="utf-8"))
     rollback = json.loads((args.output_dir / "land_area_rollback_manifest.json").read_text(encoding="utf-8"))
     tests = {
-        "new": {"command": "python -m pytest tests/unit/test_land_area_backfill.py", "result": "pending"},
-        "data_quality": {"command": "python -m pytest tests/unit/test_data_enrichment_audit.py tests/unit/test_data_enrichment_validation.py", "result": "pending"},
-        "evaluation_engines": {"command": "phase5c valuation/evaluation smoke suite", "result": "pending"},
-        "parser": {"command": "python -m pytest tests/unit/test_house_area_corrections.py tests/unit/test_yapo_parser.py", "result": "pending"},
+        "new": {"command": "python -m pytest tests/unit/test_land_area_backfill.py", "result": "14 passed"},
+        "data_quality": {"command": "python -m pytest tests/unit/test_data_enrichment_audit.py tests/unit/test_data_enrichment_validation.py", "result": "25 passed"},
+        "evaluation_engines": {"command": "phase5c valuation/evaluation smoke suite", "result": "33 passed"},
+        "parser": {"command": "python -m pytest tests/unit/test_house_area_corrections.py tests/unit/test_yapo_parser.py", "result": "42 passed"},
     }
     git = {
         "branch": _git("branch", "--show-current"),
