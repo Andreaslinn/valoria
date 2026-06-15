@@ -1,0 +1,405 @@
+{
+  "report": "scraper_vs_backfill_audit",
+  "generated_date": "2026-06-15",
+  "scope": {
+    "primary_source": "yapo",
+    "secondary_source": "portalinmobiliario_gap_only",
+    "mode": "read_only_static_audit",
+    "database_consulted": false,
+    "external_requests": 0
+  },
+  "preflight": {
+    "branch": "codex/phase5c-apply-land-area-backfill",
+    "head": "80b7c260e84b27ac4c7684f8493207d9f66ce490",
+    "worktree_before_report": "clean",
+    "index_before_report": "clean",
+    "configured_remotes": 0,
+    "database_status": "unavailable_not_consulted",
+    "database_modified": false,
+    "scraping_executed": false,
+    "migrations_or_apply": false,
+    "production_code_modified": false,
+    "push_performed": false
+  },
+  "evidence_basis": {
+    "coverage_source": "versioned_phase5a_phase5b_phase5c_snapshots",
+    "coverage_snapshot_date": "2026-06-15",
+    "flow_findings_source": "static_code_inspection",
+    "limitation": "Coverage metrics are not a fresh database measurement. Refresh candidate ceilings are opportunities, not guaranteed recoveries."
+  },
+  "decision": {
+    "classification": "hybrid",
+    "priority_order": [
+      "scraper_first",
+      "targeted_refresh",
+      "residual_backfill"
+    ],
+    "rationale": "Future capture prevents recurring debt; targeted refresh can recover historical source evidence; manual backfill remains useful only for finite high-confidence local evidence."
+  },
+  "key_metrics": {
+    "active_houses": 1293,
+    "house_land_before": {
+      "count": 74,
+      "coverage_pct": 5.72
+    },
+    "house_land_after_phase5c": {
+      "count": 99,
+      "coverage_pct": 7.66,
+      "applied_rows": 25,
+      "percentage_point_delta": 1.94,
+      "material_mape_improvement": false
+    },
+    "house_land_refresh_candidates": 565,
+    "house_land_refresh_theoretical_ceiling_pct": 52.05,
+    "active_apartments": 1487,
+    "apartment_canonical_price": {
+      "count": 539,
+      "coverage_pct": 36.25,
+      "native_uf_count": 329,
+      "canonical_clp_converted_count": 210
+    },
+    "apartment_price_refresh_candidates": 946,
+    "apartment_price_refresh_candidate_pct": 63.62,
+    "recoveries_needed_for_60_pct": 354,
+    "required_refresh_yield_pct": 37.42
+  },
+  "current_flow": {
+    "yapo_card": {
+      "captures": [
+        "title",
+        "location/comuna",
+        "url",
+        "external_id",
+        "visible_price",
+        "original_currency",
+        "generic_m2",
+        "bedrooms_positional",
+        "bathrooms_positional",
+        "parking_positional",
+        "seller",
+        "price_reduction",
+        "hallmark",
+        "target_metadata",
+        "geo_signal_candidates"
+      ],
+      "persists": [
+        "title",
+        "comuna",
+        "property_type_from_target",
+        "generic_m2",
+        "bedrooms",
+        "bathrooms",
+        "parking",
+        "price_clp",
+        "currency_original_metadata",
+        "url",
+        "raw_metadata_subset"
+      ],
+      "loses": [
+        "native_price_uf_amount",
+        "differentiated_area_fields",
+        "stable_raw_card_text",
+        "field_observed_vs_defaulted_state",
+        "parser_selector_and_layout_provenance"
+      ]
+    },
+    "yapo_detail": {
+      "captures": [
+        "price_candidates_from_visible_meta_selectors_jsonld",
+        "native_price_uf",
+        "built_area_m2",
+        "land_area_m2",
+        "usable_area_m2",
+        "bedrooms",
+        "bathrooms",
+        "parking",
+        "comuna",
+        "description_meta",
+        "geo_signals"
+      ],
+      "loses": [
+        "raw_html_snapshot",
+        "raw_jsonld_payload",
+        "all_price_and_attribute_candidates",
+        "winning_selector_provenance",
+        "stable_full_detail_text",
+        "explicit_clp_currency_on_detail_result"
+      ],
+      "operational_use": "direct_url_refresh_and_point_lookup_not_periodic_discovery"
+    },
+    "cleaning_and_orm": {
+      "schema_supports_strategic_fields": true,
+      "area_provenance_supported": true,
+      "metadata_merge": "non_destructive_new_keys_win",
+      "structured_update_policy": "replacement",
+      "geocode_update_policy": "quality_guarded"
+    },
+    "refresh": {
+      "uses_yapo_detail_parser": true,
+      "current_priority": [
+        "active_watchlist",
+        "recent_active",
+        "older_active",
+        "last_review"
+      ],
+      "available_missing_field_filter": [
+        "coordinates_only"
+      ],
+      "missing_strategic_filters": [
+        "land_area_m2",
+        "price_uf",
+        "description",
+        "weak_area_provenance"
+      ],
+      "non_degradation_guarded_fields": [
+        "coordinates",
+        "geocode_precision"
+      ],
+      "non_degradation_unguarded_fields": [
+        "m2",
+        "built_area_m2",
+        "land_area_m2",
+        "usable_area_m2",
+        "bedrooms",
+        "bathrooms",
+        "parking"
+      ]
+    },
+    "portalinmobiliario_gap": "No equivalent detail parser was found. Direct-URL refresh passes detail HTML to the list/card parser and selects the first item."
+  },
+  "critical_fields": [
+    {
+      "field": "land_area_m2",
+      "current_source": "yapo_detail_structured_or_text_and_cleaning_from_local_metadata",
+      "coverage": "houses 74/1293 before phase5c; 99/1293 after phase5c",
+      "reliability": "high_for_explicit_label_medium_or_low_for_ambiguous_pairs",
+      "information_loss": "periodic_new_listing_path_does_not_visit_detail",
+      "improvement": "prioritized_detail_for_new_houses_and_missing_land_refresh"
+    },
+    {
+      "field": "built_area_m2",
+      "current_source": "generic_card_m2_fallback_or_labeled_detail",
+      "coverage": "houses 99.85%; apartments 100% in phase5a",
+      "reliability": "medium_due_to_generic_card_semantics",
+      "information_loss": "card_does_not_distinguish_built_usable_total",
+      "improvement": "persist_label_source_and_protect_explicit_values"
+    },
+    {
+      "field": "usable_area_m2",
+      "current_source": "labeled_detail_or_apartment_fallback",
+      "coverage": "apartments 100%; houses 0.15% in phase5a",
+      "reliability": "medium_for_apartments_due_to_fallback",
+      "information_loss": "usable_and_built_can_collapse_to_same_value",
+      "improvement": "retain_distinct_observed_values_and_provenance"
+    },
+    {
+      "field": "bedrooms",
+      "current_source": "card_position_or_detail_label_text",
+      "coverage": "100% structural feature coverage in phase5a",
+      "reliability": "medium",
+      "information_loss": "zero_can_mean_missing_and_card_order_can_drift",
+      "improvement": "observed_vs_defaulted_flag_and_labeled_source"
+    },
+    {
+      "field": "bathrooms",
+      "current_source": "card_position_or_detail_label_text",
+      "coverage": "100% structural feature coverage in phase5a",
+      "reliability": "medium",
+      "information_loss": "zero_can_mean_missing_and_card_order_can_drift",
+      "improvement": "observed_vs_defaulted_flag_and_non_destructive_refresh"
+    },
+    {
+      "field": "parking",
+      "current_source": "card_position_or_detail_label_text",
+      "coverage": "100% structural feature coverage in phase5a",
+      "reliability": "medium_low",
+      "information_loss": "missing_is_defaulted_to_zero",
+      "improvement": "distinguish_missing_from_zero_and_use_labels_or_structured_metadata"
+    },
+    {
+      "field": "price_uf",
+      "current_source": "card_parser_knows_amount_but_discards_it; detail_returns_it",
+      "coverage": "apartments native UF 329/1487",
+      "reliability": "high_when_native_amount_is_preserved",
+      "information_loss": "card_converts_to_clp_without_returning_native_amount",
+      "improvement": "persist_native_uf_and_full_provenance_from_card"
+    },
+    {
+      "field": "price_clp",
+      "current_source": "native_clp_or_uf_conversion",
+      "coverage": "required_by_orm; semantic_native_vs_snapshot_coverage_not_separately_quantified",
+      "reliability": "high_native_clp_display_only_when_derived_from_uf",
+      "information_loss": "original_and_converted_clp_not_always_distinguished",
+      "improvement": "separate_clp_snapshot_currency_original_and_uf_rate_used"
+    },
+    {
+      "field": "original_currency",
+      "current_source": "card_metadata; incomplete_detail_contract",
+      "coverage": "not_quantified_globally",
+      "reliability": "high_when_card_metadata_exists",
+      "information_loss": "detail_clp_result_does_not_explicitly_return_currency",
+      "improvement": "uniform_explicit_currency_contract_for_all_parsers"
+    },
+    {
+      "field": "address_geocoding",
+      "current_source": "title_url_location_card_detail_and_separate_geocoder",
+      "coverage": "useful geocode houses 50.27%; apartments 44.52% in phase5a",
+      "reliability": "low_medium_without_verified_coordinates",
+      "information_loss": "exact_address_and_text_hint_can_be_conflated_before_normalization",
+      "improvement": "retain_candidates_and_geocode_separately_with_cache_and_guardrails"
+    },
+    {
+      "field": "microzone_signals",
+      "current_source": "title_and_metadata_derived_on_read_or_persisted_candidates",
+      "coverage": "houses 18.33%; apartments 19.23% in phase5a",
+      "reliability": "medium_for_specific_metro_or_intersection_low_for_generic_avenues",
+      "information_loss": "detail_text_not_stably_retained_and_derived_metadata_may_not_be_persisted",
+      "improvement": "persist_accepted_versioned_signals_and_separate_soft_signals"
+    },
+    {
+      "field": "product_classification",
+      "current_source": "structured_type_and_available_title_description_card_detail_text",
+      "coverage": "100% class emitted in phase5a",
+      "reliability": "variable",
+      "information_loss": "full_coverage_does_not_mean_rich_source_evidence",
+      "improvement": "persist_strength_terms_and_fields_used"
+    },
+    {
+      "field": "raw_title_description_html_metadata",
+      "current_source": "title_column_meta_description_partial_json_metadata_no_html",
+      "coverage": "title required; description richness not quantified; raw HTML 0% by observed design",
+      "reliability": "partial",
+      "information_loss": "cannot_reparse_full_page_after_layout_change_or_listing_removal",
+      "improvement": "bounded_text_hash_and_versioned_envelope_with_selective_external_html_snapshots"
+    }
+  ],
+  "strategy_comparison": [
+    {
+      "strategy": "improve_future_scraper",
+      "expected_value": "high_compounding",
+      "risk": "medium",
+      "conclusion": "highest_priority"
+    },
+    {
+      "strategy": "targeted_historical_refresh",
+      "expected_value": "high_if_measured_yield_passes_gate",
+      "risk": "medium_high",
+      "conclusion": "second_priority_pilot_first"
+    },
+    {
+      "strategy": "manual_backfill",
+      "expected_value": "finite_low_to_medium",
+      "risk": "low_per_batch_high_human_cost",
+      "conclusion": "residual_only"
+    }
+  ],
+  "plan": {
+    "quick_wins_safe": [
+      "persist_native_uf_currency_rate_and_provenance_from_cards",
+      "mark_clp_as_native_when_original",
+      "add_field_observed_defaulted_source_parser_version_provenance",
+      "retain_bounded_raw_title_description_text_and_hash",
+      "prevent_refresh_absence_from_erasing_valid_physical_fields",
+      "emit_per_run_field_coverage_and_default_metrics"
+    ],
+    "medium_changes": [
+      "limited_detail_queue_for_new_houses_and_uf_cards",
+      "refresh_filters_for_missing_strategic_fields",
+      "value_based_refresh_prioritization",
+      "versioned_structured_metadata_envelope",
+      "real_layout_fixture_corpus",
+      "separate_persisted_and_derived_microzone_coverage"
+    ],
+    "risky_changes": [
+      "synchronous_detail_for_every_card",
+      "mass_refresh",
+      "full_html_inside_raw_metadata",
+      "broad_selectors_without_fixture_corpus",
+      "unconditional_field_replacement"
+    ],
+    "do_not_touch_yet": [
+      "valuation_engines",
+      "endpoints",
+      "ui",
+      "orm_schema",
+      "mass_external_geocoding",
+      "weak_inference_backfills",
+      "automatic_duplicate_deletion"
+    ]
+  },
+  "production_risks": [
+    "rate_limit_or_blocking",
+    "html_selector_drift",
+    "price_per_m2_or_expense_misparse",
+    "refresh_field_degradation",
+    "uf_conversion_price_artifacts",
+    "false_removal_from_redirect_or_captcha",
+    "fingerprint_or_property_reassignment",
+    "raw_snapshot_storage_and_privacy_growth",
+    "overconfident_product_classification_from_partial_text"
+  ],
+  "next_phase": {
+    "name": "phase6a_read_only_detail_yield_pilot",
+    "sample": {
+      "houses_missing_land_area": 50,
+      "apartments_missing_strong_canonical_price": 50,
+      "max_total_urls": 100
+    },
+    "database_writes": false,
+    "purpose": "measure_real_detail_yield_before_production_changes_or_historical_apply",
+    "metrics": [
+      "fetch_success_pct",
+      "blocked_pct",
+      "parse_error_pct",
+      "land_area_yield_pct",
+      "strong_native_uf_yield_pct",
+      "description_and_geo_signal_yield",
+      "field_conflict_and_degradation_candidates"
+    ],
+    "stop_conditions": [
+      "persistent_captcha",
+      "any_429",
+      "repeated_403",
+      "parse_error_pct_above_10",
+      "unexpected_currency",
+      "evidence_of_wrong_selector"
+    ],
+    "advance_gate": "strong apartment UF yield >= 37.42%, zero fallback UF, and house land yield high enough to justify controlled batches"
+  },
+  "validation": {
+    "focused_suite": "235 passed in 7.34s",
+    "new_tool_added": false,
+    "json_validation_command": "python -m json.tool reports/scraper_strategy/scraper_vs_backfill_audit_latest.json",
+    "md_json_consistency_required": [
+      "key_metrics",
+      "classification_hybrid",
+      "priority_order"
+    ]
+  },
+  "source_references": [
+    "infrastructure/scrapers/yapo.py",
+    "workers/scraper_job.py",
+    "workers/refresh_scraper.py",
+    "domain/ingestion/data_cleaning.py",
+    "domain/ingestion/pipeline.py",
+    "infrastructure/db/models.py",
+    "infrastructure/db/mappers.py",
+    "domain/valuation/canonical_price.py",
+    "domain/geocoding/geo_signals.py",
+    "domain/geocoding/microzones.py",
+    "domain/valuation/product_classification.py",
+    "reports/data_quality/phase5a/data_enrichment_audit_latest.md",
+    "reports/data_quality/phase5b/data_enrichment_validation_latest.md",
+    "reports/data_quality/phase5c/land_area_backfill_latest.md"
+  ],
+  "guardrails": {
+    "only_requested_reports_created": true,
+    "database_queries": 0,
+    "database_writes": 0,
+    "external_api_calls": 0,
+    "scraping_requests": 0,
+    "migrations": 0,
+    "production_changes": false,
+    "push": false
+  }
+}
