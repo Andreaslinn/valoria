@@ -44,7 +44,7 @@ estacion_central,1.0,specific_known_geographic_signal,address_label=Metro Centra
 estacion_central,1.0,specific_known_geographic_signal,address_label=Metro Central | street_hint=Metro Central | location_text=Estación Central | location=Estación Central,text_microzone_signal,low,1279,metro:central,False,apartment,accept_high_confidence,metro:central,metro,yapo,metadata,Departamento en Coronel Godoy
 las_condes,1.0,valid_but_not_unique_within_comuna,Casa en Avenida Tomás Moro,text_microzone_signal,medium,1365,avenue:tomas moro,False,house,use_only_as_soft_signal,avenue:tomas moro,avenue,yapo,title,Casa en Avenida Tomás Moro
 penalolen,1.0,valid_but_not_unique_within_comuna,"Venta de Casas en Peñalolén : Venta Casa: Comuna de Peñalolén
-Sector:  El Valle con Caletera Américo Vespucio 
+Sector:  El Valle con Caletera Américo Vespucio
 
 Contáctame ... : 3 Dormitorios por 125000000.00 en venta",text_microzone_signal,medium,1524,avenue:americo vespucio,False,house,use_only_as_soft_signal,avenue:americo vespucio,avenue,yapo,description,VENTA CASA: COMUNA PEÑALOLEN
 estacion_central,1.0,specific_known_geographic_signal,address_label=Metro central | street_hint=Metro central | location_text=Estación Central | location=Estación Central,text_microzone_signal,low,1606,metro:central,False,house,accept_high_confidence,metro:central,metro,yapo,metadata,Venta Casa Estación. Central 3D+1B  (159884)

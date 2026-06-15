@@ -3,7 +3,7 @@
 ## Preflight
 
 - Branch: `codex/phase5b-data-enrichment-dry-run-validation`
-- HEAD: `6e3cf04f813e5262dac4ad8c07ef346084f89d1d`
+- HEAD: `e53892e9c7e650a6a1844c26b94754585e7c873f`
 - Git status before generation: `clean`
 - Phase 5A signature matches: `True`
 - Database mode: `select_only_session_with_explicit_rollback`
@@ -80,7 +80,7 @@
 
 ## Tests
 
-- `new`: `15 passed` - `python -m pytest tests/unit/test_data_enrichment_validation.py`
+- `new`: `16 passed` - `python -m pytest tests/unit/test_data_enrichment_validation.py`
 - `phase5a`: `9 passed` - `python -m pytest tests/unit/test_data_enrichment_audit.py`
 - `parser_refresh`: `91 passed` - `python -m pytest tests/unit/test_yapo_parser.py tests/unit/test_portal_parser.py tests/unit/test_refresh_scraper_cli.py tests/unit/test_scraper_base.py`
 - `geocoding_microzone`: `40 passed` - `python -m pytest tests/unit/test_geocoding_readiness_audit.py tests/unit/test_geographic_microzones.py tests/unit/test_microzones.py tests/unit/test_geocoding_quality.py tests/unit/test_geocode_precision_normalization.py tests/unit/test_diagnose_geocoding_quality.py`
@@ -90,9 +90,9 @@
 ## Git
 
 - Branch: `codex/phase5b-data-enrichment-dry-run-validation`
-- HEAD at report generation: `6e3cf04f813e5262dac4ad8c07ef346084f89d1d`
+- HEAD at report generation: `e53892e9c7e650a6a1844c26b94754585e7c873f`
 - Working tree before report generation: `clean`
-- Recent commits: `['6e3cf04 fix: normalize phase5b csv text output', '95a3ba9 docs: add phase5b enrichment validation reports', 'd32d6dd fix: complete phase5b validation diagnostics', 'b4b9a7c test: cover phase5b enrichment validation', '8f708f9 feat: add phase5b enrichment candidate validation']`
+- Recent commits: `['e53892e fix: sanitize multiline phase5b csv fields', 'b24e2d3 docs: refresh phase5b reports after csv normalization', '6e3cf04 fix: normalize phase5b csv text output', '95a3ba9 docs: add phase5b enrichment validation reports', 'd32d6dd fix: complete phase5b validation diagnostics']`
 - Configured remotes: `0`
 
 ## Guardrails
