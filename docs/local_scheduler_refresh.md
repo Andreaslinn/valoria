@@ -32,15 +32,20 @@ PowerShell process, validates that it stays alive, prints the PID, and writes:
 - `logs\startup\scheduler-<timestamp>.pid`
 - `logs\startup\run-scheduler-<timestamp>.ps1`
 
-Local scheduler defaults keep refresh controlled:
+Local scheduler defaults keep refresh controlled and do not run discovery unless
+explicitly enabled:
 
 ```dotenv
+SCHEDULER_ENABLE_DISCOVERY=false
+SCHEDULER_ENABLE_PORTAL=false
 SCHEDULER_REFRESH_LIMIT=5
 SCHEDULER_REFRESH_STALE_DAYS=30
 SCHEDULER_REFRESH_COOLDOWN_HOURS=24
 ```
 
 Increase those values intentionally only after checking recent refresh logs.
+Keep `SCHEDULER_ENABLE_PORTAL=false` for beta operations until the
+PortalInmobiliario source is stable.
 
 ## Stop scheduler
 

@@ -27,10 +27,24 @@ async def _alerts() -> None:
     return None
 
 
-def test_scheduler_registers_discovery_refresh_and_alert_jobs() -> None:
+def test_scheduler_registers_limited_jobs_by_default() -> None:
     scheduler = build_scheduler(
         jobs=SchedulerJobs(discovery=_discovery, refresh=_refresh, alerts=_alerts),
         config=SchedulerConfig(),
+    )
+    jobs = scheduler.get_jobs()
+
+    assert len(jobs) == 2
+    assert {job.id for job in jobs} == {
+        REFRESH_JOB_ID,
+        ALERTS_JOB_ID,
+    }
+
+
+def test_scheduler_registers_discovery_when_explicitly_enabled() -> None:
+    scheduler = build_scheduler(
+        jobs=SchedulerJobs(discovery=_discovery, refresh=_refresh, alerts=_alerts),
+        config=SchedulerConfig(enable_discovery=True),
     )
     jobs = scheduler.get_jobs()
 
@@ -45,7 +59,7 @@ def test_scheduler_registers_discovery_refresh_and_alert_jobs() -> None:
 def test_scheduler_jobs_call_their_configured_functions() -> None:
     scheduler = build_scheduler(
         jobs=SchedulerJobs(discovery=_discovery, refresh=_refresh, alerts=_alerts),
-        config=SchedulerConfig(),
+        config=SchedulerConfig(enable_discovery=True),
     )
 
     jobs_by_id = {job.id: job for job in scheduler.get_jobs()}
@@ -56,7 +70,7 @@ def test_scheduler_jobs_call_their_configured_functions() -> None:
 
 
 def test_default_alerts_schedule_runs_after_listing_update_jobs() -> None:
-    config = SchedulerConfig()
+    config = SchedulerConfig(enable_discovery=True)
     scheduler = build_scheduler(
         jobs=SchedulerJobs(discovery=_discovery, refresh=_refresh, alerts=_alerts),
         config=config,
@@ -115,6 +129,8 @@ async def test_alerts_job_waits_until_listing_update_lock_is_released(monkeypatc
 
 def test_scheduler_env_vars_modify_schedules_and_limits(monkeypatch) -> None:
     monkeypatch.setenv("SCHEDULER_DISCOVERY_CRON", "5 6 * * *")
+    monkeypatch.setenv("SCHEDULER_ENABLE_DISCOVERY", "true")
+    monkeypatch.setenv("SCHEDULER_ENABLE_PORTAL", "true")
     monkeypatch.setenv("SCHEDULER_REFRESH_CRON", "10 7 * * tue,thu")
     monkeypatch.setenv("SCHEDULER_ALERTS_CRON", "15 8 * * *")
     monkeypatch.setenv("SCHEDULER_REFRESH_LIMIT", "17")
@@ -130,6 +146,8 @@ def test_scheduler_env_vars_modify_schedules_and_limits(monkeypatch) -> None:
     jobs_by_id = {job.id: job for job in scheduler.get_jobs()}
 
     assert config.discovery_cron == "5 6 * * *"
+    assert config.enable_discovery is True
+    assert config.enable_portal is True
     assert config.refresh_cron == "10 7 * * tue,thu"
     assert config.alerts_cron == "15 8 * * *"
     assert config.refresh_limit == 17
@@ -157,7 +175,7 @@ def test_scheduler_env_vars_modify_schedules_and_limits(monkeypatch) -> None:
 def test_discovery_and_refresh_do_not_share_the_same_function() -> None:
     scheduler = build_scheduler(
         jobs=SchedulerJobs(discovery=_discovery, refresh=_refresh, alerts=_alerts),
-        config=SchedulerConfig(),
+        config=SchedulerConfig(enable_discovery=True),
     )
 
     jobs_by_id = {job.id: job for job in scheduler.get_jobs()}

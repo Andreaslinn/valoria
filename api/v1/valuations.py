@@ -73,6 +73,34 @@ class BetaScopeMetricsOut(BaseModel):
     property_type_consistency: float | None = None
 
 
+class ValuationEngineResultOut(BaseModel):
+    engine_name: str
+    engine_version: str
+    role: str
+    status: str
+    estimate_uf: float | None = None
+    estimate_clp: int | None = None
+    range_low_uf: float | None = None
+    range_high_uf: float | None = None
+    confidence: float | None = None
+    comparables_count: int | None = None
+    selected_for_final: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    safe_error_message: str | None = None
+
+
+class ValuationConsensusOut(BaseModel):
+    status: str
+    method: str
+    estimate_uf: float | None = None
+    estimate_clp: int | None = None
+    range_low_uf: float | None = None
+    range_high_uf: float | None = None
+    confidence: float | None = None
+    selected_engine_names: list[str] = Field(default_factory=list)
+    engine_weights: dict[str, float] = Field(default_factory=dict)
+
+
 class ValuationResponse(BaseModel):
     base_estimated_price_uf: float | None = None
     base_estimated_price_clp: int | None = None
@@ -102,6 +130,10 @@ class ValuationResponse(BaseModel):
     surface_adjustment_weight: float = 0.0
     surface_adjustment_reason: str | None = None
     comparables: list[ComparableOut]
+    consensus: ValuationConsensusOut | None = None
+    engine_results: list[ValuationEngineResultOut] = Field(default_factory=list)
+    selected_engine_names: list[str] = Field(default_factory=list)
+    consensus_method: str | None = None
 
 
 class ValuationFeedbackRequest(BaseModel):

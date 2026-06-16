@@ -55,6 +55,8 @@ DEFAULT_REFRESH_CRON = "0 12 * * mon,wed,fri"
 DEFAULT_ALERTS_CRON = "0 13 * * *"
 DEFAULT_ALERTS_THRESHOLD_PCT = 5.0
 DEFAULT_ALERTS_LOOKBACK_DAYS = 30
+DEFAULT_ENABLE_DISCOVERY = False
+DEFAULT_ENABLE_PORTAL = False
 
 DISCOVERY_JOB_ID = "discovery_scraper"
 REFRESH_JOB_ID = "refresh_scraper"
@@ -65,6 +67,8 @@ _DISCOVERY_REFRESH_LOCK = asyncio.Lock()
 
 @dataclass(frozen=True)
 class SchedulerConfig:
+    enable_discovery: bool = DEFAULT_ENABLE_DISCOVERY
+    enable_portal: bool = DEFAULT_ENABLE_PORTAL
     discovery_cron: str = DEFAULT_DISCOVERY_CRON
     refresh_cron: str = DEFAULT_REFRESH_CRON
     alerts_cron: str = DEFAULT_ALERTS_CRON
@@ -85,6 +89,12 @@ class SchedulerJobs:
 def scheduler_config_from_env(env: Mapping[str, str] | None = None) -> SchedulerConfig:
     values = env or os.environ
     return SchedulerConfig(
+        enable_discovery=_env_bool(
+            values,
+            "SCHEDULER_ENABLE_DISCOVERY",
+            DEFAULT_ENABLE_DISCOVERY,
+        ),
+        enable_portal=_env_bool(values, "SCHEDULER_ENABLE_PORTAL", DEFAULT_ENABLE_PORTAL),
         discovery_cron=values.get("SCHEDULER_DISCOVERY_CRON", DEFAULT_DISCOVERY_CRON),
         refresh_cron=values.get("SCHEDULER_REFRESH_CRON", DEFAULT_REFRESH_CRON),
         alerts_cron=values.get("SCHEDULER_ALERTS_CRON", DEFAULT_ALERTS_CRON),
@@ -126,12 +136,13 @@ def build_scheduler(
     effective_config = config or scheduler_config_from_env()
 
     scheduler = AsyncIOScheduler()
-    _add_job(
-        scheduler,
-        job_id=DISCOVERY_JOB_ID,
-        func=effective_jobs.discovery,
-        cron=effective_config.discovery_cron,
-    )
+    if effective_config.enable_discovery:
+        _add_job(
+            scheduler,
+            job_id=DISCOVERY_JOB_ID,
+            func=effective_jobs.discovery,
+            cron=effective_config.discovery_cron,
+        )
     _add_job(
         scheduler,
         job_id=REFRESH_JOB_ID,
@@ -203,13 +214,18 @@ async def _run_discovery_scrape_job() -> None:
                     start_urls=_YAPO_URLS,
                     uf_service=uf_service,
                 ),
-                PortalInmobiliarioScraper(
-                    http_client=http,
-                    rate_limiter=rate,
-                    start_urls=_PORTAL_URLS,
-                    uf_service=uf_service,
-                ),
             ]
+            if scheduler_config_from_env().enable_portal:
+                scrapers.append(
+                    PortalInmobiliarioScraper(
+                        http_client=http,
+                        rate_limiter=rate,
+                        start_urls=_PORTAL_URLS,
+                        uf_service=uf_service,
+                    )
+                )
+            else:
+                _log.info("[discovery] portalinmobiliario disabled by scheduler config")
 
             for scraper in scrapers:
                 try:
@@ -317,6 +333,13 @@ def _env_float(values: Mapping[str, str], name: str, default: float) -> float:
     if raw is None:
         return default
     return float(raw)
+
+
+def _env_bool(values: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = values.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 if __name__ == "__main__":  # pragma: no cover

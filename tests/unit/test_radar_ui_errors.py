@@ -4,6 +4,15 @@ from ui.api_client import ApiError
 from ui.pages import radar
 
 
+def test_empty_radar_uses_normal_empty_state(monkeypatch) -> None:
+    calls = _capture_empty_state(monkeypatch)
+
+    radar._render_empty_radar()
+
+    assert calls[0][0] == "Sin oportunidades claras por ahora"
+    assert "No encontramos publicaciones" in calls[0][1]
+
+
 def test_radar_error_message_for_unauthenticated(monkeypatch) -> None:
     calls = _capture_empty_state(monkeypatch)
 

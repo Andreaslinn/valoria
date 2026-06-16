@@ -350,6 +350,116 @@ async def test_valuation_returns_surface_adjustment_audit_fields() -> None:
     assert isinstance(result.beta_scope_metrics, dict)
 
 
+async def test_consensus_flag_disabled_preserves_legacy_flow(monkeypatch) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "false")
+    listings = [
+        make_listing(fingerprint=f"legacy-{idx}", price_clp=180_000_000)
+        for idx in range(6)
+    ]
+    service = ValuationService(
+        listing_repo=FakeListingRepository(listings),
+        uf_service=FakeUFService(),
+    )
+
+    result = await service.valuate_property(
+        ValuationInput(comuna="nunoa", property_type="apartment", m2=75)
+    )
+
+    assert result.estimated_price_clp == 180_000_000
+    assert result.comparable_count == 6
+    assert result.consensus is None
+    assert result.engine_results == []
+    assert result.selected_engine_names == []
+    assert result.consensus_method is None
+
+
+async def test_consensus_uses_real_canonical_outliers_and_preserves_core_fields(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "true")
+    listings = [
+        make_listing(
+            fingerprint=f"canonical-{idx}",
+            price_clp=180_000_000 + idx * 500_000,
+            price_currency="CLP",
+        )
+        for idx in range(8)
+    ]
+    service = ValuationService(
+        listing_repo=FakeListingRepository(listings),
+        uf_service=FakeUFService(),
+    )
+
+    result = await service.valuate_property(
+        ValuationInput(
+            comuna="nunoa",
+            property_type="apartment",
+            m2=75,
+            built_area_m2=75,
+            dormitorios=3,
+            banos=2,
+            estacionamientos=1,
+        )
+    )
+
+    assert result.status == "ok"
+    assert result.estimated_price_clp is not None
+    assert result.price_range_low_clp is not None
+    assert result.price_range_high_clp is not None
+    assert result.confidence_score is not None
+    assert result.comparable_count == len(result.comparables)
+    assert result.selected_engine_names == ["comparables_canonical_outliers"]
+    assert result.consensus is not None
+    assert result.consensus.estimate_clp == result.estimated_price_clp
+    assert result.consensus_method == "favorite_first_with_legacy_fallback_v1"
+    assert {item.engine_name for item in result.engine_results} == {
+        "comparables_canonical_outliers",
+        "comparables_legacy",
+        "comparables_canonical",
+    }
+
+
+async def test_consensus_falls_back_to_real_legacy_engine(monkeypatch) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "true")
+    listings = [
+        make_listing(fingerprint=f"legacy-fallback-{idx}", price_clp=180_000_000)
+        for idx in range(6)
+    ]
+    service = ValuationService(
+        listing_repo=FakeListingRepository(listings),
+        uf_service=FakeUFService(),
+    )
+
+    result = await service.valuate_property(
+        ValuationInput(comuna="nunoa", property_type="apartment", m2=75)
+    )
+
+    assert result.estimated_price_clp == 180_000_000
+    assert result.selected_engine_names == ["comparables_legacy"]
+    legacy = next(
+        item for item in result.engine_results if item.engine_name == "comparables_legacy"
+    )
+    assert legacy.role == "fallback"
+    assert legacy.selected_for_final is True
+
+
+async def test_consensus_all_engines_insufficient_keeps_controlled_error(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "true")
+    service = ValuationService(
+        listing_repo=FakeListingRepository(
+            [make_listing(fingerprint=f"few-{idx}") for idx in range(4)]
+        ),
+        uf_service=FakeUFService(),
+    )
+
+    with pytest.raises(InsufficientDataError, match="Solo 4 comparables"):
+        await service.valuate_property(
+            ValuationInput(comuna="nunoa", property_type="apartment", m2=75)
+        )
+
+
 def make_listing_target_property():
     from tests.unit.factories import make_property
 

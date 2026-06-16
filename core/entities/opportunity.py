@@ -76,3 +76,7 @@ class RadarResult:
     total_listings_analyzed: int
     low_data_mode: bool
     low_data_by_property_type: dict[str, bool] = field(default_factory=dict)
+    total_candidates: int = 0
+    processed_candidates: int = 0
+    skipped_invalid_area: int = 0
+    skipped_validation_error: int = 0

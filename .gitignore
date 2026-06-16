@@ -60,3 +60,5 @@ logs/
 *.bak
 *.backup
 *.tmp
+
+exports/

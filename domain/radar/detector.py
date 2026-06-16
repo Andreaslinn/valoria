@@ -25,10 +25,10 @@ from config.constants import (
 )
 from core.entities.listing import Listing, Property
 from core.entities.opportunity import Opportunity, RadarResult
-from core.exceptions import InsufficientDataError
+from core.exceptions import InsufficientDataError, ValidationError
 from core.normalization.property_type import normalize_property_type as _property_type
-from domain.valuation.comparables import valuate
 from domain.radar.price_basis import canonical_discount_pct, radar_price_basis
+from domain.valuation.comparables import valuate
 
 
 def detect_opportunities(
@@ -45,8 +45,13 @@ def detect_opportunities(
         RadarResult con opportunities ordenadas por ranking_score DESC.
     """
     active = [listing for listing in listings if listing.is_active]
+    total_candidates = len(active)
+    processable = [listing for listing in active if _has_valid_area(listing)]
+    skipped_invalid_area = total_candidates - len(processable)
+    processed_candidates = 0
+    skipped_validation_error = 0
 
-    active_by_property_type = _active_by_property_type(active)
+    active_by_property_type = _active_by_property_type(processable)
     low_data_by_property_type = {
         property_type: len(rows) < LOW_DATA_THRESHOLD
         for property_type, rows in active_by_property_type.items()
@@ -58,10 +63,14 @@ def detect_opportunities(
             total_listings_analyzed=len(active),
             low_data_mode=True,
             low_data_by_property_type=low_data_by_property_type,
+            total_candidates=total_candidates,
+            processed_candidates=processed_candidates,
+            skipped_invalid_area=skipped_invalid_area,
+            skipped_validation_error=skipped_validation_error,
         )
 
     opportunities: list[Opportunity] = []
-    for target_listing in active:
+    for target_listing in processable:
         target_type = _property_type(target_listing)
         same_type_count = len(active_by_property_type.get(target_type, ()))
         if same_type_count < MIN_RADAR_DATASET_SIZE:
@@ -70,9 +79,14 @@ def detect_opportunities(
         min_undervaluation = (
             MIN_UNDERVALUATION_LOW_DATA if low_data_mode else MIN_UNDERVALUATION
         )
-        opportunity = _evaluate_listing(
-            target_listing, active, uf_to_clp, min_undervaluation
-        )
+        processed_candidates += 1
+        try:
+            opportunity = _evaluate_listing(
+                target_listing, processable, uf_to_clp, min_undervaluation
+            )
+        except ValidationError:
+            skipped_validation_error += 1
+            continue
         if opportunity is not None:
             opportunities.append(opportunity)
 
@@ -83,6 +97,10 @@ def detect_opportunities(
         total_listings_analyzed=len(active),
         low_data_mode=any(low_data_by_property_type.values()),
         low_data_by_property_type=low_data_by_property_type,
+        total_candidates=total_candidates,
+        processed_candidates=processed_candidates,
+        skipped_invalid_area=skipped_invalid_area,
+        skipped_validation_error=skipped_validation_error,
     )
 
 
@@ -157,6 +175,11 @@ def _exclude_self(target: Listing, universe: Sequence[Listing]) -> list[Listing]
 
 def _same_property_type(a: Listing, b: Listing) -> bool:
     return _property_type(a) == _property_type(b)
+
+
+def _has_valid_area(listing: Listing) -> bool:
+    area = listing.built_area_m2 or listing.usable_area_m2 or listing.m2
+    return area is not None and area > 0
 
 
 def _listing_as_property(listing: Listing) -> Property:

@@ -32,8 +32,11 @@ def test_local_scheduler_defaults_are_documented_as_safe() -> None:
     docs = (ROOT / "docs" / "local_scheduler_refresh.md").read_text(encoding="utf-8")
 
     assert "AVM_START_SCHEDULER=false" in env_example
+    assert "SCHEDULER_ENABLE_DISCOVERY=false" in env_example
+    assert "SCHEDULER_ENABLE_PORTAL=false" in env_example
     assert "SCHEDULER_REFRESH_LIMIT=5" in env_example
     assert 'SCHEDULER_ALERTS_CRON="0 13 * * *"' in env_example
     assert "AVM local startup does not start the scheduler by default" in docs
     assert "python -m workers.scheduler" in docs
     assert "python scripts\\refresh_scraper.py --dry-run --limit 5 --stale-days 30" in docs
+    assert "SCHEDULER_ENABLE_PORTAL=false" in docs

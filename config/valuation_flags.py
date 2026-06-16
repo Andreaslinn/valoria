@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import os
 
-
 VALUATION_CANONICAL_PRICE_ENABLED_ENV = "VALUATION_CANONICAL_PRICE_ENABLED"
 VALUATION_CANONICAL_PRICE_SEGMENTED_ENV = "VALUATION_CANONICAL_PRICE_SEGMENTED"
+VALORIA_USE_CONSENSUS_ENV = "VALORIA_USE_CONSENSUS"
 
 CANONICAL_PRICE_SEGMENT_ALLOWLIST = frozenset({
     "vitacura::house",
@@ -38,6 +38,12 @@ def valuation_canonical_price_enabled() -> bool:
 def valuation_canonical_price_segmented_enabled() -> bool:
     """Return whether canonical price can be activated by target segment."""
     value = os.getenv(VALUATION_CANONICAL_PRICE_SEGMENTED_ENV, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def valoria_consensus_enabled() -> bool:
+    """Return whether the productive valuation flow should run beta consensus."""
+    value = os.getenv(VALORIA_USE_CONSENSUS_ENV, "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 

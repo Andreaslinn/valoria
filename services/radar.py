@@ -175,7 +175,7 @@ class RadarService:
                     comuna=o.listing.comuna,
                     price_uf=listed_price_uf,
                     price_clp=price_clp_int(o.listing.price),
-                    m2=float(o.listing.m2 or 0),
+                    m2=float(_effective_area_m2(o.listing) or 0),
                     estimated_price_uf=price_uf_float(o.market_price, uf_to_clp),
                     discount_pct=round(o.discount_pct * 100, 2),
                     score=round(o.ranking_score, 4),
@@ -228,6 +228,8 @@ class RadarService:
             "radar_opportunities_timing limit=%s listings_loaded=%s "
             "listings_analyzed=%s opportunities_detected=%s "
             "opportunities_filtered=%s opportunities_returned=%s "
+            "total_candidates=%s processed_candidates=%s "
+            "skipped_invalid_area=%s skipped_validation_error=%s "
             "uf_ms=%.1f listings_ms=%.1f detection_ms=%.1f "
             "filtering_ms=%.1f dto_ms=%.1f total_ms=%.1f",
             limit,
@@ -236,6 +238,10 @@ class RadarService:
             len(result.opportunities),
             len(filtered),
             len(opportunities),
+            result.total_candidates,
+            result.processed_candidates,
+            result.skipped_invalid_area,
+            result.skipped_validation_error,
             uf_ms,
             listings_ms,
             detection_ms,
@@ -351,11 +357,12 @@ def _insufficient_avm() -> RadarAvmEnrichment:
 
 
 def _is_valid_target(listing: Listing) -> bool:
+    area = _effective_area_m2(listing)
     return (
         listing.is_active
         and bool(listing.comuna)
-        and listing.m2 is not None
-        and listing.m2 > 0
+        and area is not None
+        and area > 0
         and listing.price.clp > 0
     )
 
@@ -372,6 +379,10 @@ def _same_listing(a: Listing, b: Listing) -> bool:
 
 def _same_property_type(a: Listing, b: Listing) -> bool:
     return _property_type(a) == _property_type(b)
+
+
+def _effective_area_m2(listing: Listing) -> float | None:
+    return listing.built_area_m2 or listing.usable_area_m2 or listing.m2
 
 
 def _dedupe(values: list[str]) -> list[str]:

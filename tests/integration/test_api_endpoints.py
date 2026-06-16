@@ -478,6 +478,70 @@ async def test_valuation_endpoint_valid_input(
     assert body["comparable_count"] >= 5
 
 
+async def test_valuation_endpoint_exposes_beta_consensus_when_enabled(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    seeded_listings: list[Listing],
+    engine: AsyncEngine,
+    monkeypatch,
+):
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "true")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        repo = SqlAlchemyListingRepository(session)
+        for idx in range(8):
+            await repo.save(
+                Listing(
+                    id=None,
+                    source="yapo",
+                    external_id=f"api-consensus-{idx}",
+                    title=f"Depto consensus {idx}",
+                    comuna="nunoa",
+                    m2=75,
+                    built_area_m2=75,
+                    usable_area_m2=75,
+                    property_type="apartment",
+                    bedrooms=3,
+                    bathrooms=2,
+                    parking=1,
+                    price=Price(clp=Decimal(str(180_000_000 + idx * 500_000))),
+                    price_currency="CLP",
+                    status="active",
+                    fingerprint=f"api-consensus-fp-{idx}",
+                    scraped_at=datetime.now(UTC),
+                    url=f"https://example.test/consensus/{idx}",
+                )
+            )
+        await session.commit()
+
+    resp = await client.post(
+        "/api/v1/valuations",
+        headers=auth_headers,
+        json={
+            "comuna": "nunoa",
+            "property_type": "departamento",
+            "m2": 75.0,
+            "dormitorios": 3,
+            "banos": 2,
+            "estacionamientos": 1,
+            "precio_publicado_uf": 4500.0,
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["consensus"]["status"] == "ok"
+    assert body["consensus"]["estimate_clp"] == body["estimated_price_clp"]
+    assert body["selected_engine_names"] == ["comparables_canonical_outliers"]
+    assert body["consensus_method"] == "favorite_first_with_legacy_fallback_v1"
+    assert {item["engine_name"] for item in body["engine_results"]} == {
+        "comparables_canonical_outliers",
+        "comparables_legacy",
+        "comparables_canonical",
+    }
+    assert all("traceback" not in str(item).lower() for item in body["engine_results"])
+
+
 async def test_valuation_endpoint_missing_m2_is_not_500(
     client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -515,6 +579,44 @@ async def test_radar_opportunities_endpoint(
     assert isinstance(body, list)
     assert body
     assert {"listing_id", "discount_pct", "score", "warnings"} <= set(body[0])
+
+
+async def test_radar_endpoint_skips_active_listing_without_area(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    seeded_listings: list[Listing],
+    engine: AsyncEngine,
+):
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        repo = SqlAlchemyListingRepository(session)
+        await repo.save(
+            Listing(
+                id=None,
+                source="yapo",
+                external_id="api-invalid-area",
+                title="Listing sin area",
+                comuna="nunoa",
+                m2=None,
+                bedrooms=2,
+                bathrooms=1,
+                parking=0,
+                price=Price(clp=Decimal("120000000")),
+                status="active",
+                fingerprint="api-invalid-area-fp",
+                scraped_at=datetime.now(UTC),
+                url="https://example.test/invalid-area",
+            )
+        )
+        await session.commit()
+
+    resp = await client.get("/api/v1/radar/opportunities", headers=auth_headers)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body, list)
+    assert body
+    assert all(item["title"] != "Listing sin area" for item in body)
 
 
 async def test_listings_requires_auth(client: httpx.AsyncClient):

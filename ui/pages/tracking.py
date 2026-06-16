@@ -21,8 +21,8 @@ from ui.state import get_token
 
 def render(client: ApiClient) -> None:
     section_header(
-        "Portafolio",
-        "Mercado observado temporal para revisar propiedades, precios y seÃ±ales antes de activar watchlists persistentes.",
+        "Exploracion / Portafolio",
+        "Listings reales del mercado y, cuando exista, tu watchlist persistente.",
     )
 
     controls_col, premium_col = st.columns([1.45, 1], gap="large")
@@ -31,13 +31,27 @@ def render(client: ApiClient) -> None:
     with premium_col:
         _render_premium_teasers()
 
-    listings, using_watchlist = _load_real_portfolio(client, limit)
-    if listings is None:
+    market_listings, watchlist_items = _load_real_portfolio(client, limit)
+    if market_listings is None:
         return
 
-    if not listings:
+    source_options = []
+    if market_listings:
+        source_options.append("Mercado real")
+    if watchlist_items:
+        source_options.append("Watchlist")
+    if not source_options:
         _render_empty_portfolio()
         return
+
+    selected_source = st.radio(
+        "Fuente de exploracion",
+        source_options,
+        horizontal=True,
+        key="portfolio_data_source",
+    )
+    using_watchlist = selected_source == "Watchlist"
+    listings = watchlist_items if using_watchlist else market_listings
 
     _render_summary(listings)
     filters = _render_filters(listings)
@@ -52,7 +66,11 @@ def render(client: ApiClient) -> None:
 
     _render_portfolio_items(filtered, using_watchlist=using_watchlist)
 
-def _load_real_portfolio(client: ApiClient, limit: int) -> tuple[list[dict[str, Any]], bool] | tuple[None, bool]:
+
+def _load_real_portfolio(
+    client: ApiClient,
+    limit: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | tuple[None, list[dict[str, Any]]]:
     token = get_token()
     watchlist_items: list[dict[str, Any]] = []
     if token is not None:
@@ -65,28 +83,28 @@ def _load_real_portfolio(client: ApiClient, limit: int) -> tuple[list[dict[str, 
 
     if token is None:
         st.info("Inicia sesión para ver el portafolio.")
-        return None, False
+        return None, []
 
     try:
         market_listings = client.list_listings(token=token, limit=limit)
     except ApiError as e:
-        _render_api_error(e)
-        return None, False
+        if not watchlist_items:
+            _render_api_error(e)
+            return None, []
+        st.warning(f"No pudimos cargar el mercado completo: {e.message}")
+        market_listings = []
 
-    using_watchlist = bool(watchlist_items)
-    listings = watchlist_items if using_watchlist else market_listings
-
-    if using_watchlist:
-        st.success("Mostrando tu watchlist persistente.")
+    if watchlist_items:
+        st.success("Watchlist persistente disponible como vista alternativa.")
     else:
-        st.info("Aún no hay watchlist guardada. Mostrando mercado observado temporal.")
-    return listings, using_watchlist
+        st.info("Aún no hay watchlist guardada. La exploración usa listings reales del mercado.")
+    return market_listings, watchlist_items
 
 
 def _render_summary(listings: list[dict[str, Any]]) -> None:
     comunas = {str(item.get("comuna")).strip() for item in listings if item.get("comuna")}
     prices = [_to_float(item.get("price_clp")) for item in listings]
-    m2_values = [_to_float(item.get("m2")) for item in listings]
+    m2_values = [_listing_surface_m2(item) for item in listings]
     source = _most_common(listings, "source")
     recent_count = _recent_count(listings)
 
@@ -101,7 +119,7 @@ def _render_summary(listings: list[dict[str, Any]]) -> None:
         metric_card(
             "Superficie promedio",
             _format_m2(_average(m2_values)),
-            caption=f"Fuente principal: {source or '—'}",
+            caption=f"Fuente principal: {source or 'No disponible'}",
             delta=_recent_delta(recent_count),
             tone="positive" if recent_count else "neutral",
         )
@@ -111,25 +129,36 @@ def _render_filters(listings: list[dict[str, Any]]) -> dict[str, Any]:
     st.subheader("Explorar mercado observado")
     st.caption("Filtros locales sobre las propiedades cargadas.")
 
+    property_type_options = ["Todos", *_unique_property_types(listings)]
     source_options = ["Todas", *_unique_options(listings, "source")]
     status_options = ["Todos", *_unique_status_options(listings)]
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     comuna = c1.text_input("Comuna")
-    source = c2.selectbox("Fuente", source_options)
-    status = c3.selectbox("Estado", status_options)
+    property_type = c2.selectbox(
+        "Tipo de propiedad",
+        property_type_options,
+        format_func=_property_type_label,
+    )
+    source = c3.selectbox("Fuente", source_options)
+    status = c4.selectbox("Estado", status_options)
 
-    c4, c5, c6 = st.columns(3)
-    max_price = c4.number_input("Precio máximo CLP", min_value=0, value=0, step=10_000_000)
-    min_m2 = c5.number_input("m² mínimo", min_value=0.0, value=0.0, step=5.0)
-    view = c6.radio("Vista", ["Cards", "Tabla"], horizontal=True, key="portfolio_view")
+    c5, c6, c7, c8 = st.columns(4)
+    min_price = c5.number_input("Precio mínimo CLP", min_value=0, value=0, step=10_000_000)
+    max_price = c6.number_input("Precio máximo CLP", min_value=0, value=0, step=10_000_000)
+    min_m2 = c7.number_input("m² mínimo", min_value=0.0, value=0.0, step=5.0)
+    max_m2 = c8.number_input("m² máximo", min_value=0.0, value=0.0, step=5.0)
+    view = st.radio("Vista", ["Cards", "Tabla"], horizontal=True, key="portfolio_view")
 
     return {
         "comuna": comuna,
+        "property_type": None if property_type == "Todos" else property_type,
         "source": None if source == "Todas" else source,
         "status": None if status == "Todos" else status,
+        "min_price": min_price or None,
         "max_price": max_price or None,
         "min_m2": min_m2 or None,
+        "max_m2": max_m2 or None,
         "view": view,
     }
 
@@ -149,6 +178,7 @@ def _render_portfolio_items(
     for index, item in enumerate(listings):
         _render_portfolio_card(item, index, using_watchlist)
 
+
 def _render_portfolio_card(
     listing: dict[str, Any],
     index: int,
@@ -161,7 +191,7 @@ def _render_portfolio_card(
     facts_html = f"""
                 {_fact_html("Precio UF", _format_uf(listing.get("price_uf")), "Valor publicado")}
                 {_fact_html("Precio CLP", _format_clp(listing.get("price_clp")), "Referencia local")}
-                {_fact_html("Superficie", _format_m2(listing.get("m2")), "TamaÃ±o activo")}
+                {_fact_html("Superficie", _format_m2(_listing_surface_m2(listing)), "TamaÃ±o activo")}
                 {_fact_html("Detectada", date_label, "Fecha de captura")}
         """
 
@@ -175,7 +205,7 @@ def _render_portfolio_card(
                     </div>
                     <div style="margin-top:0.25rem; color:var(--avm-muted); font-size:0.9rem;">
                         {html_escape(_text(listing.get("comuna")))} |
-                        {html_escape(_format_m2(listing.get("m2")))} |
+                        {html_escape(_format_m2(_listing_surface_m2(listing)))} |
                         {html_escape(_rooms_label(listing))}
                     </div>
                 </div>
@@ -218,9 +248,10 @@ def _render_table(listings: list[dict[str, Any]]) -> None:
             "ID": _listing_id(item),
             "Título": item.get("title"),
             "Comuna": item.get("comuna"),
+            "Tipo": _property_type_label(_listing_property_type(item)),
             "Precio UF": _format_uf(item.get("price_uf")),
             "Precio CLP": _format_clp(item.get("price_clp")),
-            "m²": _format_m2(item.get("m2")),
+            "m²": _format_m2(_listing_surface_m2(item)),
             "Dorm.": item.get("dormitorios"),
             "Baños": item.get("banos"),
             "Est.": item.get("estacionamientos"),
@@ -267,10 +298,13 @@ def _filter_listings(
     listings: list[dict[str, Any]],
     *,
     comuna: str,
+    property_type: str | None,
     source: str | None,
     status: str | None,
+    min_price: int | None,
     max_price: int | None,
     min_m2: float | None,
+    max_m2: float | None,
     view: str,
 ) -> list[dict[str, Any]]:
     _ = view
@@ -279,15 +313,21 @@ def _filter_listings(
     for item in listings:
         if comuna_norm and comuna_norm not in str(item.get("comuna", "")).lower():
             continue
+        if property_type and _listing_property_type(item) != property_type:
+            continue
         if source and item.get("source") != source:
             continue
         if status and _visible_status(item) != status:
             continue
-        price = item.get("price_clp")
-        if max_price is not None and isinstance(price, int | float) and price > max_price:
+        price = _to_float(item.get("price_clp"))
+        if min_price is not None and (price is None or price < min_price):
             continue
-        m2 = item.get("m2")
-        if min_m2 is not None and isinstance(m2, int | float) and m2 < min_m2:
+        if max_price is not None and (price is None or price > max_price):
+            continue
+        m2 = _listing_surface_m2(item)
+        if min_m2 is not None and (m2 is None or m2 < min_m2):
+            continue
+        if max_m2 is not None and (m2 is None or m2 > max_m2):
             continue
         result.append(item)
     return result
@@ -325,6 +365,30 @@ def _visible_status(listing: dict[str, Any]) -> Any:
     return listing.get("demo_status") or _listing_status(listing)
 
 
+def _listing_property_type(listing: dict[str, Any]) -> str:
+    return str(listing.get("property_type") or "unknown").strip().lower()
+
+
+def _listing_surface_m2(listing: dict[str, Any]) -> float | None:
+    for key in ("m2", "built_area_m2", "usable_area_m2", "surface_m2"):
+        value = _to_float(listing.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _property_type_label(value: Any) -> str:
+    labels = {
+        "Todos": "Todos",
+        "apartment": "Departamento",
+        "house": "Casa",
+        "office": "Oficina",
+        "unknown": "No disponible",
+    }
+    text = str(value or "unknown").strip()
+    return labels.get(text, text.replace("_", " ").title())
+
+
 def _rooms_label(listing: dict[str, Any]) -> str:
     bedrooms = listing.get("dormitorios")
     bathrooms = listing.get("banos")
@@ -340,7 +404,7 @@ def _date_label(listing: dict[str, Any]) -> str:
     raw = listing.get("captured_at") or listing.get("created_at")
     parsed = _parse_datetime(raw)
     if parsed is None:
-        return "—"
+        return "No disponible"
     return parsed.strftime("%d-%m-%Y")
 
 
@@ -371,6 +435,10 @@ def _parse_datetime(value: Any) -> datetime | None:
 
 def _unique_options(listings: list[dict[str, Any]], key: str) -> list[str]:
     return sorted({str(item.get(key)) for item in listings if item.get(key)})
+
+
+def _unique_property_types(listings: list[dict[str, Any]]) -> list[str]:
+    return sorted({_listing_property_type(item) for item in listings})
 
 
 def _unique_status_options(listings: list[dict[str, Any]]) -> list[str]:
@@ -430,7 +498,7 @@ def _format_clp(value: Any) -> str:
 def _format_m2(value: Any) -> str:
     number = _to_float(value)
     if number is None:
-        return "—"
+        return "No disponible"
     return f"{number:.1f} m²".replace(".", ",")
 
 
@@ -451,12 +519,12 @@ def _format_pct(value: Any) -> str:
 
 
 def _clean_empty(value: str) -> str:
-    return "—" if value in {"\u00e2\u20ac\u201d", "—"} else value
+    return "No disponible" if value in {"\u00e2\u20ac\u201d", "—"} else value
 
 
 def _text(value: Any) -> str:
     if value is None or value == "":
-        return "—"
+        return "No disponible"
     return str(value)
 
 

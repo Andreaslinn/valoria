@@ -280,6 +280,29 @@ def test_map_valuation_response_to_view_model_maps_real_backend_fields() -> None
     assert view_model.comparables[0].price_uf == 6900.0
 
 
+def test_playground_view_model_preserves_consensus_payload_for_secondary_panel() -> None:
+    response = {
+        "estimated_price_uf": 4700,
+        "estimated_price_clp": 183_300_000,
+        "confidence": "high",
+        "consensus": {"status": "ok", "estimate_clp": 183_300_000},
+        "engine_results": [
+            {
+                "engine_name": "comparables_canonical_outliers",
+                "role": "favorite",
+                "status": "ok",
+                "selected_for_final": True,
+            }
+        ],
+    }
+
+    view_model = map_valuation_response_to_view_model(response, source="real")
+
+    assert view_model is not None
+    assert view_model.raw["consensus"]["status"] == "ok"
+    assert view_model.raw["engine_results"][0]["role"] == "favorite"
+
+
 def test_map_valuation_response_to_view_model_accepts_aliases_and_nested_range() -> None:
     response = {
         "valor_estimado_uf": "6200",

@@ -78,11 +78,14 @@ def test_beta_feature_flags_are_overridable(monkeypatch):
     monkeypatch.setenv("BETA_MODE", "true")
     monkeypatch.setenv(BETA_SHOW_PRODUCT_LAB, "true")
     monkeypatch.setenv(BETA_SHOW_PORTFOLIO, "true")
+    monkeypatch.setenv(BETA_SHOW_ALERTS, "true")
 
     assert is_beta_feature_enabled(BETA_SHOW_PRODUCT_LAB) is True
     assert is_beta_feature_enabled(BETA_SHOW_PORTFOLIO) is True
+    assert is_beta_feature_enabled(BETA_SHOW_ALERTS) is True
     assert "Dashboard Lab" not in beta_hidden_pages()
     assert "Portafolio" not in beta_hidden_pages()
+    assert "Alertas" not in beta_hidden_pages()
 
 
 def test_demo_mode_cannot_enable_product_lab_when_beta_hides_it(monkeypatch):

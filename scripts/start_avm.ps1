@@ -406,6 +406,8 @@ $LocalApiBaseUrl = "http://127.0.0.1:$ApiPort"
 $LocalApiBaseUrlLiteral = ConvertTo-SingleQuotedPowerShellLiteral -Value $LocalApiBaseUrl
 
 $SchedulerEnvDefaults = [ordered]@{
+    "SCHEDULER_ENABLE_DISCOVERY" = "false"
+    "SCHEDULER_ENABLE_PORTAL" = "false"
     "SCHEDULER_DISCOVERY_CRON" = "0 10 * * *"
     "SCHEDULER_REFRESH_CRON" = "0 12 * * mon,wed,fri"
     "SCHEDULER_ALERTS_CRON" = "0 13 * * *"
@@ -462,6 +464,8 @@ Write-Host "Log file: $SchedulerLogLiteral"
 Write-Host "Refresh limit: `$env:SCHEDULER_REFRESH_LIMIT"
 Write-Host "Refresh cron:  `$env:SCHEDULER_REFRESH_CRON"
 Write-Host "Alerts cron:   `$env:SCHEDULER_ALERTS_CRON"
+Write-Host "Discovery:     `$env:SCHEDULER_ENABLE_DISCOVERY"
+Write-Host "Portal:        `$env:SCHEDULER_ENABLE_PORTAL"
 Write-Host ""
 & $PythonExeLiteral -m workers.scheduler *> $SchedulerLogLiteral
 if (`$LASTEXITCODE -ne 0) {

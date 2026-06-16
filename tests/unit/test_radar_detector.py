@@ -17,6 +17,14 @@ def _market_listings(n: int, *, fp_prefix: str = "m") -> list:
     return [make_listing(fingerprint=f"{fp_prefix}{i}", price_clp=_MARKET_PRICE) for i in range(n)]
 
 
+def _without_valid_area(fingerprint: str):
+    listing = make_listing(fingerprint=fingerprint)
+    listing.m2 = None
+    listing.built_area_m2 = None
+    listing.usable_area_m2 = None
+    return listing
+
+
 class TestInsufficientDataset:
     def test_empty_listings_returns_empty_low_data(self):
         result = detect_opportunities([], UF)
@@ -37,6 +45,65 @@ class TestInsufficientDataset:
         result = detect_opportunities(listings, UF)
         assert result.total_listings_analyzed == 0
         assert result.opportunities == []
+
+
+class TestInvalidListingIsolation:
+    def test_active_listing_without_area_is_skipped(self):
+        invalid = _without_valid_area("invalid-area")
+
+        result = detect_opportunities([invalid, *_market_listings(14)], UF)
+
+        assert result.opportunities == []
+        assert result.total_candidates == 15
+        assert result.processed_candidates == 14
+        assert result.skipped_invalid_area == 1
+        assert result.skipped_validation_error == 0
+
+    def test_valid_opportunities_survive_mixed_invalid_listings(self):
+        cheap = make_listing(
+            fingerprint="cheap",
+            price_clp=int(_MARKET_PRICE * 0.85),
+        )
+        invalid = _without_valid_area("invalid-area")
+
+        result = detect_opportunities(
+            [cheap, invalid, *_market_listings(14)],
+            UF,
+        )
+
+        fingerprints = {item.listing.fingerprint for item in result.opportunities}
+        assert "cheap" in fingerprints
+        assert "invalid-area" not in fingerprints
+        assert result.skipped_invalid_area == 1
+
+    def test_all_invalid_listings_return_controlled_empty_result(self):
+        listings = [_without_valid_area(f"invalid-{idx}") for idx in range(12)]
+
+        result = detect_opportunities(listings, UF)
+
+        assert result.opportunities == []
+        assert result.total_candidates == 12
+        assert result.processed_candidates == 0
+        assert result.skipped_invalid_area == 12
+        assert result.skipped_validation_error == 0
+
+    def test_validation_error_is_isolated_to_one_listing(self):
+        cheap = make_listing(
+            fingerprint="cheap",
+            price_clp=int(_MARKET_PRICE * 0.85),
+        )
+        invalid = make_listing(fingerprint="invalid-comuna", comuna="")
+
+        result = detect_opportunities(
+            [cheap, invalid, *_market_listings(14)],
+            UF,
+        )
+
+        fingerprints = {item.listing.fingerprint for item in result.opportunities}
+        assert "cheap" in fingerprints
+        assert "invalid-comuna" not in fingerprints
+        assert result.skipped_invalid_area == 0
+        assert result.skipped_validation_error == 1
 
 
 class TestLowDataMode:

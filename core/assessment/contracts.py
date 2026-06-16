@@ -71,6 +71,34 @@ class ComparableOutPayload(TypedDict):
     url: str | None
 
 
+class ValuationEngineResultPayload(TypedDict):
+    engine_name: str
+    engine_version: str
+    role: str
+    status: str
+    estimate_uf: float | None
+    estimate_clp: int | None
+    range_low_uf: float | None
+    range_high_uf: float | None
+    confidence: float | None
+    comparables_count: int | None
+    selected_for_final: bool
+    warnings: list[str]
+    safe_error_message: str | None
+
+
+class ValuationConsensusPayload(TypedDict):
+    status: str
+    method: str
+    estimate_uf: float | None
+    estimate_clp: int | None
+    range_low_uf: float | None
+    range_high_uf: float | None
+    confidence: float | None
+    selected_engine_names: list[str]
+    engine_weights: dict[str, float]
+
+
 class ValuationResultPayload(ConfidencePayload, ComparableQualityPayload, BetaScopePayload):
     base_estimated_price_uf: float | None
     base_estimated_price_clp: int | None
@@ -88,6 +116,10 @@ class ValuationResultPayload(ConfidencePayload, ComparableQualityPayload, BetaSc
     surface_adjustment_weight: float
     surface_adjustment_reason: str | None
     comparables: list[ComparableOutPayload]
+    consensus: NotRequired[ValuationConsensusPayload | None]
+    engine_results: NotRequired[list[ValuationEngineResultPayload]]
+    selected_engine_names: NotRequired[list[str]]
+    consensus_method: NotRequired[str | None]
 
 
 class RadarOpportunityPayload(ConfidencePayload):

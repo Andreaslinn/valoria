@@ -1,9 +1,12 @@
 """Valuation use case facade."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
+from config.valuation_flags import valoria_consensus_enabled
 from core.assessment.beta_status import beta_scope_warning_codes
 from core.assessment.confidence import build_confidence_contract
 from core.assessment.contracts import (
@@ -13,11 +16,19 @@ from core.assessment.contracts import (
     ValuationResultPayload,
 )
 from core.entities.listing import Listing, Property
-from core.exceptions import ValidationError
+from core.exceptions import InsufficientDataError, ValidationError
 from core.normalization.property_type import normalize_property_type as _normalize_property_type
 from core.ports.listing_repo import ListingRepository
 from core.ports.uf_service import UFService
 from domain.valuation.comparables import valuate_with_comparables
+from domain.valuation.engines.consensus_orchestrator import (
+    CONSENSUS_METHOD,
+    BetaConsensus,
+    BetaEngineResult,
+    run_beta_consensus,
+)
+from domain.valuation.engines.contracts import EngineComparable, EngineResult, EngineStatus
+from domain.valuation.engines.registry import EngineRegistry
 from domain.valuation.price_surface import (
     lookup_price_surface,
     maybe_apply_surface_adjustment,
@@ -102,6 +113,10 @@ class ValuationDTO:
     surface_adjustment_weight: float
     surface_adjustment_reason: str
     comparables: list[ComparableDTO]
+    consensus: BetaConsensus | None = None
+    engine_results: list[BetaEngineResult] = field(default_factory=list)
+    selected_engine_names: list[str] = field(default_factory=list)
+    consensus_method: str | None = None
 
     def to_payload(self) -> ValuationResultPayload:
         return {
@@ -133,6 +148,10 @@ class ValuationDTO:
             "surface_adjustment_weight": self.surface_adjustment_weight,
             "surface_adjustment_reason": self.surface_adjustment_reason,
             "comparables": [item.to_payload() for item in self.comparables],
+            "consensus": self.consensus.to_payload() if self.consensus is not None else None,
+            "engine_results": [item.to_payload() for item in self.engine_results],
+            "selected_engine_names": list(self.selected_engine_names),
+            "consensus_method": self.consensus_method,
         }
 
 
@@ -142,9 +161,11 @@ class ValuationService:
         *,
         listing_repo: ListingRepository,
         uf_service: UFService,
+        engine_registry: EngineRegistry | None = None,
     ) -> None:
         self._listing_repo = listing_repo
         self._uf_service = uf_service
+        self._engine_registry = engine_registry
 
     async def valuate_property(self, data: ValuationInput) -> ValuationDTO:
         property_type = _normalize_property_type(data.property_type)
@@ -173,6 +194,28 @@ class ValuationService:
             data.comuna,
             property_type=property_type,
         )
+
+        if valoria_consensus_enabled():
+            consensus_run = run_beta_consensus(
+                target=target,
+                candidates=list(candidates),
+                uf_to_clp=uf_to_clp,
+                published_price_provided=(
+                    data.precio_publicado_uf is not None
+                    or data.precio_publicado_clp is not None
+                ),
+                registry=self._engine_registry,
+            )
+            if consensus_run.selected_result is None:
+                raise _consensus_insufficient_data(consensus_run.raw_results)
+            return _valuation_dto_from_engine(
+                result=consensus_run.selected_result,
+                candidates=candidates,
+                built_area_m2=built_area_m2,
+                uf_to_clp=uf_to_clp,
+                consensus=consensus_run.consensus,
+                engine_results=consensus_run.engine_results,
+            )
 
         valuation_run = valuate_with_comparables(target, candidates, uf_to_clp)
         result = valuation_run.result
@@ -208,7 +251,7 @@ class ValuationService:
             reliability_warnings=result.reliability_warnings,
         )
         warnings.extend(adjustment.warnings)
-        adjusted_estimated_clp = int(round(adjustment.adjusted_estimate))
+        adjusted_estimated_clp = round(adjustment.adjusted_estimate)
         delta_clp = adjusted_estimated_clp - base_estimated_clp
         low_clp = max(0, price_clp_int(result.price_range_low) + delta_clp)
         high_clp = max(low_clp, price_clp_int(result.price_range_high) + delta_clp)
@@ -248,6 +291,98 @@ class ValuationService:
         )
 
 
+def _valuation_dto_from_engine(
+    *,
+    result: EngineResult,
+    candidates: Sequence[Listing],
+    built_area_m2: float,
+    uf_to_clp: Decimal,
+    consensus: BetaConsensus,
+    engine_results: list[BetaEngineResult],
+) -> ValuationDTO:
+    estimated_clp = _decimal_int(result.estimated_price_clp)
+    low_clp = _decimal_int(result.range_low_clp)
+    high_clp = _decimal_int(result.range_high_clp)
+    if estimated_clp is None or low_clp is None or high_clp is None:
+        raise InsufficientDataError("El motor seleccionado no produjo un resultado completo.")
+
+    diagnostics = dict(result.diagnostics)
+    confidence_label = str(_diagnostic_value(diagnostics, "confidence_label") or "low")
+    confidence_score = result.confidence
+    base_estimated_clp = _optional_int(
+        _diagnostic_value(diagnostics, "base_estimated_price_clp")
+    ) or estimated_clp
+    surface_adjustment = _mapping_value(
+        _diagnostic_value(diagnostics, "surface_adjustment")
+    )
+    comparable_quality_metrics = _mapping_value(
+        _diagnostic_value(diagnostics, "comparable_quality_metrics")
+    )
+    beta_scope_metrics = _mapping_value(
+        _diagnostic_value(diagnostics, "beta_scope_metrics")
+    )
+    selected_comparables = _selected_comparable_dtos(
+        result.selected_comparables,
+        candidates,
+        uf_to_clp,
+    )
+    selected_names = [result.engine_name]
+
+    return ValuationDTO(
+        base_estimated_price_uf=_clp_to_uf(base_estimated_clp, uf_to_clp),
+        base_estimated_price_clp=base_estimated_clp,
+        estimated_price_uf=_clp_to_uf(estimated_clp, uf_to_clp),
+        estimated_price_clp=estimated_clp,
+        price_range_low_uf=_clp_to_uf(low_clp, uf_to_clp),
+        price_range_high_uf=_clp_to_uf(high_clp, uf_to_clp),
+        price_range_low_clp=low_clp,
+        price_range_high_clp=high_clp,
+        confidence=str(
+            _diagnostic_value(diagnostics, "confidence_legacy_label")
+            or confidence_label
+        ),
+        confidence_score=confidence_score,
+        confidence_label=confidence_label,
+        confidence_reasons=_string_list(
+            _diagnostic_value(diagnostics, "confidence_reasons")
+        ),
+        confidence_risk_flags=_string_list(
+            _diagnostic_value(diagnostics, "confidence_risk_flags")
+        ),
+        comparable_count=result.comparables_used or len(selected_comparables),
+        price_m2_uf=_clp_to_uf(estimated_clp, uf_to_clp) / built_area_m2,
+        status="ok",
+        warnings=list(result.warnings),
+        comparable_quality_level=_optional_str(
+            _diagnostic_value(diagnostics, "comparable_quality_level")
+        ),
+        comparable_quality_flags=_string_list(
+            _diagnostic_value(diagnostics, "comparable_quality_flags")
+        ),
+        comparable_quality_metrics=dict(comparable_quality_metrics),
+        beta_scope_status=_optional_str(
+            _diagnostic_value(diagnostics, "beta_scope_status")
+        ),
+        beta_scope_flags=_string_list(
+            _diagnostic_value(diagnostics, "beta_scope_flags")
+        ),
+        beta_scope_metrics=dict(beta_scope_metrics),
+        beta_scope_message=_optional_str(
+            _diagnostic_value(diagnostics, "beta_scope_message")
+        ),
+        surface_adjustment_applied=bool(surface_adjustment.get("applied", False)),
+        surface_adjustment_weight=float(surface_adjustment.get("weight", 0.0)),
+        surface_adjustment_reason=str(
+            surface_adjustment.get("reason") or "surface_unavailable"
+        ),
+        comparables=selected_comparables,
+        consensus=consensus,
+        engine_results=engine_results,
+        selected_engine_names=selected_names,
+        consensus_method=CONSENSUS_METHOD,
+    )
+
+
 def _comparable_dto(similarity: float, listing: Listing, uf_to_clp: Decimal) -> ComparableDTO:
     return ComparableDTO(
         listing_id=listing.id,
@@ -262,6 +397,92 @@ def _comparable_dto(similarity: float, listing: Listing, uf_to_clp: Decimal) -> 
         similarity=round(similarity, 4),
         url=listing.url,
     )
+
+
+def _selected_comparable_dtos(
+    selected: Sequence[EngineComparable],
+    candidates: Sequence[Listing],
+    uf_to_clp: Decimal,
+) -> list[ComparableDTO]:
+    result: list[ComparableDTO] = []
+    for item in selected:
+        listing = _find_selected_listing(item, candidates)
+        if listing is None:
+            continue
+        result.append(_comparable_dto(item.score, listing, uf_to_clp))
+    return result
+
+
+def _find_selected_listing(
+    selected: EngineComparable,
+    candidates: Sequence[Listing],
+) -> Listing | None:
+    if selected.listing_id is not None:
+        by_id = next(
+            (listing for listing in candidates if listing.id == selected.listing_id),
+            None,
+        )
+        if by_id is not None:
+            return by_id
+    if selected.fingerprint:
+        return next(
+            (
+                listing
+                for listing in candidates
+                if listing.fingerprint == selected.fingerprint
+            ),
+            None,
+        )
+    return None
+
+
+def _consensus_insufficient_data(results: Sequence[EngineResult]) -> InsufficientDataError:
+    legacy = next(
+        (result for result in results if result.engine_name == "comparables_legacy"),
+        None,
+    )
+    if (
+        legacy is not None
+        and legacy.status == EngineStatus.INSUFFICIENT_DATA
+        and legacy.error_message
+    ):
+        return InsufficientDataError(legacy.error_message)
+    return InsufficientDataError(
+        "No hay suficientes comparables para completar la valorizacion."
+    )
+
+
+def _diagnostic_value(diagnostics: Mapping[str, Any], key: str) -> Any:
+    if key in diagnostics:
+        return diagnostics[key]
+    nested = diagnostics.get("result")
+    if isinstance(nested, Mapping):
+        return nested.get(key)
+    return None
+
+
+def _mapping_value(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item) for item in value]
+
+
+def _optional_str(value: Any) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return round(Decimal(str(value)))
+
+
+def _decimal_int(value: Any) -> int | None:
+    return _optional_int(value)
 
 
 def _clp_to_uf(value: int | float | Decimal, uf_to_clp: Decimal) -> float:

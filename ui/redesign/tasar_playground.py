@@ -23,7 +23,7 @@ from ui.redesign.tasar_playground_adapter import (
 from ui.redesign.tasar_playground_data import get_tasar_playground_panel
 from ui.state import clear_session, get_token
 from ui.valuation.form import property_type_payload_value
-from ui.valuation.result import normalize_confidence
+from ui.valuation.result import normalize_confidence, render_consensus_panel
 
 RESULT_KEY = "tasar_playground_result"
 PAYLOAD_KEY = "tasar_playground_payload"
@@ -306,6 +306,8 @@ def _render_main_dashboard(
             error if isinstance(error, dict) else None,
             demo_mode=demo_mode,
         )
+        if view_model is not None:
+            render_consensus_panel(view_model.raw)
         render_location_intelligence(panel=panel, demo_mode=demo_mode, view_model=view_model)
         render_featured_comparables(view_model, demo_mode=demo_mode)
 

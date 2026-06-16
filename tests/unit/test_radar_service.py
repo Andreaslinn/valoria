@@ -27,6 +27,14 @@ def _market_listings(n: int) -> list:
     ]
 
 
+def _without_valid_area(fingerprint: str) -> Listing:
+    listing = make_listing(fingerprint=fingerprint)
+    listing.m2 = None
+    listing.built_area_m2 = None
+    listing.usable_area_m2 = None
+    return listing
+
+
 def test_discount_pct_under_market() -> None:
     assert calculate_discount_pct(5000.0, 4500.0) == 10.0
 
@@ -145,6 +153,34 @@ async def test_radar_service_opportunity_includes_avm_enrichment() -> None:
     assert opportunity.price_clp_snapshot == int(MARKET_PRICE * 0.86)
     assert opportunity.price_basis_used == "clp_legacy"
     assert opportunity.price_data_quality == "legacy_unknown_currency"
+
+
+@pytest.mark.asyncio
+async def test_radar_service_skips_invalid_area_and_returns_valid_opportunities() -> None:
+    cheap = make_listing(fingerprint="cheap", price_clp=int(MARKET_PRICE * 0.86))
+    service = RadarService(
+        listing_repo=_FakeListingRepo(
+            [cheap, _without_valid_area("invalid-area"), *_market_listings(14)]
+        ),
+        uf_service=_FakeUFService(),
+    )
+
+    opportunities = await service.opportunities(limit=5)
+
+    assert any(item.title == "Depto cheap" for item in opportunities)
+    assert all(item.title != "Depto invalid-area" for item in opportunities)
+
+
+@pytest.mark.asyncio
+async def test_radar_service_all_invalid_areas_returns_empty_list() -> None:
+    service = RadarService(
+        listing_repo=_FakeListingRepo(
+            [_without_valid_area(f"invalid-{idx}") for idx in range(12)]
+        ),
+        uf_service=_FakeUFService(),
+    )
+
+    assert await service.opportunities(limit=5) == []
 
 
 @pytest.mark.asyncio
@@ -335,6 +371,10 @@ async def test_radar_service_logs_stage_timings(caplog) -> None:
 
     assert "radar_opportunities_timing" in caplog.text
     assert "listings_loaded=15" in caplog.text
+    assert "total_candidates=15" in caplog.text
+    assert "processed_candidates=15" in caplog.text
+    assert "skipped_invalid_area=0" in caplog.text
+    assert "skipped_validation_error=0" in caplog.text
     assert "detection_ms=" in caplog.text
     assert "total_ms=" in caplog.text
 

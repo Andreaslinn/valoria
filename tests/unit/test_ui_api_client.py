@@ -131,9 +131,20 @@ def test_valuation_sends_bearer_token():
         assert request.url.path == "/api/v1/valuations"
         payload = json_from_request(request)
         assert payload == {"m2": 65}
-        return httpx.Response(200, json={"status": "ok"})
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "consensus": {"status": "ok"},
+                "engine_results": [{"engine_name": "comparables_canonical_outliers"}],
+            },
+        )
 
-    assert _client(handler).create_valuation({"m2": 65, "location_query": "Mujica"}, token="token")["status"] == "ok"
+    result = _client(handler).create_valuation({"m2": 65, "location_query": "Mujica"}, token="token")
+
+    assert result["status"] == "ok"
+    assert result["consensus"]["status"] == "ok"
+    assert result["engine_results"][0]["engine_name"] == "comparables_canonical_outliers"
 
 
 def test_submit_valuation_feedback_posts_without_token():
@@ -172,6 +183,16 @@ def test_radar_uses_longer_timeout():
         return httpx.Response(200, json=[])
 
     assert _client(handler).get_radar_opportunities(token="token") == []
+
+
+def test_alerts_use_real_authenticated_endpoint():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == "Bearer token"
+        assert request.url.path == "/api/v1/alerts"
+        assert request.url.params["limit"] == "50"
+        return httpx.Response(200, json=[])
+
+    assert _client(handler).get_alerts("token") == []
 
 
 def test_http_error_raises_friendly_api_error():

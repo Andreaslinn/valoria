@@ -7,11 +7,11 @@ import streamlit as st
 
 from core.assessment.beta_status import beta_status_display_label, is_beta_warning_status
 from core.normalization.geocode_precision import canonical_geocode_precision
+from ui.api_client import ApiClient, ApiError
 from ui.components.badges import status_badge
 from ui.components.cards import warning_box
 from ui.components.layout import empty_state, metric_card
 from ui.components.theme import html_escape
-from ui.api_client import ApiClient, ApiError
 from ui.formatting import format_clp, format_confidence, format_uf
 
 FEEDBACK_OPTIONS = {
@@ -93,8 +93,109 @@ def render_valuation_result(
         status_badge(data_label, data_tone)
 
     warning_box(result.get("warnings"))
+    render_consensus_panel(result)
     render_valuation_feedback(result, payload, api_client=api_client)
     render_comparables_compact(result.get("comparables", []))
+
+
+def render_consensus_panel(result: dict[str, Any]) -> None:
+    rows = consensus_engine_rows(result)
+    consensus = result.get("consensus")
+    if not rows and not isinstance(consensus, dict):
+        return
+
+    summary = consensus_summary(result)
+    with st.expander("Consenso Valoria beta", expanded=False):
+        st.caption("Motores ejecutados para esta valorizacion y seleccion aplicada al resultado final.")
+        c1, c2, c3 = st.columns(3, gap="medium")
+        with c1:
+            metric_card(
+                "Estimacion final Valoria",
+                format_uf(summary["estimate_uf"]),
+                caption=format_clp(summary["estimate_clp"]),
+                tone="premium",
+            )
+        with c2:
+            metric_card(
+                "Motor seleccionado",
+                summary["selected_label"],
+                caption="Seleccion operativa del consenso",
+                tone="positive" if summary["selected_names"] else "neutral",
+            )
+        with c3:
+            metric_card(
+                "Metodo",
+                summary["method"],
+                caption="Regla aplicada por backend",
+                tone="neutral",
+            )
+
+        if rows:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+        else:
+            empty_state(
+                "Sin detalle por motor",
+                "El backend devolvio el resumen de consenso sin resultados individuales.",
+            )
+
+
+def consensus_summary(result: dict[str, Any]) -> dict[str, Any]:
+    consensus = result.get("consensus") if isinstance(result.get("consensus"), dict) else {}
+    selected = result.get("selected_engine_names") or consensus.get("selected_engine_names") or []
+    selected_names = [str(item) for item in selected if item]
+    return {
+        "estimate_uf": consensus.get("estimate_uf", result.get("estimated_price_uf")),
+        "estimate_clp": consensus.get("estimate_clp", result.get("estimated_price_clp")),
+        "selected_names": selected_names,
+        "selected_label": ", ".join(_engine_display_name(item) for item in selected_names)
+        if selected_names
+        else "No disponible",
+        "method": str(
+            result.get("consensus_method")
+            or consensus.get("method")
+            or "No disponible"
+        ),
+    }
+
+
+def consensus_engine_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_results = result.get("engine_results")
+    if not isinstance(raw_results, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for raw in raw_results:
+        if not isinstance(raw, dict):
+            continue
+        warnings = raw.get("warnings") if isinstance(raw.get("warnings"), list) else []
+        safe_message = str(raw.get("safe_error_message") or "").strip()
+        detail = safe_message or ", ".join(str(item) for item in warnings if item) or "Sin observaciones"
+        rows.append(
+            {
+                "Motor": _engine_display_name(raw.get("engine_name")),
+                "Rol": str(raw.get("role") or "No disponible"),
+                "Estado": str(raw.get("status") or "No disponible"),
+                "Seleccionado": "Si" if raw.get("selected_for_final") else "No",
+                "Estimacion UF": format_uf(raw.get("estimate_uf")),
+                "Estimacion CLP": format_clp(raw.get("estimate_clp")),
+                "Comparables": raw.get("comparables_count")
+                if raw.get("comparables_count") is not None
+                else "No disponible",
+                "Confidence": format_confidence(raw.get("confidence")),
+                "Detalle": detail,
+            }
+        )
+    return rows
+
+
+def _engine_display_name(value: Any) -> str:
+    names = {
+        "comparables_canonical_outliers": "Canonical outliers",
+        "comparables_legacy": "Comparables legacy",
+        "comparables_canonical": "Canonical full",
+    }
+    text = str(value or "").strip()
+    return names.get(text, text or "Motor no disponible")
 
 
 def render_valuation_feedback(
