@@ -1,0 +1,229 @@
+"use client";
+
+import { ExternalLink, Loader2, Trash2, WalletCards } from "lucide-react";
+import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { StatusNote } from "@/components/ui/status-note";
+import { ApiError } from "@/lib/api/client";
+import { listWatchlist, removeFromWatchlist } from "@/lib/api/watchlist";
+import type { WatchlistItem } from "@/types/watchlist";
+
+export function PortfolioWorkspace() {
+  const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      setItems(await listWatchlist());
+    } catch (caught) {
+      setError(errorText(caught, "No pudimos cargar tu watchlist."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeItem(item: WatchlistItem) {
+    setRemovingId(item.listing_id);
+    setError(null);
+    setMessage(null);
+    try {
+      await removeFromWatchlist(item.listing_id);
+      setItems((current) => current.filter((candidate) => candidate.listing_id !== item.listing_id));
+      setMessage("Propiedad quitada de la watchlist.");
+    } catch (caught) {
+      setError(errorText(caught, "No pudimos quitar esta propiedad."));
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  return (
+    <div className="grid gap-5">
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <CardTitle>Watchlist real</CardTitle>
+            <CardDescription>
+              Propiedades guardadas desde endpoints reales. Portfolio avanzado queda para una fase posterior.
+            </CardDescription>
+          </div>
+          <span className="rounded-lg border border-brand-500/25 bg-brand-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-violet-100">
+            {loading ? "Cargando" : `${items.length} guardada(s)`}
+          </span>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <SummaryFact label="Fuente" value="GET /api/v1/watchlist" />
+          <SummaryFact label="Escritura" value="Guardar / quitar" />
+          <SummaryFact label="Portfolio avanzado" value="Pendiente" />
+        </div>
+      </Card>
+
+      {message ? <StatusNote tone="success">{message}</StatusNote> : null}
+      {error ? <StatusNote tone="warning">{error}</StatusNote> : null}
+
+      {loading ? (
+        <Card>
+          <div className="flex min-h-56 items-center justify-center gap-3 text-sm text-muted">
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+            Cargando watchlist real...
+          </div>
+        </Card>
+      ) : items.length ? (
+        <section className="grid gap-4 xl:grid-cols-2">
+          {items.map((item) => (
+            <WatchlistCard
+              item={item}
+              key={item.id}
+              onRemove={() => removeItem(item)}
+              removing={removingId === item.listing_id}
+            />
+          ))}
+        </section>
+      ) : (
+        <Card>
+          <div className="flex min-h-64 items-center justify-center rounded-lg border border-dashed border-line bg-black/20 p-8 text-center">
+            <div>
+              <WalletCards className="mx-auto h-9 w-9 text-brand-500" aria-hidden />
+              <h3 className="mt-4 text-lg font-semibold text-ink">Watchlist vacia</h3>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
+                Guarda una publicacion desde Analizar URL cuando el lookup devuelva un listing_id compatible.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function WatchlistCard({
+  item,
+  onRemove,
+  removing,
+}: {
+  item: WatchlistItem;
+  onRemove: () => void;
+  removing: boolean;
+}) {
+  return (
+    <Card className="flex min-h-80 flex-col">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-base font-semibold leading-6 text-ink">{item.title || "Propiedad guardada"}</h3>
+          <p className="mt-1 text-sm text-muted">{item.comuna || "Comuna no disponible"}</p>
+        </div>
+        <span className="rounded-lg border border-line bg-white/[0.05] px-3 py-1 text-xs text-muted">
+          {propertyTypeLabel(item.property_type)}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <Fact label="Precio UF" value={ufLabel(item.price_uf_display ?? item.price_uf ?? item.saved_price_uf)} />
+        <Fact label="Precio CLP" value={clpLabel(item.price_clp_display ?? item.price_clp)} />
+        <Fact label="Superficie" value={m2Label(item.m2)} />
+        <Fact label="Programa" value={`${numberLabel(item.dormitorios)}D / ${numberLabel(item.banos)}B / ${numberLabel(item.estacionamientos)}E`} />
+        <Fact label="Fuente" value={item.source || "No disponible"} />
+        <Fact label="Guardada" value={dateLabel(item.saved_at)} />
+        <Fact label="Estado publicacion" value={item.listing_status || "No disponible"} />
+        <Fact label="Calidad precio" value={item.price_data_quality || item.price_display_basis || "No disponible"} />
+      </div>
+
+      <div className="mt-auto flex flex-wrap gap-3 pt-5">
+        {item.url ? (
+          <a
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line bg-white/[0.06] px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand-500/45 hover:bg-brand-500/10"
+            href={item.url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ExternalLink className="h-4 w-4" aria-hidden />
+            Abrir publicacion
+          </a>
+        ) : null}
+        <Button disabled={removing} onClick={onRemove} type="button" variant="secondary">
+          {removing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+          Quitar
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function SummaryFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-white/[0.04] p-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-white/[0.04] p-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+      <p className="mt-2 break-words text-sm font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function errorText(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) return fallback;
+  if (error.status === 401 || error.status === 403) return "Tu sesion no esta vigente o no tiene permisos.";
+  if (error.status === 404) return "La propiedad no existe o ya no esta disponible.";
+  if (error.status === 422) return "La API no pudo procesar esta accion.";
+  if (error.status === 503) return "UF real no disponible. Intenta nuevamente mas tarde.";
+  if (error.status >= 500) return "La API tuvo un problema con la watchlist.";
+  return error.message;
+}
+
+function propertyTypeLabel(value: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    apartment: "Departamento",
+    house: "Casa",
+    office: "Oficina",
+    unknown: "No disponible",
+  };
+  return labels[String(value ?? "")] ?? String(value ?? "No disponible");
+}
+
+function numberLabel(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "N/D";
+}
+
+function m2Label(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value} m2` : "No disponible";
+}
+
+function ufLabel(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `UF ${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(value)}`
+    : "No disponible";
+}
+
+function clpLabel(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? new Intl.NumberFormat("es-CL", {
+        currency: "CLP",
+        maximumFractionDigits: 0,
+        style: "currency",
+      }).format(value)
+    : "No disponible";
+}
+
+function dateLabel(value: string | null | undefined): string {
+  if (!value) return "No disponible";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "No disponible" : date.toLocaleDateString("es-CL");
+}

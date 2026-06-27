@@ -1,0 +1,37 @@
+export type WatchlistItem = {
+  id: number;
+  listing_id: number;
+  saved_at: string;
+  saved_price_clp: number;
+  saved_price_uf: number | null;
+  saved_price_clp_snapshot?: number | null;
+  saved_price_basis?: string;
+  price_data_quality?: string;
+  status: string;
+  note: string | null;
+  title: string;
+  comuna: string;
+  property_type?: string | null;
+  price_clp: number;
+  price_uf: number | null;
+  price_uf_display?: number | null;
+  price_currency?: string | null;
+  price_uf_source?: string | null;
+  price_uf_confidence?: string | null;
+  price_clp_display?: number | null;
+  price_display_basis?: string;
+  m2: number | null;
+  dormitorios: number;
+  banos: number;
+  estacionamientos: number;
+  url: string | null;
+  source: string;
+  listing_status: string;
+  captured_at: string;
+};
+
+export type WatchlistStatus = {
+  listing_id: number;
+  saved: boolean;
+  status: string | null;
+};
