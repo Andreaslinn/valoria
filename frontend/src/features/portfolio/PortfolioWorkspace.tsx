@@ -8,6 +8,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { StatusNote } from "@/components/ui/status-note";
 import { ApiError } from "@/lib/api/client";
 import { listWatchlist, removeFromWatchlist } from "@/lib/api/watchlist";
+import { formatClp, formatDate, formatM2, formatNumber, formatPropertyType, formatText, formatUf } from "@/lib/formatters";
 import type { WatchlistItem } from "@/types/watchlist";
 
 export function PortfolioWorkspace() {
@@ -124,19 +125,19 @@ function WatchlistCard({
           <p className="mt-1 text-sm text-muted">{item.comuna || "Comuna no disponible"}</p>
         </div>
         <span className="rounded-lg border border-line bg-white/[0.05] px-3 py-1 text-xs text-muted">
-          {propertyTypeLabel(item.property_type)}
+          {formatPropertyType(item.property_type)}
         </span>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <Fact label="Precio UF" value={ufLabel(item.price_uf_display ?? item.price_uf ?? item.saved_price_uf)} />
-        <Fact label="Precio CLP" value={clpLabel(item.price_clp_display ?? item.price_clp)} />
-        <Fact label="Superficie" value={m2Label(item.m2)} />
-        <Fact label="Programa" value={`${numberLabel(item.dormitorios)}D / ${numberLabel(item.banos)}B / ${numberLabel(item.estacionamientos)}E`} />
-        <Fact label="Fuente" value={item.source || "No disponible"} />
-        <Fact label="Guardada" value={dateLabel(item.saved_at)} />
-        <Fact label="Estado publicacion" value={item.listing_status || "No disponible"} />
-        <Fact label="Calidad precio" value={item.price_data_quality || item.price_display_basis || "No disponible"} />
+        <Fact label="Precio UF" value={formatUf(item.price_uf_display ?? item.price_uf ?? item.saved_price_uf)} />
+        <Fact label="Precio CLP" value={formatClp(item.price_clp_display ?? item.price_clp)} />
+        <Fact label="Superficie" value={formatM2(item.m2)} />
+        <Fact label="Programa" value={`${formatNumber(item.dormitorios, 0)}D / ${formatNumber(item.banos, 0)}B / ${formatNumber(item.estacionamientos, 0)}E`} />
+        <Fact label="Fuente" value={formatText(item.source)} />
+        <Fact label="Guardada" value={formatDate(item.saved_at)} />
+        <Fact label="Estado publicacion" value={formatText(item.listing_status)} />
+        <Fact label="Calidad precio" value={formatText(item.price_data_quality || item.price_display_basis)} />
       </div>
 
       <div className="mt-auto flex flex-wrap gap-3 pt-5">
@@ -186,44 +187,4 @@ function errorText(error: unknown, fallback: string): string {
   if (error.status === 503) return "UF real no disponible. Intenta nuevamente mas tarde.";
   if (error.status >= 500) return "La API tuvo un problema con la watchlist.";
   return error.message;
-}
-
-function propertyTypeLabel(value: string | null | undefined): string {
-  const labels: Record<string, string> = {
-    apartment: "Departamento",
-    house: "Casa",
-    office: "Oficina",
-    unknown: "No disponible",
-  };
-  return labels[String(value ?? "")] ?? String(value ?? "No disponible");
-}
-
-function numberLabel(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? String(value) : "N/D";
-}
-
-function m2Label(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `${value} m2` : "No disponible";
-}
-
-function ufLabel(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `UF ${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(value)}`
-    : "No disponible";
-}
-
-function clpLabel(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value)
-    ? new Intl.NumberFormat("es-CL", {
-        currency: "CLP",
-        maximumFractionDigits: 0,
-        style: "currency",
-      }).format(value)
-    : "No disponible";
-}
-
-function dateLabel(value: string | null | undefined): string {
-  if (!value) return "No disponible";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "No disponible" : date.toLocaleDateString("es-CL");
 }

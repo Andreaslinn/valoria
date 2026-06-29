@@ -11,7 +11,15 @@ import { StatusNote } from "@/components/ui/status-note";
 import { ApiError } from "@/lib/api/client";
 import { lookupListingUrl } from "@/lib/api/listings";
 import { saveToWatchlist } from "@/lib/api/watchlist";
-import type { ListingLookupData, ListingLookupResponse } from "@/types/listing";
+import {
+  formatClp,
+  formatM2,
+  formatNumber,
+  formatPropertyType,
+  formatText,
+  formatUf,
+} from "@/lib/formatters";
+import type { ListingLookupResponse } from "@/types/listing";
 import { saveTasarPrefillFromListing } from "@/features/valuation/prefill";
 
 export function ListingUrlWorkspace() {
@@ -139,15 +147,15 @@ function LookupResult({ result }: { result: ListingLookupResponse | null }) {
         </div>
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <Fact label="Titulo" value={text(data.title)} />
-          <Fact label="Comuna" value={text(data.comuna)} />
-          <Fact label="Tipo" value={propertyTypeLabel(data.property_type)} />
-          <Fact label="Superficie" value={m2Label(data.built_area_m2 ?? data.m2)} />
-          <Fact label="Terreno" value={m2Label(data.land_area_m2)} />
-          <Fact label="Dormitorios / banos" value={`${numberLabel(data.dormitorios)} / ${numberLabel(data.banos)}`} />
-          <Fact label="Estacionamientos" value={numberLabel(data.estacionamientos)} />
-          <Fact label="Precio UF" value={ufLabel(data.precio_publicado_uf)} />
-          <Fact label="Precio CLP" value={clpLabel(data.precio_publicado_clp)} />
+          <Fact label="Titulo" value={formatText(data.title)} />
+          <Fact label="Comuna" value={formatText(data.comuna)} />
+          <Fact label="Tipo" value={formatPropertyType(data.property_type)} />
+          <Fact label="Superficie" value={formatM2(data.built_area_m2 ?? data.m2)} />
+          <Fact label="Terreno" value={formatM2(data.land_area_m2)} />
+          <Fact label="Dormitorios / banos" value={`${formatNumber(data.dormitorios, 0)} / ${formatNumber(data.banos, 0)}`} />
+          <Fact label="Estacionamientos" value={formatNumber(data.estacionamientos, 0)} />
+          <Fact label="Precio UF" value={formatUf(data.precio_publicado_uf)} />
+          <Fact label="Precio CLP" value={formatClp(data.precio_publicado_clp)} />
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">
@@ -291,43 +299,4 @@ function lookupWarningLabel(code: string): string {
     missing_property_type: "Tipo de propiedad no detectado",
   };
   return labels[code] ?? code;
-}
-
-function propertyTypeLabel(value: ListingLookupData["property_type"]): string {
-  const labels: Record<string, string> = {
-    apartment: "Departamento",
-    house: "Casa",
-    office: "Oficina",
-    unknown: "No disponible",
-  };
-  return labels[String(value ?? "")] ?? text(value);
-}
-
-function text(value: unknown): string {
-  const clean = String(value ?? "").trim();
-  return clean || "No disponible";
-}
-
-function numberLabel(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? String(value) : "No disponible";
-}
-
-function m2Label(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `${value} m2` : "No disponible";
-}
-
-function ufLabel(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `UF ${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(value)}`
-    : "No disponible";
-}
-
-function clpLabel(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value)
-    ? new Intl.NumberFormat("es-CL", {
-        currency: "CLP",
-        maximumFractionDigits: 0,
-        style: "currency",
-      }).format(value)
-    : "No disponible";
 }
