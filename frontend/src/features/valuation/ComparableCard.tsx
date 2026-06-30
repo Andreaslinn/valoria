@@ -54,5 +54,7 @@ function ComparableFact({ label, value }: { label: string; value: string }) {
 }
 
 function roomsLabel(value: number | null | undefined, suffix: string): string | null {
-  return typeof value === "number" ? `${value}${suffix}` : null;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? `${value}${suffix}`
+    : null;
 }

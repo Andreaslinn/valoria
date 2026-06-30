@@ -36,9 +36,9 @@ const initialValues: FormValues = {
   reference: "",
   builtAreaM2: "",
   landAreaM2: "",
-  dormitorios: "3",
-  banos: "2",
-  estacionamientos: "1",
+  dormitorios: "",
+  banos: "",
+  estacionamientos: "",
   publishedPriceUf: "",
   publishedPriceClp: "",
 };

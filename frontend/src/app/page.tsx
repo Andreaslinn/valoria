@@ -17,31 +17,31 @@ const productAreas = [
   {
     title: "Tasacion inteligente",
     description:
-      "Una experiencia preparada para conectar la valoracion real, comparables y senales de confianza en una pantalla clara.",
+      "Valoracion real, comparables y senales de confianza en una pantalla clara.",
     icon: Gauge,
   },
   {
     title: "Analisis de publicacion",
     description:
-      "Ruta preparada para revisar URLs y llevar datos extraidos hacia tasacion cuando el flujo quede conectado.",
+      "Revisa URLs soportadas y lleva datos extraidos hacia Tasar sin inventar atributos faltantes.",
     icon: Link2,
   },
   {
     title: "Radar de oportunidades",
     description:
-      "Base visual para transformar el Radar actual en una herramienta de busqueda y priorizacion profesional.",
+      "Busqueda manual de oportunidades recientes conectada al endpoint real de Radar.",
     icon: Radar,
   },
   {
     title: "Portafolio y alertas",
     description:
-      "Seguimiento de propiedades, cambios de precio y estados de decision sin depender de pantallas de laboratorio.",
+      "Watchlist y alertas reales para propiedades guardadas dentro de la beta.",
     icon: WalletCards,
   },
   {
     title: "Reportes de inversion",
     description:
-      "Espacio listo para migrar reportes HTML y futuros artefactos descargables desde contratos backend.",
+      "Espacio en preparacion para reportes reales, sin previews ni descargas simuladas.",
     icon: FileText,
   },
 ];
@@ -84,9 +84,9 @@ export default function LandingPage() {
             <div className="mt-8 grid gap-3">
               {[
                 ["Tasar propiedad", "Conectado a POST /api/v1/valuations"],
-                ["Analizar publicacion", "Flujo URL pendiente"],
-                ["Radar", "Migracion futura del modulo real"],
-                ["Portfolio / Watchlist", "Preparado para contratos existentes"],
+                ["Analizar publicacion", "Conectado a POST /api/v1/listings/lookup-url"],
+                ["Radar", "Conectado con ejecucion manual"],
+                ["Portfolio / Watchlist", "Conectado a Watchlist real"],
               ].map(([label, detail]) => (
                 <div className="rounded-lg border border-line bg-white/[0.055] p-4" key={label}>
                   <div className="text-sm font-semibold">{label}</div>

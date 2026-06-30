@@ -152,8 +152,8 @@ function LookupResult({ result }: { result: ListingLookupResponse | null }) {
           <Fact label="Tipo" value={formatPropertyType(data.property_type)} />
           <Fact label="Superficie" value={formatM2(data.built_area_m2 ?? data.m2)} />
           <Fact label="Terreno" value={formatM2(data.land_area_m2)} />
-          <Fact label="Dormitorios / banos" value={`${formatNumber(data.dormitorios, 0)} / ${formatNumber(data.banos, 0)}`} />
-          <Fact label="Estacionamientos" value={formatNumber(data.estacionamientos, 0)} />
+          <Fact label="Dormitorios / banos" value={programLabel(data.dormitorios, data.banos)} />
+          <Fact label="Estacionamientos" value={positiveNumberLabel(data.estacionamientos)} />
           <Fact label="Precio UF" value={formatUf(data.precio_publicado_uf)} />
           <Fact label="Precio CLP" value={formatClp(data.precio_publicado_clp)} />
         </div>
@@ -299,4 +299,17 @@ function lookupWarningLabel(code: string): string {
     missing_property_type: "Tipo de propiedad no detectado",
   };
   return labels[code] ?? code;
+}
+
+function programLabel(dormitorios: number | null | undefined, banos: number | null | undefined): string {
+  const parts = [positiveNumberLabel(dormitorios, "D"), positiveNumberLabel(banos, "B")].filter(
+    (part) => part !== "No disponible",
+  );
+  return parts.length ? parts.join(" / ") : "No disponible";
+}
+
+function positiveNumberLabel(value: number | null | undefined, suffix = ""): string {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? `${formatNumber(value, 0)}${suffix}`
+    : "No disponible";
 }

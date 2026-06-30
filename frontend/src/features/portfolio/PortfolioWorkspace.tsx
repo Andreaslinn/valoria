@@ -133,7 +133,7 @@ function WatchlistCard({
         <Fact label="Precio UF" value={formatUf(item.price_uf_display ?? item.price_uf ?? item.saved_price_uf)} />
         <Fact label="Precio CLP" value={formatClp(item.price_clp_display ?? item.price_clp)} />
         <Fact label="Superficie" value={formatM2(item.m2)} />
-        <Fact label="Programa" value={`${formatNumber(item.dormitorios, 0)}D / ${formatNumber(item.banos, 0)}B / ${formatNumber(item.estacionamientos, 0)}E`} />
+        <Fact label="Programa" value={programLabel(item.dormitorios, item.banos, item.estacionamientos)} />
         <Fact label="Fuente" value={formatText(item.source)} />
         <Fact label="Guardada" value={formatDate(item.saved_at)} />
         <Fact label="Estado publicacion" value={formatText(item.listing_status)} />
@@ -187,4 +187,23 @@ function errorText(error: unknown, fallback: string): string {
   if (error.status === 503) return "UF real no disponible. Intenta nuevamente mas tarde.";
   if (error.status >= 500) return "La API tuvo un problema con la watchlist.";
   return error.message;
+}
+
+function programLabel(
+  dormitorios: number | null | undefined,
+  banos: number | null | undefined,
+  estacionamientos: number | null | undefined,
+): string {
+  const parts = [
+    positiveNumberLabel(dormitorios, "D"),
+    positiveNumberLabel(banos, "B"),
+    positiveNumberLabel(estacionamientos, "E"),
+  ].filter((part) => part !== null);
+  return parts.length ? parts.join(" / ") : "No disponible";
+}
+
+function positiveNumberLabel(value: number | null | undefined, suffix: string): string | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? `${formatNumber(value, 0)}${suffix}`
+    : null;
 }

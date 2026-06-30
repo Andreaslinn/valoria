@@ -63,7 +63,7 @@ export function RadarWorkspace() {
     setMessage(null);
     try {
       const result = await listRadarOpportunities({ bedroomsMin, limit });
-      setItems(result);
+      setItems(result.filter((item) => !isHouse(item.property_type)));
     } catch (caught) {
       setItems([]);
       setError(errorText(caught, "No pudimos ejecutar Radar."));
@@ -336,8 +336,15 @@ function bedroomsValue(value: string): number | null {
   return Number(value.replace("+", ""));
 }
 
+function isHouse(value: string | null | undefined): boolean {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "house" || normalized === "casa";
+}
+
 function programPart(value: number | null | undefined, suffix: string): string | null {
-  return typeof value === "number" && Number.isFinite(value) ? `${formatNumber(value, 0)}${suffix}` : null;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? `${formatNumber(value, 0)}${suffix}`
+    : null;
 }
 
 function formatDiscount(discountPct: number, savingsUf: number): string {
