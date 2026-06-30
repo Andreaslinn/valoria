@@ -1,70 +1,5 @@
-import {
-  ArrowRight,
-  Bell,
-  FileText,
-  Gauge,
-  Link2,
-  Radar,
-  Settings,
-  WalletCards,
-} from "lucide-react";
-
 import { PageHeading } from "@/components/layout/page-heading";
-import { ButtonLink } from "@/components/ui/button";
-import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { StatusNote } from "@/components/ui/status-note";
-
-const actions = [
-  {
-    title: "Tasar propiedad",
-    description: "Flujo conectado al backend real para estimar valor, rango, confianza y comparables.",
-    href: "/app/tasar",
-    icon: Gauge,
-    status: "Conectado",
-  },
-  {
-    title: "Analizar publicacion",
-    description: "Lookup real de URL con prellenado hacia Tasar cuando la publicacion trae datos compatibles.",
-    href: "/app/analizar-url",
-    icon: Link2,
-    status: "Conectado basico",
-  },
-  {
-    title: "Buscar oportunidades en Radar",
-    description: "Modulo pendiente por freshness y criterios de exposicion antes de llevarlo a Next.js.",
-    href: "/app/radar",
-    icon: Radar,
-    status: "Pendiente freshness",
-  },
-  {
-    title: "Ver portfolio / watchlist",
-    description: "Watchlist real conectada; comparaciones y snapshots quedan para una fase posterior.",
-    href: "/app/portfolio",
-    icon: WalletCards,
-    status: "Conectado basico",
-  },
-  {
-    title: "Gestionar alertas",
-    description: "Inbox real de alertas no leidas para propiedades guardadas en watchlist.",
-    href: "/app/alerts",
-    icon: Bell,
-    status: "Conectado basico",
-  },
-  {
-    title: "Settings",
-    description: "Preparacion de preferencias y estado tecnico de entorno para la beta.",
-    href: "/app/settings",
-    icon: Settings,
-    status: "Preparacion",
-  },
-  {
-    title: "Reportes",
-    description: "Area preparada para HTML/PDF autenticados cuando el backend los exponga.",
-    href: "/app/reportes",
-    icon: FileText,
-    status: "Pendiente",
-  },
-];
+import { DashboardWorkspace } from "@/features/dashboard/DashboardWorkspace";
 
 export default function DashboardPage() {
   return (
@@ -72,62 +7,9 @@ export default function DashboardPage() {
       <PageHeading
         eyebrow="Cockpit"
         title="Centro de inteligencia Valoria"
-        description="Accesos operativos a los modulos reales y a las areas preparadas para las siguientes migraciones."
+        description="Dashboard beta con estado de modulos y datos reales disponibles, sin metricas simuladas."
       />
-      <section className="mb-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card className="overflow-hidden">
-          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
-                Proximo mejor paso
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-ink">Tasar una propiedad</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-                Es el primer modulo conectado al backend real. Desde aqui puedes validar la API,
-                el token Bearer y la visualizacion de comparables sin tocar Streamlit.
-              </p>
-            </div>
-            <ButtonLink href="/app/tasar">
-              Abrir Tasar
-              <ArrowRight size={17} />
-            </ButtonLink>
-          </div>
-        </Card>
-        <Card>
-          <CardTitle>Estado de datos</CardTitle>
-          <CardDescription>
-            Este dashboard no muestra metricas de negocio hasta que cada modulo tenga endpoint
-            conectado en Next.js.
-          </CardDescription>
-          <div className="mt-4">
-            <StatusNote>Sin datos simulados en el cockpit.</StatusNote>
-          </div>
-        </Card>
-      </section>
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {actions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <Card className="flex min-h-60 flex-col" key={action.href}>
-              <div className="mb-5 flex items-start justify-between gap-3">
-                <div className="grid h-11 w-11 place-items-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-500">
-                  <Icon size={20} />
-                </div>
-                <span className="rounded-lg border border-line bg-white/[0.05] px-3 py-1 text-xs font-semibold text-muted">
-                  {action.status}
-                </span>
-              </div>
-              <CardTitle>{action.title}</CardTitle>
-              <CardDescription>{action.description}</CardDescription>
-              <div className="mt-auto pt-5">
-                <ButtonLink className="w-full" href={action.href} variant="secondary">
-                  Abrir
-                </ButtonLink>
-              </div>
-            </Card>
-          );
-        })}
-      </section>
+      <DashboardWorkspace />
     </>
   );
 }
