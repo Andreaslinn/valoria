@@ -19,10 +19,11 @@ import httpx
 from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from config.constants import SCRAPER_MIN_REQUEST_INTERVAL_SEC
+from config.constants import MAX_BATHROOMS, MAX_BEDROOMS, SCRAPER_MIN_REQUEST_INTERVAL_SEC
 from core.entities.listing import Listing
 from core.exceptions import UnknownComunaError, ValidationError
 from core.normalization.geocode_precision import geocode_precision_rank
+from domain.ingestion.data_cleaning import match_comuna_candidate
 from domain.ingestion.pipeline import process_listing
 from infrastructure.db.mappers import listing_from_orm
 from infrastructure.db.models import ListingORM, PriceHistoryORM, SavedListingORM
@@ -456,6 +457,7 @@ async def _refresh_one(
         _log.warning("Refresh unexpected HTML listing_id=%s url=%s", listing.id, listing.url)
         return
     raw = _merge_listing_identity(listing, raw)
+    raw = _merge_refresh_raw_with_existing_listing(raw, listing)
     _record_uf_price_metrics(stats, raw)
     raw = _suppress_uf_rate_artifact(listing, raw, stats)
 
@@ -565,6 +567,75 @@ def _merge_listing_identity(listing: Listing, raw: ScraperResult) -> ScraperResu
     raw_metadata["refresh_source"] = "direct_url"
     merged["raw_metadata"] = raw_metadata
     return merged
+
+
+def _merge_refresh_raw_with_existing_listing(raw: ScraperResult, listing: Listing) -> ScraperResult:
+    merged: ScraperResult = dict(raw)
+    metadata = dict(merged.get("raw_metadata") or {})
+    fallbacks: list[str] = []
+
+    raw_comuna = merged.get("comuna")
+    if not _is_valid_refresh_comuna(raw_comuna):
+        if _is_valid_refresh_comuna(listing.comuna):
+            merged["comuna"] = listing.comuna
+            fallbacks.append("comuna")
+        else:
+            merged.pop("comuna", None)
+            fallbacks.append("comuna_removed")
+
+    for field_name, max_value in (
+        ("bedrooms", MAX_BEDROOMS),
+        ("bathrooms", MAX_BATHROOMS),
+        ("parking", 10),
+    ):
+        value = merged.get(field_name)
+        if _int_in_range(value, min_value=0, max_value=max_value):
+            continue
+        existing_value = getattr(listing, field_name, None)
+        if _int_in_range(existing_value, min_value=0, max_value=max_value):
+            merged[field_name] = existing_value
+            fallbacks.append(field_name)
+        else:
+            merged.pop(field_name, None)
+            fallbacks.append(f"{field_name}_removed")
+
+    if fallbacks:
+        metadata["refresh_existing_field_fallbacks"] = fallbacks
+        merged["raw_metadata"] = metadata
+    return merged
+
+
+def _is_valid_refresh_comuna(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    if len(text) > 80 or len(text.split()) > 5 or "|" in text:
+        return False
+    title_markers = (
+        "departamento",
+        "casa",
+        "venta",
+        "dormitorio",
+        "dormitorios",
+        "subsidio",
+        "proyecto",
+    )
+    if any(marker in lowered for marker in title_markers):
+        return False
+    return match_comuna_candidate(text) is not None
+
+
+def _int_in_range(value: Any, *, min_value: int, max_value: int) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return False
+    return min_value <= parsed <= max_value
 
 
 def _record_uf_price_metrics(stats: RefreshStats, raw: ScraperResult) -> None:

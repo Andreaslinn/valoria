@@ -266,6 +266,108 @@ async def test_refresh_processes_valid_url_and_calls_pipeline(session_factory):
     assert stored.last_refresh_status == "ok"
 
 
+async def test_refresh_falls_back_to_existing_fields_for_invalid_detail_raw(session_factory):
+    url = "https://www.yapo.cl/departamento-colina/bad-detail"
+    listing = _listing(external_id="bad-detail", url=url)
+    listing.title = "Departamento 2 dormitorios en Colina"
+    listing.comuna = "colina"
+    listing.bedrooms = 2
+    listing.bathrooms = 2
+    listing.parking = 1
+    await _insert(session_factory, listing)
+
+    def parser(existing, html):
+        raw = _raw_from_listing(existing)
+        raw.update(
+            {
+                "title": (
+                    "TU PROPIO HOGAR CON SUBSIDIO DS19 Departamento en venta de 2D2B "
+                    "en Colina | 2 Dormitorios por 2450.00 en Colina"
+                ),
+                "comuna": (
+                    "TU PROPIO HOGAR CON SUBSIDIO DS19 Departamento en venta de 2D2B "
+                    "en Colina | 2 Dormitorios por 2450.00 en Colina"
+                ),
+                "bedrooms": 100,
+                "bathrooms": 99,
+                "parking": 750,
+            }
+        )
+        return raw
+
+    async with _client({url: httpx.Response(200, text="<html>ok</html>")}) as http_client:
+        stats = await run_refresh_scraper(
+            session_factory,
+            http_client=http_client,
+            rate_limiter=RateLimiter(0),
+            parser=parser,
+            now=NOW,
+        )
+
+    stored = await _stored_listing(session_factory, "bad-detail")
+    assert stats.refreshed_ok == 1
+    assert stats.validation_errors == 0
+    assert stored.comuna == "colina"
+    assert stored.bedrooms == 2
+    assert stored.bathrooms == 2
+    assert stored.parking == 1
+    assert stored.last_refresh_status == "ok"
+
+
+async def test_refresh_never_passes_absurd_structural_fields_to_pipeline(session_factory):
+    url = "https://www.yapo.cl/departamento-nunoa/absurd-fields"
+    listing = _listing(external_id="absurd-fields", url=url)
+    listing.bedrooms = 2
+    await _insert(session_factory, listing)
+    calls = []
+
+    async def fake_process(raw, **repos):
+        calls.append(raw)
+
+    def parser(existing, html):
+        raw = _raw_from_listing(existing)
+        raw.update(
+            {
+                "bedrooms": 800,
+                "bathrooms": 750,
+                "parking": 100,
+                "price_uf": Decimal("2450"),
+                "price_currency": "UF",
+                "price_uf_confidence": "high",
+                "price_uf_source": "yapo_detail",
+                "raw_metadata": {"price_conversion_source": "real"},
+            }
+        )
+        return raw
+
+    async with _client({url: httpx.Response(200, text="<html>ok</html>")}) as http_client:
+        stats = await run_refresh_scraper(
+            session_factory,
+            http_client=http_client,
+            rate_limiter=RateLimiter(0),
+            parser=parser,
+            process_listing_fn=fake_process,
+            now=NOW,
+        )
+
+    assert stats.refreshed_ok == 1
+    assert len(calls) == 1
+    raw = calls[0]
+    assert raw["bedrooms"] == 2
+    assert raw["bathrooms"] == 2
+    assert raw["parking"] == 1
+    assert raw["price_uf"] == Decimal("2450")
+    assert raw["price_currency"] == "UF"
+    assert raw["price_uf_confidence"] == "high"
+    assert raw["price_uf_source"] == "yapo_detail"
+    assert raw["raw_metadata"]["price_conversion_source"] == "real"
+    assert raw["raw_metadata"]["refresh_existing_field_fallbacks"] == [
+        "bedrooms",
+        "bathrooms",
+        "parking",
+    ]
+
+
 async def test_refresh_respects_batch_limit(session_factory):
     urls = [f"https://www.yapo.cl/departamento-nunoa/{index}" for index in range(1, 4)]
     await _insert(
