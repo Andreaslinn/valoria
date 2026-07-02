@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, ExternalLink, Link2, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, ExternalLink, FileText, Link2, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -56,7 +56,7 @@ export function ListingUrlWorkspace() {
           <div>
             <CardTitle>Analizar publicacion</CardTitle>
             <CardDescription>
-              Extrae datos disponibles desde una URL soportada para revisarlos antes de tasar.
+              Extrae datos disponibles desde una URL soportada para revisar la publicacion.
             </CardDescription>
           </div>
           <div className="rounded-lg border border-brand-500/25 bg-brand-500/10 p-2 text-brand-500">
@@ -75,7 +75,7 @@ export function ListingUrlWorkspace() {
             required
           />
           <StatusNote>
-            Esta pantalla consulta el endpoint real de lookup. No tasa la propiedad ni crea reportes.
+            Esta pantalla consulta el endpoint real de lookup. No tasa la propiedad ni crea reportes fake.
           </StatusNote>
           {error ? <StatusNote tone="warning">{error}</StatusNote> : null}
           <Button disabled={loading} type="submit">
@@ -156,9 +156,20 @@ function LookupResult({ result }: { result: ListingLookupResponse | null }) {
           <Fact label="Estacionamientos" value={positiveNumberLabel(data.estacionamientos)} />
           <Fact label="Precio UF" value={formatUf(data.precio_publicado_uf)} />
           <Fact label="Precio CLP" value={formatClp(data.precio_publicado_clp)} />
+          <Fact label="Fuente precio" value={priceSourceLabel(data)} />
+        </div>
+
+        <div className="mt-5">
+          <StatusNote>
+            El analisis completo de publicacion estara disponible cuando el endpoint de Listing Risk Report este conectado.
+          </StatusNote>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">
+          <Button disabled title="Endpoint de Listing Risk Report pendiente" type="button">
+            <FileText className="h-4 w-4" aria-hidden />
+            Generar analisis
+          </Button>
           {result.url ? (
             <a
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line bg-white/[0.06] px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand-500/45 hover:bg-brand-500/10"
@@ -170,16 +181,6 @@ function LookupResult({ result }: { result: ListingLookupResponse | null }) {
               Abrir publicacion
             </a>
           ) : null}
-          <Button
-            onClick={() => {
-              saveTasarPrefillFromListing(data, result.url);
-              router.push("/app/tasar");
-            }}
-            type="button"
-            variant="secondary"
-          >
-            Tasar esta publicacion
-          </Button>
           {listingId !== null ? (
             <Button disabled={saving} onClick={saveCurrentListing} type="button" variant="secondary">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
@@ -190,6 +191,16 @@ function LookupResult({ result }: { result: ListingLookupResponse | null }) {
               Guardar no disponible
             </Button>
           )}
+          <Button
+            onClick={() => {
+              saveTasarPrefillFromListing(data, result.url);
+              router.push("/app/tasar");
+            }}
+            type="button"
+            variant="secondary"
+          >
+            Tasar con estos datos
+          </Button>
         </div>
         {watchlistMessage ? (
           <div className="mt-4">
@@ -312,4 +323,12 @@ function positiveNumberLabel(value: number | null | undefined, suffix = ""): str
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? `${formatNumber(value, 0)}${suffix}`
     : "No disponible";
+}
+
+function priceSourceLabel(data: ListingLookupResponse["listing_data"]): string {
+  const currency = formatText(data.price_currency, "");
+  const source = formatText(data.price_uf_source, "");
+  const confidence = formatText(data.price_uf_confidence, "");
+  const parts = [currency, source, confidence].filter(Boolean);
+  return parts.length ? parts.join(" / ") : "No disponible";
 }

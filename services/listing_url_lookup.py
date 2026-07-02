@@ -154,6 +154,8 @@ def validate_public_listing_url(url: str) -> str | None:
 
 
 def listing_to_form_data(listing: Any) -> dict[str, Any]:
+    price_uf = _published_price_uf(listing)
+    price_clp = int(getattr(getattr(listing, "price", None), "clp", 0) or 0)
     return {
         "listing_id": getattr(listing, "id", None),
         "title": getattr(listing, "title", None),
@@ -166,7 +168,13 @@ def listing_to_form_data(listing: Any) -> dict[str, Any]:
         "dormitorios": getattr(listing, "bedrooms", 0),
         "banos": getattr(listing, "bathrooms", 0),
         "estacionamientos": getattr(listing, "parking", 0),
-        "precio_publicado_clp": int(getattr(getattr(listing, "price", None), "clp", 0) or 0),
+        "precio_publicado_uf": price_uf,
+        "precio_publicado_clp": price_clp,
+        "price_currency": getattr(listing, "price_currency", None),
+        "price_uf_source": getattr(listing, "price_uf_source", None),
+        "price_uf_confidence": getattr(listing, "price_uf_confidence", None),
+        "price_recovery_method": getattr(listing, "price_recovery_method", None),
+        "price_clp_snapshot": price_clp,
         "source": getattr(listing, "source", None),
         "url": getattr(listing, "url", None),
     }
@@ -190,6 +198,11 @@ def raw_to_form_data(raw: dict[str, Any]) -> dict[str, Any]:
         "estacionamientos": raw.get("parking") or 0,
         "precio_publicado_uf": raw.get("price_uf") or None,
         "precio_publicado_clp": raw.get("price_clp") or None,
+        "price_currency": raw.get("price_currency") or raw.get("currency_original"),
+        "price_uf_source": raw.get("price_uf_source"),
+        "price_uf_confidence": raw.get("price_uf_confidence"),
+        "price_recovery_method": raw.get("price_recovery_method"),
+        "price_clp_snapshot": raw.get("price_clp") or None,
         "source": raw.get("source"),
         "url": raw.get("url"),
     }
@@ -250,6 +263,32 @@ def _warnings_for_raw(raw: dict[str, Any]) -> list[str]:
     if not raw.get("price_clp") and not raw.get("price_uf"):
         warnings.append("missing_price")
     return warnings
+
+
+def _published_price_uf(listing: Any) -> float | None:
+    value = getattr(listing, "price_uf", None)
+    if value is None:
+        return None
+
+    source = str(getattr(listing, "price_uf_source", "") or "").strip().lower()
+    method = str(getattr(listing, "price_recovery_method", "") or "").strip().lower()
+    confidence = str(getattr(listing, "price_uf_confidence", "") or "").strip().lower()
+    currency = str(getattr(listing, "price_currency", "") or "").strip().upper()
+
+    if "legacy_unrecoverable" in {source, method}:
+        return None
+    if confidence == "low":
+        return None
+    if source == "fallback" or method == "fallback":
+        return None
+    if currency == "UF" or source in {
+        "scraped",
+        "recovered_exact",
+        "recovered_high_confidence",
+        "estimated",
+    }:
+        return float(value)
+    return float(value)
 
 
 def _result(

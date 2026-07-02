@@ -78,6 +78,16 @@ function Test-PortOpen {
   }
 }
 
+function ConvertTo-SingleQuotedPowerShellLiteral {
+  param([string]$Value)
+  return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function ConvertTo-CmdQuoted {
+  param([string]$Value)
+  return '"' + ($Value -replace '"', '""') + '"'
+}
+
 function Get-PortOwnerSummary {
   param([int]$Port)
   $lines = netstat -ano -p tcp | Select-String ":$Port\s"
@@ -260,12 +270,27 @@ function Start-Backend {
   }
 
   $apiLog = Join-Path $LogDir "valoria-api-$Timestamp.log"
+  $rootLiteral = ConvertTo-SingleQuotedPowerShellLiteral -Value $Root
+  $apiLogLiteral = ConvertTo-SingleQuotedPowerShellLiteral -Value $apiLog
+  $pythonCmd = ConvertTo-CmdQuoted -Value $python
+  $apiLogCmd = ConvertTo-CmdQuoted -Value $apiLog
+  $uvicornCmdLine = "$pythonCmd -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload 1>> $apiLogCmd 2>>&1"
+  $uvicornCmdLineLiteral = ConvertTo-SingleQuotedPowerShellLiteral -Value $uvicornCmdLine
   $runner = Write-RunnerScript -Name "valoria-api-runner" -Lines @(
     "`$ErrorActionPreference = 'Stop'",
-    "Set-Location '$Root'",
+    "Set-Location $rootLiteral",
     "Write-Host 'Starting Valoria FastAPI on http://127.0.0.1:8000'",
     "Write-Host 'Log: $apiLog'",
-    "& '$python' -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload *> '$apiLog'"
+    "Add-Content -Path $apiLogLiteral -Value ('--- Valoria FastAPI starting at ' + (Get-Date -Format o) + ' ---')",
+    "`$cmdLine = $uvicornCmdLineLiteral",
+    "& cmd.exe /d /s /c `$cmdLine",
+    "`$exitCode = `$LASTEXITCODE",
+    "if (`$exitCode -ne 0) {",
+    "  Add-Content -Path $apiLogLiteral -Value ('FastAPI exited with code ' + `$exitCode + ' at ' + (Get-Date -Format o))",
+    "  Write-Host ('FastAPI exited with code ' + `$exitCode + '. See log: $apiLog') -ForegroundColor Red",
+    "  exit `$exitCode",
+    "}",
+    "Add-Content -Path $apiLogLiteral -Value ('FastAPI exited normally at ' + (Get-Date -Format o))"
   )
   Start-RunnerWindow -Title "Valoria API" -RunnerPath $runner
   [void](Wait-HttpOk -Uri "http://127.0.0.1:8000/health" -TimeoutSeconds $BackendTimeoutSeconds -Name "Backend /health")

@@ -61,6 +61,94 @@ async def test_existing_listing_found_by_link() -> None:
     assert result.listing_data["listing_id"] == 123
     assert result.listing_data["property_type"] == "apartment"
     assert result.listing_data["precio_publicado_clp"] == 180_000_000
+    assert result.listing_data["precio_publicado_uf"] is None
+
+
+@pytest.mark.asyncio
+async def test_existing_listing_lookup_exposes_canonical_price_uf() -> None:
+    listing = make_listing(
+        fingerprint="san-diego",
+        title="Departamento en San Diego | 1 Dormitorios por 973.00 en Santiago",
+        comuna="santiago",
+        m2=21,
+        bedrooms=1,
+        bathrooms=1,
+        parking=0,
+        price_clp=39_678_502,
+        price_uf=973,
+        price_currency="UF",
+        price_uf_source="scraped",
+        price_uf_confidence="high",
+        price_recovery_method="raw.price_uf",
+    )
+    listing.id = 1217
+    listing.url = "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-san-diego/29273175"
+
+    result = await lookup_listing_url(listing.url, listing_lookup=lambda _: _listing(listing))
+
+    assert result.status == "found_existing"
+    assert result.listing_data["listing_id"] == 1217
+    assert result.listing_data["precio_publicado_uf"] == 973.0
+    assert result.listing_data["precio_publicado_clp"] == 39_678_502
+    assert result.listing_data["price_clp_snapshot"] == 39_678_502
+    assert result.listing_data["price_currency"] == "UF"
+    assert result.listing_data["price_uf_source"] == "scraped"
+    assert result.listing_data["price_uf_confidence"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_existing_listing_lookup_does_not_derive_uf_from_clp() -> None:
+    listing = make_listing(
+        fingerprint="clp-only",
+        price_clp=120_000_000,
+        price_uf=None,
+        price_currency="CLP",
+    )
+    listing.url = "https://www.yapo.cl/bienes-raices/test/clp-only"
+
+    result = await lookup_listing_url(listing.url, listing_lookup=lambda _: _listing(listing))
+
+    assert result.status == "found_existing"
+    assert result.listing_data["precio_publicado_uf"] is None
+    assert result.listing_data["precio_publicado_clp"] == 120_000_000
+
+
+@pytest.mark.asyncio
+async def test_existing_listing_lookup_hides_legacy_unrecoverable_price_uf() -> None:
+    listing = make_listing(
+        fingerprint="legacy-unrecoverable",
+        price_clp=156_000_000,
+        price_uf=4000,
+        price_currency="UF",
+        price_uf_source="legacy_unrecoverable",
+        price_uf_confidence="unknown",
+        price_recovery_method="legacy_unrecoverable",
+    )
+    listing.url = "https://www.yapo.cl/bienes-raices/test/legacy-unrecoverable"
+
+    result = await lookup_listing_url(listing.url, listing_lookup=lambda _: _listing(listing))
+
+    assert result.status == "found_existing"
+    assert result.listing_data["precio_publicado_uf"] is None
+    assert result.listing_data["precio_publicado_clp"] == 156_000_000
+
+
+@pytest.mark.asyncio
+async def test_existing_listing_lookup_hides_low_confidence_price_uf() -> None:
+    listing = make_listing(
+        fingerprint="low-confidence",
+        price_clp=156_000_000,
+        price_uf=4000,
+        price_currency="UF",
+        price_uf_source="estimated",
+        price_uf_confidence="low",
+    )
+    listing.url = "https://www.yapo.cl/bienes-raices/test/low-confidence"
+
+    result = await lookup_listing_url(listing.url, listing_lookup=lambda _: _listing(listing))
+
+    assert result.status == "found_existing"
+    assert result.listing_data["precio_publicado_uf"] is None
 
 
 @pytest.mark.asyncio
@@ -155,3 +243,7 @@ async def test_yapo_url_with_uf_price_does_not_emit_missing_price() -> None:
 
 async def _none():
     return None
+
+
+async def _listing(listing):
+    return listing
