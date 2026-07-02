@@ -341,8 +341,18 @@ async def _refresh_one(
         return
     if 300 <= response.status_code < 400:
         stats.redirects += 1
-        removed_redirect = _is_removed_redirect(listing.url, response.headers.get("location"))
-        if removed_redirect:
+        location = response.headers.get("location")
+        blocked_redirect = _is_blocked_redirect(location)
+        removed_redirect = _is_removed_redirect(listing.url, location)
+        if blocked_redirect:
+            stats.blocked_or_captcha += 1
+            await _record_refresh_state(
+                session_factory,
+                listing_id=listing.id,
+                attempted_at=attempted_at,
+                refresh_status="blocked_or_captcha",
+            )
+        elif removed_redirect:
             stats.removed += 1
             await _record_refresh_state(
                 session_factory,
@@ -363,9 +373,12 @@ async def _refresh_one(
             listing.id,
             listing.url,
             response.status_code,
-            response.headers.get("location"),
+            location,
         )
-        _increment_reason(stats, "removed_redirect" if removed_redirect else "redirect")
+        if blocked_redirect:
+            _increment_reason(stats, "blocked_or_captcha")
+        else:
+            _increment_reason(stats, "removed_redirect" if removed_redirect else "redirect")
         return
     if response.status_code == 403:
         stats.forbidden += 1
@@ -425,6 +438,29 @@ async def _refresh_one(
         return
 
     stats.fetched += 1
+    if _looks_blocked_or_captcha(response.text):
+        stats.blocked_or_captcha += 1
+        await _record_refresh_state(
+            session_factory,
+            listing_id=listing.id,
+            attempted_at=attempted_at,
+            refresh_status="blocked_or_captcha",
+        )
+        _increment_reason(stats, "blocked_or_captcha")
+        _log.warning("Refresh blocked/captcha HTML listing_id=%s url=%s", listing.id, listing.url)
+        return
+    if _looks_explicit_inactive(response.text):
+        stats.inactive += 1
+        await _record_refresh_state(
+            session_factory,
+            listing_id=listing.id,
+            attempted_at=attempted_at,
+            refresh_status="inactive_explicit",
+            status="inactive",
+        )
+        _increment_reason(stats, "inactive_explicit")
+        _log.warning("Refresh explicit inactive listing_id=%s url=%s", listing.id, listing.url)
+        return
     raw = parser(listing, response.text)
     if raw is None:
         stats.parse_errors += 1
@@ -737,7 +773,34 @@ def _is_removed_redirect(original_url: str | None, location: str | None) -> bool
     path = parsed.path.strip("/").lower()
     if path in {"", "home"}:
         return True
+    listing_category_paths = (
+        "bienes-raices-venta-de-propiedades",
+        "bienes-raices-arriendo",
+    )
+    if any(path.startswith(category) for category in listing_category_paths):
+        return True
     return any(token in path for token in ("searchresult", "search", "listado"))
+
+
+def _is_blocked_redirect(location: str | None) -> bool:
+    if not location:
+        return False
+    parsed = urlsplit(location)
+    text = f"{parsed.netloc} {parsed.path} {parsed.query}".lower()
+    markers = (
+        "captcha",
+        "recaptcha",
+        "hcaptcha",
+        "login",
+        "signin",
+        "sign-in",
+        "account",
+        "auth",
+        "verify",
+        "verifica",
+        "blocked",
+    )
+    return any(marker in text for marker in markers)
 
 
 def _refresh_candidate_conditions(
@@ -1042,6 +1105,8 @@ def _looks_explicit_inactive(html: str) -> bool:
         "publicacion no disponible",
         "publicación no disponible",
         "publicacion eliminada",
+        "publicacion fue eliminada",
+        "esta publicacion fue eliminada",
         "publicación eliminada",
         "publicacion finalizada",
         "publicación finalizada",

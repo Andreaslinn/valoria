@@ -447,6 +447,58 @@ async def test_refresh_home_redirect_marks_listing_removed(session_factory):
     assert stored.last_refresh_status == "removed_redirect"
 
 
+async def test_refresh_category_redirect_marks_listing_removed(session_factory):
+    url = "https://www.yapo.cl/departamento-nunoa/category-redirect"
+    await _insert(session_factory, _listing(external_id="category-redirect", url=url))
+
+    async with _client(
+        {
+            url: httpx.Response(
+                301,
+                headers={"location": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos"},
+            )
+        }
+    ) as http_client:
+        stats = await run_refresh_scraper(
+            session_factory,
+            http_client=http_client,
+            rate_limiter=RateLimiter(0),
+            now=NOW,
+        )
+
+    stored = await _stored_listing(session_factory, "category-redirect")
+    assert stats.redirects == 1
+    assert stats.removed == 1
+    assert stored.status == "removed"
+    assert stored.last_refresh_status == "removed_redirect"
+
+
+async def test_refresh_canonical_listing_redirect_is_not_removed(session_factory):
+    url = "https://www.yapo.cl/departamento-nunoa/canonical-old"
+    await _insert(session_factory, _listing(external_id="canonical-old", url=url))
+
+    async with _client(
+        {
+            url: httpx.Response(
+                302,
+                headers={"location": "https://www.yapo.cl/departamento-nunoa/canonical-new"},
+            )
+        }
+    ) as http_client:
+        stats = await run_refresh_scraper(
+            session_factory,
+            http_client=http_client,
+            rate_limiter=RateLimiter(0),
+            now=NOW,
+        )
+
+    stored = await _stored_listing(session_factory, "canonical-old")
+    assert stats.redirects == 1
+    assert stats.removed == 0
+    assert stored.status == "active"
+    assert stored.last_refresh_status == "redirect"
+
+
 async def test_refresh_unexpected_html_does_not_mark_listing_inactive(session_factory):
     url = "https://www.yapo.cl/departamento-nunoa/bad-html"
     await _insert(session_factory, _listing(external_id="bad-html", url=url))
@@ -483,7 +535,36 @@ async def test_refresh_explicit_inactive_html_marks_listing_inactive(session_fac
         )
 
     stored = await _stored_listing(session_factory, "inactive-html")
-    assert stats.parse_errors == 1
+    assert stats.parse_errors == 0
+    assert stats.inactive == 1
+    assert stored.status == "inactive"
+    assert stored.last_refresh_status == "inactive_explicit"
+
+
+async def test_refresh_deleted_html_marks_listing_inactive_before_parser(session_factory):
+    url = "https://www.yapo.cl/departamento-nunoa/deleted-html"
+    await _insert(session_factory, _listing(external_id="deleted-html", url=url))
+    parser_called = False
+
+    def parser(listing, html):
+        nonlocal parser_called
+        parser_called = True
+        return _raw_from_listing(listing)
+
+    async with _client(
+        {url: httpx.Response(200, text="<html>Esta publicacion fue eliminada</html>")}
+    ) as http_client:
+        stats = await run_refresh_scraper(
+            session_factory,
+            http_client=http_client,
+            rate_limiter=RateLimiter(0),
+            parser=parser,
+            now=NOW,
+        )
+
+    stored = await _stored_listing(session_factory, "deleted-html")
+    assert parser_called is False
+    assert stats.refreshed_ok == 0
     assert stats.inactive == 1
     assert stored.status == "inactive"
     assert stored.last_refresh_status == "inactive_explicit"
