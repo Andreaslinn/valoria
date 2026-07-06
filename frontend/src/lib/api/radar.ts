@@ -1,5 +1,9 @@
 import { apiClient } from "@/lib/api/client";
-import type { RadarOpportunity, RadarOpportunityFilters } from "@/types/radar";
+import type { RadarOpportunity, RadarOpportunityFilters, RadarSummary } from "@/types/radar";
+
+export function getRadarSummary() {
+  return apiClient.get<RadarSummary>("/api/v1/radar/summary");
+}
 
 export function listRadarOpportunities(filters: RadarOpportunityFilters = {}) {
   const params = new URLSearchParams();

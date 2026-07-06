@@ -64,3 +64,18 @@ export type RadarOpportunityFilters = {
   bedroomsMin?: number | null;
   bedroomsMax?: number | null;
 };
+
+export type RadarSummary = {
+  status: string;
+  mode: string;
+  auto_run: boolean;
+  title: string;
+  summary: string;
+  last_run_at: string | null;
+  opportunities_count: number | null;
+  fresh_candidates_count: number | null;
+  allowed_property_types: string[];
+  requires_manual_run: boolean;
+  cta_path: string;
+  source: string;
+};

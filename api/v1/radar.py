@@ -7,7 +7,9 @@ from time import perf_counter
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from api.deps import CurrentUser, RadarServiceDep
+from api.deps import AppSettings, CurrentUser, RadarServiceDep
+from services.radar import RadarFilters
+from services.radar_summary import build_radar_summary
 
 router = APIRouter(prefix="/radar", tags=["radar"])
 _log = logging.getLogger(__name__)
@@ -20,6 +22,17 @@ class OpportunityOut(BaseModel):
     price_uf: float
     price_clp: int
     m2: float
+    built_area_m2: float | None = None
+    usable_area_m2: float | None = None
+    bedrooms: int | None = None
+    bathrooms: int | None = None
+    parking: int | None = None
+    property_type: str | None = None
+    source: str | None = None
+    external_id: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    geocode_precision: str | None = None
     estimated_price_uf: float
     discount_pct: float
     score: float
@@ -45,6 +58,46 @@ class OpportunityOut(BaseModel):
     price_clp_snapshot: int | None = None
     price_basis_used: str | None = None
     price_data_quality: str | None = None
+    price_uf_source: str | None = None
+    uf_rate_used: float | None = None
+    uf_rate_date: str | None = None
+    uf_rate_fetched_at: str | None = None
+    uf_rate_source: str | None = None
+    uf_rate_cache_hit: bool | None = None
+    uf_rate_stale: bool | None = None
+    allowed_property_types: list[str] = Field(default_factory=list)
+    excluded_by_property_type_count: dict[str, int] = Field(default_factory=dict)
+    houses_on_hold_count: int = 0
+    radar_scope_note: str | None = None
+    radar_scope_label: str | None = None
+    bedrooms_filter_applied: bool = False
+    bedrooms_min: int | None = None
+    bedrooms_max: int | None = None
+    excluded_by_bedrooms_count: int = 0
+
+
+class RadarSummaryOut(BaseModel):
+    status: str
+    mode: str
+    auto_run: bool
+    title: str
+    summary: str
+    last_run_at: str | None = None
+    opportunities_count: int | None = None
+    fresh_candidates_count: int | None = None
+    allowed_property_types: list[str] = Field(default_factory=list)
+    requires_manual_run: bool
+    cta_path: str
+    source: str
+
+
+@router.get("/summary", response_model=RadarSummaryOut)
+async def summary(_current_user: CurrentUser, settings: AppSettings) -> RadarSummaryOut:
+    return RadarSummaryOut(
+        **build_radar_summary(
+            allowed_property_types=settings.radar_allowed_property_types,
+        )
+    )
 
 
 @router.get("/opportunities", response_model=list[OpportunityOut])
@@ -52,10 +105,18 @@ async def opportunities(
     _current_user: CurrentUser,
     service: RadarServiceDep,
     limit: int = Query(default=20, ge=1, le=100),
+    bedrooms_min: int | None = Query(default=None, ge=1, le=20),
+    bedrooms_max: int | None = Query(default=None, ge=1, le=20),
 ) -> list[OpportunityOut]:
     start = perf_counter()
     try:
-        result = await service.opportunities(limit=limit)
+        result = await service.opportunities(
+            limit=limit,
+            filters=RadarFilters(
+                bedrooms_min=bedrooms_min,
+                bedrooms_max=bedrooms_max,
+            ),
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
@@ -65,8 +126,10 @@ async def opportunities(
             detail="Error inesperado al detectar oportunidades",
         ) from e
     _log.info(
-        "radar_endpoint_completed limit=%s results=%s total_ms=%.1f",
+        "radar_endpoint_completed limit=%s bedrooms_min=%s bedrooms_max=%s results=%s total_ms=%.1f",
         limit,
+        bedrooms_min,
+        bedrooms_max,
         len(result),
         _elapsed_ms(start),
     )
