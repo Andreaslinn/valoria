@@ -11,7 +11,14 @@ export type UFRate = {
   stale_reason?: string | null;
 };
 
-export type DashboardContractStatus = "available" | "empty" | "coming_soon" | "error" | "manual" | string;
+export type DashboardContractStatus =
+  | "available"
+  | "partial"
+  | "empty"
+  | "coming_soon"
+  | "error"
+  | "manual"
+  | string;
 
 export type MarketIndicator = {
   key: string;
@@ -53,10 +60,17 @@ export type MarketBriefing = {
 };
 
 export type MicrozoneSummaryItem = {
+  id: string;
   name: string;
+  type: "microzone" | "sector_proxy" | "comuna_proxy" | string;
+  status: DashboardContractStatus;
   score?: number | null;
-  change_pct?: number | null;
-  status?: string | null;
+  variation_pct?: number | null;
+  active_listings: number;
+  fresh_listings: number;
+  median_price_m2_uf?: number | null;
+  confidence: "low" | "medium" | "high" | string;
+  note: string;
 };
 
 export type MicrozonesSummary = {
@@ -74,5 +88,12 @@ export type LiquiditySummary = {
   max: number;
   label: string;
   message: string;
+  diagnostics: {
+    active_listings?: number | null;
+    fresh_listings?: number | null;
+    price_changes_30d?: number | null;
+    markets_with_depth?: number | null;
+    [key: string]: number | null | undefined;
+  };
   source: string;
 };

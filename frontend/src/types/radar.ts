@@ -74,8 +74,12 @@ export type RadarSummary = {
   last_run_at: string | null;
   opportunities_count: number | null;
   fresh_candidates_count: number | null;
+  active_scope_count: number | null;
+  excluded_stale_count: number | null;
+  excluded_removed_count: number | null;
   allowed_property_types: string[];
   requires_manual_run: boolean;
+  last_refresh_at: string | null;
   cta_path: string;
   source: string;
 };

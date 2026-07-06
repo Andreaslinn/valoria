@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field
 from api.deps import AppSettings, CurrentUser, DbSession, UFServiceDep
 from core.exceptions import UFServiceError
 from services.market_dashboard import (
-    liquidity_summary_placeholder,
-    market_briefing_placeholder,
-    microzones_summary_placeholder,
+    build_liquidity_summary,
+    build_market_briefing,
+    build_microzones_summary,
 )
 from services.price_trends import PriceTrendService
 from services.uf_rate import require_real_uf_rate
@@ -96,10 +96,17 @@ class MarketBriefingOut(BaseModel):
 
 
 class MicrozoneSummaryItemOut(BaseModel):
+    id: str
     name: str
+    type: str
+    status: str
     score: float | None = None
-    change_pct: float | None = None
-    status: str | None = None
+    variation_pct: float | None = None
+    active_listings: int
+    fresh_listings: int
+    median_price_m2_uf: float | None = None
+    confidence: str
+    note: str
 
 
 class MicrozonesSummaryOut(BaseModel):
@@ -117,6 +124,7 @@ class LiquiditySummaryOut(BaseModel):
     max: int
     label: str
     message: str
+    diagnostics: dict[str, int | float | None] = Field(default_factory=dict)
     source: str
 
 
@@ -144,18 +152,45 @@ async def get_current_uf(uf_service: UFServiceDep, settings: AppSettings) -> UFR
 
 
 @router.get("/briefing", response_model=MarketBriefingOut)
-async def get_market_briefing(_user: CurrentUser) -> MarketBriefingOut:
-    return MarketBriefingOut(**market_briefing_placeholder())
+async def get_market_briefing(
+    session: DbSession,
+    settings: AppSettings,
+    _user: CurrentUser,
+) -> MarketBriefingOut:
+    return MarketBriefingOut(
+        **await build_market_briefing(
+            session,
+            max_staleness_days=settings.radar_max_listing_staleness_days,
+        )
+    )
 
 
 @router.get("/microzones/summary", response_model=MicrozonesSummaryOut)
-async def get_microzones_summary(_user: CurrentUser) -> MicrozonesSummaryOut:
-    return MicrozonesSummaryOut(**microzones_summary_placeholder())
+async def get_microzones_summary(
+    session: DbSession,
+    settings: AppSettings,
+    _user: CurrentUser,
+) -> MicrozonesSummaryOut:
+    return MicrozonesSummaryOut(
+        **await build_microzones_summary(
+            session,
+            max_staleness_days=settings.radar_max_listing_staleness_days,
+        )
+    )
 
 
 @router.get("/liquidity/summary", response_model=LiquiditySummaryOut)
-async def get_liquidity_summary(_user: CurrentUser) -> LiquiditySummaryOut:
-    return LiquiditySummaryOut(**liquidity_summary_placeholder())
+async def get_liquidity_summary(
+    session: DbSession,
+    settings: AppSettings,
+    _user: CurrentUser,
+) -> LiquiditySummaryOut:
+    return LiquiditySummaryOut(
+        **await build_liquidity_summary(
+            session,
+            max_staleness_days=settings.radar_max_listing_staleness_days,
+        )
+    )
 
 
 @router.get("/trends/price-m2", response_model=PriceTrendOut)

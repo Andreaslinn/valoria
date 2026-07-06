@@ -7,7 +7,7 @@ from time import perf_counter
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from api.deps import AppSettings, CurrentUser, RadarServiceDep
+from api.deps import AppSettings, CurrentUser, DbSession, RadarServiceDep
 from services.radar import RadarFilters
 from services.radar_summary import build_radar_summary
 
@@ -85,17 +85,30 @@ class RadarSummaryOut(BaseModel):
     last_run_at: str | None = None
     opportunities_count: int | None = None
     fresh_candidates_count: int | None = None
+    active_scope_count: int | None = None
+    excluded_stale_count: int | None = None
+    excluded_removed_count: int | None = None
     allowed_property_types: list[str] = Field(default_factory=list)
     requires_manual_run: bool
+    last_refresh_at: str | None = None
     cta_path: str
     source: str
 
 
 @router.get("/summary", response_model=RadarSummaryOut)
-async def summary(_current_user: CurrentUser, settings: AppSettings) -> RadarSummaryOut:
+async def summary(
+    session: DbSession,
+    _current_user: CurrentUser,
+    settings: AppSettings,
+) -> RadarSummaryOut:
     return RadarSummaryOut(
-        **build_radar_summary(
+        **await build_radar_summary(
+            session,
             allowed_property_types=settings.radar_allowed_property_types,
+            require_fresh_listings=settings.radar_require_fresh_listings,
+            max_listing_staleness_days=settings.radar_max_listing_staleness_days,
+            exclude_refresh_failed=settings.radar_exclude_refresh_failed,
+            exclude_removed_or_unavailable=settings.radar_exclude_removed_or_unavailable,
         )
     )
 

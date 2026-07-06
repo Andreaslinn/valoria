@@ -65,7 +65,7 @@ type LoadState<T> = {
   loading: boolean;
 };
 
-type MetricStatus = "available" | "empty" | "coming_soon" | "error" | "manual";
+type MetricStatus = "available" | "partial" | "empty" | "coming_soon" | "error" | "manual";
 type Tone = "green" | "orange" | "blue" | "neutral";
 
 const initialState = <T,>(): LoadState<T> => ({
@@ -222,19 +222,23 @@ export function DashboardWorkspace() {
         <div className="min-w-0 space-y-4">
           <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-4">
             <MetricCard
-              description="Pendiente de contrato."
+              description={briefing.data?.valoria_index.description ?? "Pendiente de contrato."}
               icon={<Gauge className="h-5 w-5" aria-hidden />}
               label={briefing.data?.valoria_index.label ?? "Indice AVM"}
               status={toMetricStatus(briefing.data?.valoria_index.status, briefing)}
-              title={briefing.data?.valoria_index.confidence_label ?? "En preparacion"}
-              visual={<Sparkline status="coming_soon" />}
+              title={
+                briefing.data?.valoria_index.available
+                  ? formatNullableScore(briefing.data.valoria_index.value, briefing.data.valoria_index.max)
+                  : briefing.data?.valoria_index.confidence_label ?? "En preparacion"
+              }
+              visual={<Sparkline status={toMetricStatus(briefing.data?.valoria_index.status, briefing)} />}
             />
             <MetricCard
               description={radarSummary.data?.summary ?? "Radar manual."}
               icon={<Radar className="h-5 w-5" aria-hidden />}
               label="Radar"
               status={toMetricStatus(radarSummary.data?.mode ?? radarSummary.data?.status, radarSummary)}
-              title={radarSummary.data?.title ?? "Ejecucion manual"}
+              title={radarMetricTitle(radarSummary.data)}
               visual={<RadarMini />}
             />
             <MetricCard
@@ -243,7 +247,7 @@ export function DashboardWorkspace() {
               label={liquidity.data?.label ?? "Liquidez del mercado"}
               status={toMetricStatus(liquidity.data?.status, liquidity)}
               title={liquidity.data?.available ? formatNullableScore(liquidity.data.value, liquidity.data.max) : "Proximamente"}
-              visual={<Sparkline status="coming_soon" />}
+              visual={<Sparkline status={toMetricStatus(liquidity.data?.status, liquidity)} />}
             />
           </div>
           <QuickActions />
@@ -319,9 +323,9 @@ function MarketBriefing({
             />
             <BriefingSignal
               icon={<Clock3 className="h-5 w-5" aria-hidden />}
-              label={indicatorByKey(indicators, "time_to_sell")?.label ?? "Tiempo de venta"}
-              status={toMetricStatus(indicatorByKey(indicators, "time_to_sell")?.status, briefing)}
-              value={indicatorValue(indicatorByKey(indicators, "time_to_sell"))}
+              label={indicatorByKey(indicators, "freshness")?.label ?? "Publicaciones vigentes"}
+              status={toMetricStatus(indicatorByKey(indicators, "freshness")?.status, briefing)}
+              value={indicatorValue(indicatorByKey(indicators, "freshness"))}
             />
             <BriefingSignal
               icon={<Compass className="h-5 w-5" aria-hidden />}
@@ -527,6 +531,12 @@ function QuickActions() {
 
 function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
   const data = state.data;
+  const radarCounts =
+    data?.fresh_candidates_count != null && data?.active_scope_count != null
+      ? `${data.fresh_candidates_count}/${data.active_scope_count}`
+      : data?.mode === "manual"
+        ? "Manual"
+        : "Sin datos";
   return (
     <Card className="p-5">
       <PanelHeader
@@ -537,7 +547,12 @@ function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
       <div className="mt-5 grid items-center gap-5 sm:grid-cols-[150px_1fr]">
         <RadarPulse points={[]} />
         <div>
-          <p className="text-4xl font-semibold text-ink">{data?.mode === "manual" ? "Manual" : "Sin datos"}</p>
+          <p className="text-4xl font-semibold text-ink">{radarCounts}</p>
+          {data?.fresh_candidates_count != null && data?.active_scope_count != null ? (
+            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+              frescos / activos
+            </p>
+          ) : null}
           <p className="mt-2 text-sm leading-6 text-muted">
             {state.error || data?.summary || "El dashboard no llama automaticamente `/api/v1/radar/opportunities`. Abre Radar para ejecutar la busqueda real."}
           </p>
@@ -554,7 +569,7 @@ function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
 }
 
 function MicrozonesPanel({ state }: { state: LoadState<MicrozonesSummary> }) {
-  const rows = ["Microzona", "Score", "Variacion"];
+  const rows = ["Zona", "Score", "UF/m2"];
   const data = state.data;
   return (
     <Card className="p-5">
@@ -564,7 +579,7 @@ function MicrozonesPanel({ state }: { state: LoadState<MicrozonesSummary> }) {
         title={data?.available ? "Senal territorial activa" : "Senal territorial en preparacion"}
       />
       <div className="mt-5 rounded-lg border border-line bg-black/20">
-        <div className="grid grid-cols-[1fr_80px_90px] border-b border-line px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+        <div className="grid grid-cols-[minmax(0,1fr)_72px_80px] border-b border-line px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
           {rows.map((row) => (
             <span key={row}>{row}</span>
           ))}
@@ -573,10 +588,15 @@ function MicrozonesPanel({ state }: { state: LoadState<MicrozonesSummary> }) {
           {data?.items.length ? (
             <div className="space-y-2">
               {data.items.map((item) => (
-                <div className="grid grid-cols-[1fr_80px_90px] text-sm text-ink" key={item.name}>
-                  <span>{item.name}</span>
+                <div className="grid grid-cols-[minmax(0,1fr)_72px_80px] gap-2 text-sm text-ink" key={item.id}>
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">{item.name}</span>
+                    <span className="block truncate text-xs text-muted">
+                      {microzoneTypeLabel(item.type)} - {item.fresh_listings}/{item.active_listings} frescas
+                    </span>
+                  </span>
                   <span>{item.score ?? "--"}</span>
-                  <span>{item.change_pct == null ? "--" : `${item.change_pct}%`}</span>
+                  <span>{item.median_price_m2_uf == null ? "--" : item.median_price_m2_uf}</span>
                 </div>
               ))}
             </div>
@@ -917,6 +937,7 @@ function PropertyThumb() {
 function StatusPill({ status }: { status: MetricStatus }) {
   const labels: Record<MetricStatus, string> = {
     available: "Datos reales",
+    partial: "Proxy v0",
     coming_soon: "En preparacion",
     empty: "Sin datos",
     error: "Error",
@@ -924,6 +945,7 @@ function StatusPill({ status }: { status: MetricStatus }) {
   };
   const classes: Record<MetricStatus, string> = {
     available: "border-emerald-400/25 bg-emerald-400/10 text-emerald-100",
+    partial: "border-amber-300/25 bg-amber-300/10 text-amber-100",
     coming_soon: "border-white/10 bg-white/[0.05] text-muted",
     empty: "border-white/10 bg-black/20 text-muted",
     error: "border-orange-400/30 bg-orange-400/10 text-orange-100",
@@ -959,6 +981,7 @@ function toMetricStatus(status: string | null | undefined, state?: LoadState<unk
   if (state?.error) return "error";
   if (state?.loading) return "empty";
   if (status === "available") return "available";
+  if (status === "partial") return "partial";
   if (status === "manual") return "manual";
   if (status === "empty") return "empty";
   if (status === "error") return "error";
@@ -979,6 +1002,19 @@ function indicatorValue(indicator: MarketIndicator | null): string {
 
 function formatNullableScore(value: number | null, max: number): string {
   return value == null ? "Proximamente" : `${value}/${max}`;
+}
+
+function radarMetricTitle(data: RadarSummary | null | undefined): string {
+  if (data?.fresh_candidates_count != null && data?.active_scope_count != null) {
+    return `${data.fresh_candidates_count}/${data.active_scope_count}`;
+  }
+  return data?.title ?? "Ejecucion manual";
+}
+
+function microzoneTypeLabel(type: string): string {
+  if (type === "comuna_proxy") return "Fallback comunal";
+  if (type === "sector_proxy") return "Sector proxy";
+  return "Microzona";
 }
 
 function compactActionDescription(title: string): string {
