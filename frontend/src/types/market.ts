@@ -55,6 +55,18 @@ export type MarketBriefing = {
   indicators: MarketIndicator[];
   insight: MarketInsight;
   valoria_index: ValoriaIndexSummary;
+  diagnostics: {
+    active_apartments?: number | null;
+    fresh_apartments?: number | null;
+    stale_listings?: number | null;
+    removed_or_inactive?: number | null;
+    missing_url?: number | null;
+    new_listings_24h?: number | null;
+    new_listings_7d?: number | null;
+    removed_7d?: number | null;
+    price_changes_30d?: number | null;
+    [key: string]: number | null | undefined;
+  };
   updated_at: string | null;
   source: string;
 };
@@ -91,8 +103,10 @@ export type LiquiditySummary = {
   diagnostics: {
     active_listings?: number | null;
     fresh_listings?: number | null;
+    new_listings_7d?: number | null;
+    removed_7d?: number | null;
     price_changes_30d?: number | null;
-    markets_with_depth?: number | null;
+    comunas_with_depth?: number | null;
     [key: string]: number | null | undefined;
   };
   source: string;

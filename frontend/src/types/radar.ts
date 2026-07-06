@@ -74,9 +74,12 @@ export type RadarSummary = {
   last_run_at: string | null;
   opportunities_count: number | null;
   fresh_candidates_count: number | null;
+  ready_for_radar_count: number | null;
   active_scope_count: number | null;
   excluded_stale_count: number | null;
   excluded_removed_count: number | null;
+  excluded_missing_price_count: number | null;
+  excluded_missing_area_count: number | null;
   allowed_property_types: string[];
   requires_manual_run: boolean;
   last_refresh_at: string | null;

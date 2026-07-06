@@ -85,9 +85,12 @@ class RadarSummaryOut(BaseModel):
     last_run_at: str | None = None
     opportunities_count: int | None = None
     fresh_candidates_count: int | None = None
+    ready_for_radar_count: int | None = None
     active_scope_count: int | None = None
     excluded_stale_count: int | None = None
     excluded_removed_count: int | None = None
+    excluded_missing_price_count: int | None = None
+    excluded_missing_area_count: int | None = None
     allowed_property_types: list[str] = Field(default_factory=list)
     requires_manual_run: bool
     last_refresh_at: str | None = None

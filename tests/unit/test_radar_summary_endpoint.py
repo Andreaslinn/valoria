@@ -65,8 +65,11 @@ async def test_radar_summary_returns_real_scope_and_freshness_counts(engine: Asy
     assert body["allowed_property_types"] == ["apartment"]
     assert body["active_scope_count"] == 2
     assert body["fresh_candidates_count"] == 1
+    assert body["ready_for_radar_count"] == 1
     assert body["excluded_stale_count"] == 1
     assert body["excluded_removed_count"] == 1
+    assert body["excluded_missing_price_count"] == 0
+    assert body["excluded_missing_area_count"] == 0
     assert body["last_refresh_at"] is not None
 
 
@@ -80,6 +83,7 @@ async def test_radar_summary_empty_db_does_not_return_fake_counts(engine: AsyncE
     body = response.json()
     assert body["status"] == "empty"
     assert body["fresh_candidates_count"] == 0
+    assert body["ready_for_radar_count"] == 0
     assert body["active_scope_count"] == 0
     assert body["excluded_stale_count"] == 0
     assert body["excluded_removed_count"] == 0

@@ -317,21 +317,21 @@ function MarketBriefing({
           <div className="mt-7 grid gap-3 sm:grid-cols-3">
             <BriefingSignal
               icon={<Building2 className="h-5 w-5" aria-hidden />}
-              label={indicatorByKey(indicators, "supply")?.label ?? "Oferta en mercado"}
-              status={toMetricStatus(indicatorByKey(indicators, "supply")?.status, briefing)}
-              value={indicatorValue(indicatorByKey(indicators, "supply"))}
+              label={indicatorByKey(indicators, "active_supply")?.label ?? "Oferta en mercado"}
+              status={toMetricStatus(indicatorByKey(indicators, "active_supply")?.status, briefing)}
+              value={indicatorValue(indicatorByKey(indicators, "active_supply"))}
             />
             <BriefingSignal
               icon={<Clock3 className="h-5 w-5" aria-hidden />}
-              label={indicatorByKey(indicators, "freshness")?.label ?? "Publicaciones vigentes"}
-              status={toMetricStatus(indicatorByKey(indicators, "freshness")?.status, briefing)}
-              value={indicatorValue(indicatorByKey(indicators, "freshness"))}
+              label={indicatorByKey(indicators, "fresh_listings")?.label ?? "Publicaciones vigentes"}
+              status={toMetricStatus(indicatorByKey(indicators, "fresh_listings")?.status, briefing)}
+              value={indicatorValue(indicatorByKey(indicators, "fresh_listings"))}
             />
             <BriefingSignal
               icon={<Compass className="h-5 w-5" aria-hidden />}
-              label={indicatorByKey(indicators, "opportunities")?.label ?? "Oportunidades"}
-              status={toMetricStatus(indicatorByKey(indicators, "opportunities")?.status, briefing)}
-              value={indicatorValue(indicatorByKey(indicators, "opportunities"))}
+              label={indicatorByKey(indicators, "new_listings_7d")?.label ?? "Nuevas publicaciones"}
+              status={toMetricStatus(indicatorByKey(indicators, "new_listings_7d")?.status, briefing)}
+              value={indicatorValue(indicatorByKey(indicators, "new_listings_7d"))}
             />
           </div>
         </div>
@@ -532,8 +532,10 @@ function QuickActions() {
 function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
   const data = state.data;
   const radarCounts =
-    data?.fresh_candidates_count != null && data?.active_scope_count != null
-      ? `${data.fresh_candidates_count}/${data.active_scope_count}`
+    data?.ready_for_radar_count != null
+      ? `${data.ready_for_radar_count}`
+      : data?.fresh_candidates_count != null && data?.active_scope_count != null
+        ? `${data.fresh_candidates_count}/${data.active_scope_count}`
       : data?.mode === "manual"
         ? "Manual"
         : "Sin datos";
@@ -548,7 +550,11 @@ function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
         <RadarPulse points={[]} />
         <div>
           <p className="text-4xl font-semibold text-ink">{radarCounts}</p>
-          {data?.fresh_candidates_count != null && data?.active_scope_count != null ? (
+          {data?.ready_for_radar_count != null ? (
+            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+              listas para Radar
+            </p>
+          ) : data?.fresh_candidates_count != null && data?.active_scope_count != null ? (
             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
               frescos / activos
             </p>
@@ -1005,6 +1011,9 @@ function formatNullableScore(value: number | null, max: number): string {
 }
 
 function radarMetricTitle(data: RadarSummary | null | undefined): string {
+  if (data?.ready_for_radar_count != null) {
+    return `${data.ready_for_radar_count} listas`;
+  }
   if (data?.fresh_candidates_count != null && data?.active_scope_count != null) {
     return `${data.fresh_candidates_count}/${data.active_scope_count}`;
   }

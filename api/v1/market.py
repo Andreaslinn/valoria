@@ -91,6 +91,7 @@ class MarketBriefingOut(BaseModel):
     indicators: list[MarketIndicatorOut] = Field(default_factory=list)
     insight: MarketInsightOut
     valoria_index: ValoriaIndexOut
+    diagnostics: dict[str, int | float | None] = Field(default_factory=dict)
     updated_at: datetime | None = None
     source: str
 

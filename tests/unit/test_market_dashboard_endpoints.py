@@ -67,10 +67,17 @@ async def test_market_briefing_uses_real_listing_signals(engine: AsyncEngine) ->
     assert body["status"] == "partial"
     assert body["available"] is True
     assert body["source"] == "listings_db"
-    assert body["indicators"][0]["key"] == "supply"
+    assert body["indicators"][0]["key"] == "active_supply"
     assert body["indicators"][0]["value"] == 2
-    assert body["indicators"][1]["key"] == "freshness"
+    assert body["indicators"][1]["key"] == "fresh_listings"
     assert body["indicators"][1]["value"] == 1
+    assert body["indicators"][2]["key"] == "new_listings_7d"
+    assert isinstance(body["indicators"][2]["value"], int)
+    assert body["diagnostics"]["active_apartments"] == 2
+    assert body["diagnostics"]["fresh_apartments"] == 1
+    assert body["diagnostics"]["stale_listings"] == 1
+    assert body["diagnostics"]["new_listings_7d"] >= 0
+    assert body["diagnostics"]["price_changes_30d"] == 0
     assert 0 <= body["valoria_index"]["value"] <= 100
     assert body["valoria_index"]["description"] == (
         "Indice de salud de datos Valoria, no senal de precio."
@@ -115,6 +122,8 @@ async def test_liquidity_summary_uses_real_counts_and_price_history(engine: Asyn
     assert 0 <= body["value"] <= 100
     assert body["diagnostics"]["active_listings"] == 1
     assert body["diagnostics"]["fresh_listings"] == 1
+    assert body["diagnostics"]["new_listings_7d"] >= 0
+    assert body["diagnostics"]["removed_7d"] == 0
     assert body["diagnostics"]["price_changes_30d"] == 1
     assert body["source"] == "listings_price_history_db"
 

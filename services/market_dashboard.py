@@ -4,12 +4,16 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from statistics import median
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.entities.listing import Listing
+from core.value_objects.price import Price
+from domain.radar.freshness import RadarFreshnessConfig, is_fresh_for_radar
 from infrastructure.db.models import ListingORM, PriceHistoryORM
 
 BETA_PROPERTY_TYPE = "apartment"
@@ -32,6 +36,7 @@ class ListingSignal:
     status: str
     price_uf: float | None
     price_uf_confidence: str | None
+    url: str | None
     usable_area_m2: float | None
     built_area_m2: float | None
     m2: float | None
@@ -41,13 +46,22 @@ class ListingSignal:
     last_seen_at: datetime | None
     last_refresh_attempted_at: datetime | None
     last_refresh_status: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
 
 
 @dataclass(frozen=True)
 class MarketDataset:
     now: datetime
+    scoped: list[ListingSignal]
     active: list[ListingSignal]
     fresh: list[ListingSignal]
+    stale_count: int
+    missing_url_count: int
+    removed_or_inactive_count: int
+    new_listings_24h: int
+    new_listings_7d: int
+    removed_7d: int
     price_changes_30d: int
 
 
@@ -69,47 +83,58 @@ async def build_market_briefing(
         "status": status,
         "available": True,
         "market": "Santiago, Chile",
-        "headline": "Mercado con senales activas disponibles",
+        "headline": "Valoria monitorea el mercado activo",
         "summary": (
-            "Valoria monitorea publicaciones activas, frescura y Radar bajo demanda."
+            "Resumen basado en publicaciones activas, frescura y actividad reciente."
         ),
         "indicators": [
             {
-                "key": "supply",
+                "key": "active_supply",
                 "label": "Oferta en mercado",
                 "status": status,
                 "value": active_count,
                 "delta_pct": None,
-                "unit": "listings",
-                "description": "Departamentos activos dentro del scope beta.",
+                "unit": "publicaciones",
+                "description": "Departamentos activos en el scope beta.",
             },
             {
-                "key": "freshness",
+                "key": "fresh_listings",
                 "label": "Publicaciones vigentes",
                 "status": status,
                 "value": fresh_count,
                 "delta_pct": None,
-                "unit": "confirmed",
-                "description": "Publicaciones confirmadas recientemente segun freshness.",
+                "unit": "confirmadas",
+                "description": "Publicaciones activas confirmadas recientemente.",
             },
             {
-                "key": "opportunities",
-                "label": "Radar",
-                "status": "manual",
-                "value": None,
+                "key": "new_listings_7d",
+                "label": "Nuevas publicaciones",
+                "status": status,
+                "value": dataset.new_listings_7d,
                 "delta_pct": None,
-                "unit": None,
-                "description": "Radar se ejecuta bajo demanda.",
+                "unit": "7 dias",
+                "description": "Publicaciones nuevas detectadas en los ultimos 7 dias.",
             },
         ],
         "insight": {
             "status": status,
             "text": (
-                "El dashboard prioriza publicaciones activas y confirmadas; Radar "
-                "se mantiene manual para evitar calculos pesados."
+                f"Hay {fresh_count} publicaciones vigentes dentro del scope beta. "
+                "Radar se mantiene bajo demanda para evitar calculos pesados."
             ),
         },
         "valoria_index": valoria_index,
+        "diagnostics": {
+            "active_apartments": active_count,
+            "fresh_apartments": fresh_count,
+            "stale_listings": dataset.stale_count,
+            "removed_or_inactive": dataset.removed_or_inactive_count,
+            "missing_url": dataset.missing_url_count,
+            "new_listings_24h": dataset.new_listings_24h,
+            "new_listings_7d": dataset.new_listings_7d,
+            "removed_7d": dataset.removed_7d,
+            "price_changes_30d": dataset.price_changes_30d,
+        },
         "updated_at": dataset.now,
         "source": "listings_db",
     }
@@ -158,8 +183,10 @@ async def build_liquidity_summary(
         "diagnostics": {
             "active_listings": active_count,
             "fresh_listings": fresh_count,
+            "new_listings_7d": dataset.new_listings_7d,
+            "removed_7d": dataset.removed_7d,
             "price_changes_30d": dataset.price_changes_30d,
-            "markets_with_depth": markets_with_depth,
+            "comunas_with_depth": markets_with_depth,
         },
         "source": "listings_price_history_db" if has_price_history else "listings_db",
     }
@@ -216,31 +243,31 @@ def market_briefing_placeholder(status: str = "coming_soon") -> dict[str, Any]:
         ),
         "indicators": [
             {
-                "key": "supply",
+                "key": "active_supply",
                 "label": "Oferta en mercado",
                 "status": "empty" if is_empty else "coming_soon",
                 "value": 0 if is_empty else None,
                 "delta_pct": None,
-                "unit": "listings" if is_empty else None,
-                "description": "Departamentos activos dentro del scope beta.",
+                "unit": "publicaciones" if is_empty else None,
+                "description": "Departamentos activos en el scope beta.",
             },
             {
-                "key": "freshness",
+                "key": "fresh_listings",
                 "label": "Publicaciones vigentes",
                 "status": "empty" if is_empty else "coming_soon",
                 "value": 0 if is_empty else None,
                 "delta_pct": None,
-                "unit": "confirmed" if is_empty else None,
-                "description": "Publicaciones confirmadas recientemente segun freshness.",
+                "unit": "confirmadas" if is_empty else None,
+                "description": "Publicaciones activas confirmadas recientemente.",
             },
             {
-                "key": "opportunities",
-                "label": "Radar",
-                "status": "manual",
-                "value": None,
+                "key": "new_listings_7d",
+                "label": "Nuevas publicaciones",
+                "status": "empty" if is_empty else "coming_soon",
+                "value": 0 if is_empty else None,
                 "delta_pct": None,
-                "unit": None,
-                "description": "Radar se ejecuta bajo demanda.",
+                "unit": "7 dias" if is_empty else None,
+                "description": "Publicaciones nuevas detectadas en los ultimos 7 dias.",
             },
         ],
         "insight": {
@@ -252,6 +279,17 @@ def market_briefing_placeholder(status: str = "coming_soon") -> dict[str, Any]:
             ),
         },
         "valoria_index": valoria_index_placeholder(status=status),
+        "diagnostics": {
+            "active_apartments": 0,
+            "fresh_apartments": 0,
+            "stale_listings": 0,
+            "removed_or_inactive": 0,
+            "missing_url": 0,
+            "new_listings_24h": 0,
+            "new_listings_7d": 0,
+            "removed_7d": 0,
+            "price_changes_30d": 0,
+        },
         "updated_at": None,
         "source": "listings_db_empty" if is_empty else "valoria_market_contract_placeholder",
     }
@@ -306,8 +344,10 @@ def liquidity_summary_placeholder(status: str = "coming_soon") -> dict[str, Any]
         "diagnostics": {
             "active_listings": 0,
             "fresh_listings": 0,
+            "new_listings_7d": 0,
+            "removed_7d": 0,
             "price_changes_30d": 0,
-            "markets_with_depth": 0,
+            "comunas_with_depth": 0,
         },
         "source": "listings_db_empty" if is_empty else "liquidity_contract_placeholder",
     }
@@ -320,19 +360,45 @@ async def _load_market_dataset(
 ) -> MarketDataset:
     now = datetime.now(UTC)
     rows = await session.scalars(
-        select(ListingORM).where(
-            ListingORM.property_type == BETA_PROPERTY_TYPE,
-            ListingORM.status == "active",
-        )
+        select(ListingORM).where(ListingORM.property_type == BETA_PROPERTY_TYPE)
     )
-    active = [_to_listing_signal(row) for row in rows.all()]
-    cutoff = now - timedelta(days=max(max_staleness_days, 0))
-    fresh = [listing for listing in active if _is_fresh_listing(listing, cutoff=cutoff)]
+    scoped = [_to_listing_signal(row) for row in rows.all()]
+    active = [listing for listing in scoped if listing.status == "active"]
+    freshness_config = RadarFreshnessConfig(
+        require_fresh_listings=True,
+        max_listing_staleness_days=max_staleness_days,
+        exclude_refresh_failed=True,
+        exclude_removed_or_unavailable=True,
+    )
+    freshness_decisions = [
+        (listing, is_fresh_for_radar(_to_domain_listing(listing), now=now, config=freshness_config))
+        for listing in active
+    ]
+    fresh = [listing for listing, decision in freshness_decisions if decision.allowed]
+    stale_count = sum(
+        1 for _listing, decision in freshness_decisions if decision.cause in {"stale", "missing_freshness"}
+    )
+    missing_url_count = sum(
+        1 for _listing, decision in freshness_decisions if decision.cause == "missing_url"
+    )
+    removed_or_inactive_count = sum(1 for listing in scoped if listing.status != "active") + sum(
+        1 for _listing, decision in freshness_decisions if decision.cause == "removed_or_unavailable"
+    )
+    new_listings_24h = _new_listings_count(scoped, now=now, days=1)
+    new_listings_7d = _new_listings_count(scoped, now=now, days=7)
+    removed_7d = _removed_recent_count(scoped, now=now, days=7)
     price_changes_30d = await _price_changes_30d(session, now=now)
     return MarketDataset(
         now=now,
+        scoped=scoped,
         active=active,
         fresh=fresh,
+        stale_count=stale_count,
+        missing_url_count=missing_url_count,
+        removed_or_inactive_count=removed_or_inactive_count,
+        new_listings_24h=new_listings_24h,
+        new_listings_7d=new_listings_7d,
+        removed_7d=removed_7d,
         price_changes_30d=price_changes_30d,
     )
 
@@ -358,6 +424,7 @@ def _to_listing_signal(row: ListingORM) -> ListingSignal:
         status=row.status,
         price_uf=float(row.price_uf) if row.price_uf is not None else None,
         price_uf_confidence=row.price_uf_confidence,
+        url=row.url,
         usable_area_m2=row.usable_area_m2,
         built_area_m2=row.built_area_m2,
         m2=row.m2,
@@ -367,6 +434,8 @@ def _to_listing_signal(row: ListingORM) -> ListingSignal:
         last_seen_at=row.last_seen_at,
         last_refresh_attempted_at=row.last_refresh_attempted_at,
         last_refresh_status=row.last_refresh_status,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -495,12 +564,59 @@ def _counts_by_comuna(rows: list[ListingSignal]) -> dict[str, int]:
     return counts
 
 
-def _is_fresh_listing(row: ListingSignal, *, cutoff: datetime) -> bool:
-    last_seen_at = _as_aware_utc(row.last_seen_at)
-    if last_seen_at is not None and last_seen_at >= cutoff:
-        return True
-    refresh_at = _as_aware_utc(row.last_refresh_attempted_at)
-    return refresh_at is not None and refresh_at >= cutoff and row.last_refresh_status == "ok"
+def _new_listings_count(rows: list[ListingSignal], *, now: datetime, days: int) -> int:
+    cutoff = now - timedelta(days=days)
+    return sum(
+        1
+        for row in rows
+        if (first_seen := _first_seen_at(row)) is not None and first_seen >= cutoff
+    )
+
+
+def _removed_recent_count(rows: list[ListingSignal], *, now: datetime, days: int) -> int:
+    cutoff = now - timedelta(days=days)
+    return sum(
+        1
+        for row in rows
+        if row.status != "active"
+        and (last_change := _as_aware_utc(row.updated_at) or _as_aware_utc(row.last_seen_at))
+        is not None
+        and last_change >= cutoff
+    )
+
+
+def _first_seen_at(row: ListingSignal) -> datetime | None:
+    return _as_aware_utc(row.created_at) or _as_aware_utc(row.scraped_at)
+
+
+def _to_domain_listing(row: ListingSignal) -> Listing:
+    price_clp = Decimal(str(row.price_uf or 0)) * Decimal("40000")
+    return Listing(
+        id=row.id,
+        source="dashboard_summary",
+        external_id=None,
+        title="dashboard summary listing",
+        comuna=row.comuna,
+        m2=row.m2,
+        bedrooms=0,
+        bathrooms=0,
+        parking=0,
+        price=Price.from_clp(price_clp),
+        status=row.status,
+        fingerprint=f"dashboard-summary-{row.id or row.comuna}",
+        scraped_at=row.scraped_at,
+        last_seen_at=row.last_seen_at,
+        last_refresh_attempted_at=row.last_refresh_attempted_at,
+        last_refresh_status=row.last_refresh_status,
+        url=row.url,
+        property_type=BETA_PROPERTY_TYPE,
+        built_area_m2=row.built_area_m2,
+        usable_area_m2=row.usable_area_m2,
+        geocode_precision=row.geocode_precision,
+        price_uf=Decimal(str(row.price_uf)) if row.price_uf is not None else None,
+        price_uf_confidence=row.price_uf_confidence,
+        raw_metadata=row.raw_metadata,
+    )
 
 
 def _has_reliable_price(row: ListingSignal) -> bool:
