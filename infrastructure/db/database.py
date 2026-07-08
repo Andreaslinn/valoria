@@ -1,10 +1,10 @@
-"""Engine asíncrono + session factory.
+"""Engine asincrono + session factory.
 
 El engine se crea de forma perezosa (lazy) la primera vez que se solicita.
-Esto permite que los tests sustituyan su propia DB sin que el módulo falle
-al importarse por un .env ausente o inválido.
+Esto permite que los tests sustituyan su propia DB sin que el modulo falle
+al importarse por un .env ausente o invalido.
 
-Uso típico en FastAPI:
+Uso tipico en FastAPI:
 
     from fastapi import Depends
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,8 +37,8 @@ def get_engine() -> AsyncEngine:
         settings.database_url,
         echo=(settings.log_level == "DEBUG"),
         pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
     )
 
 
@@ -52,10 +52,10 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Dependencia FastAPI: abre una sesión, rollback automático en excepción.
+    """Dependencia FastAPI: abre una sesion, rollback automatico en excepcion.
 
     El commit queda a cargo del caller (casos de uso / servicios), que saben
-    cuándo la unidad de trabajo está completa.
+    cuando la unidad de trabajo esta completa.
     """
     async with get_session_factory()() as session:
         try:
@@ -63,3 +63,5 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
