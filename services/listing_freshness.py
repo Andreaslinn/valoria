@@ -77,7 +77,7 @@ async def ensure_listing_fresh(
     """Verify one listing URL when a user takes a strong-intent action."""
     settings = settings or get_settings()
     current_time = now or datetime.now(UTC)
-    if (settings.is_cloud_beta or not settings.listing_on_demand_refresh_enabled) and not force:
+    if (getattr(settings, "is_cloud_beta", False) or not settings.listing_on_demand_refresh_enabled) and not force:
         listing = await _load_listing(session_factory, listing_id)
         return _result_from_listing(
             listing,
