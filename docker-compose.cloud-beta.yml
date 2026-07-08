@@ -7,23 +7,23 @@ services:
     env_file:
       - deploy/cloud-beta.env.example
     environment:
-      VALORIA_RUNTIME_PROFILE: ${VALORIA_RUNTIME_PROFILE:-cloud_beta}
-      ENVIRONMENT: ${ENVIRONMENT:-cloud_beta}
-      PORT: ${PORT:-8000}
-      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
-      REDIS_ENABLED: ${REDIS_ENABLED:-false}
-      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-false}
-      WORKERS_ENABLED: ${WORKERS_ENABLED:-false}
-      LISTING_ON_DEMAND_REFRESH_ENABLED: ${LISTING_ON_DEMAND_REFRESH_ENABLED:-false}
-      PORTFOLIO_SNAPSHOT_WRITE_ENABLED: ${PORTFOLIO_SNAPSHOT_WRITE_ENABLED:-false}
-      VALUATION_FEEDBACK_ENABLED: ${VALUATION_FEEDBACK_ENABLED:-false}
+      VALORIA_RUNTIME_PROFILE: cloud_beta
+      ENVIRONMENT: cloud_beta
+      PORT: "8000"
+      WEB_CONCURRENCY: "1"
+      REDIS_ENABLED: "false"
+      SCHEDULER_ENABLED: "false"
+      WORKERS_ENABLED: "false"
+      LISTING_ON_DEMAND_REFRESH_ENABLED: "false"
+      PORTFOLIO_SNAPSHOT_WRITE_ENABLED: "false"
+      VALUATION_FEEDBACK_ENABLED: "false"
     ports:
-      - "${API_PORT:-18000}:${PORT:-8000}"
+      - "${API_PORT:-18000}:8000"
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:${PORT:-8000}/health', timeout=3)\"",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\"",
         ]
       interval: 20s
       timeout: 5s
