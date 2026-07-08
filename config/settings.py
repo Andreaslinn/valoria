@@ -1,4 +1,4 @@
-"""Settings cargados desde .env mediante pydantic-settings.
+﻿"""Settings cargados desde .env mediante pydantic-settings.
 
 Uso:
     from config import get_settings
@@ -28,8 +28,12 @@ class Settings(BaseSettings):
         description="Sync URL (psycopg) para Alembic",
     )
 
+    database_pool_size: int = 10
+    database_max_overflow: int = 20
+
     # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    redis_enabled: bool = True
+    redis_url: str | None = "redis://localhost:6379/0"
 
     # Auth
     jwt_secret_key: str = Field(
@@ -54,7 +58,8 @@ class Settings(BaseSettings):
     nominatim_user_agent: str = "AVM-v2-geocoder/0.1 (contact: dev-local)"
 
     # Entorno
-    environment: Literal["local", "development", "beta", "production"] = "development"
+    valoria_runtime_profile: Literal["local", "cloud_beta"] = "local"
+    environment: Literal["local", "development", "beta", "production", "cloud_beta", "cloud-beta"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     backend_cors_origins: str = Field(
         "http://localhost:3000,http://127.0.0.1:3000",
@@ -74,6 +79,12 @@ class Settings(BaseSettings):
     market_commune_min_time_sample: int = 20
     market_commune_min_price_history_sample: int = 15
 
+    # Runtime capability flags. Defaults preserve the complete local profile.
+    scheduler_enabled: bool = True
+    workers_enabled: bool = True
+    portfolio_snapshot_write_enabled: bool = True
+    valuation_feedback_enabled: bool = True
+
     # On-demand listing verification for strong-intent user flows.
     listing_on_demand_refresh_enabled: bool = True
     listing_on_demand_refresh_cooldown_hours: int = 24
@@ -83,6 +94,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def is_cloud_beta(self) -> bool:
+        return self.valoria_runtime_profile == "cloud_beta" or self.environment in {"cloud_beta", "cloud-beta"}
 
     @property
     def backend_cors_origin_list(self) -> tuple[str, ...]:
@@ -97,3 +112,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Singleton cacheado. Usar get_settings() en lugar de instanciar Settings()."""
     return Settings()  # type: ignore[call-arg]
+
