@@ -68,3 +68,14 @@ exports/
 /*_latest.md
 reports/valuation_engine_benchmark/current_multiengine_audit/
 reports/valuation_engine_benchmark/experimental_consensus_lab/
+# Generated research / benchmark artifacts
+reports/valuation_engine_benchmark/**/*.json
+reports/valuation_engine_benchmark/**/*.csv
+reports/valuation_engine_benchmark/**/*.html
+reports/experimental_consensus_lab/**/*.json
+reports/experimental_consensus_lab/**/*.csv
+reports/experimental_consensus_lab/**/*.html
+reports/**/*_latest.json
+
+# Local backup / dump artifacts
+*.dump
