@@ -1,4 +1,4 @@
-﻿# Cloud beta runtime profile
+# Cloud beta runtime profile
 
 Valoria supports two runtime profiles:
 
@@ -25,7 +25,7 @@ Do not run Alembic from multiple API instances at startup.
 
 ## Cloud beta minimum variables
 
-Use `.env.cloud-beta.example` as a non-secret template. Store real secrets in the provider secret manager.
+Use `deploy/cloud-beta.env.example` as a non-secret template. Store real secrets in the provider secret manager.
 
 Recommended cloud-beta values:
 

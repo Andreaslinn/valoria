@@ -1,11 +1,11 @@
-﻿services:
+services:
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
     restart: unless-stopped
     env_file:
-      - .env.cloud-beta.example
+      - deploy/cloud-beta.env.example
     environment:
       VALORIA_RUNTIME_PROFILE: ${VALORIA_RUNTIME_PROFILE:-cloud_beta}
       ENVIRONMENT: ${ENVIRONMENT:-cloud_beta}
