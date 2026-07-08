@@ -30,7 +30,7 @@ class UFClient(UFService):
         *,
         api_url: str,
         http_client: httpx.AsyncClient,
-        redis: Redis,
+        redis: Redis | None,
         cache_ttl: int = UF_CACHE_TTL,
         max_staleness_days: int = 1,
         allow_stale_on_failure: bool = False,
@@ -111,6 +111,8 @@ class UFClient(UFService):
         return fresh
 
     async def _from_cache(self) -> _CachedUF | None:
+        if self._redis is None:
+            return None
         try:
             raw = await self._redis.get(UF_CACHE_KEY)
         except Exception as e:
@@ -142,6 +144,8 @@ class UFClient(UFService):
         )
 
     async def _store_in_cache(self, info: UFRateInfo) -> None:
+        if self._redis is None:
+            return
         fetched_at = info.fetched_at or datetime.now(UTC)
         payload = {
             "value": str(info.rate),
@@ -359,3 +363,5 @@ def _ensure_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+

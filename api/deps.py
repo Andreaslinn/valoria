@@ -1,6 +1,6 @@
-"""Inyección de dependencias para los endpoints FastAPI.
+"""Inyeccion de dependencias para los endpoints FastAPI.
 
-Usos típicos:
+Usos tipicos:
 
     from fastapi import Depends
     from api.deps import CurrentUser, DbSession
@@ -13,7 +13,7 @@ Usos típicos:
     async def list_items(db: DbSession) -> list[Item]:
         ...
 
-`CurrentUser` exige que la request venga con un JWT válido; si no, 401.
+`CurrentUser` exige que la request venga con un JWT valido; si no, 401.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ from services.users import UserService
 from services.valuation import ValuationService
 
 # El token viaja en `Authorization: Bearer <token>`. tokenUrl es la ruta del
-# endpoint de login — FastAPI la usa para el botón "Authorize" en /docs.
+# endpoint de login - FastAPI la usa para el boton "Authorize" en /docs.
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 _log = logging.getLogger(__name__)
 
@@ -55,9 +55,9 @@ _uf_http_client: httpx.AsyncClient | None = None
 _uf_redis_client: Redis | None = None
 
 
-# ─────────────────────────────────────────────────────────
+# ------------------------------------------------------------
 #  Dependencias primitivas
-# ─────────────────────────────────────────────────────────
+# ------------------------------------------------------------
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
 
@@ -90,8 +90,10 @@ def _get_uf_http_client() -> httpx.AsyncClient:
     return _uf_http_client
 
 
-def _get_uf_redis_client(settings: Settings) -> Redis:
+def _get_uf_redis_client(settings: Settings) -> Redis | None:
     global _uf_redis_client
+    if not settings.redis_enabled or not settings.redis_url:
+        return None
     if _uf_redis_client is None:
         _uf_redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
     return _uf_redis_client
@@ -183,9 +185,9 @@ PortfolioSnapshotServiceDep = Annotated[
 ]
 
 
-# ─────────────────────────────────────────────────────────
-#  Autenticación — resuelve User desde el JWT
-# ─────────────────────────────────────────────────────────
+# ------------------------------------------------------------
+#  Autenticacion - resuelve User desde el JWT
+# ------------------------------------------------------------
 async def _resolve_current_user(
     token: Annotated[str, Depends(_oauth2_scheme)],
     settings: AppSettings,
@@ -193,7 +195,7 @@ async def _resolve_current_user(
 ) -> User:
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Credenciales inválidas o token expirado",
+        detail="Credenciales invalidas o token expirado",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -224,3 +226,4 @@ async def _require_admin(user: CurrentUser) -> User:
 
 
 CurrentAdmin = Annotated[User, Depends(_require_admin)]
+
