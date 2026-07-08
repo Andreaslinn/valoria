@@ -207,6 +207,67 @@ async def run_refresh_scraper(
     return stats
 
 
+async def refresh_listing_once(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    listing_id: int,
+    http_client: httpx.AsyncClient,
+    rate_limiter: RateLimiter | None = None,
+    parser: RefreshParser | None = None,
+    process_listing_fn: ProcessListingFn = process_listing,
+    now: datetime | None = None,
+    uf_to_clp: Decimal | None = None,
+    uf_rate_source: str | None = None,
+) -> RefreshStats:
+    """Refresh exactly one persisted listing by id.
+
+    This is intentionally separate from batch candidate selection so product
+    flows can verify a single URL after an explicit user action.
+    """
+    started_at = now or datetime.now(UTC)
+    stats = RefreshStats(started_at=started_at)
+    if uf_to_clp is not None:
+        stats.uf_rate_used = str(uf_to_clp)
+    stats.uf_rate_source = uf_rate_source
+    total_start = time.perf_counter()
+    async with session_factory() as session:
+        row = await session.get(ListingORM, listing_id)
+        if row is None:
+            stats.skipped += 1
+            _increment_reason(stats, "not_found")
+            stats.finished_at = datetime.now(UTC)
+            stats.duration_sec = round(time.perf_counter() - total_start, 3)
+            return stats
+        listing = listing_from_orm(row)
+
+    stats.candidates_total = 1
+    stats.selected = 1
+    _record_selected_dimensions(stats, [listing])
+    limiter = rate_limiter or RateLimiter(0)
+    refresh_parser = parser or (
+        lambda item, html: parse_refresh_listing_html(
+            item,
+            html,
+            uf_to_clp=uf_to_clp,
+            uf_rate_source=uf_rate_source,
+        )
+    )
+    await _refresh_one(
+        listing,
+        session_factory=session_factory,
+        http_client=http_client,
+        rate_limiter=limiter,
+        parser=refresh_parser,
+        process_listing_fn=process_listing_fn,
+        stats=stats,
+        now=now,
+        example_limit=0,
+    )
+    stats.finished_at = datetime.now(UTC)
+    stats.duration_sec = round(time.perf_counter() - total_start, 3)
+    return stats
+
+
 async def count_refresh_candidates(
     session_factory: async_sessionmaker[AsyncSession],
     *,

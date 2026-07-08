@@ -154,3 +154,64 @@ def test_lookup_url_parse_failure_returns_502(monkeypatch) -> None:
 
     assert response.status_code == 502
     assert response.json()["detail"] == "No se pudo parsear la publicacion"
+
+
+def test_analyze_url_authenticated_happy_path_mocking_services(monkeypatch) -> None:
+    class FakeValuationService:
+        async def valuate_property(self, valuation_input):
+            assert valuation_input.comuna == "nunoa"
+            assert valuation_input.precio_publicado_uf == 4300
+
+            class Result:
+                estimated_price_uf = 5000
+                estimated_price_clp = 200_000_000
+                price_range_low_uf = 4500
+                price_range_high_uf = 5500
+                confidence_score = 0.72
+                confidence_label = "medium"
+                comparable_count = 12
+                warnings = ()
+
+            return Result()
+
+    async def fake_lookup(url: str) -> _LookupResult:
+        return _LookupResult(
+            status="found_existing",
+            listing_data={
+                "listing_id": 123,
+                "title": "Depto Yapo",
+                "url": url,
+                "comuna": "nunoa",
+                "property_type": "apartment",
+                "m2": 70,
+                "built_area_m2": 70,
+                "usable_area_m2": 70,
+                "dormitorios": 2,
+                "banos": 2,
+                "estacionamientos": 1,
+                "precio_publicado_uf": 4300,
+                "precio_publicado_clp": 167_700_000,
+                "price_currency": "UF",
+                "price_uf_source": "scraped",
+                "price_uf_confidence": "high",
+            },
+            warnings=[],
+            source="yapo",
+            url=url,
+        )
+
+    monkeypatch.setattr(listings_api, "lookup_listing_url", fake_lookup)
+    client = _client()
+    client.app.dependency_overrides[deps.get_valuation_service] = lambda: FakeValuationService()
+
+    response = client.post(
+        "/api/v1/listings/analyze-url",
+        json={"url": "https://www.yapo.cl/metropolitana/departamento-test"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["listing"]["listing_id"] == 123
+    assert body["price_analysis"]["verdict"] == "under_market"
+    assert body["valuation"]["estimated_value_uf"] == 5000
+    assert body["report_status"]["listing_risk_report_available"] is False

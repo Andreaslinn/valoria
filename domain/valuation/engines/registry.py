@@ -63,6 +63,30 @@ def default_engine_registry() -> EngineRegistry:
     return registry
 
 
+def experimental_engine_registry() -> EngineRegistry:
+    """Return comparables plus future read-only engines.
+
+    This registry is intentionally opt-in. Productive services should keep
+    using ``default_engine_registry`` unless a feature flag explicitly says
+    otherwise.
+    """
+    from domain.valuation.engines.consensus import ValoriaConsensusV1Engine
+    from domain.valuation.engines.hedonic_baseline import HedonicBaselineV1Engine
+    from domain.valuation.engines.land_building import LandBuildingV1Engine
+    from domain.valuation.engines.market_trends import MarketTrendsV1Engine
+    from domain.valuation.engines.microzone_geo import MicrozoneGeoV1Engine
+    from domain.valuation.engines.ml import MLChallengerV1Engine
+
+    registry = default_engine_registry()
+    registry.register(HedonicBaselineV1Engine())
+    registry.register(MLChallengerV1Engine())
+    registry.register(MicrozoneGeoV1Engine())
+    registry.register(LandBuildingV1Engine())
+    registry.register(MarketTrendsV1Engine())
+    registry.register(ValoriaConsensusV1Engine())
+    return registry
+
+
 def _normalize_name(value: object) -> str:
     name = str(value or "").strip()
     if not name:

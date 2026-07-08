@@ -85,6 +85,7 @@ class ValuationEngineResultPayload(TypedDict):
     selected_for_final: bool
     warnings: list[str]
     safe_error_message: str | None
+    diagnostics: NotRequired[dict[str, Any]]
 
 
 class ValuationConsensusPayload(TypedDict):
@@ -129,6 +130,17 @@ class RadarOpportunityPayload(ConfidencePayload):
     price_uf: float
     price_clp: int
     m2: float
+    built_area_m2: NotRequired[float | None]
+    usable_area_m2: NotRequired[float | None]
+    bedrooms: NotRequired[int | None]
+    bathrooms: NotRequired[int | None]
+    parking: NotRequired[int | None]
+    property_type: NotRequired[str | None]
+    source: NotRequired[str | None]
+    external_id: NotRequired[str | None]
+    lat: NotRequired[float | None]
+    lon: NotRequired[float | None]
+    geocode_precision: NotRequired[str | None]
     estimated_price_uf: float
     discount_pct: float
     score: float
@@ -149,6 +161,22 @@ class RadarOpportunityPayload(ConfidencePayload):
     price_clp_snapshot: NotRequired[int | None]
     price_basis_used: NotRequired[str | None]
     price_data_quality: NotRequired[str | None]
+    price_uf_source: NotRequired[str | None]
+    uf_rate_used: NotRequired[float | None]
+    uf_rate_date: NotRequired[str | None]
+    uf_rate_fetched_at: NotRequired[str | None]
+    uf_rate_source: NotRequired[str | None]
+    uf_rate_cache_hit: NotRequired[bool | None]
+    uf_rate_stale: NotRequired[bool | None]
+    allowed_property_types: NotRequired[list[str]]
+    excluded_by_property_type_count: NotRequired[dict[str, int]]
+    houses_on_hold_count: NotRequired[int]
+    radar_scope_note: NotRequired[str | None]
+    radar_scope_label: NotRequired[str | None]
+    bedrooms_filter_applied: NotRequired[bool]
+    bedrooms_min: NotRequired[int | None]
+    bedrooms_max: NotRequired[int | None]
+    excluded_by_bedrooms_count: NotRequired[int]
 
 
 class ReadinessSectionPayload(TypedDict, total=False):

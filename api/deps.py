@@ -32,13 +32,16 @@ from core.entities.user import User
 from core.ports.listing_repo import ListingRepository
 from core.ports.uf_service import UFService
 from core.ports.user_repo import UserRepository
-from infrastructure.db.database import get_db
+from infrastructure.db.database import get_db, get_session_factory
 from infrastructure.db.repositories import (
     SqlAlchemyListingRepository,
     SqlAlchemyUserRepository,
 )
 from infrastructure.external.uf_client import UFClient
 from services.listings import ListingService
+from services.portfolio import PortfolioService
+from services.portfolio_comparisons import PortfolioComparisonService
+from services.portfolio_snapshots import PortfolioSnapshotService
 from services.radar import RadarService
 from services.users import UserService
 from services.valuation import ValuationService
@@ -48,7 +51,6 @@ from services.valuation import ValuationService
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 _log = logging.getLogger(__name__)
 
-_API_UF_CACHE_TTL_SECONDS = 24 * 60 * 60
 _uf_http_client: httpx.AsyncClient | None = None
 _uf_redis_client: Redis | None = None
 
@@ -100,7 +102,10 @@ def get_uf_service(settings: AppSettings) -> UFService:
         api_url=settings.uf_api_url,
         http_client=_get_uf_http_client(),
         redis=_get_uf_redis_client(settings),
-        cache_ttl=_API_UF_CACHE_TTL_SECONDS,
+        cache_ttl=settings.uf_cache_ttl_hours * 60 * 60,
+        max_staleness_days=settings.uf_max_staleness_days,
+        allow_stale_on_failure=settings.uf_allow_stale_on_failure,
+        session_factory=get_session_factory(),
     )
 
 
@@ -146,6 +151,36 @@ def get_radar_service(
 
 
 RadarServiceDep = Annotated[RadarService, Depends(get_radar_service)]
+
+
+def get_portfolio_service(session: DbSession) -> PortfolioService:
+    return PortfolioService(session)
+
+
+PortfolioServiceDep = Annotated[PortfolioService, Depends(get_portfolio_service)]
+
+
+def get_portfolio_comparison_service(session: DbSession) -> PortfolioComparisonService:
+    return PortfolioComparisonService(session)
+
+
+PortfolioComparisonServiceDep = Annotated[
+    PortfolioComparisonService,
+    Depends(get_portfolio_comparison_service),
+]
+
+
+def get_portfolio_snapshot_service(
+    session: DbSession,
+    valuation_service: ValuationServiceDep,
+) -> PortfolioSnapshotService:
+    return PortfolioSnapshotService(session, valuation_service)
+
+
+PortfolioSnapshotServiceDep = Annotated[
+    PortfolioSnapshotService,
+    Depends(get_portfolio_snapshot_service),
+]
 
 
 # ─────────────────────────────────────────────────────────

@@ -43,7 +43,19 @@ class ValoriaConsensusEngine:
     def valuate(self, request: EngineRequest, context: EngineContext) -> EngineResult:
         engine_results = _engine_results_from_context(request, context)
         if not engine_results:
-            return _failed("no_engine_results", "No base engine results were provided")
+            return _failed(
+                "no_engine_results",
+                "No base engine results were provided",
+                engine_name=self.name,
+                engine_version=self.version,
+                diagnostics={
+                    "engines_received": [],
+                    "engines_used": [],
+                    "engines_abstained": {},
+                    "disagreement_level": None,
+                    "weights": {},
+                },
+            )
 
         target = context.target
         property_type = normalize_property_type(target) if target is not None else "unknown"
@@ -53,7 +65,17 @@ class ValoriaConsensusEngine:
             return _failed(
                 "no_eligible_engines",
                 "No base engine result passed consensus eligibility rules",
-                diagnostics={"excluded_engines": excluded, "segments": segments},
+                engine_name=self.name,
+                engine_version=self.version,
+                diagnostics={
+                    "engines_received": [result.engine_name for result in engine_results],
+                    "engines_used": [],
+                    "engines_abstained": excluded,
+                    "excluded_engines": excluded,
+                    "segments": segments,
+                    "disagreement_level": None,
+                    "weights": {},
+                },
             )
 
         estimates = {result.engine_name: result.estimated_price_clp for result in included}
@@ -97,7 +119,12 @@ class ValoriaConsensusEngine:
             weight_reasons = dict.fromkeys(estimates, "confidence-weighted fallback")
 
         if estimate is None:
-            return _failed("missing_consensus_estimate", "Consensus estimate could not be calculated")
+            return _failed(
+                "missing_consensus_estimate",
+                "Consensus estimate could not be calculated",
+                engine_name=self.name,
+                engine_version=self.version,
+            )
 
         low, high = _combined_range(included, estimate=estimate, agreement_level=agreement.level)
         confidence = _consensus_confidence(included, weights, agreement.level)
@@ -108,7 +135,10 @@ class ValoriaConsensusEngine:
             "strategy": strategy,
             "segments": segments,
             "agreement": agreement.as_dict(),
+            "disagreement_level": agreement.level,
+            "engines_received": [result.engine_name for result in engine_results],
             "engines_used": [result.engine_name for result in included],
+            "engines_abstained": excluded,
             "engines_excluded": excluded,
             "engine_estimates": {
                 result.engine_name: {
@@ -169,7 +199,7 @@ class ValoriaConsensusEngine:
             return "self_result_not_allowed"
         if result.status == EngineStatus.NOT_APPLICABLE:
             return "not_applicable"
-        if result.status != EngineStatus.OK:
+        if result.status not in {EngineStatus.OK, EngineStatus.SUCCESS}:
             return "status_not_successful"
         if result.estimated_price_clp is None:
             return "missing_estimate"
@@ -326,11 +356,13 @@ def _failed(
     code: str,
     message: str,
     *,
+    engine_name: str = CONSENSUS_ENGINE_NAME,
+    engine_version: str = CONSENSUS_ENGINE_VERSION,
     diagnostics: Mapping[str, Any] | None = None,
 ) -> EngineResult:
     return EngineResult(
-        engine_name=CONSENSUS_ENGINE_NAME,
-        engine_version=CONSENSUS_ENGINE_VERSION,
+        engine_name=engine_name,
+        engine_version=engine_version,
         status=EngineStatus.INSUFFICIENT_DATA,
         warnings=(code,),
         diagnostics=dict(diagnostics or {}),

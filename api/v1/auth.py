@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 from api.deps import AppSettings, CurrentUser, UserServiceDep
 from api.security import create_access_token
-from services.users import PUBLIC_AUTH_ERROR
+from core.exceptions import ValidationError
+from services.users import PUBLIC_AUTH_ERROR, validate_email, validate_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -28,6 +29,11 @@ class UserOut(BaseModel):
     is_active: bool
     created_at: datetime | None = None
     last_login_at: datetime | None = None
+
+
+class RegisterIn(BaseModel):
+    email: str
+    password: str
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -53,6 +59,40 @@ async def login(
     return TokenResponse(
         access_token=token,
         expires_in=settings.jwt_expiration_minutes * 60,
+    )
+
+
+@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+async def register(
+    payload: RegisterIn,
+    user_service: UserServiceDep = None,  # type: ignore[assignment]
+    settings: AppSettings = None,  # type: ignore[assignment]
+) -> UserOut:
+    if not settings.beta_signup_enabled:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Registro beta deshabilitado")
+
+    try:
+        email = validate_email(payload.email)
+        validate_password(payload.password)
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    if await user_service.find_by_email(email) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El usuario ya existe")
+
+    try:
+        user = await user_service.create_user(email, payload.password, "beta_user")
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    assert user.id is not None
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+        created_at=user.created_at,
+        last_login_at=user.last_login_at,
     )
 
 

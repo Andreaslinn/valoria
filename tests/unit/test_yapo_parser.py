@@ -600,6 +600,65 @@ class TestYapoPagination:
         assert len(results) == 3
 
     @pytest.mark.asyncio
+    async def test_stops_discovery_on_429_without_retrying(self):
+        requests = 0
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            nonlocal requests
+            requests += 1
+            return httpx.Response(429, text="rate limited")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            scraper = YapoScraper(
+                http_client=client,
+                rate_limiter=RateLimiter(0),
+                targets=[
+                    {
+                        "label": "nunoa",
+                        "query": "keyword.departamentos venta nunoa",
+                        "scope": "rm",
+                        "max_pages": 2,
+                    }
+                ],
+                uf_service=_FakeUFService(),
+            )
+            results = await scraper.scrape()
+
+        assert requests == 1
+        assert results == []
+        assert scraper.last_rate_limited_count == 1
+        assert scraper.last_blocked_or_captcha_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stops_discovery_on_captcha_html(self):
+        requests = 0
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            nonlocal requests
+            requests += 1
+            return httpx.Response(200, text="<html><title>captcha</title></html>")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            scraper = YapoScraper(
+                http_client=client,
+                rate_limiter=RateLimiter(0),
+                targets=[
+                    {
+                        "label": "nunoa",
+                        "query": "keyword.departamentos venta nunoa",
+                        "scope": "rm",
+                        "max_pages": 2,
+                    }
+                ],
+                uf_service=_FakeUFService(),
+            )
+            results = await scraper.scrape()
+
+        assert requests == 1
+        assert results == []
+        assert scraper.last_blocked_or_captcha_count == 1
+
+    @pytest.mark.asyncio
     async def test_stops_when_page_repeats_previous_listings(self):
         requests = 0
 

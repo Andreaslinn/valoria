@@ -52,6 +52,7 @@ class BetaEngineResult:
     selected_for_final: bool
     warnings: list[str]
     safe_error_message: str | None
+    diagnostics: dict[str, Any] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -68,6 +69,7 @@ class BetaEngineResult:
             "selected_for_final": self.selected_for_final,
             "warnings": list(self.warnings),
             "safe_error_message": self.safe_error_message,
+            "diagnostics": dict(self.diagnostics or {}),
         }
 
 

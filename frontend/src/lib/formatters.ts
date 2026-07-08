@@ -42,7 +42,7 @@ export function formatM2(value: number | null | undefined): string {
   if (!isFiniteNumber(value)) {
     return "No disponible";
   }
-  return `${formatNumber(value, 1)} m2`;
+  return `${formatNumber(value, 1)} m²`;
 }
 
 export function formatDate(value: string | null | undefined): string {
@@ -70,6 +70,64 @@ export function formatDateTime(value: string | null | undefined): string {
 export function formatPropertyType(value: string | null | undefined): string {
   const key = String(value ?? "").trim().toLowerCase();
   return PROPERTY_TYPE_LABELS[key] ?? formatText(value);
+}
+
+export function formatCommuneName(value: string | null | undefined): string {
+  const clean = String(value ?? "").trim();
+  if (!clean) return "No disponible";
+  const key = clean.toLowerCase().replace(/\s+/g, "_");
+  const labels: Record<string, string> = {
+    estacion_central: "Estación Central",
+    la_florida: "La Florida",
+    maipu: "Maipú",
+    nunoa: "Ñuñoa",
+    ñuñoa: "Ñuñoa",
+    santiago: "Santiago",
+  };
+  if (labels[key]) return labels[key];
+  return clean
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function formatListingStatus(value: string | null | undefined): string {
+  const key = String(value ?? "").trim().toLowerCase();
+  const labels: Record<string, string> = {
+    active: "Activa",
+    inactive: "Inactiva",
+    removed: "Retirada",
+    unavailable: "No disponible",
+  };
+  return labels[key] ?? formatText(value);
+}
+
+export function pluralizeEs(count: number | null | undefined, singular: string, plural: string): string {
+  if (!isFiniteNumber(count)) return plural;
+  return Math.abs(count) === 1 ? singular : plural;
+}
+
+export function formatWatchlistTitle({
+  comuna,
+  fallbackTitle,
+  propertyType,
+}: {
+  comuna?: string | null;
+  fallbackTitle: string | null | undefined;
+  propertyType?: string | null;
+}): string {
+  const raw = formatText(fallbackTitle, "Propiedad guardada");
+  const match = raw.match(/^([^|]+?)\s+en\s+([^|]+?)\s*\|\s*(\d+)\s+Dormitorios?/i);
+  if (!match) return raw.replace(/\s+por\s+[\d.,]+.*$/i, "").trim();
+  const type = formatPropertyType(propertyType) || match[1].trim();
+  const sector = match[2].trim();
+  const beds = Number(match[3]);
+  const bedroomText = `${beds} ${pluralizeEs(beds, "dormitorio", "dormitorios")}`;
+  const communeText = comuna ? `, ${formatCommuneName(comuna)}` : "";
+  return `${type} de ${bedroomText} en ${sector}${communeText}`;
 }
 
 export function formatConfidence(value: string | number | null | undefined): string {

@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -62,3 +62,9 @@ logs/
 *.tmp
 
 exports/
+
+# Generated research and benchmark artifacts
+/*_latest.json
+/*_latest.md
+reports/valuation_engine_benchmark/current_multiengine_audit/
+reports/valuation_engine_benchmark/experimental_consensus_lab/

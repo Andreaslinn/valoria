@@ -512,6 +512,8 @@ def _valuation_usage_properties(payload: dict) -> dict:
         "bedrooms": payload.get("dormitorios"),
         "bathrooms": payload.get("banos"),
         "parking": payload.get("estacionamientos"),
+        "precio_publicado_uf": payload.get("precio_publicado_uf"),
+        "precio_publicado_clp": payload.get("precio_publicado_clp"),
     }
 
 

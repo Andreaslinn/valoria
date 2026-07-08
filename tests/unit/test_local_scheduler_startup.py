@@ -34,6 +34,8 @@ def test_local_scheduler_defaults_are_documented_as_safe() -> None:
     assert "AVM_START_SCHEDULER=false" in env_example
     assert "SCHEDULER_ENABLE_DISCOVERY=false" in env_example
     assert "SCHEDULER_ENABLE_PORTAL=false" in env_example
+    assert "SCHEDULER_DISCOVERY_MAX_PAGES=0" in env_example
+    assert "SCHEDULER_DISCOVERY_SLEEP_SECONDS=2.0" in env_example
     assert "SCHEDULER_REFRESH_LIMIT=5" in env_example
     assert 'SCHEDULER_ALERTS_CRON="0 13 * * *"' in env_example
     assert "AVM local startup does not start the scheduler by default" in docs

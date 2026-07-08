@@ -13,14 +13,19 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.deps import close_external_clients
 from api.v1 import alerts as alerts_router
 from api.v1 import auth as auth_router
+from api.v1 import future_features as future_features_router
 from api.v1 import health as health_router
 from api.v1 import listings as listings_router
 from api.v1 import market as market_router
+from api.v1 import portfolio as portfolio_router
 from api.v1 import radar as radar_router
+from api.v1 import reports as reports_router
+from api.v1 import tasar as tasar_router
 from api.v1 import usage as usage_router
 from api.v1 import users as users_router
 from api.v1 import valuations as valuations_router
@@ -57,6 +62,7 @@ def create_app() -> FastAPI:
         docs_url="/docs" if not settings.is_production else None,
         redoc_url="/redoc" if not settings.is_production else None,
     )
+    _configure_cors(app, settings.backend_cors_origin_list)
 
     # Routers v1
     app.include_router(auth_router.router, prefix="/api/v1")
@@ -65,10 +71,14 @@ def create_app() -> FastAPI:
     app.include_router(market_router.router, prefix="/api/v1")
     app.include_router(valuations_router.router, prefix="/api/v1")
     app.include_router(radar_router.router, prefix="/api/v1")
+    app.include_router(reports_router.router, prefix="/api/v1")
+    app.include_router(tasar_router.router, prefix="/api/v1")
+    app.include_router(portfolio_router.router, prefix="/api/v1")
     app.include_router(watchlist_router.router, prefix="/api/v1")
     app.include_router(alerts_router.router, prefix="/api/v1")
     app.include_router(usage_router.router, prefix="/api/v1")
     app.include_router(users_router.router, prefix="/api/v1")
+    app.include_router(future_features_router.router, prefix="/api/v1")
 
     # Healthcheck simple — no autenticado
     @app.get("/health", tags=["meta"])
@@ -76,6 +86,18 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     return app
+
+
+def _configure_cors(app: FastAPI, allowed_origins: tuple[str, ...]) -> None:
+    if not allowed_origins:
+        return
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(allowed_origins),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 
 def _configure_logging(log_level: str) -> None:

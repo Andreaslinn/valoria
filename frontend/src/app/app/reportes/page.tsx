@@ -11,44 +11,40 @@ export default function ReportesPage() {
     <>
       <InternalBackLink />
       <PageHeading
-        eyebrow="Contrato en auditoria"
+        eyebrow="Reportes reales"
         title="Reportes"
-        description="Preparacion honesta para reportes reales, separando tasaciones manuales de analisis de publicaciones."
+        description="Centro de descargas HTML generadas por backend para tasaciones manuales y analisis de publicaciones."
       />
       <div className="grid gap-5">
         <StatusNote>
-          No hay descargas ni previews en esta pantalla hasta que exista un endpoint autenticado y estable para reportes de tasacion o publicacion.
+          Los informes se descargan desde los flujos reales despues de ejecutar una tasacion o analizar una publicacion. No hay previews ni archivos de ejemplo.
         </StatusNote>
 
         <section className="grid gap-4 xl:grid-cols-2">
           <ReportTypeCard
             ctaHref="/app/tasar"
-            ctaLabel="Ir a Tasar"
-            description="Reporte para una tasacion manual. Evalua la propiedad como activo y no requiere URL, listing_id, precio publicado, watchlist ni historial de publicacion."
+            ctaLabel="Tasar propiedad"
+            description="Informe de una tasacion manual con estimacion Valoria, rango, confianza, comparables y senales de mercado. No requiere URL, listing_id, precio publicado ni watchlist."
             icon={<Sparkles className="h-5 w-5" aria-hidden />}
             signals={[
-              "Confianza AVM",
-              "Comparables",
-              "Comuna y soporte de mercado",
-              "Microzona cuando exista evidencia",
-              "Liquidez o tendencia cuando haya endpoint estable",
+              "Investment Intelligence Report HTML",
+              "Disponible despues de una tasacion exitosa",
+              "Generado por el backend",
+              "PDF fuera de esta fase",
             ]}
-            status="Preparacion"
             title="Investment Intelligence Report"
           />
           <ReportTypeCard
             ctaHref="/app/analizar-url"
-            ctaLabel="Analizar URL"
-            description="Reporte para una publicacion concreta. Ahi si corresponde leer precio publicado, fuente, listing_id, historial, watchlist y alertas asociadas."
+            ctaLabel="Analizar publicacion"
+            description="Informe de una publicacion concreta con precio publicado, diferencia frente a Valoria, URL, listing_id y riesgos del anuncio cuando existen datos reales."
             icon={<ShieldAlert className="h-5 w-5" aria-hidden />}
             signals={[
-              "Precio publicado",
-              "Descuento o sobreprecio",
-              "URL, fuente y listing_id",
-              "Historial de precio",
-              "Watchlist y alertas asociadas",
+              "Listing Risk Report HTML",
+              "Disponible despues de analizar una URL",
+              "Usa el analisis real mostrado",
+              "PDF fuera de esta fase",
             ]}
-            status="Preparacion"
             title="Listing Risk Report"
           />
         </section>
@@ -56,19 +52,19 @@ export default function ReportesPage() {
         <Card>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <CardTitle>Contrato necesario para conectar Next.js</CardTitle>
+              <CardTitle>Formatos disponibles</CardTitle>
               <CardDescription>
-                El generador HTML existe en la capa UI/Streamlit, pero falta exponer un contrato API seguro para estos dos reportes.
+                Esta version expone HTML autonomo descargable. PDF no se muestra porque no hay infraestructura backend estable para generarlo.
               </CardDescription>
             </div>
-            <span className="rounded-lg border border-line bg-white/[0.05] px-3 py-1 text-xs font-semibold text-muted">
-              Sin endpoint estable
+            <span className="rounded-lg border border-accent-500/25 bg-accent-500/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+              HTML conectado
             </span>
           </div>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <Fact label="Output esperado" value="HTML real o metadata real desde backend" />
-            <Fact label="No disponible aqui" value="PDF, HTML fake, paths locales o descarga simulada" />
-            <Fact label="Endpoint parcial existente" value="Portfolio comparison report HTML, no aplica a estos reportes" />
+            <Fact label="Tasar" value="Descargar informe tras una tasacion real" />
+            <Fact label="Analizar URL" value="Descargar analisis tras una publicacion real" />
+            <Fact label="Sin historial unificado" value="No se inventa una lista de reportes recientes" />
           </div>
         </Card>
       </div>
@@ -82,7 +78,6 @@ function ReportTypeCard({
   description,
   icon,
   signals,
-  status,
   title,
 }: {
   ctaHref: string;
@@ -90,17 +85,16 @@ function ReportTypeCard({
   description: string;
   icon: React.ReactNode;
   signals: string[];
-  status: string;
   title: string;
 }) {
   return (
-    <Card className="flex min-h-96 flex-col">
+    <Card className="flex min-h-80 flex-col">
       <div className="mb-5 flex items-start justify-between gap-3">
         <div className="grid h-11 w-11 place-items-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-500">
           {icon}
         </div>
-        <span className="rounded-lg border border-line bg-white/[0.05] px-3 py-1 text-xs font-semibold text-muted">
-          {status}
+        <span className="rounded-lg border border-accent-500/25 bg-accent-500/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+          Disponible HTML
         </span>
       </div>
       <CardTitle>{title}</CardTitle>

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
 
 
@@ -12,6 +13,10 @@ class UFRateInfo:
     source: str
     is_fallback: bool = False
     cache_hit: bool = False
+    rate_date: date | None = None
+    fetched_at: datetime | None = None
+    is_stale: bool = False
+    stale_reason: str | None = None
 
 
 class UFService(ABC):

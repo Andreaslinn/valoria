@@ -16,6 +16,7 @@ from api.security import hash_password
 from core.entities.listing import Listing
 from core.entities.user import User
 from core.ports.uf_service import UFService
+from core.value_objects.location import Coordinates
 from core.value_objects.price import Price
 from infrastructure.db.database import get_db
 from infrastructure.db.models import PriceHistoryORM
@@ -65,6 +66,7 @@ async def seeded_listings(engine: AsyncEngine) -> list[Listing]:
                         title=f"Depto test {idx}",
                         comuna="nunoa",
                         m2=74.0 + (idx % 3),
+                        property_type="apartment",
                         bedrooms=3,
                         bathrooms=2,
                         parking=1,
@@ -72,6 +74,8 @@ async def seeded_listings(engine: AsyncEngine) -> list[Listing]:
                         status="active",
                         fingerprint=f"api-fp-{idx}",
                         scraped_at=datetime.now(UTC),
+                        coordinates=Coordinates(lat=-33.4569, lon=-70.5969),
+                        geocode_precision="address",
                         url=f"https://example.test/{idx}",
                     )
                 )
@@ -228,6 +232,7 @@ async def test_listings_endpoint_allows_incomplete_m2(
                 title="Depto sin superficie",
                 comuna="nunoa",
                 m2=None,
+                property_type="apartment",
                 bedrooms=2,
                 bathrooms=1,
                 parking=0,
@@ -449,6 +454,73 @@ async def test_listing_price_history_filters_artifacts_by_default(
     assert artifact["change_basis"] == "uf_rate_artifact"
 
 
+async def test_market_price_m2_trend_endpoint_returns_real_points(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    engine: AsyncEngine,
+):
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        repo = SqlAlchemyListingRepository(session)
+        listings: list[Listing] = []
+        for index in range(3):
+            listings.append(
+                await repo.save(
+                    Listing(
+                        id=None,
+                        source="yapo",
+                        external_id=f"trend-{index}",
+                        title=f"Depto trend {index}",
+                        comuna="providencia",
+                        property_type="apartment",
+                        m2=50,
+                        bedrooms=2,
+                        bathrooms=2,
+                        parking=1,
+                        price=Price(clp=Decimal("200000000")),
+                        price_uf=Decimal("5000"),
+                        price_currency="UF",
+                        price_uf_source="scraped",
+                        status="active",
+                        fingerprint=f"trend-{index}",
+                        scraped_at=datetime(2026, 6, 15, tzinfo=UTC),
+                    )
+                )
+            )
+        for month, base in enumerate([80, 82, 84], start=1):
+            for offset, listing in enumerate(listings):
+                session.add(
+                    PriceHistoryORM(
+                        listing_id=listing.id,
+                        price_clp=Decimal("200000000"),
+                        price_uf=Decimal(str((base + offset) * 50)),
+                        price_clp_snapshot=Decimal("200000000"),
+                        price_currency="UF",
+                        change_basis="uf",
+                        is_artifact=False,
+                        observed_at=datetime(2026, month, 15, tzinfo=UTC),
+                    )
+                )
+        await session.commit()
+
+    resp = await client.get(
+        "/api/v1/market/trends/price-m2?comuna=providencia&property_type=apartment&period_months=12",
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "partial"
+    assert body["metric"] == "price_m2_uf"
+    assert body["source"] == "price_history"
+    assert body["points"][0] == {
+        "month": "2026-01",
+        "median_price_m2_uf": 81.0,
+        "sample_count": 3,
+    }
+    assert body["coverage_count"] == 9
+
+
 async def test_valuation_endpoint_valid_input(
     client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -578,7 +650,36 @@ async def test_radar_opportunities_endpoint(
     body = resp.json()
     assert isinstance(body, list)
     assert body
-    assert {"listing_id", "discount_pct", "score", "warnings"} <= set(body[0])
+    assert {
+        "listing_id",
+        "discount_pct",
+        "score",
+        "warnings",
+        "allowed_property_types",
+        "houses_on_hold_count",
+        "radar_scope_note",
+        "bedrooms",
+        "bathrooms",
+        "parking",
+        "property_type",
+        "price_uf_source",
+        "uf_rate_used",
+        "uf_rate_source",
+        "uf_rate_stale",
+        "lat",
+        "lon",
+        "geocode_precision",
+    } <= set(body[0])
+    assert body[0]["allowed_property_types"] == ["apartment"]
+    assert body[0]["radar_scope_note"] == "Radar beta: por ahora analiza solo departamentos."
+    assert body[0]["bedrooms"] == 3
+    assert body[0]["bathrooms"] == 2
+    assert body[0]["property_type"] == "apartment"
+    assert body[0]["lat"] == -33.4569
+    assert body[0]["lon"] == -70.5969
+    assert body[0]["geocode_precision"] is not None
+    assert body[0]["uf_rate_used"] == 39000.0
+    assert body[0]["uf_rate_stale"] is False
 
 
 async def test_radar_endpoint_skips_active_listing_without_area(

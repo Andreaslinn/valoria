@@ -1,25 +1,22 @@
-"""Cliente para mindicador.cl/api/uf con caché Redis.
-
-Implementa core.ports.uf_service.UFService.
-
-Flujo:
-    1. Buscar en Redis bajo la clave UF_CACHE_KEY.
-    2. Si hit → devolver.
-    3. Si miss → GET al API, parsear `serie[0].valor`, cachear TTL=12h.
-    4. Si falla la red o el parsing, fallar explicitamente. Nunca retornar
-       una tasa hardcodeada.
-"""
+"""Redis-backed mindicador.cl UF client with freshness metadata."""
 from __future__ import annotations
 
+import json
 import logging
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 import httpx
 from redis.asyncio import Redis
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from config.constants import UF_CACHE_TTL
 from core.exceptions import UFServiceError
 from core.ports.uf_service import UFRateInfo, UFService
+from infrastructure.db.models import UFRateORM
 
 _log = logging.getLogger(__name__)
 
@@ -35,30 +32,85 @@ class UFClient(UFService):
         http_client: httpx.AsyncClient,
         redis: Redis,
         cache_ttl: int = UF_CACHE_TTL,
+        max_staleness_days: int = 1,
+        allow_stale_on_failure: bool = False,
+        session_factory: async_sessionmaker | None = None,
     ) -> None:
         self._api_url = api_url
         self._http = http_client
         self._redis = redis
         self._cache_ttl = cache_ttl
+        self._max_staleness = timedelta(days=max(0, max_staleness_days))
+        self._allow_stale_on_failure = allow_stale_on_failure
+        self._session_factory = session_factory
 
     async def get_current_rate(self) -> Decimal:
         return (await self.get_current_rate_info()).rate
 
     async def get_current_rate_info(self) -> UFRateInfo:
+        today = date.today()
         cached = await self._from_cache()
-        if cached is not None:
-            return UFRateInfo(rate=cached, source="cache", is_fallback=False, cache_hit=True)
+        if cached is not None and not cached.is_stale and cached.info.rate_date == today:
+            return cached.info
+
+        db_today = await self._from_db(today)
+        if db_today is not None:
+            await self._store_in_cache(db_today)
+            return db_today
 
         fresh = await self._fetch_remote()
         if fresh is None:
+            last_snapshot = await self._latest_from_db()
+            if last_snapshot is not None:
+                if _within_max_staleness(last_snapshot, self._max_staleness):
+                    latest = _mark_latest_within_window(
+                        last_snapshot,
+                        "latest_db_snapshot_within_max_staleness",
+                    )
+                    await self._store_in_cache(latest)
+                    return latest
+                stale = _mark_stale(last_snapshot, "latest_db_snapshot_exceeds_max_staleness")
+                if self._allow_stale_on_failure:
+                    return stale
+            if cached is not None and _within_max_staleness(cached.info, self._max_staleness):
+                return _mark_latest_within_window(
+                    cached.info,
+                    cached.info.stale_reason or "latest_cache_within_max_staleness",
+                )
+            if cached is not None and self._allow_stale_on_failure:
+                return _mark_stale(cached.info, cached.info.stale_reason or "cache_not_current_day")
             _log.error("UF fetch failed; no fallback rate will be used")
             raise UFServiceError("UF real no disponible")
 
+        fresh = await self._persist_daily_rate(fresh)
         await self._store_in_cache(fresh)
-        return UFRateInfo(rate=fresh, source="mindicador.cl", is_fallback=False, cache_hit=False)
+        return fresh
 
-    # ── Cache ──────────────────────────────────────────────
-    async def _from_cache(self) -> Decimal | None:
+    async def ensure_daily_snapshot(self, *, target_date: date | None = None) -> UFRateInfo:
+        snapshot_date = target_date or date.today()
+        existing = await self._from_db(snapshot_date)
+        if existing is not None:
+            await self._store_in_cache(existing)
+            return existing
+        fresh = await self._fetch_remote()
+        if fresh is None:
+            raise UFServiceError("UF real no disponible")
+        if fresh.rate_date != snapshot_date:
+            fresh = UFRateInfo(
+                rate=fresh.rate,
+                source=fresh.source,
+                is_fallback=fresh.is_fallback,
+                cache_hit=fresh.cache_hit,
+                rate_date=snapshot_date,
+                fetched_at=fresh.fetched_at,
+                is_stale=fresh.is_stale,
+                stale_reason=fresh.stale_reason,
+            )
+        fresh = await self._persist_daily_rate(fresh)
+        await self._store_in_cache(fresh)
+        return fresh
+
+    async def _from_cache(self) -> _CachedUF | None:
         try:
             raw = await self._redis.get(UF_CACHE_KEY)
         except Exception as e:
@@ -68,24 +120,41 @@ class UFClient(UFService):
             return None
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
-        try:
-            value = Decimal(raw)
-        except InvalidOperation:
-            _log.warning("Valor corrupto en caché UF: %r", raw)
-            return None
-        if value <= 0:
-            _log.warning("Valor UF inválido en caché: %s", value)
-            return None
-        return value
 
-    async def _store_in_cache(self, value: Decimal) -> None:
+        cached = self._parse_cache_payload(str(raw))
+        if cached is not None:
+            return cached
+
+        value = _decimal_or_none(raw)
+        if value is None:
+            _log.warning("Valor corrupto en cache UF: %r", raw)
+            return None
+        return _CachedUF(
+            info=UFRateInfo(
+                rate=value,
+                source="cache_legacy",
+                is_fallback=False,
+                cache_hit=True,
+                is_stale=True,
+                stale_reason="legacy_cache_without_fetched_at",
+            ),
+            is_stale=True,
+        )
+
+    async def _store_in_cache(self, info: UFRateInfo) -> None:
+        fetched_at = info.fetched_at or datetime.now(UTC)
+        payload = {
+            "value": str(info.rate),
+            "source": info.source,
+            "rate_date": info.rate_date.isoformat() if info.rate_date else None,
+            "fetched_at": fetched_at.isoformat(),
+        }
         try:
-            await self._redis.setex(UF_CACHE_KEY, self._cache_ttl, str(value))
+            await self._redis.setex(UF_CACHE_KEY, self._cache_ttl, json.dumps(payload))
         except Exception as e:
             _log.warning("Redis SETEX failed: %s", e)
 
-    # ── HTTP ───────────────────────────────────────────────
-    async def _fetch_remote(self) -> Decimal | None:
+    async def _fetch_remote(self) -> UFRateInfo | None:
         try:
             resp = await self._http.get(self._api_url, timeout=_HTTP_TIMEOUT_SECONDS)
             resp.raise_for_status()
@@ -95,13 +164,198 @@ class UFClient(UFService):
             return None
 
         try:
-            valor = payload["serie"][0]["valor"]
-            value = Decimal(str(valor))
+            item = payload["serie"][0]
+            value = Decimal(str(item["valor"]))
         except (KeyError, IndexError, TypeError, InvalidOperation) as e:
             _log.warning("UF API payload inesperado: %s (%s)", payload, e)
             return None
         if value <= 0:
-            _log.warning("UF API devolvió valor inválido: %s", value)
+            _log.warning("UF API devolvio valor invalido: %s", value)
             return None
+
         _log.info("UF obtenida desde mindicador.cl: %s", value)
-        return value
+        return UFRateInfo(
+            rate=value,
+            source="mindicador.cl",
+            is_fallback=False,
+            cache_hit=False,
+            rate_date=_parse_date(item.get("fecha")),
+            fetched_at=datetime.now(UTC),
+            is_stale=False,
+        )
+
+    async def _from_db(self, rate_date: date) -> UFRateInfo | None:
+        if self._session_factory is None:
+            return None
+        async with self._session_factory() as session:
+            row = await session.scalar(select(UFRateORM).where(UFRateORM.date == rate_date))
+        if row is None:
+            return None
+        return _info_from_orm(row, cache_hit=False, stale=False)
+
+    async def _latest_from_db(self) -> UFRateInfo | None:
+        if self._session_factory is None:
+            return None
+        async with self._session_factory() as session:
+            row = await session.scalar(select(UFRateORM).order_by(desc(UFRateORM.date)).limit(1))
+        if row is None:
+            return None
+        return _info_from_orm(row, cache_hit=False, stale=row.date != date.today())
+
+    async def _persist_daily_rate(self, info: UFRateInfo) -> UFRateInfo:
+        if self._session_factory is None:
+            return info
+        rate_date = info.rate_date or date.today()
+        fetched_at = info.fetched_at or datetime.now(UTC)
+        async with self._session_factory() as session:
+            existing = await session.scalar(select(UFRateORM).where(UFRateORM.date == rate_date))
+            if existing is None:
+                existing = UFRateORM(
+                    date=rate_date,
+                    value_clp=info.rate,
+                    source=info.source,
+                    fetched_at=fetched_at,
+                )
+                session.add(existing)
+            else:
+                existing.value_clp = info.rate
+                existing.source = info.source
+                existing.fetched_at = fetched_at
+            await session.commit()
+            await session.refresh(existing)
+        return _info_from_orm(existing, cache_hit=False, stale=False)
+
+    def _parse_cache_payload(self, raw: str) -> _CachedUF | None:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        value = _decimal_or_none(payload.get("value") or payload.get("rate"))
+        if value is None:
+            _log.warning("Payload UF corrupto en cache: %r", raw)
+            return None
+        fetched_at = _parse_datetime(payload.get("fetched_at"))
+        stale_reason = _stale_reason(fetched_at, self._max_staleness)
+        is_stale = stale_reason is not None
+        return _CachedUF(
+            info=UFRateInfo(
+                rate=value,
+                source=str(payload.get("source") or "cache"),
+                is_fallback=False,
+                cache_hit=True,
+                rate_date=_parse_date(payload.get("rate_date")),
+                fetched_at=fetched_at,
+                is_stale=is_stale,
+                stale_reason=stale_reason,
+            ),
+            is_stale=is_stale,
+        )
+
+
+@dataclass(frozen=True)
+class _CachedUF:
+    info: UFRateInfo
+    is_stale: bool
+
+
+def _decimal_or_none(value: Any) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    text = str(value)
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+
+
+def _stale_reason(fetched_at: datetime | None, max_staleness: timedelta) -> str | None:
+    if fetched_at is None:
+        return "cache_without_fetched_at"
+    if datetime.now(UTC) - fetched_at > max_staleness:
+        return "cache_fetched_at_exceeds_max_staleness"
+    return None
+
+
+def _info_from_orm(row: UFRateORM, *, cache_hit: bool, stale: bool) -> UFRateInfo:
+    return UFRateInfo(
+        rate=Decimal(row.value_clp),
+        source=row.source,
+        is_fallback=False,
+        cache_hit=cache_hit,
+        rate_date=row.date,
+        fetched_at=_ensure_aware(row.fetched_at),
+        is_stale=stale,
+        stale_reason="latest_db_snapshot_before_today" if stale else None,
+    )
+
+
+def _mark_stale(info: UFRateInfo, reason: str) -> UFRateInfo:
+    return UFRateInfo(
+        rate=info.rate,
+        source=info.source,
+        is_fallback=info.is_fallback,
+        cache_hit=info.cache_hit,
+        rate_date=info.rate_date,
+        fetched_at=info.fetched_at,
+        is_stale=True,
+        stale_reason=reason,
+    )
+
+
+def _mark_latest_within_window(info: UFRateInfo, reason: str) -> UFRateInfo:
+    source = str(info.source or "unknown")
+    return UFRateInfo(
+        rate=info.rate,
+        source=f"{source}:{reason}",
+        is_fallback=info.is_fallback,
+        cache_hit=info.cache_hit,
+        rate_date=info.rate_date,
+        fetched_at=info.fetched_at,
+        is_stale=False,
+        stale_reason=None,
+    )
+
+
+def _within_max_staleness(info: UFRateInfo, max_staleness: timedelta) -> bool:
+    if max_staleness <= timedelta(0):
+        return False
+    reference = info.fetched_at
+    if reference is None and info.rate_date is not None:
+        reference = datetime.combine(info.rate_date, datetime.min.time(), tzinfo=UTC)
+    if reference is None:
+        return False
+    return datetime.now(UTC) - _ensure_aware(reference) <= max_staleness
+
+
+def _ensure_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

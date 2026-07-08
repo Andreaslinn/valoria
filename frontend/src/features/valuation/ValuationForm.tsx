@@ -49,11 +49,32 @@ const propertyTypes: Array<{ label: string; value: PropertyType }> = [
   { label: "Oficina", value: "office" },
 ];
 
+const betaComunas: Array<{ label: string; value: string }> = [
+  { label: "Santiago", value: "santiago" },
+  { label: "Providencia", value: "providencia" },
+  { label: "Nunoa", value: "nunoa" },
+  { label: "Las Condes", value: "las_condes" },
+  { label: "Vitacura", value: "vitacura" },
+  { label: "Lo Barnechea", value: "lo_barnechea" },
+  { label: "La Reina", value: "la_reina" },
+  { label: "Macul", value: "macul" },
+  { label: "San Miguel", value: "san_miguel" },
+  { label: "Estacion Central", value: "estacion_central" },
+  { label: "Independencia", value: "independencia" },
+  { label: "Recoleta", value: "recoleta" },
+  { label: "San Joaquin", value: "san_joaquin" },
+  { label: "La Florida", value: "la_florida" },
+];
+
+const selectClassName =
+  "min-h-11 w-full min-w-0 rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-ink outline-none transition disabled:cursor-not-allowed disabled:opacity-50 focus:border-brand-500/70 focus:ring-4 focus:ring-brand-100";
+
 export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props) {
   const [values, setValues] = useState<FormValues>(initialValues);
   const [formError, setFormError] = useState<string | null>(null);
 
   const isHouse = values.propertyType === "house";
+  const comunaOptions = comunaOptionsFor(values.comuna);
 
   useEffect(() => {
     if (!importedPrefill) {
@@ -63,7 +84,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
     setValues((current) => ({
       ...current,
       propertyType: importedPrefill.propertyType ?? current.propertyType,
-      comuna: importedPrefill.comuna ?? current.comuna,
+      comuna: comunaValue(importedPrefill.comuna) ?? current.comuna,
       reference: importedPrefill.reference ?? importedPrefill.sourceUrl ?? current.reference,
       builtAreaM2: textNumber(importedPrefill.builtAreaM2 ?? importedPrefill.usableAreaM2) ?? current.builtAreaM2,
       landAreaM2: textNumber(importedPrefill.landAreaM2) ?? current.landAreaM2,
@@ -133,11 +154,11 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
           </StatusNote>
         ) : null}
 
-        <label className="grid gap-2 text-sm font-medium text-ink" htmlFor="propertyType">
+        <label className="grid min-w-0 gap-2 text-sm font-medium text-ink" htmlFor="propertyType">
           Tipo de propiedad
           <select
             id="propertyType"
-            className="min-h-11 rounded-lg border border-line bg-white/[0.06] px-3 text-sm text-ink outline-none transition focus:border-brand-500/70 focus:ring-4 focus:ring-brand-100"
+            className={selectClassName}
             value={values.propertyType}
             onChange={(event) =>
               setValues((current) => ({
@@ -154,14 +175,24 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
           </select>
         </label>
 
-        <Input
-          label="Comuna"
-          name="comuna"
-          placeholder="Ej: Nunoa"
-          value={values.comuna}
-          onChange={(event) => setValues((current) => ({ ...current, comuna: event.target.value }))}
-          required
-        />
+        <label className="grid min-w-0 gap-2 text-sm font-medium text-ink" htmlFor="comuna">
+          Comuna
+          <select
+            id="comuna"
+            className={selectClassName}
+            name="comuna"
+            value={values.comuna}
+            onChange={(event) => setValues((current) => ({ ...current, comuna: event.target.value }))}
+            required
+          >
+            <option value="">Selecciona una comuna</option>
+            {comunaOptions.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <Input
           label="Referencia visual local"
@@ -177,7 +208,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
           para calcular la tasacion.
         </p>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-4 md:grid-cols-2">
           <Input
             label="Superficie util/construida"
             min="1"
@@ -204,7 +235,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
           />
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-3">
           <Input
             label="Dormitorios"
             min="0"
@@ -235,7 +266,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
           />
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-4 md:grid-cols-2">
           <Input
             label="Precio publicado UF"
             min="0"
@@ -291,4 +322,42 @@ function integerOrNull(value: string): number | null {
 
 function textNumber(value: number | undefined): string | undefined {
   return typeof value === "number" && Number.isFinite(value) ? String(value) : undefined;
+}
+
+function comunaOptionsFor(value: string): Array<{ label: string; value: string }> {
+  const clean = value.trim();
+  if (!clean || betaComunas.some((item) => item.value === clean)) {
+    return betaComunas;
+  }
+
+  return [
+    ...betaComunas,
+    {
+      label: `${labelFromComunaValue(clean)} (importada)`,
+      value: clean,
+    },
+  ];
+}
+
+function labelFromComunaValue(value: string): string {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function comunaValue(value: string | undefined): string | undefined {
+  const clean = value?.trim();
+  if (!clean) {
+    return undefined;
+  }
+
+  const slug = clean
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  return betaComunas.some((item) => item.value === slug) ? slug : clean;
 }

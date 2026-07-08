@@ -5,6 +5,10 @@ from datetime import datetime
 from html import escape
 from typing import Any
 
+from ui.components.risk_report_contract import (
+    RiskReportOutput,
+    build_risk_report_contract_shadow,
+)
 from ui.formatting import format_clp, format_confidence, format_uf, none_dash
 
 STATUS_TO_TONE = {
@@ -12,12 +16,27 @@ STATUS_TO_TONE = {
     "caution": "amber",
     "weak": "red",
     "neutral": "neutral",
+    "not_integrated": "neutral",
 }
+PROPERTY_VALUATION = "PROPERTY_VALUATION"
+LISTING_ANALYSIS = "LISTING_ANALYSIS"
+_PROPERTY_VALUATION_NOT_REQUIRED_WARNINGS = frozenset(
+    {
+        "published_price_not_provided",
+        "url_missing",
+        "listing_url_missing",
+        "listing_id_missing",
+        "watchlist_unavailable",
+        "publication_history_missing",
+        "listing_activity_missing",
+    }
+)
 
 
 def build_risk_report_html(report_data: dict[str, Any]) -> str:
     """Build a standalone, browser-openable HTML Risk Report."""
     header = report_data.get("header", {})
+    report_type = _text(report_data.get("report_type"), "Risk Report")
     score = _safe_int(report_data.get("scores", {}).get("overall"), default=0)
     score_tone = _score_tone(score)
     title = _text(header.get("title"), "Risk Report")
@@ -39,7 +58,7 @@ def build_risk_report_html(report_data: dict[str, Any]) -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{escape(title)} | Real Estate Risk Report</title>
+<title>{escape(title)} | {escape(report_type)}</title>
 <style>
 {_css()}
 </style>
@@ -48,13 +67,13 @@ def build_risk_report_html(report_data: dict[str, Any]) -> str:
 {topbar}
 <main>
   <section>
-    <div class="report-kicker"><div class="line"></div><div class="kicker-text mono">Real Estate Risk Report</div><div class="line right"></div></div>
+    <div class="report-kicker"><div class="line"></div><div class="kicker-text mono">{escape(report_type)}</div><div class="line right"></div></div>
     <h1>{escape(_text(header.get("headline"), title))} <span>{escape(_text(header.get("accent"), "AVM"))}</span></h1>
     <div class="subtitle mono">{escape(_text(header.get("subtitle"), ""))}</div>
   </section>
 
   <section class="grid-main">
-    {_render_gauge(score, score_tone, _text(report_data.get("scores", {}).get("label"), _score_label(score)))}
+    {_render_gauge(score, score_tone, _text(report_data.get("scores", {}).get("label"), _score_label(score)), report_data)}
     {kpis}
   </section>
 
@@ -67,7 +86,7 @@ def build_risk_report_html(report_data: dict[str, Any]) -> str:
   </section>
   {bottom_line}
   <footer class="footer mono">
-    Real Estate Risk Report - Generated {escape(_text(header.get("generated_at"), ""))} - Listing {escape(_text(header.get("listing_id"), "N/A"))}
+    {escape(report_type)} - Generated {escape(_text(header.get("generated_at"), ""))} - Context {escape(_text(report_data.get("analysis_context"), "N/A"))}
     <br>{escape(disclaimer)}
   </footer>
 </main>
@@ -78,6 +97,10 @@ def build_risk_report_html(report_data: dict[str, Any]) -> str:
 
 def build_radar_risk_report_data(opportunity: dict[str, Any]) -> dict[str, Any]:
     """Map a real Radar opportunity into the modular Risk Report data shape."""
+    report_contract = build_risk_report_contract_shadow(
+        opportunity=opportunity,
+        analysis_context=LISTING_ANALYSIS,
+    )
     listing_id = opportunity.get("listing_id")
     title = _text(opportunity.get("title"), "Propiedad")
     comuna = _text(opportunity.get("comuna"), "N/A")
@@ -90,15 +113,15 @@ def build_radar_risk_report_data(opportunity: dict[str, Any]) -> dict[str, Any]:
     confidence = _text(opportunity.get("confidence_label") or opportunity.get("confidence"), "N/A")
     comparables = opportunity.get("comparables_used")
     score = _normalize_score(opportunity.get("score"), discount, confidence, comparables)
-    missing = _missing_fields(opportunity)
+    missing = _contract_missing_labels(report_contract)
     estimated = _estimated_fields(opportunity)
     available = _available_fields(opportunity)
     data_quality_score = _data_quality_score(available, missing)
     market_score = _market_support_score(comparables, confidence)
     valuation_score = _valuation_score(discount, confidence)
-    risk_score = max(0, min(100, data_quality_score - (len(opportunity.get("warnings") or []) * 8)))
+    warning_items = _evidence_warning_items(report_contract)
+    risk_score = max(0, min(100, data_quality_score - (len(warning_items) * 8)))
 
-    warning_items = [str(item) for item in opportunity.get("warnings") or []]
     raw_signals = [
         str(signal.get("label"))
         for signal in opportunity.get("signals") or []
@@ -109,7 +132,7 @@ def build_radar_risk_report_data(opportunity: dict[str, Any]) -> dict[str, Any]:
         "header": {
             "title": title,
             "headline": comuna,
-            "accent": "Radar",
+            "accent": "Listing Opportunity",
             "subtitle": f"Generated {datetime.now().strftime('%Y-%m-%d')} - Listing {listing_id or 'N/A'} - Standalone HTML report",
             "listing_id": listing_id or "N/A",
             "property_summary": f"{comuna} - {m2}",
@@ -119,11 +142,16 @@ def build_radar_risk_report_data(opportunity: dict[str, Any]) -> dict[str, Any]:
         "scores": {
             "overall": score,
             "label": _score_label(score),
-            "items": [
-                {"label": "Valuation", "weight": 35, "score": valuation_score, "status": _score_status(valuation_score)},
-                {"label": "Market Support", "weight": 35, "score": market_score, "status": _score_status(market_score)},
-                {"label": "Data Quality", "weight": 30, "score": risk_score, "status": _score_status(risk_score)},
-            ],
+            "headline_score_name": report_contract.headline_score_name,
+            "items": _score_items_for_context(
+                is_listing_analysis=True,
+                price_or_confidence_score=valuation_score,
+                market_score=market_score,
+                data_quality_score=data_quality_score,
+                listing_evidence_score=risk_score,
+                confidence=confidence,
+                comparables=comparables,
+            ),
         },
         "kpis": [
             _card("Descuento", _format_pct(discount), "Brecha contra valor estimado", _discount_status(discount)),
@@ -165,10 +193,10 @@ def build_radar_risk_report_data(opportunity: dict[str, Any]) -> dict[str, Any]:
                 "accent": "amber",
                 "cards": [
                     _card("Datos faltantes", str(len(missing)), ", ".join(missing) if missing else "Sin faltantes criticos.", "favorable" if not missing else "caution"),
-                    _card("Warnings", str(len(warning_items)), ", ".join(warning_items) if warning_items else "Sin warnings del radar.", "favorable" if not warning_items else "caution"),
+                    _card("Limitaciones", str(len(warning_items)), f"{len(warning_items)} limitaciones de evidencia" if warning_items else "Sin limitaciones relevantes del radar.", "favorable" if not warning_items else "caution"),
                     _card("Senales", str(len(raw_signals)), ", ".join(raw_signals) if raw_signals else "Sin senales adicionales.", "neutral"),
-                    _card("Riesgo legal", "N/A", "No hay integracion CBR/SII/estudio de titulos en modo real.", "caution"),
-                    _card("Riesgo normativo", "N/A", "Dato no disponible.", "caution"),
+                    _card("Validacion legal externa", "No integrada", "Este reporte no consulta CBR, SII ni estudio de titulos.", "not_integrated"),
+                    _card("Validacion normativa", "No integrada", "Este reporte no consulta permisos ni reglas normativas externas.", "not_integrated"),
                     _card("Datos incompletos", f"{len(missing)} campos", "No se inventan datos ausentes.", "favorable" if not missing else "weak"),
                 ],
             },
@@ -182,9 +210,76 @@ def build_radar_risk_report_data(opportunity: dict[str, Any]) -> dict[str, Any]:
         },
         "catalysts": _catalysts(discount, comparables, confidence),
         "risks": _risks(missing, warning_items, raw_signals),
-        "bottom_line": _bottom_line(score, discount, missing),
-        "disclaimer": "Reporte informativo generado a partir del Radar AVM y datos disponibles de la publicacion. No constituye asesoria financiera, legal ni recomendacion de inversion.",
+        "bottom_line": _contextual_bottom_line(LISTING_ANALYSIS, score, discount, missing, warning_items, confidence, comparables),
+        "analysis_context": LISTING_ANALYSIS,
+        "report_type": report_contract.report_type,
+        "disclaimer": "Reporte informativo generado a partir del Radar AVM, precio publicado y datos disponibles de la publicacion. No constituye asesoria financiera, legal ni recomendacion de inversion.",
     }
+
+
+def build_investment_intelligence_report_data(
+    valuation_result: dict[str, Any],
+    valuation_payload: dict[str, Any],
+    lookup_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the property-as-asset report, excluding listing-only evidence."""
+    lookup = lookup_result or {}
+    listing_data = lookup.get("listing_data") if isinstance(lookup.get("listing_data"), dict) else {}
+    investment_payload = dict(valuation_payload)
+    if _has_listing_markers(valuation_payload, lookup):
+        investment_payload["_investment_input_origin"] = "listing_extracted"
+    for key in (
+        "comuna",
+        "property_type",
+        "m2",
+        "built_area_m2",
+        "land_area_m2",
+        "usable_area_m2",
+        "dormitorios",
+        "banos",
+        "estacionamientos",
+        "title",
+    ):
+        if not _has_report_value(investment_payload.get(key)) and _has_report_value(listing_data.get(key)):
+            investment_payload[key] = listing_data[key]
+    for key in (
+        "precio_publicado_uf",
+        "precio_publicado_clp",
+        "published_price",
+        "price_uf",
+        "price_clp",
+        "discount_pct",
+        "url",
+        "source",
+        "listing_id",
+        "watchlist_state",
+        "price_history_series",
+        "price_drop_event",
+        "alert_state",
+        "days_on_market",
+        "listing_url_lookup_status",
+    ):
+        investment_payload.pop(key, None)
+    return _build_valuation_report_data(
+        valuation_result,
+        investment_payload,
+        {},
+        analysis_context=PROPERTY_VALUATION,
+    )
+
+
+def build_listing_risk_report_data(
+    valuation_result: dict[str, Any],
+    valuation_payload: dict[str, Any],
+    lookup_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the concrete listing risk/opportunity report."""
+    return _build_valuation_report_data(
+        valuation_result,
+        valuation_payload,
+        lookup_result or {},
+        analysis_context=LISTING_ANALYSIS,
+    )
 
 
 def build_valuation_risk_report_data(
@@ -194,7 +289,29 @@ def build_valuation_risk_report_data(
 ) -> dict[str, Any]:
     """Map a URL valuation flow result into the modular Risk Report data shape."""
     lookup = lookup_result or {}
+    return _build_valuation_report_data(
+        valuation_result,
+        valuation_payload,
+        lookup,
+        analysis_context=_valuation_analysis_context(valuation_payload, lookup),
+    )
+
+
+def _build_valuation_report_data(
+    valuation_result: dict[str, Any],
+    valuation_payload: dict[str, Any],
+    lookup: dict[str, Any],
+    *,
+    analysis_context: str,
+) -> dict[str, Any]:
     listing_data = lookup.get("listing_data") if isinstance(lookup.get("listing_data"), dict) else {}
+    is_listing_analysis = analysis_context == LISTING_ANALYSIS
+    report_contract = build_risk_report_contract_shadow(
+        valuation_result=valuation_result,
+        valuation_payload=valuation_payload,
+        lookup_result=lookup,
+        analysis_context=analysis_context,
+    )
     listing_id = _first_available(
         listing_data.get("listing_id"),
         lookup.get("listing_id"),
@@ -220,26 +337,56 @@ def build_valuation_risk_report_data(
     discount = _valuation_discount_pct(valuation_result, valuation_payload)
     confidence = _text(valuation_result.get("confidence_label") or valuation_result.get("confidence"), "N/A")
     comparables = valuation_result.get("comparable_count")
-    warnings = _string_list(lookup.get("warnings")) + _string_list(valuation_result.get("warnings"))
-    missing = _valuation_missing_fields(valuation_result, valuation_payload, lookup)
+    warnings = _evidence_warning_items(report_contract)
+    missing = _contract_missing_labels(report_contract)
     estimated_fields = _valuation_estimated_fields(valuation_result, discount)
-    available = _valuation_available_fields(valuation_result, valuation_payload, lookup)
+    available = _contract_available_fields(report_contract, valuation_result, valuation_payload, lookup)
     data_quality_score = _data_quality_score(available, missing)
-    valuation_score = _valuation_score(discount, confidence)
+    valuation_score = _valuation_score(discount, confidence) if is_listing_analysis else _valuation_confidence_score(confidence, comparables)
     market_score = _market_support_score(comparables, confidence)
     risk_score = max(0, min(100, data_quality_score - (len(warnings) * 6)))
-    score = round((valuation_score * 0.35) + (market_score * 0.35) + (risk_score * 0.30))
-    source = _text(_first_available(lookup.get("source"), listing_data.get("source")), "N/A")
-    url = _text(_first_available(lookup.get("url"), listing_data.get("url")), "N/A")
+    if is_listing_analysis:
+        score = round((valuation_score * 0.35) + (market_score * 0.25) + (risk_score * 0.15) + (market_score * 0.15) + (risk_score * 0.10))
+    else:
+        score = _investment_score(valuation_score, market_score, data_quality_score, len(warnings))
+    source = _text(_first_available(lookup.get("source"), listing_data.get("source")), "N/A" if is_listing_analysis else "Tasacion manual")
+    url = _text(_first_available(lookup.get("url"), listing_data.get("url")), "N/A" if is_listing_analysis else "No aplica")
     comparable_cards = _valuation_comparable_cards(valuation_result.get("comparables") or [])
+    published_label = published_price_main if is_listing_analysis or published_uf or published_clp else "No aplica"
+    published_status = "neutral" if published_uf or published_clp or not is_listing_analysis else "caution"
+    discount_label = _format_pct(discount) if is_listing_analysis or published_uf or published_clp else "No aplica"
+    discount_status = _discount_status(discount) if is_listing_analysis or published_uf or published_clp else "neutral"
+    listing_id_label = none_dash(listing_id) if is_listing_analysis else "No aplica"
+    listing_id_detail = "Necesario para guardar en Watchlist real." if is_listing_analysis else "No requerido para tasacion manual."
+    listing_id_status = "favorable" if listing_id else "caution"
+    if not is_listing_analysis:
+        listing_id_status = "neutral"
+    investment_from_listing = valuation_payload.get("_investment_input_origin") == "listing_extracted"
+    subtitle_reference = (
+        f"Listing {listing_id or 'N/A'}"
+        if is_listing_analysis
+        else "Datos de propiedad extraidos desde publicacion"
+        if investment_from_listing
+        else "Tasacion manual"
+    )
+    source_label = (
+        "Datos de propiedad extraidos desde publicacion"
+        if investment_from_listing
+        else source
+    )
+    source_detail = (
+        "Analisis de inversion basado en datos de la propiedad."
+        if investment_from_listing
+        else "Origen del contexto."
+    )
 
     market_cards = [
         _card("Comparables", none_dash(comparables), "Muestras usadas por la tasacion.", "favorable" if _to_int(comparables) else "caution"),
         _card("Confianza", format_confidence(confidence), "Confianza reportada por el modelo.", _confidence_status(confidence)),
         _card("Comuna", comuna, "Mercado local objetivo.", "favorable" if comuna != "N/A" else "caution"),
         _card("Superficie", m2, "Base para comparabilidad.", "favorable" if m2 != "N/A" else "caution"),
-        _card("Fuente", source, "Origen detectado desde URL.", "neutral" if source != "N/A" else "caution"),
-        _card("URL", "Disponible" if url != "N/A" else "N/A", "Publicacion original.", "neutral" if url != "N/A" else "caution"),
+        _card("Fuente", source if is_listing_analysis else source_label, "Origen detectado desde URL." if is_listing_analysis else source_detail, "neutral" if source != "N/A" or not is_listing_analysis else "caution"),
+        _card("URL", "Disponible" if is_listing_analysis and url != "N/A" else url, "Publicacion original." if is_listing_analysis else "No requerida para tasacion manual.", "neutral" if url != "N/A" else "caution"),
     ]
     if comparable_cards:
         market_cards.extend(comparable_cards)
@@ -248,29 +395,34 @@ def build_valuation_risk_report_data(
         "header": {
             "title": title,
             "headline": comuna,
-            "accent": "Analisis",
-            "subtitle": f"Generated {datetime.now().strftime('%Y-%m-%d')} - Listing {listing_id or 'N/A'} - Standalone HTML report",
+            "accent": "Listing Opportunity" if is_listing_analysis else "Investment Intelligence",
+            "subtitle": f"Generated {datetime.now().strftime('%Y-%m-%d')} - {subtitle_reference} - Standalone HTML report",
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "listing_id": listing_id or "N/A",
             "property_summary": f"{comuna} - {m2}",
-            "price_main": published_price_main,
-            "price_secondary": _format_clp(published_clp) if published_uf else "Precio publicado",
+            "price_main": published_label,
+            "price_secondary": _format_clp(published_clp) if published_uf or published_clp else ("Precio publicado no requerido" if not is_listing_analysis else "N/A"),
         },
         "scores": {
             "overall": score,
             "label": _score_label(score),
-            "items": [
-                {"label": "Valuation", "weight": 35, "score": valuation_score, "status": _score_status(valuation_score)},
-                {"label": "Market Support", "weight": 35, "score": market_score, "status": _score_status(market_score)},
-                {"label": "Data Quality", "weight": 30, "score": risk_score, "status": _score_status(risk_score)},
-            ],
+            "headline_score_name": report_contract.headline_score_name,
+            "items": _score_items_for_context(
+                is_listing_analysis=is_listing_analysis,
+                price_or_confidence_score=valuation_score,
+                market_score=market_score,
+                data_quality_score=data_quality_score,
+                listing_evidence_score=risk_score,
+                confidence=confidence,
+                comparables=comparables,
+            ),
         },
         "kpis": [
-            _card("Descuento", _format_pct(discount), "Brecha contra valor estimado", _discount_status(discount)),
+            _card("Descuento", discount_label, "Brecha contra valor estimado", discount_status),
             _card("Comparables", none_dash(comparables), "Muestras usadas por el modelo", "favorable" if _to_int(comparables) else "caution"),
             _card("Confianza", format_confidence(confidence), "Confianza del modelo", _confidence_status(confidence)),
             _card("Superficie", m2, "Base fisica revisada", "favorable" if m2 != "N/A" else "caution"),
-            _card("Precio publicado", published_price_main, _format_clp(published_clp), "neutral" if published_uf or published_clp else "caution"),
+            _card("Precio publicado", published_label, _format_clp(published_clp) if published_uf or published_clp else "Contextual", published_status),
             _card("Valor estimado", _format_uf(estimated_uf), _format_clp(estimated_clp), "favorable" if estimated_uf or estimated_clp else "caution"),
             _card("Rango bajo", _format_uf(valuation_result.get("price_range_low_uf")), _format_clp(valuation_result.get("price_range_low_clp")), "neutral"),
             _card("Datos faltantes", str(len(missing)), "Campos no disponibles", "favorable" if not missing else "caution"),
@@ -280,9 +432,9 @@ def build_valuation_risk_report_data(
                 "title": "Valuation Analysis",
                 "accent": "green",
                 "cards": [
-                    _card("Precio publicado", published_price_main, "Precio observado o ingresado por el usuario.", "neutral" if published_uf or published_clp else "caution"),
+                    _card("Precio publicado", published_label, "Precio observado o ingresado por el usuario." if is_listing_analysis else "No requerido para tasacion manual.", published_status),
                     _card("Valor estimado", _format_clp(estimated_clp), "Estimacion central del modelo AVM.", "favorable" if estimated_clp else "caution"),
-                    _card("Descuento", _format_pct(discount), "Brecha contra valor estimado.", _discount_status(discount)),
+                    _card("Descuento", discount_label, "Brecha contra valor estimado." if is_listing_analysis else "No aplica sin precio publicado.", discount_status),
                     _card("Precio/m2", _format_uf(valuation_result.get("price_m2_uf")), "UF por metro cuadrado estimado.", "neutral"),
                     _card("Rango bajo", _format_uf(valuation_result.get("price_range_low_uf")), "Banda inferior de incertidumbre.", "neutral"),
                     _card("Rango alto", _format_uf(valuation_result.get("price_range_high_uf")), "Banda superior de incertidumbre.", "neutral"),
@@ -298,10 +450,10 @@ def build_valuation_risk_report_data(
                 "accent": "amber",
                 "cards": [
                     _card("Datos faltantes", str(len(missing)), ", ".join(missing) if missing else "Sin faltantes criticos.", "favorable" if not missing else "caution"),
-                    _card("Warnings", str(len(warnings)), ", ".join(warnings) if warnings else "Sin warnings del flujo.", "favorable" if not warnings else "caution"),
-                    _card("Listing ID", none_dash(listing_id), "Necesario para guardar en Watchlist real.", "favorable" if listing_id else "caution"),
-                    _card("Riesgo legal", "N/A", "No hay integracion CBR/SII/estudio de titulos en este reporte.", "caution"),
-                    _card("Riesgo normativo", "N/A", "Dato no disponible.", "caution"),
+                    _card("Limitaciones", str(len(warnings)), f"{len(warnings)} limitaciones de evidencia" if warnings else "Sin limitaciones relevantes.", "favorable" if not warnings else "caution"),
+                    _card("Listing ID", listing_id_label, listing_id_detail, listing_id_status),
+                    _card("Validacion legal externa", "No integrada", "Este reporte no consulta CBR, SII ni estudio de titulos.", "not_integrated"),
+                    _card("Validacion normativa", "No integrada", "Este reporte no consulta permisos ni reglas normativas externas.", "not_integrated"),
                     _card("Datos incompletos", f"{len(missing)} campos", "No se inventan datos ausentes.", "favorable" if not missing else "weak"),
                 ],
             },
@@ -315,8 +467,16 @@ def build_valuation_risk_report_data(
         },
         "catalysts": _valuation_catalysts(discount, comparables, confidence),
         "risks": _risks(missing, warnings, []),
-        "bottom_line": _bottom_line(score, discount, missing),
-        "disclaimer": "Reporte informativo generado a partir de una tasacion AVM y datos disponibles de la publicacion. No constituye asesoria financiera, legal ni recomendacion de inversion.",
+        "bottom_line": _contextual_bottom_line(analysis_context, score, discount, missing, warnings, confidence, comparables),
+        "analysis_context": analysis_context,
+        "report_type": report_contract.report_type,
+        "evidence_flags": [flag.user_title for flag in report_contract.evidence_flags],
+        "technical_hidden": [item.code for item in report_contract.technical_hidden],
+        "disclaimer": (
+            "Reporte informativo generado a partir de una tasacion AVM, comparables y senales de mercado. No consulta CBR, SII ni estudio de titulos."
+            if not is_listing_analysis
+            else "Reporte informativo generado a partir de una tasacion AVM, precio publicado y datos disponibles de la publicacion. No constituye asesoria financiera, legal ni recomendacion de inversion."
+        ),
     }
 
 
@@ -340,13 +500,20 @@ def _render_topbar(header: dict[str, Any]) -> str:
 """
 
 
-def _render_gauge(score: int, tone: str, label: str) -> str:
+def _render_gauge(score: int, tone: str, label: str, report_data: dict[str, Any]) -> str:
     clamped = max(0, min(100, score))
     dash_offset = 251.2 * (1 - (clamped / 100))
     rotation = -80 + (160 * (clamped / 100))
+    score_name = _text(report_data.get("scores", {}).get("headline_score_name"), "investment_score")
+    score_label = "Listing Opportunity Score" if score_name == "listing_opportunity_score" else "Investment Score"
+    score_help = (
+        "Opportunity signal based on listing price, valuation support and publication evidence."
+        if score_name == "listing_opportunity_score"
+        else "Investment signal based on valuation confidence, market support and available evidence."
+    )
     return f"""
 <div class="card gauge-card">
-  <div class="eyebrow">Investment Score</div>
+  <div class="eyebrow">{escape(score_label)}</div>
   <svg viewBox="0 0 200 120" width="230" aria-label="Investment score gauge">
     <defs><filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
     <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#24283a" stroke-width="14" stroke-linecap="round"/>
@@ -355,12 +522,12 @@ def _render_gauge(score: int, tone: str, label: str) -> str:
     <circle cx="100" cy="100" r="6" fill="var(--{tone})" stroke="#f8fafc" stroke-width="2"/>
     <text x="100" y="86" text-anchor="middle" fill="white" font-family="JetBrains Mono,Consolas,monospace" font-size="30" font-weight="800">{clamped}</text>
     <text x="100" y="104" text-anchor="middle" fill="#8b90a0" font-family="JetBrains Mono,Consolas,monospace" font-size="9">/100</text>
-    <text x="20" y="116" text-anchor="middle" fill="#ef4444" font-family="JetBrains Mono,Consolas,monospace" font-size="8" font-weight="700">HIGH RISK</text>
+    <text x="20" y="116" text-anchor="middle" fill="#ef4444" font-family="JetBrains Mono,Consolas,monospace" font-size="8" font-weight="700">WEAK</text>
     <text x="100" y="116" text-anchor="middle" fill="#f59e0b" font-family="JetBrains Mono,Consolas,monospace" font-size="8" font-weight="700">REVIEW</text>
     <text x="180" y="116" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono,Consolas,monospace" font-size="8" font-weight="700">STRONG</text>
   </svg>
   <div class="score-pill {tone}">{escape(label)}</div>
-  <p class="muted" style="font-size:12px;margin-top:12px">Signal flag based on radar data quality and opportunity score.</p>
+  <p class="muted" style="font-size:12px;margin-top:12px">{escape(score_help)}</p>
 </div>
 """
 
@@ -437,11 +604,11 @@ def _render_reliability(reliability: dict[str, Any]) -> str:
         _card("Datos reales disponibles", str(len(reliability.get("available", []))), ", ".join(reliability.get("available", [])) or "N/A", "favorable"),
         _card("Datos estimados", str(len(reliability.get("estimated", []))), ", ".join(reliability.get("estimated", [])) or "N/A", "neutral"),
         _card("Datos faltantes", str(len(reliability.get("missing", []))), ", ".join(reliability.get("missing", [])) or "Sin faltantes relevantes.", "favorable" if not reliability.get("missing") else "caution"),
-        _card("Confiabilidad general", _text(reliability.get("overall"), "N/A"), f"Score {reliability.get('score', 'N/A')}/100", _score_status(_safe_int(reliability.get("score"), default=0))),
+        _card("Completitud de datos", _text(reliability.get("overall"), "N/A"), f"Score {reliability.get('score', 'N/A')}/100", _score_status(_safe_int(reliability.get("score"), default=0))),
     ]
     return f"""
 <section class="section-card card">
-  <h2 class="section-title"><span class="dot amber"></span>Data Reliability</h2>
+  <h2 class="section-title"><span class="dot amber"></span>Data Completeness</h2>
   <div class="analysis-grid">{"".join(_render_analysis_card(card) for card in cards)}</div>
 </section>
 """
@@ -505,7 +672,7 @@ def _status_tone(status: Any) -> str:
 
 
 def _status_label(status: Any) -> str:
-    labels = {"favorable": "FAVORABLE", "caution": "CAUTION", "weak": "WEAK", "neutral": "NEUTRAL"}
+    labels = {"favorable": "FAVORABLE", "caution": "CAUTION", "weak": "WEAK", "neutral": "NEUTRAL", "not_integrated": "NO INTEGRADO"}
     return labels.get(str(status or "neutral"), "NEUTRAL")
 
 
@@ -524,10 +691,10 @@ def _score_tone(score: int) -> str:
 
 def _score_label(score: int) -> str:
     if score >= 70:
-        return "Strong Candidate"
+        return "Atractivo con observaciones"
     if score >= 45:
-        return "Needs Review"
-    return "High Risk"
+        return "Oportunidad a revisar"
+    return "Senal positiva con cautela"
 
 
 def _score_status(score: int | float | None) -> str:
@@ -603,6 +770,127 @@ def _reliability_label(score: int) -> str:
     return "Baja"
 
 
+def _evidence_warning_items(contract: RiskReportOutput) -> list[str]:
+    return [
+        f"{flag.user_title}: {flag.user_message}"
+        for flag in contract.evidence_flags
+        if flag.user_visible
+    ]
+
+
+def _contract_missing_labels(contract: RiskReportOutput) -> list[str]:
+    return [field.user_title.lower() for field in contract.contextual_missing_fields]
+
+
+def _contract_available_fields(
+    contract: RiskReportOutput,
+    valuation_result: dict[str, Any],
+    valuation_payload: dict[str, Any],
+    lookup_result: dict[str, Any],
+) -> list[str]:
+    missing = set(_contract_missing_labels(contract))
+    listing_data = lookup_result.get("listing_data") if isinstance(lookup_result.get("listing_data"), dict) else {}
+    checks = [
+        ("comuna", valuation_payload.get("comuna") or listing_data.get("comuna")),
+        ("tipo propiedad", valuation_payload.get("property_type") or listing_data.get("property_type")),
+        ("superficie", _first_available(valuation_payload.get("built_area_m2"), valuation_payload.get("m2"), listing_data.get("built_area_m2"), listing_data.get("m2"))),
+        ("valor estimado", _first_available(valuation_result.get("estimated_price_uf"), valuation_result.get("estimated_price_clp"))),
+        ("confianza", valuation_result.get("confidence_label") or valuation_result.get("confidence")),
+        ("comparables", valuation_result.get("comparable_count")),
+    ]
+    if contract.analysis_context == LISTING_ANALYSIS:
+        checks.extend(
+            [
+                ("precio publicado", _first_available(valuation_payload.get("precio_publicado_uf"), valuation_payload.get("precio_publicado_clp"), listing_data.get("precio_publicado_uf"), listing_data.get("precio_publicado_clp"))),
+                ("url", _first_available(lookup_result.get("url"), listing_data.get("url"), valuation_payload.get("url"))),
+                ("listing id", _first_available(listing_data.get("listing_id"), lookup_result.get("listing_id"), valuation_payload.get("listing_id"))),
+            ]
+        )
+    return [label for label, value in checks if _has_report_value(value) and label not in missing]
+
+
+def _valuation_confidence_score(confidence: Any, comparables: Any) -> int:
+    score = _market_support_score(comparables, confidence)
+    if str(confidence or "").lower() in {"high", "alta"}:
+        score += 10
+    return max(0, min(100, score))
+
+
+def _investment_score(valuation_confidence_score: int, market_score: int, data_quality_score: int, limitation_count: int) -> int:
+    score = round((valuation_confidence_score * 0.40) + (market_score * 0.35) + (data_quality_score * 0.25))
+    return max(0, min(100, score - min(limitation_count * 3, 18)))
+
+
+def _score_items_for_context(
+    *,
+    is_listing_analysis: bool,
+    price_or_confidence_score: int,
+    market_score: int,
+    data_quality_score: int,
+    listing_evidence_score: int,
+    confidence: Any,
+    comparables: Any,
+) -> list[dict[str, Any]]:
+    valuation_confidence = _valuation_confidence_score(confidence, comparables)
+    if is_listing_analysis:
+        return [
+            {"label": "Price Opportunity", "weight": 35, "score": price_or_confidence_score, "status": _score_status(price_or_confidence_score)},
+            {"label": "Valuation Confidence", "weight": 25, "score": valuation_confidence, "status": _score_status(valuation_confidence)},
+            {"label": "Listing Evidence", "weight": 15, "score": listing_evidence_score, "status": _score_status(listing_evidence_score)},
+            {"label": "Market Context", "weight": 15, "score": market_score, "status": _score_status(market_score)},
+            {"label": "Alert / Watchlist / Price History", "weight": 10, "score": listing_evidence_score, "status": _score_status(listing_evidence_score)},
+        ]
+    return [
+        {"label": "Valuation Confidence", "weight": 30, "score": valuation_confidence, "status": _score_status(valuation_confidence)},
+        {"label": "Location / Market Context", "weight": 25, "score": market_score, "status": _score_status(market_score)},
+        {"label": "Segment Depth / Liquidity Proxy", "weight": 20, "score": market_score, "status": _score_status(market_score)},
+        {"label": "Asset Fit / Physical Profile", "weight": 15, "score": data_quality_score, "status": _score_status(data_quality_score)},
+        {"label": "Contextual Data Completeness", "weight": 10, "score": data_quality_score, "status": _score_status(data_quality_score)},
+    ]
+
+
+def _contextual_bottom_line(
+    analysis_context: str,
+    score: int,
+    discount: float | None,
+    missing: list[str],
+    limitations: list[str],
+    confidence: Any,
+    comparables: Any,
+) -> dict[str, str]:
+    confidence_label = format_confidence(confidence)
+    comparable_count = _to_int(comparables) or 0
+    if analysis_context == PROPERTY_VALUATION:
+        if score >= 70 and not limitations:
+            return {
+                "verdict": "Atractivo con evidencia beta",
+                "summary": f"La propiedad muestra atractivo inicial con confianza de tasacion {confidence_label} y soporte de mercado de {comparable_count} comparables.",
+            }
+        if score >= 45:
+            return {
+                "verdict": "Requiere revision",
+                "summary": f"La tesis de inversion es revisable, pero debe leerse junto a la confianza de tasacion {confidence_label}, el soporte de mercado y las limitaciones de evidencia.",
+            }
+        return {
+            "verdict": "Evidencia insuficiente",
+            "summary": "Con la evidencia beta disponible, Valoria no tiene soporte suficiente para sostener una tesis de inversion fuerte.",
+        }
+    if discount is not None and discount > 0:
+        return {
+            "verdict": "Oportunidad de publicacion a revisar",
+            "summary": f"La publicacion muestra una brecha positiva de {_format_pct(discount)} contra el valor estimado. Revisar soporte de tasacion, precio publicado y limitaciones de publicacion antes de avanzar.",
+        }
+    if missing:
+        return {
+            "verdict": "Publicacion con evidencia incompleta",
+            "summary": "La oportunidad depende de datos de publicacion que aun faltan o son parciales. Validar precio, identidad del listing e historial antes de interpretar el score.",
+        }
+    return {
+        "verdict": "Sin descuento claro",
+        "summary": "La publicacion no muestra una brecha positiva clara frente al valor estimado; revisar soporte de tasacion y contexto de mercado.",
+    }
+
+
 def _available_fields(opportunity: dict[str, Any]) -> list[str]:
     labels = {
         "price_uf": "precio publicado",
@@ -640,23 +928,65 @@ def _missing_fields(opportunity: dict[str, Any]) -> list[str]:
     return [label for key, label in labels.items() if opportunity.get(key) in {None, "", 0}]
 
 
+def _valuation_analysis_context(
+    valuation_payload: dict[str, Any],
+    lookup_result: dict[str, Any],
+) -> str:
+    listing_data = lookup_result.get("listing_data") if isinstance(lookup_result.get("listing_data"), dict) else {}
+    listing_markers = (
+        lookup_result.get("url"),
+        listing_data.get("url"),
+        valuation_payload.get("url"),
+        lookup_result.get("source"),
+        listing_data.get("source"),
+        valuation_payload.get("source"),
+        lookup_result.get("listing_id"),
+        listing_data.get("listing_id"),
+        valuation_payload.get("listing_id"),
+    )
+    if any(_has_report_value(value) for value in listing_markers):
+        return LISTING_ANALYSIS
+    return PROPERTY_VALUATION
+
+
+def _has_listing_markers(valuation_payload: dict[str, Any], lookup_result: dict[str, Any]) -> bool:
+    return _valuation_analysis_context(valuation_payload, lookup_result) == LISTING_ANALYSIS
+
+
+def _valuation_contextual_warnings(warnings: list[str], *, analysis_context: str) -> list[str]:
+    if analysis_context == LISTING_ANALYSIS:
+        return list(dict.fromkeys(warnings))
+    return [
+        warning
+        for warning in dict.fromkeys(warnings)
+        if warning not in _PROPERTY_VALUATION_NOT_REQUIRED_WARNINGS
+    ]
+
+
 def _valuation_available_fields(
     valuation_result: dict[str, Any],
     valuation_payload: dict[str, Any],
     lookup_result: dict[str, Any],
+    *,
+    analysis_context: str,
 ) -> list[str]:
     listing_data = lookup_result.get("listing_data") if isinstance(lookup_result.get("listing_data"), dict) else {}
     checks = [
         ("comuna", valuation_payload.get("comuna")),
         ("tipo propiedad", valuation_payload.get("property_type")),
         ("superficie", _first_available(valuation_payload.get("built_area_m2"), valuation_payload.get("m2"))),
-        ("precio publicado", _first_available(valuation_payload.get("precio_publicado_uf"), valuation_payload.get("precio_publicado_clp"))),
         ("valor estimado", _first_available(valuation_result.get("estimated_price_uf"), valuation_result.get("estimated_price_clp"))),
         ("confianza", valuation_result.get("confidence_label") or valuation_result.get("confidence")),
         ("comparables", valuation_result.get("comparable_count")),
-        ("url publicacion", _first_available(lookup_result.get("url"), listing_data.get("url"))),
-        ("listing id", _first_available(listing_data.get("listing_id"), lookup_result.get("listing_id"))),
     ]
+    if analysis_context == LISTING_ANALYSIS:
+        checks.extend(
+            [
+                ("precio publicado", _first_available(valuation_payload.get("precio_publicado_uf"), valuation_payload.get("precio_publicado_clp"))),
+                ("url publicacion", _first_available(lookup_result.get("url"), listing_data.get("url"))),
+                ("listing id", _first_available(listing_data.get("listing_id"), lookup_result.get("listing_id"))),
+            ]
+        )
     return [label for label, value in checks if _has_report_value(value)]
 
 
@@ -677,20 +1007,27 @@ def _valuation_missing_fields(
     valuation_result: dict[str, Any],
     valuation_payload: dict[str, Any],
     lookup_result: dict[str, Any],
+    *,
+    analysis_context: str,
 ) -> list[str]:
     listing_data = lookup_result.get("listing_data") if isinstance(lookup_result.get("listing_data"), dict) else {}
     checks = [
         ("comuna", valuation_payload.get("comuna")),
         ("tipo propiedad", valuation_payload.get("property_type")),
         ("superficie", _first_available(valuation_payload.get("built_area_m2"), valuation_payload.get("m2"))),
-        ("precio publicado", _first_available(valuation_payload.get("precio_publicado_uf"), valuation_payload.get("precio_publicado_clp"))),
         ("valor estimado", _first_available(valuation_result.get("estimated_price_uf"), valuation_result.get("estimated_price_clp"))),
         ("confianza", valuation_result.get("confidence_label") or valuation_result.get("confidence")),
         ("comparables", valuation_result.get("comparable_count")),
-        ("url publicacion", _first_available(lookup_result.get("url"), listing_data.get("url"))),
     ]
+    if analysis_context == LISTING_ANALYSIS:
+        checks.extend(
+            [
+                ("precio publicado", _first_available(valuation_payload.get("precio_publicado_uf"), valuation_payload.get("precio_publicado_clp"))),
+                ("url publicacion", _first_available(lookup_result.get("url"), listing_data.get("url"))),
+            ]
+        )
     missing = [label for label, value in checks if not _has_report_value(value)]
-    if not _has_report_value(_first_available(listing_data.get("listing_id"), lookup_result.get("listing_id"))):
+    if analysis_context == LISTING_ANALYSIS and not _has_report_value(_first_available(listing_data.get("listing_id"), lookup_result.get("listing_id"))):
         missing.append("listing id para watchlist")
     return missing
 
@@ -781,18 +1118,17 @@ def _risks(missing: list[str], warnings: list[str], signals: list[str]) -> list[
     if missing:
         items.append("Datos faltantes: " + ", ".join(missing) + ".")
     items.extend(warnings)
-    if not signals:
-        items.append("Sin senales cualitativas adicionales disponibles.")
-    items.append("No incluye validacion legal externa, CBR, SII ni estudio de titulos.")
-    return items
+    if signals:
+        items.extend(signals)
+    return items or ["Sin limitaciones principales visibles con los datos disponibles."]
 
 
 def _bottom_line(score: int, discount: float | None, missing: list[str]) -> dict[str, str]:
     if score >= 70 and not missing:
-        return {"verdict": "Strong Candidate", "summary": "Activo con buena brecha y soporte de datos suficiente para analisis siguiente."}
+        return {"verdict": "Atractivo con observaciones", "summary": "Activo con buena brecha y soporte de datos suficiente para analisis siguiente."}
     if discount is not None and discount > 0:
-        return {"verdict": "Needs Review", "summary": "Activo potencialmente subvalorado; revisar datos faltantes y validar antecedentes antes de avanzar."}
-    return {"verdict": "High Risk", "summary": "La oportunidad requiere mas datos antes de sostener una tesis de inversion."}
+        return {"verdict": "Oportunidad a revisar", "summary": "Activo potencialmente subvalorado; revisar datos faltantes y validar antecedentes antes de avanzar."}
+    return {"verdict": "Senal positiva con cautela", "summary": "La oportunidad requiere mas datos antes de sostener una tesis de inversion."}
 
 
 def _format_uf(value: Any) -> str:
@@ -821,7 +1157,7 @@ def _format_m2(value: Any) -> str:
     number = _to_float(value)
     if number is None:
         return "N/A"
-    return f"{number:.1f} m2".replace(".", ",")
+    return f"{number:.1f} m²".replace(".", ",")
 
 
 def _uf_gap(opportunity: dict[str, Any]) -> str:

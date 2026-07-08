@@ -9,6 +9,8 @@ from core.assessment.confidence import build_confidence_contract
 from core.entities.listing import Listing, Property
 from core.exceptions import InsufficientDataError, ValidationError
 from core.normalization.property_type import normalize_property_type
+from domain.geocoding.microzones import signals_from_value
+from domain.geocoding.quality import normalized_precision_for
 from domain.valuation.comparables import valuate_with_comparables
 from domain.valuation.engines.contracts import (
     EngineComparable,
@@ -118,7 +120,7 @@ class ComparablesLegacyEngine:
         adjustment = maybe_apply_surface_adjustment(base_estimated_clp, surface, target)
         warnings.extend(adjustment.warnings)
 
-        adjusted_estimated_clp = int(round(adjustment.adjusted_estimate))
+        adjusted_estimated_clp = round(adjustment.adjusted_estimate)
         delta_clp = adjusted_estimated_clp - base_estimated_clp
         low_clp = max(0, price_clp_int(result.price_range_low) + delta_clp)
         high_clp = max(low_clp, price_clp_int(result.price_range_high) + delta_clp)
@@ -137,6 +139,12 @@ class ComparablesLegacyEngine:
                     "source": listing.source,
                     "comuna": listing.comuna,
                     "property_type": normalize_property_type(listing),
+                    "distance_km": _distance_km(target, listing),
+                    "geocode_precision": normalized_precision_for(listing),
+                    "microzone_id": _microzone_id(listing),
+                    "price_uf_source": listing.price_uf_source,
+                    "price_uf_confidence": listing.price_uf_confidence,
+                    "price_recovery_method": listing.price_recovery_method,
                 },
             )
             for score, listing in run.scored_comparables
@@ -144,7 +152,21 @@ class ComparablesLegacyEngine:
         diagnostics = {
             "base_estimated_price_clp": base_estimated_clp,
             "base_estimated_price_uf": _clp_to_uf(base_estimated_clp, uf_to_clp),
+            "range_low_uf": _clp_to_uf(low_clp, uf_to_clp),
+            "range_high_uf": _clp_to_uf(high_clp, uf_to_clp),
             "price_m2_uf": _clp_to_uf(adjusted_estimated_clp, uf_to_clp) / built_area,
+            "data_quality": result.comparable_quality_level,
+            "explanation": "Legacy comparable weighted mean price/m2 with surface adjustment metadata.",
+            "target": {
+                "property_type": normalize_property_type(target),
+                "geocode_precision": normalized_precision_for(target),
+                "microzone_id": _microzone_id(target),
+                "built_area_m2": _built_area(target),
+                "land_area_m2": target.land_area_m2,
+                "bedrooms": target.bedrooms,
+                "bathrooms": target.bathrooms,
+                "parking": target.parking,
+            },
             "confidence_legacy_label": confidence_contract.legacy_confidence,
             "confidence_label": confidence_contract.confidence_label,
             "confidence_reasons": list(confidence_contract.confidence_reasons),
@@ -215,6 +237,30 @@ def _built_area(value: Property | Listing) -> float | None:
 
 def _clp_to_uf(value: int | float | Decimal, uf_to_clp: Decimal) -> float:
     return round(float(Decimal(str(value)) / uf_to_clp), 2)
+
+
+def _distance_km(target: Property, listing: Listing) -> float | None:
+    if target.coordinates is None or listing.coordinates is None:
+        return None
+    return round(target.coordinates.distance_km(listing.coordinates), 4)
+
+
+def _microzone_id(value: Property | Listing) -> str | None:
+    metadata = getattr(value, "raw_metadata", None)
+    if isinstance(metadata, dict):
+        for key in ("microzone_id", "geo_microzone_id", "microzone"):
+            raw = metadata.get(key)
+            if raw is not None and str(raw).strip():
+                return str(raw)
+    signals = signals_from_value(value)
+    tokens = [*signals.landmark_tokens]
+    if signals.nearby_metro:
+        tokens.append(f"metro:{signals.nearby_metro}")
+    if signals.nearby_avenue:
+        tokens.append(f"avenue:{signals.nearby_avenue}")
+    if signals.intersection_hint:
+        tokens.append(f"intersection:{signals.intersection_hint}")
+    return "|".join(sorted(set(tokens))) or None
 
 
 def _dedupe(values: list[str]) -> list[str]:

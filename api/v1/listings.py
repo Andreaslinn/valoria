@@ -7,14 +7,23 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from api.deps import CurrentUser, DbSession, ListingServiceDep, UFServiceDep
-from core.ports.uf_service import UFRateInfo
+from api.deps import (
+    CurrentUser,
+    DbSession,
+    ListingServiceDep,
+    UFServiceDep,
+    ValuationServiceDep,
+)
 from core.entities.listing import Listing
 from core.exceptions import ListingNotFoundError, UFServiceError
+from core.ports.uf_service import UFRateInfo
 from infrastructure.db.repositories import SqlAlchemyPriceHistoryRepository
 from infrastructure.db.repositories.price_history_repo import PriceSeriesPoint
 from services.formatting import price_clp_int
+from services.listing_analysis import analyze_listing_lookup
+from services.listing_freshness import ListingFreshnessResult, ensure_listing_fresh
 from services.listing_url_lookup import lookup_listing_url
 from services.price_display import clp_to_uf_display, uf_to_clp_display
 from services.uf_rate import require_real_uf_rate
@@ -67,6 +76,32 @@ class ListingUrlLookupResponse(BaseModel):
     warnings: list[str]
     source: str | None
     url: str
+    freshness_status: str | None = None
+    last_seen_at: datetime | None = None
+    last_refreshed_at: datetime | None = None
+    last_refresh_status: str | None = None
+    freshness_note: str | None = None
+    refresh_attempted: bool = False
+    refresh_result: dict[str, Any] | None = None
+
+
+class ListingUrlAnalyzeRequest(BaseModel):
+    url: str
+
+
+class ListingUrlAnalyzeResponse(BaseModel):
+    listing: dict[str, Any]
+    valuation: dict[str, Any]
+    price_analysis: dict[str, Any]
+    signals: dict[str, list[str]]
+    report_status: dict[str, Any]
+    freshness_status: str | None = None
+    last_seen_at: datetime | None = None
+    last_refreshed_at: datetime | None = None
+    last_refresh_status: str | None = None
+    freshness_note: str | None = None
+    refresh_attempted: bool = False
+    refresh_result: dict[str, Any] | None = None
 
 
 class PriceHistoryPointOut(BaseModel):
@@ -119,6 +154,8 @@ async def list_listings(
 async def lookup_url(
     payload: ListingUrlLookupRequest,
     _current_user: CurrentUser,
+    session: DbSession,
+    uf_service: UFServiceDep,
 ) -> ListingUrlLookupResponse:
     url = payload.url.strip()
     if not url:
@@ -152,7 +189,70 @@ async def lookup_url(
             detail="No se pudo parsear la publicacion",
         )
 
-    return ListingUrlLookupResponse.model_validate(result.to_dict())
+    response = result.to_dict()
+    freshness = await _maybe_ensure_lookup_freshness(
+        response,
+        session=session,
+        uf_service=uf_service,
+        reason="listing_url_lookup",
+    )
+    _apply_freshness_payload(response, freshness)
+    return ListingUrlLookupResponse.model_validate(response)
+
+
+@router.post("/analyze-url", response_model=ListingUrlAnalyzeResponse)
+async def analyze_url(
+    payload: ListingUrlAnalyzeRequest,
+    _current_user: CurrentUser,
+    valuation_service: ValuationServiceDep,
+    session: DbSession,
+    uf_service: UFServiceDep,
+) -> ListingUrlAnalyzeResponse:
+    url = payload.url.strip()
+    if not url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URL requerida",
+        )
+
+    try:
+        lookup = await lookup_listing_url(url)
+    except Exception as e:
+        _log.exception("Unexpected listing URL analysis lookup error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error inesperado al analizar la URL",
+        ) from e
+
+    if lookup.status == "invalid_url":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URL invalida",
+        )
+    if lookup.status == "unsupported_source":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fuente aun no soportada",
+        )
+    if lookup.status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo parsear la publicacion",
+        )
+
+    analysis = await analyze_listing_lookup(
+        lookup.listing_data,
+        valuation_service=valuation_service,
+    )
+    response = analysis.to_dict()
+    freshness = await _maybe_ensure_lookup_freshness(
+        lookup.to_dict(),
+        session=session,
+        uf_service=uf_service,
+        reason="listing_url_analysis",
+    )
+    _apply_freshness_payload(response, freshness)
+    return ListingUrlAnalyzeResponse.model_validate(response)
 
 
 @router.get("/{listing_id}/price-history", response_model=ListingPriceHistoryOut)
@@ -239,6 +339,54 @@ def _price_history_point_out(point: PriceSeriesPoint) -> PriceHistoryPointOut:
 
 def _api_datetime(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
+async def _maybe_ensure_lookup_freshness(
+    payload: dict[str, Any],
+    *,
+    session: DbSession,
+    uf_service,
+    reason: str,
+) -> ListingFreshnessResult | None:
+    listing_data = payload.get("listing_data")
+    if not isinstance(listing_data, dict):
+        return None
+    listing_id = listing_data.get("listing_id") or listing_data.get("id")
+    if not isinstance(listing_id, int):
+        return None
+    try:
+        return await ensure_listing_fresh(
+            listing_id,
+            reason=reason,
+            session_factory=_request_session_factory(session),
+            uf_service=uf_service,
+        )
+    except Exception as exc:
+        _log.warning("listing freshness check failed listing_id=%s reason=%s error=%s", listing_id, reason, exc)
+        return ListingFreshnessResult(
+            status="refresh_failed",
+            listing_id=listing_id,
+            reason=reason,
+            refresh_attempted=True,
+            freshness_note="freshness_helper_failed",
+        )
+
+
+def _request_session_factory(session: DbSession) -> async_sessionmaker[AsyncSession]:
+    bind = session.bind or session.get_bind()
+    return async_sessionmaker(bind=bind, expire_on_commit=False, class_=AsyncSession)
+
+
+def _apply_freshness_payload(payload: dict[str, Any], freshness: ListingFreshnessResult | None) -> None:
+    if freshness is None:
+        return
+    payload["freshness_status"] = freshness.status
+    payload["last_seen_at"] = freshness.last_seen_at
+    payload["last_refreshed_at"] = freshness.last_refreshed_at
+    payload["last_refresh_status"] = freshness.last_refresh_status
+    payload["freshness_note"] = freshness.freshness_note
+    payload["refresh_attempted"] = freshness.refresh_attempted
+    payload["refresh_result"] = freshness.to_dict()
 
 
 def _listing_out(listing: Listing, *, uf_info: UFRateInfo) -> ListingOut:

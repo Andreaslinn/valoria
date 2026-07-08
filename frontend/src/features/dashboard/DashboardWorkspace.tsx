@@ -6,22 +6,18 @@ import {
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
-  Bell,
   Building2,
   CircleDollarSign,
   Clock3,
   Compass,
-  Gauge,
   Home,
   LineChart,
   Link2,
   Loader2,
   MapPinned,
-  Radar,
   Search,
   ShieldCheck,
   Sparkles,
-  WalletCards,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -31,29 +27,33 @@ import { listAlerts } from "@/lib/api/alerts";
 import { me, type User } from "@/lib/api/auth";
 import {
   getCurrentUf,
-  getLiquiditySummary,
-  getMarketBriefing,
-  getMicrozonesSummary,
+  getCommunesSummary,
+  getMarketDynamismSummary,
+  getMarketPulse,
 } from "@/lib/api/market";
 import { getRadarSummary } from "@/lib/api/radar";
 import { getRecentTasarActivity, type RecentTasarActivity } from "@/lib/api/tasar";
 import { listWatchlist } from "@/lib/api/watchlist";
 import {
   formatClp,
+  formatCommuneName,
   formatConfidence,
   formatDate,
   formatDateTime,
+  formatListingStatus,
   formatM2,
   formatPropertyType,
   formatText,
   formatUf,
+  formatWatchlistTitle,
+  pluralizeEs,
 } from "@/lib/formatters";
 import type { AlertItem } from "@/types/alerts";
 import type {
-  LiquiditySummary,
-  MarketBriefing as MarketBriefingContract,
-  MarketIndicator,
-  MicrozonesSummary,
+  CommunesSummary,
+  DynamismSummary,
+  MarketBalanceComponent,
+  MarketPulse,
   UFRate,
 } from "@/types/market";
 import type { RadarSummary } from "@/types/radar";
@@ -65,7 +65,7 @@ type LoadState<T> = {
   loading: boolean;
 };
 
-type MetricStatus = "available" | "partial" | "empty" | "coming_soon" | "error" | "manual";
+type MetricStatus = "available" | "partial" | "empty" | "unavailable" | "coming_soon" | "error" | "manual";
 type Tone = "green" | "orange" | "blue" | "neutral";
 
 const initialState = <T,>(): LoadState<T> => ({
@@ -86,7 +86,7 @@ const quickActions = [
     description: "Revisa cualquier aviso soportado.",
     href: "/app/analizar-url",
     icon: Link2,
-    title: "Analizar publicacion",
+    title: "Analizar publicación",
     tone: "blue" as Tone,
   },
   {
@@ -104,9 +104,9 @@ export function DashboardWorkspace() {
   const [alerts, setAlerts] = useState<LoadState<AlertItem[]>>(initialState);
   const [uf, setUf] = useState<LoadState<UFRate>>(initialState);
   const [activity, setActivity] = useState<LoadState<RecentTasarActivity>>(initialState);
-  const [briefing, setBriefing] = useState<LoadState<MarketBriefingContract>>(initialState);
-  const [liquidity, setLiquidity] = useState<LoadState<LiquiditySummary>>(initialState);
-  const [microzones, setMicrozones] = useState<LoadState<MicrozonesSummary>>(initialState);
+  const [pulse, setPulse] = useState<LoadState<MarketPulse>>(initialState);
+  const [dynamism, setDynamism] = useState<LoadState<DynamismSummary>>(initialState);
+  const [communes, setCommunes] = useState<LoadState<CommunesSummary>>(initialState);
   const [radarSummary, setRadarSummary] = useState<LoadState<RadarSummary>>(initialState);
 
   useEffect(() => {
@@ -115,9 +115,9 @@ export function DashboardWorkspace() {
     void loadAlerts();
     void loadUf();
     void loadActivity();
-    void loadBriefing();
-    void loadLiquidity();
-    void loadMicrozones();
+    void loadPulse();
+    void loadDynamism();
+    void loadCommunes();
     void loadRadarSummary();
   }, []);
 
@@ -166,30 +166,30 @@ export function DashboardWorkspace() {
     }
   }
 
-  async function loadBriefing() {
-    setBriefing({ data: null, error: null, loading: true });
+  async function loadPulse() {
+    setPulse({ data: null, error: null, loading: true });
     try {
-      setBriefing({ data: await getMarketBriefing(), error: null, loading: false });
+      setPulse({ data: await getMarketPulse(), error: null, loading: false });
     } catch {
-      setBriefing({ data: null, error: "Briefing de mercado no disponible", loading: false });
+      setPulse({ data: null, error: "Señales de mercado no disponibles temporalmente", loading: false });
     }
   }
 
-  async function loadLiquidity() {
-    setLiquidity({ data: null, error: null, loading: true });
+  async function loadDynamism() {
+    setDynamism({ data: null, error: null, loading: true });
     try {
-      setLiquidity({ data: await getLiquiditySummary(), error: null, loading: false });
+      setDynamism({ data: await getMarketDynamismSummary(), error: null, loading: false });
     } catch {
-      setLiquidity({ data: null, error: "Liquidez no disponible", loading: false });
+      setDynamism({ data: null, error: "Actividad no disponible temporalmente", loading: false });
     }
   }
 
-  async function loadMicrozones() {
-    setMicrozones({ data: null, error: null, loading: true });
+  async function loadCommunes() {
+    setCommunes({ data: null, error: null, loading: true });
     try {
-      setMicrozones({ data: await getMicrozonesSummary(), error: null, loading: false });
+      setCommunes({ data: await getCommunesSummary(), error: null, loading: false });
     } catch {
-      setMicrozones({ data: null, error: "Microzonas no disponibles", loading: false });
+      setCommunes({ data: null, error: "Mercado por comuna no disponible temporalmente", loading: false });
     }
   }
 
@@ -212,58 +212,37 @@ export function DashboardWorkspace() {
   const userName = user.data ? displayName(user.data) : "usuario beta";
 
   return (
-    <div className="space-y-4">
-      <section className="grid min-w-0 gap-6 min-[1500px]:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(400px,480px)]">
-        <MarketBriefing briefing={briefing} userName={userName} />
+    <div className="min-w-0 space-y-4">
+      <section className="grid min-w-0 gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(380px,460px)]">
+        <MarketBriefing pulse={pulse} userName={userName} />
         <FeaturedValuation activity={activity} latestValuation={latestValuation ?? null} />
       </section>
 
-      <section className="grid min-w-0 gap-6 min-[1500px]:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(400px,480px)]">
+      <section className="grid min-w-0 gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(380px,460px)]">
         <div className="min-w-0 space-y-4">
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-4">
-            <MetricCard
-              description={briefing.data?.valoria_index.description ?? "Pendiente de contrato."}
-              icon={<Gauge className="h-5 w-5" aria-hidden />}
-              label={briefing.data?.valoria_index.label ?? "Indice AVM"}
-              status={toMetricStatus(briefing.data?.valoria_index.status, briefing)}
-              title={
-                briefing.data?.valoria_index.available
-                  ? formatNullableScore(briefing.data.valoria_index.value, briefing.data.valoria_index.max)
-                  : briefing.data?.valoria_index.confidence_label ?? "En preparacion"
-              }
-              visual={<Sparkline status={toMetricStatus(briefing.data?.valoria_index.status, briefing)} />}
-            />
-            <MetricCard
-              description={radarSummary.data?.summary ?? "Radar manual."}
-              icon={<Radar className="h-5 w-5" aria-hidden />}
-              label="Radar"
-              status={toMetricStatus(radarSummary.data?.mode ?? radarSummary.data?.status, radarSummary)}
-              title={radarMetricTitle(radarSummary.data)}
-              visual={<RadarMini />}
-            />
-            <MetricCard
-              description={liquidity.data?.message ?? "Requiere contrato de liquidez."}
-              icon={<LineChart className="h-5 w-5" aria-hidden />}
-              label={liquidity.data?.label ?? "Liquidez del mercado"}
-              status={toMetricStatus(liquidity.data?.status, liquidity)}
-              title={liquidity.data?.available ? formatNullableScore(liquidity.data.value, liquidity.data.max) : "Proximamente"}
-              visual={<Sparkline status={toMetricStatus(liquidity.data?.status, liquidity)} />}
-            />
+          <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] gap-4">
+            <RecentActivityCard state={pulse} />
+            <ObservedTimeCard state={pulse} />
+            <FeaturedCommuneCard state={pulse} />
           </div>
           <QuickActions />
-          <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="grid min-w-0 gap-4 min-[1500px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <RadarPanel state={radarSummary} />
-            <MicrozonesPanel state={microzones} />
+            <CommunesPanel state={communes} />
+          </div>
+          <div className="grid min-w-0 gap-4 min-[1500px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <DynamismPanel state={dynamism} />
+            <SignalConfidenceCard state={pulse} />
           </div>
         </div>
 
         <div className="min-w-0 space-y-4">
           <WatchlistPanel items={watchlistItems} state={watchlist} />
-          <AlertsPanel alerts={alertItems} state={alerts} unreadCount={unreadAlerts.length} />
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+        <AlertsPanel alerts={alertItems} state={alerts} unreadCount={unreadAlerts.length} />
         <DataStatusCard
           description={ufDescription(uf)}
           icon={<CircleDollarSign className="h-5 w-5" aria-hidden />}
@@ -271,97 +250,63 @@ export function DashboardWorkspace() {
           status={ufStatus(uf)}
           value={uf.loading ? "Cargando" : uf.error ? "No disponible" : formatClp(uf.data?.rate_clp)}
         />
-        <DataStatusCard
-          description={watchlist.error || "Fuente: /api/v1/watchlist"}
-          icon={<WalletCards className="h-5 w-5" aria-hidden />}
-          label="Watchlist"
-          status={watchlist.error ? "error" : watchlist.loading ? "empty" : "available"}
-          value={watchlist.loading ? "Cargando" : `${watchlistItems.length} guardada${watchlistItems.length === 1 ? "" : "s"}`}
-        />
-        <DataStatusCard
-          description={alerts.error || "Fuente: /api/v1/alerts"}
-          icon={<Bell className="h-5 w-5" aria-hidden />}
-          label="Alertas"
-          status={alerts.error ? "error" : alerts.loading ? "empty" : "available"}
-          value={alerts.loading ? "Cargando" : `${unreadAlerts.length} sin leer`}
-        />
       </section>
     </div>
   );
 }
 
 function MarketBriefing({
-  briefing,
+  pulse,
   userName,
 }: {
-  briefing: LoadState<MarketBriefingContract>;
+  pulse: LoadState<MarketPulse>;
   userName: string;
 }) {
-  const data = briefing.data;
-  const indicators = data?.indicators ?? [];
+  const data = pulse.data;
+  const balance = data?.market_balance;
+  const components = balance?.components ?? [];
   return (
     <Card className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_82%_20%,rgba(61,220,151,0.12),transparent_28rem),linear-gradient(135deg,rgba(255,255,255,0.075),rgba(255,255,255,0.035))] p-0">
-      <div className="grid gap-5 p-6 lg:grid-cols-[minmax(0,1fr)_230px]">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
+      <div className="grid min-w-0 gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(210px,240px)]">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
             <Sparkles className="h-4 w-4" aria-hidden />
-            Briefing del mercado
+            <span>Briefing del mercado</span>
+            <span className="rounded border border-line bg-black/20 px-2 py-1 normal-case tracking-normal text-muted">
+              {updatedLabel(data?.updated_at)}
+            </span>
           </div>
           <h1 className="mt-5 max-w-2xl text-3xl font-semibold tracking-normal text-ink md:text-4xl">
-            {data?.headline ?? "Cockpit Valoria para decidir con mejor evidencia."}
+            {balance?.headline ?? (pulse.error || "Señales de mercado no disponibles temporalmente")}
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
-            Hola, {userName}. {data?.summary ?? "El briefing de mercado se activara cuando exista un contrato real de mercado, liquidez y tendencia."}
+            Hola, {userName}. {balance?.summary ?? "Estamos preparando las señales principales del mercado para este panel."}
           </p>
+          <div className="mt-4 flex min-w-0 items-start gap-3 rounded-lg border border-blue-400/20 bg-blue-400/10 p-3">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-blue-100" aria-hidden />
+            <p className="text-sm leading-6 text-blue-50/90">
+              {pulse.error || data?.insight.text || "Aún no hay suficiente actividad reciente para mostrar un insight confiable."}
+            </p>
+          </div>
 
-          <div className="mt-7 grid gap-3 sm:grid-cols-3">
-            <BriefingSignal
-              icon={<Building2 className="h-5 w-5" aria-hidden />}
-              label={indicatorByKey(indicators, "active_supply")?.label ?? "Oferta en mercado"}
-              status={toMetricStatus(indicatorByKey(indicators, "active_supply")?.status, briefing)}
-              value={indicatorValue(indicatorByKey(indicators, "active_supply"))}
-            />
-            <BriefingSignal
-              icon={<Clock3 className="h-5 w-5" aria-hidden />}
-              label={indicatorByKey(indicators, "fresh_listings")?.label ?? "Publicaciones vigentes"}
-              status={toMetricStatus(indicatorByKey(indicators, "fresh_listings")?.status, briefing)}
-              value={indicatorValue(indicatorByKey(indicators, "fresh_listings"))}
-            />
-            <BriefingSignal
-              icon={<Compass className="h-5 w-5" aria-hidden />}
-              label={indicatorByKey(indicators, "new_listings_7d")?.label ?? "Nuevas publicaciones"}
-              status={toMetricStatus(indicatorByKey(indicators, "new_listings_7d")?.status, briefing)}
-              value={indicatorValue(indicatorByKey(indicators, "new_listings_7d"))}
-            />
+          <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 min-[1500px]:grid-cols-4">
+            {balanceComponentSlots(components).map((component) => (
+              <BriefingSignal
+                icon={balanceComponentIcon(component.key)}
+                key={component.key}
+                label={component.label}
+                status={toMetricStatus(component.status, pulse)}
+                value={balanceComponentValue(component, data)}
+              />
+            ))}
           </div>
         </div>
-        <div className="flex flex-col items-center justify-center rounded-lg border border-line bg-black/20 p-4">
-          <ValoriaGauge value={data?.valoria_index.value ?? null} />
-          <p className="mt-3 text-sm font-semibold text-ink">{data?.valoria_index.label ?? "Indice Valoria"}</p>
+        <div className="flex min-w-0 flex-col items-center justify-center rounded-lg border border-line bg-black/20 p-4">
+          <MarketBalanceGauge value={balance?.score ?? null} />
+          <p className="mt-3 text-sm font-semibold text-ink">Balance del mercado</p>
           <p className="mt-1 text-center text-xs leading-5 text-muted">
-            {data?.valoria_index.description ?? "Esperando contrato de mercado para publicar una senal agregada."}
+            {balance?.label ?? "Sin señal disponible"} · Confianza {formatSignalConfidence(balance?.confidence).toLowerCase()}
           </p>
-        </div>
-      </div>
-      <div className="border-t border-line bg-black/20 px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-blue-400/30 bg-blue-400/10 text-blue-200">
-              <ShieldCheck className="h-4 w-4" aria-hidden />
-            </span>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-100">
-                Insight del dia
-              </p>
-              <p className="mt-1 text-sm leading-6 text-muted">
-                {briefing.error || data?.insight.text || "Sin metricas simuladas: Valoria muestra estados honestos hasta contar con contratos de mercado y microzona."}
-              </p>
-            </div>
-          </div>
-          <ButtonLink href="/app/reportes" variant="secondary">
-            Ver roadmap
-            <ArrowRight className="h-4 w-4" aria-hidden />
-          </ButtonLink>
         </div>
       </div>
     </Card>
@@ -377,7 +322,7 @@ function FeaturedValuation({
 }) {
   if (activity.loading) {
     return (
-      <Card className="min-h-[360px] p-6">
+      <Card className="p-5">
         <LoadingLine label="Cargando tasaciones recientes..." />
       </Card>
     );
@@ -385,21 +330,16 @@ function FeaturedValuation({
 
   if (activity.error || !latestValuation) {
     return (
-      <Card className="min-h-[360px] p-6">
+      <Card className="p-5">
         <PanelHeader
-          action={<StatusPill status={activity.error ? "error" : "empty"} />}
-          kicker="Tasacion destacada"
-          title="Aun no tienes tasaciones recientes"
+          action={activity.error ? <StatusPill status="error" /> : null}
+          kicker="Tasación destacada"
+          title="Aún no tienes tasaciones recientes"
         />
         <p className="mt-4 text-sm leading-6 text-muted">
-          Cuando ejecutes una tasacion, Valoria mostrara aqui el ultimo resultado disponible
-          con rango, confianza y trazabilidad.
+          Realiza una tasación para ver aquí el valor estimado, el rango de confianza y su evolución.
         </p>
-        <div className="mt-8 rounded-lg border border-dashed border-line bg-black/20 p-6">
-          <RangeBar current={null} max={null} min={null} />
-          <MiniTrendChart status="empty" />
-        </div>
-        <div className="mt-6">
+        <div className="mt-4">
           <ButtonLink href="/app/tasar">
             Tasar propiedad
             <ArrowRight className="h-4 w-4" aria-hidden />
@@ -410,14 +350,14 @@ function FeaturedValuation({
   }
 
   return (
-    <Card className="min-h-[360px] p-6">
+    <Card className="min-h-[340px] p-5">
       <PanelHeader
         action={<StatusPill status="available" />}
-        kicker="Tasacion destacada"
-        title={formatText(latestValuation.title, "Tasacion reciente")}
+        kicker="Tasación destacada"
+        title={formatText(latestValuation.title, "Tasación reciente")}
       />
       <p className="mt-1 text-sm text-muted">
-        {formatText(latestValuation.comuna)} · {formatPropertyType(latestValuation.property_type)}
+        {formatCommuneName(latestValuation.comuna)} · {formatPropertyType(latestValuation.property_type)}
       </p>
       <div className="mt-7 grid grid-cols-[1fr_auto] gap-4">
         <div>
@@ -443,13 +383,10 @@ function FeaturedValuation({
           max={latestValuation.range_high_uf ?? null}
           min={latestValuation.range_low_uf ?? null}
         />
-        <MiniTrendChart
-          status={latestValuation.trend_points_uf?.length ? "available" : "empty"}
-        />
       </div>
       <div className="mt-6">
         <ButtonLink href="/app/tasar" variant="secondary">
-          Ver tasacion completa
+          Ver tasación completa
           <ArrowRight className="h-4 w-4" aria-hidden />
         </ButtonLink>
       </div>
@@ -473,9 +410,9 @@ function MetricCard({
   visual: ReactNode;
 }) {
   return (
-    <Card className="min-h-[150px] min-w-[260px] p-5">
+    <Card className="min-h-[128px] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-[180px] flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line bg-white/[0.06] text-ink">
             {icon}
           </span>
@@ -488,7 +425,7 @@ function MetricCard({
         </div>
         <StatusPill status={status} />
       </div>
-      <div className="mt-5 flex items-end justify-between gap-4">
+      <div className="mt-4 flex min-w-0 items-end justify-between gap-4">
         <p className="min-w-0 text-sm leading-5 text-muted">{description}</p>
         <div className="shrink-0">{visual}</div>
       </div>
@@ -496,18 +433,90 @@ function MetricCard({
   );
 }
 
+function RecentActivityCard({ state }: { state: LoadState<MarketPulse> }) {
+  const activity = state.data?.recent_activity;
+  return (
+    <MetricCard
+      description={
+        state.error ||
+        (activity
+          ? `${formatNumber(activity.removed_7d)} retiradas en 7 días · ${formatNumber(activity.price_drops_7d)} ${pluralizeEs(activity.price_drops_7d, "rebaja", "rebajas")}`
+          : "Cargando movimiento del mercado.")
+      }
+      icon={<Compass className="h-5 w-5" aria-hidden />}
+      label="Movimiento reciente"
+      status={toMetricStatus(activity?.status, state)}
+      title={activity ? `${formatNumber(activity.new_24h)} nuevas hoy` : "Cargando"}
+      visual={<MarketDeltaBadge value={activity?.net_flow_7d ?? null} />}
+    />
+  );
+}
+
+function ObservedTimeCard({ state }: { state: LoadState<MarketPulse> }) {
+  const observed = state.data?.observed_publication_time;
+  const hasMedian = observed?.median_days != null;
+  return (
+    <MetricCard
+      description={
+        state.error ||
+        (observed
+          ? `Basado en ${formatNumber(observed.sample_size)} publicaciones activas`
+          : "Cargando tiempo observado.")
+      }
+      icon={<Clock3 className="h-5 w-5" aria-hidden />}
+      label="Tiempo publicado"
+      status={toMetricStatus(observed?.status, state)}
+      title={hasMedian ? `${observed.median_days} días` : "Sin historial"}
+      visual={<StatusPill status={hasMedian ? "available" : toMetricStatus(observed?.status, state)} />}
+    />
+  );
+}
+
+function FeaturedCommuneCard({ state }: { state: LoadState<MarketPulse> }) {
+  const featured = state.data?.featured_commune;
+  const available = featured?.status === "available" && featured.comuna;
+  return (
+    <MetricCard
+      description={
+        state.error ||
+        (available
+          ? `${formatNumber(featured.new_7d)} nuevas publicaciones esta semana · ${formatNumber(featured.active_listings)} activas`
+          : "Aún sin comuna destacada.")
+      }
+      icon={<MapPinned className="h-5 w-5" aria-hidden />}
+      label="Comuna destacada"
+      status={toMetricStatus(featured?.status, state)}
+      title={available ? (featured.comuna ?? "Sin señal") : "Sin señal"}
+      visual={<span className="max-w-24 text-right text-xs font-semibold leading-5 text-emerald-100">{featured?.headline ?? ""}</span>}
+    />
+  );
+}
+
+function MarketDeltaBadge({ value }: { value: number | null }) {
+  if (value == null) return <span className="text-xs text-muted">--</span>;
+  const positive = value >= 0;
+  const Icon = positive ? ArrowUpRight : ArrowDownRight;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-semibold ${positive ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-orange-400/25 bg-orange-400/10 text-orange-100"}`}>
+      <Icon className="h-3.5 w-3.5" aria-hidden />
+      {positive ? "+" : ""}
+      {formatNumber(value)} 7d
+    </span>
+  );
+}
+
 function QuickActions() {
   return (
-    <Card className="p-4">
+    <Card className="p-3">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-        Acciones rapidas
+        Acciones rápidas
       </p>
-      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
+      <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
         {quickActions.map((action) => {
           const Icon = action.icon;
           return (
             <Link
-              className="group flex min-h-20 items-center justify-between gap-4 rounded-lg border border-line bg-black/20 p-4 transition hover:border-emerald-400/35 hover:bg-emerald-400/10"
+              className="group flex min-h-16 items-center justify-between gap-4 rounded-lg border border-line bg-black/20 p-3 transition hover:border-emerald-400/35 hover:bg-emerald-400/10"
               href={action.href}
               key={action.href}
             >
@@ -539,17 +548,17 @@ function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
       : data?.mode === "manual"
         ? "Manual"
         : "Sin datos";
+  const radarTitle = data?.ready_for_radar_count != null ? "Publicaciones disponibles para analizar" : (data?.title ?? "Radar bajo demanda");
+  const radarValue = data?.ready_for_radar_count != null ? `${data.ready_for_radar_count} ${pluralizeEs(data.ready_for_radar_count, "candidata", "candidatas")}` : radarCounts;
   return (
-    <Card className="p-5">
+    <Card className="p-4">
       <PanelHeader
         action={<StatusPill status={toMetricStatus(data?.mode ?? data?.status, state)} />}
         kicker="Radar"
-        title={data?.title ?? "Oportunidades bajo demanda"}
+        title={radarTitle}
       />
-      <div className="mt-5 grid items-center gap-5 sm:grid-cols-[150px_1fr]">
-        <RadarPulse points={[]} />
-        <div>
-          <p className="text-4xl font-semibold text-ink">{radarCounts}</p>
+      <div className="mt-4">
+          <p className="text-3xl font-semibold text-ink">{radarValue}</p>
           {data?.ready_for_radar_count != null ? (
             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
               listas para Radar
@@ -560,7 +569,7 @@ function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
             </p>
           ) : null}
           <p className="mt-2 text-sm leading-6 text-muted">
-            {state.error || data?.summary || "El dashboard no llama automaticamente `/api/v1/radar/opportunities`. Abre Radar para ejecutar la busqueda real."}
+            {state.error || (data?.ready_for_radar_count != null ? "Cumplen los requisitos mínimos de datos y vigencia para ejecutar Radar." : data?.summary || "Abre Radar para revisar publicaciones bajo demanda.")}
           </p>
           <div className="mt-4">
             <ButtonLink href={data?.cta_path ?? "/app/radar"} variant="secondary">
@@ -568,54 +577,113 @@ function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
               <ArrowRight className="h-4 w-4" aria-hidden />
             </ButtonLink>
           </div>
+      </div>
+    </Card>
+  );
+}
+
+function CommunesPanel({ state }: { state: LoadState<CommunesSummary> }) {
+  const rows = ["Comuna", "UF/m²", "Tiempo", "Actividad"];
+  const data = state.data;
+  return (
+    <Card className="p-4">
+      <PanelHeader
+        action={<StatusPill status={toMetricStatus(data?.status, state)} />}
+        kicker="Mercado por comuna"
+        title={data?.items.length ? "Precios y movimiento por comuna" : "Sin muestra suficiente"}
+      />
+      <div className="mt-4 min-w-0 overflow-x-auto rounded-lg border border-line bg-black/20">
+        <div className="min-w-[560px]">
+          <div className="grid grid-cols-[minmax(150px,1.2fr)_80px_92px_minmax(132px,0.9fr)] gap-2 border-b border-line px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+            {rows.map((row) => (
+              <span key={row}>{row}</span>
+            ))}
+          </div>
+          <div className="p-3">
+          {data?.items.length ? (
+            <div className="space-y-2">
+              {data.items.slice(0, 6).map((item) => (
+                <div className="grid grid-cols-[minmax(150px,1.2fr)_80px_92px_minmax(132px,0.9fr)] gap-2 rounded-lg px-1 py-1.5 text-sm text-ink" key={item.comuna}>
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">{formatCommuneName(item.comuna)}</span>
+                    <span className="block truncate text-xs text-muted">
+                      {formatNumber(item.active_listings)} activas
+                    </span>
+                  </span>
+                  <span>{item.median_price_m2_uf == null ? "Sin dato" : formatNumber(item.median_price_m2_uf)}</span>
+                  <span>{item.median_observed_days == null ? "Sin dato" : `${item.median_observed_days} días`}</span>
+                  <span className="text-xs leading-5 text-muted">
+                    {formatNumber(item.new_7d)} nuevas · {formatNumber(item.price_drops_30d)} {pluralizeEs(item.price_drops_30d, "rebaja", "rebajas")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-line bg-white/[0.03] p-4">
+              <p className="text-sm font-semibold text-ink">Mercado por comuna no disponible temporalmente</p>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                {state.error || "Aún no hay comunas con muestra suficiente para comparar."}
+              </p>
+            </div>
+          )}
+          </div>
         </div>
       </div>
     </Card>
   );
 }
 
-function MicrozonesPanel({ state }: { state: LoadState<MicrozonesSummary> }) {
-  const rows = ["Zona", "Score", "UF/m2"];
+function DynamismPanel({ state }: { state: LoadState<DynamismSummary> }) {
   const data = state.data;
+  const metrics = data?.raw_metrics;
   return (
-    <Card className="p-5">
+    <Card className="p-4">
       <PanelHeader
         action={<StatusPill status={toMetricStatus(data?.status, state)} />}
-        kicker="Microzonas destacadas"
-        title={data?.available ? "Senal territorial activa" : "Senal territorial en preparacion"}
+        kicker="Dinamismo del mercado"
+        title={data?.label ?? "Actividad no disponible temporalmente"}
       />
-      <div className="mt-5 rounded-lg border border-line bg-black/20">
-        <div className="grid grid-cols-[minmax(0,1fr)_72px_80px] border-b border-line px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-          {rows.map((row) => (
-            <span key={row}>{row}</span>
-          ))}
+      <div className="mt-4">
+        <div className="flex items-end justify-between gap-4">
+          <p className="text-3xl font-semibold text-ink">
+            {data?.score == null ? "Sin dato" : `${data.score}/${data.max}`}
+          </p>
+          <p className="text-right text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+            {formatSignalConfidence(data?.confidence)}
+          </p>
         </div>
-        <div className="p-4">
-          {data?.items.length ? (
-            <div className="space-y-2">
-              {data.items.map((item) => (
-                <div className="grid grid-cols-[minmax(0,1fr)_72px_80px] gap-2 text-sm text-ink" key={item.id}>
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold">{item.name}</span>
-                    <span className="block truncate text-xs text-muted">
-                      {microzoneTypeLabel(item.type)} - {item.fresh_listings}/{item.active_listings} frescas
-                    </span>
-                  </span>
-                  <span>{item.score ?? "--"}</span>
-                  <span>{item.median_price_m2_uf == null ? "--" : item.median_price_m2_uf}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-line bg-white/[0.03] p-4">
-              <p className="text-sm font-semibold text-ink">Microzonas en preparacion</p>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                {state.error || data?.message || "Se activara cuando exista senal de microzona publicable para el dashboard."}
-              </p>
-            </div>
-          )}
+        <div className="mt-3 h-2 rounded-full bg-white/[0.08]">
+          <div className="h-2 rounded-full bg-emerald-300/70" style={{ width: `${Math.max(0, Math.min(100, data?.score ?? 0))}%` }} />
+        </div>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          {state.error || dynamismSummaryText(data)}
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <MiniStat label="Nuevas 7d" value={formatNumber(metrics?.new_7d)} />
+          <MiniStat label="Retiradas 7d" value={formatNumber(metrics?.removed_7d)} />
+          <MiniStat label="Rebajas 30d" value={formatNumber(metrics?.price_drops_30d)} />
         </div>
       </div>
+    </Card>
+  );
+}
+
+function SignalConfidenceCard({ state }: { state: LoadState<MarketPulse> }) {
+  const balance = state.data?.market_balance;
+  const coverage = state.data?.coverage;
+  return (
+    <Card className="p-4">
+      <PanelHeader
+        action={<StatusPill status={toMetricStatus(balance?.status, state)} />}
+        kicker="Confianza de la señal"
+        title={formatSignalConfidence(balance?.confidence)}
+      />
+      <p className="mt-3 text-sm leading-6 text-muted">
+        {state.error ||
+          (coverage
+            ? `Basada en ${formatNumber(coverage.active_listings)} publicaciones activas y cobertura en ${formatNumber(coverage.communes_with_minimum_sample)} comunas.`
+            : "La confianza se calcula cuando existe cobertura suficiente.")}
+      </p>
     </Card>
   );
 }
@@ -627,22 +695,26 @@ function WatchlistPanel({
   items: WatchlistItem[];
   state: LoadState<WatchlistItem[]>;
 }) {
+  const visibleItems = items.slice(0, 5);
   return (
-    <Card className="p-5">
+    <Card className="p-4">
       <PanelHeader
         action={<Link className="text-sm font-semibold text-blue-200 hover:text-ink" href="/app/portfolio">Ver todas</Link>}
         kicker="Watchlist"
         title={state.loading ? "Cargando propiedades" : `${items.length} propiedades guardadas`}
       />
-      <div className="mt-4 space-y-3">
+      {!state.loading && items.length > visibleItems.length ? (
+        <p className="mt-2 text-xs text-muted">Mostrando {visibleItems.length} de {items.length}</p>
+      ) : null}
+      <div className="mt-3 space-y-2">
         {state.loading ? (
           <LoadingLine label="Cargando watchlist..." />
         ) : state.error ? (
           <EmptyState message={state.error} tone="error" />
         ) : items.length ? (
-          items.slice(0, 4).map((item) => <WatchlistRow item={item} key={item.id} />)
+          visibleItems.map((item) => <WatchlistRow item={item} key={item.id} />)
         ) : (
-          <EmptyState message="Aun no hay propiedades guardadas." tone="neutral" />
+          <EmptyState message="Aún no hay propiedades guardadas." tone="neutral" />
         )}
       </div>
     </Card>
@@ -658,20 +730,21 @@ function AlertsPanel({
   state: LoadState<AlertItem[]>;
   unreadCount: number;
 }) {
+  const visibleAlerts = alerts.slice(0, 3);
   return (
-    <Card className="p-5">
+    <Card className="p-4">
       <PanelHeader
-        action={<Link className="text-sm font-semibold text-blue-200 hover:text-ink" href="/app/alerts">Ver todas</Link>}
+        action={alerts.length ? <Link className="text-sm font-semibold text-blue-200 hover:text-ink" href="/app/alerts">Ver todas</Link> : null}
         kicker="Alertas recientes"
         title={state.loading ? "Cargando alertas" : `${unreadCount} pendientes`}
       />
-      <div className="mt-4 space-y-3">
+      <div className="mt-3 space-y-2">
         {state.loading ? (
           <LoadingLine label="Cargando alertas..." />
         ) : state.error ? (
           <EmptyState message={state.error} tone="error" />
         ) : alerts.length ? (
-          alerts.slice(0, 4).map((alert) => <AlertRow alert={alert} key={alert.id} />)
+          visibleAlerts.map((alert) => <AlertRow alert={alert} key={alert.id} />)
         ) : (
           <EmptyState message="Sin alertas recientes." tone="neutral" />
         )}
@@ -696,12 +769,12 @@ function DataStatusCard({
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-3">
-        <span className="grid h-10 w-10 place-items-center rounded-lg border border-line bg-white/[0.05] text-ink">
+        <span className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-white/[0.05] text-ink">
           {icon}
         </span>
         <StatusPill status={status} />
       </div>
-      <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-muted">{label}</p>
+      <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted">{label}</p>
       <p className="mt-1 text-xl font-semibold text-ink">{value}</p>
       <p className="mt-2 text-sm leading-5 text-muted">{description}</p>
     </Card>
@@ -720,19 +793,21 @@ function BriefingSignal({
   value: string;
 }) {
   return (
-    <div className="rounded-lg border border-line bg-black/20 p-4">
+    <div className="rounded-lg border border-line bg-black/20 p-3">
       <div className="flex items-center gap-3">
-        <span className="grid h-10 w-10 place-items-center rounded-lg border border-emerald-400/20 bg-emerald-400/10 text-emerald-200">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-emerald-400/20 bg-emerald-400/10 text-emerald-200">
           {icon}
         </span>
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-muted">{label}</p>
           <p className="mt-1 text-sm font-semibold text-ink">{value}</p>
         </div>
       </div>
-      <div className="mt-3">
+      {status === "available" ? null : (
+      <div className="mt-2">
         <StatusPill status={status} />
       </div>
+      )}
     </div>
   );
 }
@@ -759,14 +834,18 @@ function PanelHeader({
 
 function WatchlistRow({ item }: { item: WatchlistItem }) {
   return (
-    <div className="grid grid-cols-[44px_minmax(0,1fr)_112px] items-center gap-3 rounded-lg border border-line bg-black/20 p-3">
+    <div className="grid grid-cols-[40px_minmax(0,1fr)_104px] items-center gap-3 rounded-lg border border-line bg-black/20 p-2.5">
       <PropertyThumb />
       <div className="min-w-0">
         <p className="line-clamp-1 text-sm font-semibold text-ink">
-          {formatText(item.title, "Propiedad guardada")}
+          {formatWatchlistTitle({
+            comuna: item.comuna,
+            fallbackTitle: item.title,
+            propertyType: item.property_type,
+          })}
         </p>
         <p className="mt-1 truncate text-xs text-muted">
-          {formatText(item.comuna)} · {formatPropertyType(item.property_type)}
+          {formatCommuneName(item.comuna)} · {formatPropertyType(item.property_type)}
         </p>
       </div>
       <div className="min-w-0 text-right">
@@ -774,7 +853,7 @@ function WatchlistRow({ item }: { item: WatchlistItem }) {
           {formatUf(item.price_uf_display ?? item.price_uf ?? item.saved_price_uf)}
         </p>
         <p className="mt-1 text-xs text-muted">{formatM2(item.m2)}</p>
-        <Sparkline status="empty" />
+        <p className="mt-1 truncate text-xs text-muted">{formatListingStatus(item.listing_status || item.status)}</p>
       </div>
     </div>
   );
@@ -783,7 +862,7 @@ function WatchlistRow({ item }: { item: WatchlistItem }) {
 function AlertRow({ alert }: { alert: AlertItem }) {
   const isDrop = alert.alert_type.toLowerCase().includes("drop") || Number(alert.payload.drop_pct ?? 0) > 0;
   return (
-    <div className="grid grid-cols-[40px_1fr_auto] items-center gap-3 rounded-lg border border-line bg-black/20 p-3">
+    <div className="grid grid-cols-[40px_1fr_auto] items-center gap-3 rounded-lg border border-line bg-black/20 p-2.5">
       <span className={`grid h-10 w-10 place-items-center rounded-lg border ${isDrop ? "border-orange-400/25 bg-orange-400/10 text-orange-200" : "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"}`}>
         {isDrop ? <ArrowDownRight className="h-4 w-4" aria-hidden /> : <ArrowUpRight className="h-4 w-4" aria-hidden />}
       </span>
@@ -792,7 +871,7 @@ function AlertRow({ alert }: { alert: AlertItem }) {
           {formatText(alert.message, "Alerta disponible")}
         </p>
         <p className="mt-1 truncate text-xs text-muted">
-          {formatText(alert.title)} · {formatText(alert.comuna)}
+          {formatText(alert.title)} · {formatCommuneName(alert.comuna)}
         </p>
       </div>
       <p className="text-right text-xs text-muted">{relativeTime(alert.created_at)}</p>
@@ -812,13 +891,13 @@ function EmptyState({ message, tone }: { message: string; tone: "error" | "neutr
   );
 }
 
-function ValoriaGauge({ value }: { value: number | null }) {
+function MarketBalanceGauge({ value, compact = false }: { value: number | null; compact?: boolean }) {
   const normalized = value === null ? 0 : Math.max(0, Math.min(100, value));
   const dash = 198;
   const visible = (dash * normalized) / 100;
   return (
-    <div className="relative h-36 w-52">
-      <svg className="h-full w-full" viewBox="0 0 220 150" role="img" aria-label="Indice Valoria">
+    <div className={`relative ${compact ? "h-28 w-40" : "h-36 w-52"}`}>
+      <svg className="h-full w-full" viewBox="0 0 220 150" role="img" aria-label="Balance del mercado">
         <path
           d="M35 120a75 75 0 0 1 150 0"
           fill="none"
@@ -842,50 +921,19 @@ function ValoriaGauge({ value }: { value: number | null }) {
         </defs>
       </svg>
       <div className="absolute inset-x-0 bottom-2 text-center">
-        <p className="text-4xl font-semibold text-ink">{value === null ? "--" : normalized}</p>
+        <p className={`${compact ? "text-3xl" : "text-4xl"} font-semibold text-ink`}>{value === null ? "--" : normalized}</p>
         <p className="text-sm text-muted">/100</p>
       </div>
     </div>
   );
 }
 
-function Sparkline({ status }: { status: MetricStatus }) {
-  const muted = status !== "available";
+function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <svg className="mt-2 h-8 w-24" viewBox="0 0 96 32" aria-hidden>
-      <path d="M0 25 C 16 18, 20 22, 32 16 S 56 15, 68 10 S 82 14, 96 6" fill="none" stroke={muted ? "rgba(148,163,184,0.38)" : "#3ddc97"} strokeWidth="2" />
-      {muted ? <path d="M0 26 H96" stroke="rgba(148,163,184,0.18)" strokeDasharray="3 4" /> : null}
-    </svg>
-  );
-}
-
-function RadarMini() {
-  return (
-    <svg className="h-16 w-20" viewBox="0 0 80 64" aria-hidden>
-      <circle cx="40" cy="32" fill="none" r="26" stroke="rgba(148,163,184,0.18)" />
-      <circle cx="40" cy="32" fill="none" r="15" stroke="rgba(148,163,184,0.14)" />
-      <path d="M40 32 L64 20" stroke="rgba(61,220,151,0.45)" />
-      <circle cx="40" cy="32" fill="#3ddc97" r="4" />
-    </svg>
-  );
-}
-
-function RadarPulse({ points }: { points: Array<{ x: number; y: number }> }) {
-  return (
-    <svg className="h-40 w-40" viewBox="0 0 160 160" role="img" aria-label="Radar de oportunidades">
-      {[24, 48, 68].map((radius) => (
-        <circle cx="80" cy="80" fill="none" key={radius} r={radius} stroke="rgba(148,163,184,0.16)" />
-      ))}
-      <path d="M80 12 V148 M12 80 H148" stroke="rgba(148,163,184,0.12)" />
-      <path d="M80 80 L128 34" stroke="rgba(61,220,151,0.42)" />
-      <circle cx="80" cy="80" fill="none" r="18" stroke="rgba(61,220,151,0.32)" />
-      <text fill="rgba(248,250,252,0.9)" fontSize="22" fontWeight="700" textAnchor="middle" x="80" y="88">
-        --
-      </text>
-      {points.map((point) => (
-        <circle cx={point.x} cy={point.y} fill="#3ddc97" key={`${point.x}-${point.y}`} r="4" />
-      ))}
-    </svg>
+    <div className="rounded-lg border border-line bg-black/20 p-2.5">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">{label}</p>
+      <p className="mt-1 text-base font-semibold text-ink">{value}</p>
+    </div>
   );
 }
 
@@ -898,62 +946,55 @@ function RangeBar({
   max: number | null;
   min: number | null;
 }) {
+  if (current == null || min == null || max == null) {
+    return (
+      <p className="rounded-lg border border-line bg-black/20 p-3 text-sm leading-6 text-muted">
+        Rango de confianza pendiente para esta tasación.
+      </p>
+    );
+  }
+  const pct = max > min ? Math.max(0, Math.min(100, ((current - min) / (max - min)) * 100)) : 50;
   return (
     <div>
       <div className="flex items-center justify-between text-xs text-muted">
-        <span>{min ? formatUf(min) : "Rango pendiente"}</span>
-        <span>{max ? formatUf(max) : "Sin historial"}</span>
+        <span>{formatUf(min)}</span>
+        <span>{formatUf(max)}</span>
       </div>
       <div className="mt-3 h-2 rounded-full bg-white/[0.08]">
-        <div className="h-2 w-1/2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-200 opacity-60" />
+        <div className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-200 opacity-60" style={{ width: `${pct}%` }} />
       </div>
       <p className="mt-2 text-xs text-muted">
-        {current ? `Centro actual: ${formatUf(current)}` : "Se completara cuando la actividad exponga rango."}
+        Centro actual: {formatUf(current)}
       </p>
-    </div>
-  );
-}
-
-function MiniTrendChart({ status }: { status: MetricStatus }) {
-  return (
-    <div className="mt-5">
-      <svg className="h-24 w-full" viewBox="0 0 320 96" preserveAspectRatio="none" aria-hidden>
-        <defs>
-          <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-            <stop stopColor="rgba(61,220,151,0.32)" />
-            <stop offset="1" stopColor="rgba(61,220,151,0)" />
-          </linearGradient>
-        </defs>
-        <path d="M0 72 C 50 70, 70 58, 104 62 S 160 48, 202 54 S 260 42, 320 36 L320 96 L0 96 Z" fill={status === "available" ? "url(#trendFill)" : "rgba(148,163,184,0.08)"} />
-        <path d="M0 72 C 50 70, 70 58, 104 62 S 160 48, 202 54 S 260 42, 320 36" fill="none" stroke={status === "available" ? "#3ddc97" : "rgba(148,163,184,0.35)"} strokeWidth="2" />
-      </svg>
-      <p className="mt-1 text-xs text-muted">Historial de valor: esperando contrato.</p>
     </div>
   );
 }
 
 function PropertyThumb() {
   return (
-    <span className="grid h-11 w-11 place-items-center rounded-lg border border-line bg-[radial-gradient(circle_at_30%_25%,rgba(61,220,151,0.25),transparent_1.5rem),rgba(255,255,255,0.05)] text-muted">
+    <span className="grid h-10 w-10 place-items-center rounded-lg border border-line bg-[radial-gradient(circle_at_30%_25%,rgba(61,220,151,0.25),transparent_1.5rem),rgba(255,255,255,0.05)] text-muted">
       <Building2 className="h-5 w-5" aria-hidden />
     </span>
   );
 }
 
 function StatusPill({ status }: { status: MetricStatus }) {
+  if (status === "available") return null;
   const labels: Record<MetricStatus, string> = {
-    available: "Datos reales",
-    partial: "Proxy v0",
+    available: "Actualizado",
+    partial: "Parcial",
     coming_soon: "En preparacion",
     empty: "Sin datos",
-    error: "Error",
-    manual: "Manual",
+    unavailable: "Sin historial",
+    error: "No disponible",
+    manual: "Bajo demanda",
   };
   const classes: Record<MetricStatus, string> = {
     available: "border-emerald-400/25 bg-emerald-400/10 text-emerald-100",
     partial: "border-amber-300/25 bg-amber-300/10 text-amber-100",
     coming_soon: "border-white/10 bg-white/[0.05] text-muted",
     empty: "border-white/10 bg-black/20 text-muted",
+    unavailable: "border-white/10 bg-black/20 text-muted",
     error: "border-orange-400/30 bg-orange-400/10 text-orange-100",
     manual: "border-blue-400/30 bg-blue-400/10 text-blue-100",
   };
@@ -990,45 +1031,100 @@ function toMetricStatus(status: string | null | undefined, state?: LoadState<unk
   if (status === "partial") return "partial";
   if (status === "manual") return "manual";
   if (status === "empty") return "empty";
+  if (status === "unavailable") return "unavailable";
   if (status === "error") return "error";
   return "coming_soon";
 }
 
-function indicatorByKey(indicators: MarketIndicator[], key: string): MarketIndicator | null {
-  return indicators.find((indicator) => indicator.key === key) ?? null;
+function balanceComponentSlots(components: MarketBalanceComponent[]): MarketBalanceComponent[] {
+  const fallback: MarketBalanceComponent[] = [
+    emptyBalanceComponent("supply_flow", "Saldo de oferta"),
+    emptyBalanceComponent("price_reductions", "Rebajas"),
+    emptyBalanceComponent("observed_time", "Tiempo publicado"),
+    emptyBalanceComponent("price_trend", "Tendencia"),
+  ];
+  return fallback.map((slot) => {
+    const component = components.find((item) => item.key === slot.key) ?? slot;
+    if (component.key === "supply_flow") return { ...component, label: "Saldo de oferta" };
+    if (component.key === "price_trend") return { ...component, label: "Precio UF/m²" };
+    return component;
+  });
 }
 
-function indicatorValue(indicator: MarketIndicator | null): string {
-  if (!indicator) return "En preparacion";
-  if (indicator.value == null) {
-    return indicator.status === "manual" ? "Radar manual" : "En preparacion";
+function emptyBalanceComponent(key: string, label: string): MarketBalanceComponent {
+  return {
+    key,
+    label,
+    score: 0,
+    weight: 0,
+    status: "unavailable",
+    confidence: "low",
+    raw_value: null,
+    description: "",
+    direction: "unknown",
+  };
+}
+
+function balanceComponentIcon(key: string): ReactNode {
+  if (key === "supply_flow") return <Building2 className="h-5 w-5" aria-hidden />;
+  if (key === "price_reductions") return <ArrowDownRight className="h-5 w-5" aria-hidden />;
+  if (key === "observed_time") return <Clock3 className="h-5 w-5" aria-hidden />;
+  return <LineChart className="h-5 w-5" aria-hidden />;
+}
+
+function balanceComponentValue(component: MarketBalanceComponent, pulse: MarketPulse | null): string {
+  if (component.status === "unavailable") return "Aún sin historial suficiente";
+  if (component.key === "supply_flow") {
+    const flow = pulse?.recent_activity.net_flow_7d;
+    if (flow == null) return "Oferta estable";
+    if (flow > 0) return `+${formatNumber(flow)} publicaciones en 7 días`;
+    if (flow < 0) return `-${formatNumber(Math.abs(flow))} publicaciones en 7 días`;
+    return "Oferta estable";
   }
-  return `${indicator.value}${indicator.unit ? ` ${indicator.unit}` : ""}`;
-}
-
-function formatNullableScore(value: number | null, max: number): string {
-  return value == null ? "Proximamente" : `${value}/${max}`;
-}
-
-function radarMetricTitle(data: RadarSummary | null | undefined): string {
-  if (data?.ready_for_radar_count != null) {
-    return `${data.ready_for_radar_count} listas`;
+  if (component.key === "price_reductions") {
+    const drops = pulse?.recent_activity.price_drops_7d;
+    if (!drops) return "Sin rebajas esta semana";
+    return `${formatNumber(drops)} rebajas esta semana`;
   }
-  if (data?.fresh_candidates_count != null && data?.active_scope_count != null) {
-    return `${data.fresh_candidates_count}/${data.active_scope_count}`;
+  if (component.key === "observed_time") {
+    const medianDays = pulse?.observed_publication_time.median_days;
+    if (medianDays == null) return "Sin historial suficiente";
+    return `${medianDays} días · Mediana observada`;
   }
-  return data?.title ?? "Ejecucion manual";
+  return "Aún sin historial suficiente";
 }
 
-function microzoneTypeLabel(type: string): string {
-  if (type === "comuna_proxy") return "Fallback comunal";
-  if (type === "sector_proxy") return "Sector proxy";
-  return "Microzona";
+function formatSignalConfidence(value: string | null | undefined): string {
+  if (value === "high") return "Alta";
+  if (value === "medium") return "Media";
+  if (value === "low") return "Baja";
+  return "Sin dato";
+}
+
+function formatNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return new Intl.NumberFormat("es-CL").format(value);
+}
+
+function updatedLabel(value: string | null | undefined): string {
+  if (!value) return "Actualizado hoy";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Actualizado hoy";
+  if (isToday(value)) {
+    return `Actualizado hoy, ${date.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  return `Actualizado ${formatDate(value)}`;
+}
+
+function dynamismSummaryText(data: DynamismSummary | null): string {
+  if (!data) return "Actividad no disponible temporalmente";
+  const metrics = data.raw_metrics;
+  return `${data.label}. En siete días ingresaron ${formatNumber(metrics.new_7d)} publicaciones y se retiraron ${formatNumber(metrics.removed_7d)}; ${formatNumber(metrics.price_drops_30d)} ${pluralizeEs(metrics.price_drops_30d, "publicación registró rebaja", "publicaciones registraron rebajas")} en 30 días.`;
 }
 
 function compactActionDescription(title: string): string {
   if (title === "Tasar propiedad") return "Calcula valor estimado.";
-  if (title === "Analizar publicacion") return "Revisa un aviso.";
+  if (title === "Analizar publicación") return "Revisa un aviso.";
   if (title === "Explorar oportunidades") return "Abre Radar manual.";
   return "";
 }
@@ -1054,9 +1150,20 @@ function ufDescription(state: LoadState<UFRate>): string {
   if (state.loading) return "Consultando UF.";
   if (state.error || !state.data) return state.error || "UF no disponible.";
   const date = state.data.rate_date ? formatDate(state.data.rate_date) : formatDateTime(state.data.observed_at);
-  return `${formatText(state.data.source)} · ${date}`;
+  const today = state.data.rate_date ? isToday(state.data.rate_date) : isToday(state.data.observed_at);
+  return `Fuente: ${friendlyUfSource()} · ${today ? "Actualizada hoy" : `Actualizada ${date}`}`;
 }
 
+function friendlyUfSource(): string {
+  return "mindicador.cl";
+}
+
+function isToday(value: string): boolean {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+}
 function relativeTime(value: string): string {
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return "Fecha no disponible";

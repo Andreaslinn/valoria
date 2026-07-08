@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   Link2,
   LogOut,
-  Search,
   Radar,
   Settings,
   WalletCards,
@@ -25,10 +24,10 @@ import type { NavigationItem } from "@/types/navigation";
 
 const navigation: NavigationItem[] = [
   { label: "Inicio", href: "/app", icon: LayoutDashboard },
-  { label: "Tasar", href: "/app/tasar", icon: Gauge },
-  { label: "Analizar URL", href: "/app/analizar-url", icon: Link2 },
-  { label: "Radar", href: "/app/radar", icon: Radar },
-  { label: "Portfolio", href: "/app/portfolio", icon: WalletCards },
+  { label: "Tasar propiedad", href: "/app/tasar", icon: Gauge },
+  { label: "Analizar publicación", href: "/app/analizar-url", icon: Link2 },
+  { label: "Buscar oportunidades", href: "/app/radar", icon: Radar },
+  { label: "Watchlist", href: "/app/portfolio", icon: WalletCards },
   { label: "Alertas", href: "/app/alerts", icon: Bell },
   { label: "Reportes", href: "/app/reportes", icon: FileText },
   { label: "Settings", href: "/app/settings", icon: Settings },
@@ -92,26 +91,26 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-transparent">
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-line bg-black/25 px-4 py-5 backdrop-blur-xl lg:block">
-        <Link className="mb-8 flex items-center gap-3 px-2" href="/app">
-          <span className="grid h-10 w-10 place-items-center rounded-lg border border-brand-500/40 bg-brand-500/15 text-sm font-black text-brand-500 shadow-glow">
+      <aside className="fixed inset-y-0 left-0 hidden w-72 flex-col border-r border-line bg-[#030712]/72 px-4 py-4 backdrop-blur-xl lg:flex">
+        <Link className="mb-5 flex items-center gap-3 px-2" href="/app">
+          <span className="grid h-11 w-11 place-items-center rounded-lg border border-brand-500/40 bg-gradient-to-br from-brand-500/30 to-brand-900/50 text-base font-black text-brand-500 shadow-glow">
             V
           </span>
           <span>
-            <span className="block text-sm font-bold uppercase tracking-[0.22em] text-ink">
+            <span className="block text-base font-bold uppercase tracking-[0.24em] text-ink">
               Valoria
             </span>
-            <span className="block text-xs text-muted">Cockpit beta</span>
+            <span className="block text-xs text-muted">Inteligencia inmobiliaria</span>
           </span>
         </Link>
-        <nav className="grid gap-1">
+        <nav className="grid flex-1 content-start gap-1 overflow-y-auto pr-1">
           {navigation.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
             return (
               <Link
                 className={clsx(
-                  "flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition",
+                  "flex min-h-10 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition",
                   active
                     ? "border border-brand-500/35 bg-brand-500/15 text-ink shadow-glow"
                     : "text-muted hover:bg-white/[0.06] hover:text-ink",
@@ -125,33 +124,27 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="absolute bottom-5 left-4 right-4 rounded-lg border border-line bg-white/[0.05] p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">API beta</p>
-          <p className="mt-2 text-sm text-ink">FastAPI local/tunnel</p>
-          <p className="mt-1 text-xs leading-5 text-muted">Datos reales solo en modulos conectados.</p>
+        <div className="mt-4 shrink-0 rounded-lg border border-line bg-white/[0.045] p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Beta privada</p>
+          <p className="mt-1 text-sm text-ink">Datos reales / cobertura limitada</p>
         </div>
       </aside>
-      <div className="lg:pl-72">
-        <header className="sticky top-0 z-10 border-b border-line bg-surface/72 px-5 py-4 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-            <div className="hidden min-h-11 w-full max-w-xl items-center gap-3 rounded-lg border border-line bg-white/[0.06] px-3 text-sm text-muted md:flex">
-              <Search size={17} />
-              <span>Buscar modulo, comuna o flujo...</span>
-              <span className="ml-auto rounded border border-line px-2 py-1 text-xs">beta</span>
-            </div>
-            <div className="min-w-0">
+      <div className="min-w-0 lg:pl-72">
+        <header className="relative z-20 border-b border-line bg-surface/72 px-5 py-2.5 backdrop-blur-xl">
+          <div className="mx-auto flex w-full max-w-[1600px] items-center justify-end gap-3">
+            <div className="min-w-0 text-right">
               <p className="truncate text-xs font-semibold uppercase tracking-wide text-muted">
-                Sesion activa
+                Beta privada
               </p>
               <p className="truncate text-sm text-ink">{user?.email ?? "Usuario beta"}</p>
             </div>
-            <Button onClick={logout} type="button" variant="secondary">
+            <Button className="min-h-9 px-3" onClick={logout} type="button" variant="secondary">
               <LogOut size={16} />
               Salir
             </Button>
           </div>
         </header>
-        <div className="mx-auto max-w-7xl px-5 py-6 lg:py-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1600px] px-5 py-6 lg:px-6">{children}</div>
       </div>
     </div>
   );

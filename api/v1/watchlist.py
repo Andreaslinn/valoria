@@ -8,12 +8,14 @@ from decimal import Decimal
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import joinedload
 
 from api.deps import CurrentUser, DbSession, UFServiceDep
 from core.exceptions import UFServiceError
 from core.ports.uf_service import UFRateInfo
 from infrastructure.db.models import ListingORM, SavedListingORM
+from services.listing_freshness import ListingFreshnessResult, ensure_listing_fresh
 from services.price_display import clp_to_uf_display, uf_to_clp_display
 from services.uf_rate import require_real_uf_rate
 
@@ -34,6 +36,7 @@ class WatchlistItemOut(BaseModel):
     note: str | None
     title: str
     comuna: str
+    property_type: str | None = None
     price_clp: int
     price_uf: float | None
     price_uf_display: float | None = None
@@ -55,6 +58,13 @@ class WatchlistItemOut(BaseModel):
     source: str
     listing_status: str
     captured_at: datetime
+    freshness_status: str | None = None
+    last_seen_at: datetime | None = None
+    last_refreshed_at: datetime | None = None
+    last_refresh_status: str | None = None
+    freshness_note: str | None = None
+    refresh_attempted: bool = False
+    refresh_result: dict | None = None
 
 
 class WatchlistStatusOut(BaseModel):
@@ -99,6 +109,13 @@ async def save_to_watchlist(
             detail="Listing no encontrado",
         )
 
+    freshness = await _maybe_ensure_watchlist_freshness(
+        listing_id,
+        session=session,
+        uf_service=uf_service,
+    )
+    await session.refresh(listing)
+
     existing = await _find_saved(session, current_user.id, listing_id)
     saved_price_uf = _canonical_price_uf(listing)
     if existing is not None:
@@ -111,7 +128,7 @@ async def save_to_watchlist(
         loaded = await _load_saved(session, existing.id)
         assert loaded is not None
         uf_info = await _require_api_uf_info(uf_service)
-        return _watchlist_out(loaded, uf_info=uf_info)
+        return _watchlist_out(loaded, uf_info=uf_info, freshness=freshness)
 
     saved = SavedListingORM(
         user_id=current_user.id,
@@ -133,7 +150,7 @@ async def save_to_watchlist(
     loaded = await _load_saved(session, saved.id)
     assert loaded is not None
     uf_info = await _require_api_uf_info(uf_service)
-    return _watchlist_out(loaded, uf_info=uf_info)
+    return _watchlist_out(loaded, uf_info=uf_info, freshness=freshness)
 
 
 @router.delete("/{listing_id}", response_model=WatchlistStatusOut)
@@ -198,7 +215,41 @@ async def _require_api_uf_info(uf_service) -> UFRateInfo:
         ) from e
 
 
-def _watchlist_out(saved: SavedListingORM, *, uf_info: UFRateInfo) -> WatchlistItemOut:
+async def _maybe_ensure_watchlist_freshness(
+    listing_id: int,
+    *,
+    session: DbSession,
+    uf_service,
+) -> ListingFreshnessResult:
+    try:
+        return await ensure_listing_fresh(
+            listing_id,
+            reason="watchlist_save",
+            session_factory=_request_session_factory(session),
+            uf_service=uf_service,
+        )
+    except Exception as exc:
+        _log.warning("watchlist freshness check failed listing_id=%s error=%s", listing_id, exc)
+        return ListingFreshnessResult(
+            status="refresh_failed",
+            listing_id=listing_id,
+            reason="watchlist_save",
+            refresh_attempted=True,
+            freshness_note="freshness_helper_failed",
+        )
+
+
+def _request_session_factory(session: DbSession) -> async_sessionmaker[AsyncSession]:
+    bind = session.bind or session.get_bind()
+    return async_sessionmaker(bind=bind, expire_on_commit=False, class_=AsyncSession)
+
+
+def _watchlist_out(
+    saved: SavedListingORM,
+    *,
+    uf_info: UFRateInfo,
+    freshness: ListingFreshnessResult | None = None,
+) -> WatchlistItemOut:
     listing = saved.listing
     saved_price_basis = _saved_price_basis(saved, listing)
     saved_price_uf = saved.saved_price_uf if saved_price_basis == "canonical_uf" else None
@@ -216,6 +267,7 @@ def _watchlist_out(saved: SavedListingORM, *, uf_info: UFRateInfo) -> WatchlistI
         note=saved.note,
         title=listing.title,
         comuna=listing.comuna,
+        property_type=listing.property_type,
         price_clp=int(listing.price_clp),
         price_uf=float(canonical_price_uf) if canonical_price_uf is not None else None,
         price_uf_display=_price_uf_display(listing, canonical_price_uf=canonical_price_uf, uf_info=uf_info),
@@ -237,6 +289,13 @@ def _watchlist_out(saved: SavedListingORM, *, uf_info: UFRateInfo) -> WatchlistI
         source=listing.source,
         listing_status=listing.status,
         captured_at=listing.scraped_at,
+        freshness_status=freshness.status if freshness is not None else None,
+        last_seen_at=freshness.last_seen_at if freshness is not None else None,
+        last_refreshed_at=freshness.last_refreshed_at if freshness is not None else None,
+        last_refresh_status=freshness.last_refresh_status if freshness is not None else None,
+        freshness_note=freshness.freshness_note if freshness is not None else None,
+        refresh_attempted=freshness.refresh_attempted if freshness is not None else False,
+        refresh_result=freshness.to_dict() if freshness is not None else None,
     )
 
 

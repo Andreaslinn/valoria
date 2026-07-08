@@ -19,13 +19,20 @@ def test_sanitize_properties_keeps_only_safe_product_fields() -> None:
         {
             "comuna": "Nunoa",
             "property_type": "Apartment",
+            "precio_publicado_uf": 6000,
+            "estimated_value_uf": 6294,
             "address": "Secret 123",
             "url": "https://example.com/listing",
             "free_text": "private note",
         }
     )
 
-    assert clean == {"comuna": "nunoa", "property_type": "apartment"}
+    assert clean == {
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "precio_publicado_uf": 6000,
+        "estimated_value_uf": 6294,
+    }
 
 
 def test_hash_identifier_is_stable_and_not_raw() -> None:

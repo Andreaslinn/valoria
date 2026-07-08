@@ -1,12 +1,23 @@
 """Valuation use case facade."""
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
 
-from config.valuation_flags import valoria_consensus_enabled
+from config.valuation_flags import (
+    experimental_engine_lab_enabled,
+    valoria_consensus_enabled,
+    valuation_quality_v2_allowed_property_types,
+    valuation_quality_v2_apply_mode,
+    valuation_quality_v2_blocked_comunas,
+    valuation_quality_v2_max_delta_vs_baseline_pct,
+    valuation_quality_v2_max_pool_dispersion,
+    valuation_quality_v2_min_valid_comparables,
+    valuation_quality_v2_p90_risk_comunas,
+)
 from core.assessment.beta_status import beta_scope_warning_codes
 from core.assessment.confidence import build_confidence_contract
 from core.assessment.contracts import (
@@ -27,15 +38,28 @@ from domain.valuation.engines.consensus_orchestrator import (
     BetaEngineResult,
     run_beta_consensus,
 )
-from domain.valuation.engines.contracts import EngineComparable, EngineResult, EngineStatus
+from domain.valuation.engines.contracts import (
+    EngineComparable,
+    EngineContext,
+    EngineResult,
+    EngineStatus,
+)
+from domain.valuation.engines.experimental_lab import run_experimental_engine_lab
 from domain.valuation.engines.registry import EngineRegistry
 from domain.valuation.price_surface import (
     lookup_price_surface,
     maybe_apply_surface_adjustment,
     surface_warnings_for_estimate,
 )
+from domain.valuation.quality_v2_challenger import (
+    QualityV2Config,
+    QualityV2Result,
+    evaluate_quality_v2_challenger,
+)
 from services.formatting import price_clp_int, price_uf_float
 from services.uf_rate import require_real_uf_rate
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -117,6 +141,13 @@ class ValuationDTO:
     engine_results: list[BetaEngineResult] = field(default_factory=list)
     selected_engine_names: list[str] = field(default_factory=list)
     consensus_method: str | None = None
+    valuation_verdict: dict[str, Any] | None = None
+    engine_breakdown: list[dict[str, Any]] = field(default_factory=list)
+    consensus_audit: dict[str, Any] | None = None
+    weight_audit: list[dict[str, Any]] = field(default_factory=list)
+    uf_rate_source: str | None = None
+    uf_rate_date: str | None = None
+    uf_rate_is_stale: bool = False
 
     def to_payload(self) -> ValuationResultPayload:
         return {
@@ -152,6 +183,13 @@ class ValuationDTO:
             "engine_results": [item.to_payload() for item in self.engine_results],
             "selected_engine_names": list(self.selected_engine_names),
             "consensus_method": self.consensus_method,
+            "valuation_verdict": dict(self.valuation_verdict) if self.valuation_verdict is not None else None,
+            "engine_breakdown": [dict(item) for item in self.engine_breakdown],
+            "consensus_audit": dict(self.consensus_audit) if self.consensus_audit is not None else None,
+            "weight_audit": [dict(item) for item in self.weight_audit],
+            "uf_rate_source": self.uf_rate_source,
+            "uf_rate_date": self.uf_rate_date,
+            "uf_rate_is_stale": self.uf_rate_is_stale,
         }
 
 
@@ -208,13 +246,21 @@ class ValuationService:
             )
             if consensus_run.selected_result is None:
                 raise _consensus_insufficient_data(consensus_run.raw_results)
-            return _valuation_dto_from_engine(
-                result=consensus_run.selected_result,
-                candidates=candidates,
-                built_area_m2=built_area_m2,
-                uf_to_clp=uf_to_clp,
-                consensus=consensus_run.consensus,
-                engine_results=consensus_run.engine_results,
+            return _with_uf_trace(
+                _with_experimental_lab(
+                    _valuation_dto_from_engine(
+                        result=consensus_run.selected_result,
+                        candidates=candidates,
+                        built_area_m2=built_area_m2,
+                        uf_to_clp=uf_to_clp,
+                        consensus=consensus_run.consensus,
+                        engine_results=consensus_run.engine_results,
+                    ),
+                    target=target,
+                    candidates=candidates,
+                    uf_to_clp=uf_to_clp,
+                ),
+                uf_info,
             )
 
         valuation_run = valuate_with_comparables(target, candidates, uf_to_clp)
@@ -255,23 +301,45 @@ class ValuationService:
         delta_clp = adjusted_estimated_clp - base_estimated_clp
         low_clp = max(0, price_clp_int(result.price_range_low) + delta_clp)
         high_clp = max(low_clp, price_clp_int(result.price_range_high) + delta_clp)
+        quality_v2 = _run_quality_v2_challenger(
+            target=target,
+            scored_comparables=valuation_run.scored_comparables,
+            uf_to_clp=uf_to_clp,
+            baseline_estimate_clp=adjusted_estimated_clp,
+        )
+        engine_results: list[BetaEngineResult] = []
+        selected_engine_names: list[str] = []
+        consensus_method = None
+        final_estimated_clp = adjusted_estimated_clp
+        final_low_clp = low_clp
+        final_high_clp = high_clp
+        if quality_v2.mode != "off":
+            engine_results.append(_quality_v2_engine_result(quality_v2))
+            warnings.extend(quality_v2.warnings)
+        if quality_v2.used and quality_v2.estimate_clp is not None:
+            final_estimated_clp = quality_v2.estimate_clp
+            final_delta_clp = final_estimated_clp - adjusted_estimated_clp
+            final_low_clp = max(0, low_clp + final_delta_clp)
+            final_high_clp = max(final_low_clp, high_clp + final_delta_clp)
+            selected_engine_names = ["comparables_quality_v2"]
+            consensus_method = "quality_v2_guarded_challenger_v1"
 
-        return ValuationDTO(
+        dto = ValuationDTO(
             base_estimated_price_uf=_clp_to_uf(base_estimated_clp, uf_to_clp),
             base_estimated_price_clp=base_estimated_clp,
-            estimated_price_uf=_clp_to_uf(adjusted_estimated_clp, uf_to_clp),
-            estimated_price_clp=adjusted_estimated_clp,
-            price_range_low_uf=_clp_to_uf(low_clp, uf_to_clp),
-            price_range_high_uf=_clp_to_uf(high_clp, uf_to_clp),
-            price_range_low_clp=low_clp,
-            price_range_high_clp=high_clp,
+            estimated_price_uf=_clp_to_uf(final_estimated_clp, uf_to_clp),
+            estimated_price_clp=final_estimated_clp,
+            price_range_low_uf=_clp_to_uf(final_low_clp, uf_to_clp),
+            price_range_high_uf=_clp_to_uf(final_high_clp, uf_to_clp),
+            price_range_low_clp=final_low_clp,
+            price_range_high_clp=final_high_clp,
             confidence=confidence_contract.legacy_confidence,
             confidence_score=confidence_contract.confidence_score,
             confidence_label=confidence_contract.confidence_label,
             confidence_reasons=list(confidence_contract.confidence_reasons),
             confidence_risk_flags=list(confidence_contract.confidence_risk_flags),
             comparable_count=result.comparables_used,
-            price_m2_uf=_clp_to_uf(adjusted_estimated_clp, uf_to_clp) / built_area_m2,
+            price_m2_uf=_clp_to_uf(final_estimated_clp, uf_to_clp) / built_area_m2,
             status="ok",
             warnings=_dedupe(warnings),
             comparable_quality_level=result.comparable_quality_level,
@@ -288,7 +356,75 @@ class ValuationService:
                 _comparable_dto(score.value, listing, uf_to_clp)
                 for score, listing in valuation_run.scored_comparables
             ],
+            engine_results=engine_results,
+            selected_engine_names=selected_engine_names,
+            consensus_method=consensus_method,
+            uf_rate_source=uf_info.source,
+            uf_rate_date=uf_info.rate_date.isoformat() if uf_info.rate_date else None,
+            uf_rate_is_stale=uf_info.is_stale,
         )
+        return _with_experimental_lab(
+            dto,
+            target=target,
+            candidates=candidates,
+            uf_to_clp=uf_to_clp,
+        )
+
+
+def _with_experimental_lab(
+    dto: ValuationDTO,
+    *,
+    target: Property,
+    candidates: Sequence[Listing],
+    uf_to_clp: Decimal,
+) -> ValuationDTO:
+    if not experimental_engine_lab_enabled():
+        return dto
+    try:
+        lab = run_experimental_engine_lab(
+            EngineContext(
+                target=target,
+                candidates=list(candidates),
+                uf_to_clp=uf_to_clp,
+                metadata={
+                    "source": "valuation_service",
+                    "read_only": True,
+                },
+            )
+        )
+    except Exception:
+        _log.exception("Experimental valuation engine lab failed")
+        return dto
+
+    payload = lab.to_dict()
+    consensus_verdict = _mapping_value(payload.get("valuation_verdict"))
+    consensus_status = lab.consensus_result.status if lab.consensus_result is not None else None
+    consensus_success = (
+        lab.consensus_result is not None
+        and lab.consensus_result.is_successful
+        and consensus_verdict.get("estimate_uf") is not None
+    )
+    verdict = dict(consensus_verdict) if consensus_success else _current_valuation_verdict(dto)
+    verdict["source"] = "consensus_experimental" if consensus_success else "current_valuation"
+    verdict["status"] = consensus_status or "unavailable"
+
+    return replace(
+        dto,
+        valuation_verdict=verdict,
+        engine_breakdown=_list_of_mappings(payload.get("engine_breakdown")),
+        consensus_audit=dict(_mapping_value(payload.get("consensus_audit"))),
+        weight_audit=_list_of_mappings(payload.get("weight_audit")),
+    )
+
+
+def _current_valuation_verdict(dto: ValuationDTO) -> dict[str, Any]:
+    return {
+        "estimate_uf": dto.estimated_price_uf,
+        "low_uf": dto.price_range_low_uf,
+        "high_uf": dto.price_range_high_uf,
+        "confidence": dto.confidence_score,
+        "explanation": "Valoria mantiene la tasacion actual porque el consenso experimental no produjo un veredicto usable.",
+    }
 
 
 def _valuation_dto_from_engine(
@@ -465,6 +601,12 @@ def _mapping_value(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+def _list_of_mappings(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)]
+
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
@@ -487,6 +629,81 @@ def _decimal_int(value: Any) -> int | None:
 
 def _clp_to_uf(value: int | float | Decimal, uf_to_clp: Decimal) -> float:
     return round(float(Decimal(str(value)) / uf_to_clp), 2)
+
+
+def _with_uf_trace(dto: ValuationDTO, uf_info) -> ValuationDTO:
+    return replace(
+        dto,
+        uf_rate_source=uf_info.source,
+        uf_rate_date=uf_info.rate_date.isoformat() if uf_info.rate_date else None,
+        uf_rate_is_stale=uf_info.is_stale,
+    )
+
+
+def _quality_v2_config() -> QualityV2Config:
+    return QualityV2Config(
+        mode=valuation_quality_v2_apply_mode(),
+        allowed_property_types=valuation_quality_v2_allowed_property_types(),
+        blocked_comunas=valuation_quality_v2_blocked_comunas(),
+        p90_risk_comunas=valuation_quality_v2_p90_risk_comunas(),
+        min_valid_comparables=valuation_quality_v2_min_valid_comparables(),
+        max_pool_dispersion=valuation_quality_v2_max_pool_dispersion(),
+        max_delta_vs_baseline_pct=valuation_quality_v2_max_delta_vs_baseline_pct(),
+    )
+
+
+def _run_quality_v2_challenger(
+    *,
+    target: Property,
+    scored_comparables,
+    uf_to_clp: Decimal,
+    baseline_estimate_clp: int,
+) -> QualityV2Result:
+    return evaluate_quality_v2_challenger(
+        target=target,
+        scored_comparables=scored_comparables,
+        uf_to_clp=uf_to_clp,
+        baseline_estimate_clp=baseline_estimate_clp,
+        config=_quality_v2_config(),
+    )
+
+
+def _quality_v2_engine_result(result: QualityV2Result) -> BetaEngineResult:
+    status = "ok" if result.guardrails_passed else "skipped"
+    return BetaEngineResult(
+        engine_name="comparables_quality_v2",
+        engine_version="robust_weighted_median_guarded_v1",
+        role="shadow" if result.mode == "shadow" else "challenger",
+        status=status,
+        estimate_uf=result.estimate_uf,
+        estimate_clp=result.estimate_clp,
+        range_low_uf=None,
+        range_high_uf=None,
+        confidence=None,
+        comparables_count=result.valid_comparables,
+        selected_for_final=result.used,
+        warnings=list(result.warnings),
+        safe_error_message=_quality_v2_safe_message(result),
+        diagnostics=result.diagnostics(),
+    )
+
+
+def _quality_v2_safe_message(result: QualityV2Result) -> str | None:
+    if result.guardrails_passed:
+        return None
+    if result.fallback_reason == "blocked_comuna":
+        return "CQ v2 esta deshabilitado para esta comuna por guardrail."
+    if result.fallback_reason == "property_type_not_allowed":
+        return "CQ v2 no esta habilitado para este tipo de propiedad."
+    if result.fallback_reason == "insufficient_valid_comparables":
+        return "CQ v2 no tuvo suficientes comparables validos."
+    if result.fallback_reason == "pool_dispersion_too_high":
+        return "CQ v2 detecto dispersion extrema en el pool."
+    if result.fallback_reason == "delta_vs_baseline_too_high":
+        return "CQ v2 difiere demasiado del baseline."
+    if result.fallback_reason == "robust_estimate_unavailable":
+        return "CQ v2 no pudo calcular una estimacion robusta."
+    return None
 
 
 def _dedupe(values: list[str]) -> list[str]:

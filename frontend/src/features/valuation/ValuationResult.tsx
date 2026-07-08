@@ -6,9 +6,11 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { StatusNote } from "@/components/ui/status-note";
+import { downloadValuationReport } from "@/lib/api/reports";
 import type { ValuationRequest, ValuationResponse } from "@/types/valuation";
 
 import { ComparableCard } from "./ComparableCard";
+import { ExperimentalConsensusPanel } from "./ExperimentalConsensusPanel";
 import { formatClp, formatConfidence, formatPercent, formatUf } from "./formatters";
 import { ValuationReliabilitySummary } from "./ValuationReliabilitySummary";
 
@@ -20,6 +22,7 @@ export function ValuationResult({
   result: ValuationResponse | null;
 }) {
   const [showAllComparables, setShowAllComparables] = useState(false);
+  const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "error">("idle");
 
   if (!result) {
     return (
@@ -47,6 +50,19 @@ export function ValuationResult({
   const visibleComparables = showAllComparables
     ? result.comparables
     : result.comparables?.slice(0, 4);
+  const valuationResult = result;
+  const currentReportState = reportState(result, payload);
+
+  async function downloadReport() {
+    if (!payload || !currentReportState.available) return;
+    setDownloadState("downloading");
+    try {
+      await downloadValuationReport({ payload, result: valuationResult });
+      setDownloadState("idle");
+    } catch {
+      setDownloadState("error");
+    }
+  }
 
   return (
     <div className="grid gap-5">
@@ -116,6 +132,8 @@ export function ValuationResult({
         )}
       </Card>
 
+      <ExperimentalConsensusPanel result={result} />
+
       <ValuationReliabilitySummary result={result} />
 
       <Card>
@@ -124,14 +142,25 @@ export function ValuationResult({
             <CardTitle>Comparables de soporte</CardTitle>
             <CardDescription>Referencias usadas por el modelo cuando vienen en la respuesta.</CardDescription>
           </div>
-          <Button disabled title={reportState(result).title} type="button" variant="secondary">
-            <Download className="h-4 w-4" aria-hidden />
-            {reportState(result).label}
+          <Button
+            disabled={!currentReportState.available || downloadState === "downloading"}
+            onClick={downloadReport}
+            title={currentReportState.title}
+            type="button"
+            variant="secondary"
+          >
+            {downloadState === "downloading" ? null : <Download className="h-4 w-4" aria-hidden />}
+            {downloadState === "downloading" ? "Descargando..." : currentReportState.label}
           </Button>
         </div>
         <div className="mt-4 rounded-lg border border-line bg-white/[0.04] p-3 text-sm leading-6 text-muted">
-          {reportState(result).description}
+          {currentReportState.description}
         </div>
+        {downloadState === "error" ? (
+          <div className="mt-4">
+            <StatusNote tone="warning">No fue posible generar el informe.</StatusNote>
+          </div>
+        ) : null}
 
         {result.comparables?.length ? (
           <>
@@ -201,9 +230,18 @@ function publishedPriceSignal(result: ValuationResponse, payload: ValuationReque
   };
 }
 
-function reportState(result: ValuationResponse) {
+function reportState(result: ValuationResponse, payload: ValuationRequest | null) {
+  if (!payload) {
+    return {
+      available: false,
+      description: "Ejecuta una tasacion antes de preparar reportes.",
+      label: "Reporte no disponible",
+      title: "Requiere tasacion",
+    };
+  }
   if (!result.estimated_price_uf && !result.estimated_price_clp) {
     return {
+      available: false,
       description: "Ejecuta una tasacion con valor estimado antes de preparar reportes.",
       label: "Reporte no disponible",
       title: "Requiere valor estimado",
@@ -211,15 +249,17 @@ function reportState(result: ValuationResponse) {
   }
   if (!result.comparables?.length) {
     return {
+      available: false,
       description: "La tasacion no devolvio comparables revisables; el reporte queda pendiente hasta contar con soporte suficiente.",
       label: "Reporte pendiente",
       title: "Requiere comparables",
     };
   }
   return {
-    description: "La descarga de reportes no esta conectada en Next.js todavia. No se genera ningun HTML/PDF desde el frontend.",
-    label: "Reporte disponible proximamente",
-    title: "Endpoint de reporte pendiente",
+    available: true,
+    description: "Descarga un Investment Intelligence Report HTML generado por el backend con esta tasacion.",
+    label: "Descargar informe",
+    title: "Descargar informe HTML",
   };
 }
 

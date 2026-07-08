@@ -1,3 +1,13 @@
+export type ListingFreshnessMetadata = {
+  freshness_status?: string | null;
+  last_seen_at?: string | null;
+  last_refreshed_at?: string | null;
+  last_refresh_status?: string | null;
+  freshness_note?: string | null;
+  refresh_attempted?: boolean;
+  refresh_result?: Record<string, unknown> | null;
+};
+
 export type ListingLookupData = {
   listing_id?: number | null;
   title?: string | null;
@@ -21,10 +31,61 @@ export type ListingLookupData = {
   url?: string | null;
 };
 
-export type ListingLookupResponse = {
+export type ListingLookupResponse = ListingFreshnessMetadata & {
   status: "found_existing" | "parsed_new" | "partial" | string;
   listing_data: ListingLookupData;
   warnings: string[];
   source: string | null;
   url: string;
+};
+
+export type ListingAnalysisResponse = ListingFreshnessMetadata & {
+  listing: {
+    listing_id?: number | null;
+    title?: string | null;
+    url?: string | null;
+    comuna?: string | null;
+    property_type?: string | null;
+    m2?: number | null;
+    built_area_m2?: number | null;
+    usable_area_m2?: number | null;
+    land_area_m2?: number | null;
+    bedrooms?: number | null;
+    bathrooms?: number | null;
+    parking?: number | null;
+    price_uf?: number | null;
+    price_clp?: number | null;
+    price_currency?: string | null;
+    price_uf_source?: string | null;
+    price_uf_confidence?: string | null;
+    price_recovery_method?: string | null;
+  };
+  valuation: {
+    estimated_value_uf?: number | null;
+    estimated_value_clp?: number | null;
+    range_low_uf?: number | null;
+    range_high_uf?: number | null;
+    confidence_score?: number | null;
+    confidence_label?: string | null;
+    comparables_used?: number | null;
+    warnings?: string[];
+  };
+  price_analysis: {
+    published_price_uf?: number | null;
+    estimated_price_uf?: number | null;
+    difference_uf?: number | null;
+    difference_pct?: number | null;
+    verdict: "under_market" | "in_range" | "over_market" | "insufficient_data" | string;
+    verdict_label: string;
+    explanation: string;
+  };
+  signals: {
+    positives: string[];
+    risks: string[];
+    unavailable: string[];
+  };
+  report_status: {
+    listing_risk_report_available: boolean;
+    reason: string;
+  };
 };

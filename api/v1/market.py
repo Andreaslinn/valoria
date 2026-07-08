@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -13,6 +14,12 @@ from services.market_dashboard import (
     build_liquidity_summary,
     build_market_briefing,
     build_microzones_summary,
+)
+from services.market_intelligence import (
+    MarketIntelligenceConfig,
+    build_communes_summary,
+    build_dynamism_summary,
+    build_market_pulse,
 )
 from services.price_trends import PriceTrendService
 from services.uf_rate import require_real_uf_rate
@@ -129,6 +136,11 @@ class LiquiditySummaryOut(BaseModel):
     source: str
 
 
+class MarketIntelligenceOut(BaseModel):
+    status: str
+    model_config = {"extra": "allow"}
+
+
 @router.get("/uf", response_model=UFRateOut)
 async def get_current_uf(uf_service: UFServiceDep, settings: AppSettings) -> UFRateOut:
     try:
@@ -150,6 +162,36 @@ async def get_current_uf(uf_service: UFServiceDep, settings: AppSettings) -> UFR
         is_stale=info.is_stale,
         stale_reason=info.stale_reason,
     )
+
+
+@router.get("/pulse", response_model=MarketIntelligenceOut)
+async def get_market_pulse(
+    session: DbSession,
+    settings: AppSettings,
+    _user: CurrentUser,
+) -> MarketIntelligenceOut:
+    return MarketIntelligenceOut(
+        **await build_market_pulse(session, config=_market_intelligence_config(settings))
+    )
+
+
+@router.get("/communes/summary", response_model=MarketIntelligenceOut)
+async def get_market_communes_summary(
+    session: DbSession,
+    settings: AppSettings,
+    _user: CurrentUser,
+) -> MarketIntelligenceOut:
+    return MarketIntelligenceOut(
+        **await build_communes_summary(session, config=_market_intelligence_config(settings))
+    )
+
+
+@router.get("/dynamism/summary", response_model=MarketIntelligenceOut)
+async def get_market_dynamism_summary(
+    session: DbSession,
+    _user: CurrentUser,
+) -> MarketIntelligenceOut:
+    return MarketIntelligenceOut(**await build_dynamism_summary(session))
 
 
 @router.get("/briefing", response_model=MarketBriefingOut)
@@ -213,3 +255,11 @@ async def get_price_m2_trend(
 
 def _decimal_to_float(value: Decimal) -> float:
     return float(value)
+
+
+def _market_intelligence_config(settings: Any) -> MarketIntelligenceConfig:
+    return MarketIntelligenceConfig(
+        commune_min_active_listings=settings.market_commune_min_active_listings,
+        commune_min_time_sample=settings.market_commune_min_time_sample,
+        commune_min_price_history_sample=settings.market_commune_min_price_history_sample,
+    )

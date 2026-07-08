@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 
+from domain.valuation.engines.consensus import ValoriaConsensusV1Engine
 from domain.valuation.engines.contracts import (
     EngineContext,
     EngineRequest,
@@ -151,6 +152,35 @@ def test_consensus_returns_insufficient_data_when_no_engine_passes_rules() -> No
     assert result.status == EngineStatus.INSUFFICIENT_DATA
     assert result.error_code == "no_eligible_engines"
     assert result.diagnostics["excluded_engines"] == {"hedonic": "status_not_successful"}
+    assert result.diagnostics["engines_received"] == ["hedonic"]
+    assert result.diagnostics["engines_used"] == []
+    assert result.diagnostics["engines_abstained"] == {"hedonic": "status_not_successful"}
+
+
+def test_consensus_v1_alias_abstains_without_base_engine_results() -> None:
+    result = ValoriaConsensusV1Engine().valuate(EngineRequest(), _context())
+
+    assert result.engine_name == "valoria_consensus_v1"
+    assert result.status == EngineStatus.INSUFFICIENT_DATA
+    assert result.error_code == "no_engine_results"
+    assert result.diagnostics["engines_received"] == []
+    assert result.diagnostics["weights"] == {}
+
+
+def test_consensus_v1_alias_combines_artificial_engine_results() -> None:
+    legacy = _result("comparables_legacy", 100_000_000, confidence=0.6)
+    canonical = _result("comparables_canonical", 120_000_000, confidence=0.9)
+
+    result = ValoriaConsensusV1Engine().valuate(EngineRequest(), _context(legacy, canonical))
+
+    assert result.engine_name == "valoria_consensus_v1"
+    assert result.status == EngineStatus.OK
+    assert result.estimated_price_clp is not None
+    assert result.diagnostics["engines_received"] == ["comparables_legacy", "comparables_canonical"]
+    assert result.diagnostics["engines_used"] == ["comparables_legacy", "comparables_canonical"]
+    assert result.diagnostics["engines_abstained"] == {}
+    assert result.diagnostics["disagreement_level"] == "moderate"
+    assert pytest.approx(sum(result.diagnostics["weights"].values())) == 1.0
 
 
 def test_expected_version_mismatch_excludes_engine() -> None:

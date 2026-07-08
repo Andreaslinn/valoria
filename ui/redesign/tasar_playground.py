@@ -14,7 +14,10 @@ from ui.formatting import format_clp, format_confidence, format_m2, format_uf
 from ui.product_usage import track_usage_event
 from ui.redesign.tasar_playground_adapter import (
     TasarComparableViewModel,
+    TasarLocationIntelligence,
+    TasarRiskReportContract,
     TasarValuationViewModel,
+    build_tasar_risk_report_contract,
     get_tasar_payload_from_form,
     map_tasar_error,
     map_valuation_response_to_view_model,
@@ -23,7 +26,7 @@ from ui.redesign.tasar_playground_adapter import (
 from ui.redesign.tasar_playground_data import get_tasar_playground_panel
 from ui.state import clear_session, get_token
 from ui.valuation.form import property_type_payload_value
-from ui.valuation.result import normalize_confidence, render_consensus_panel
+from ui.valuation.result import normalize_confidence
 
 RESULT_KEY = "tasar_playground_result"
 PAYLOAD_KEY = "tasar_playground_payload"
@@ -38,8 +41,8 @@ COMUNA_LABELS_BY_SLUG = {comuna.slug: comuna.name for comuna in COMUNAS}
 DEFAULT_COMUNA_SLUG = "providencia" if "providencia" in COMUNA_OPTION_SLUGS else COMUNA_OPTION_SLUGS[0]
 
 NAV_ITEMS = [
-    ("tasar", "Tasar", "Tasar propiedad"),
-    ("radar", "Radar", "Radar"),
+    ("tasar", "Tasar propiedad", "Tasar propiedad"),
+    ("radar", "Radar premium", "Radar"),
     ("portafolio", "Portafolio", "Portafolio"),
     ("alertas", "Alertas", "Alertas Lab"),
 ]
@@ -58,21 +61,27 @@ def render_sidebar_shell(base_url: str) -> None:
     api_label = "API conectada" if base_url else "API por configurar"
     docs_url = f"{base_url.rstrip('/')}/docs" if base_url else ""
     docs_action = (
-        f'<a class="avm-neo-side-button" href="{html_escape(docs_url)}" target="_blank" rel="noreferrer">'
+        f'<a class="avm-neo-side-button" href="{html_escape(docs_url)}">'
         "Ver documentacion</a>"
         if docs_url
         else '<span class="avm-neo-side-button avm-neo-side-button--disabled">Sin URL API</span>'
     )
     render_html(
+        """
+        <div class="avm-neo-side-brand">
+            <div class="avm-neo-logo-mark"><span></span></div>
+            <div>
+                <strong>AVM Chile</strong>
+                <p>Tu centro inmobiliario</p>
+            </div>
+        </div>
+        """,
+        container=st.sidebar,
+    )
+    _render_sidebar_nav()
+    render_html(
         f"""
         <div class="avm-neo-sidebar">
-            <div class="avm-neo-side-brand">
-                <div class="avm-neo-logo-mark"><span></span></div>
-                <div>
-                    <strong>AVM Chile</strong>
-                    <p>Inteligencia inmobiliaria</p>
-                </div>
-            </div>
 
             <div class="avm-neo-side-card">
                 <div class="avm-neo-side-label">Apariencia</div>
@@ -106,13 +115,13 @@ def render_sidebar_shell(base_url: str) -> None:
             <div class="avm-neo-side-card avm-neo-side-card--help">
                 <strong>Problemas de conexion?</strong>
                 <p>Verifica que FastAPI este corriendo en tu entorno.<br>{html_escape(base_url)}</p>
-                <span class="avm-neo-side-button avm-neo-side-button--disabled">Guia proximamente</span>
+                {docs_action}
             </div>
 
             <div class="avm-neo-side-card avm-neo-side-card--premium">
-                <strong>Premium activo</strong>
+                <strong>Usuarios beta</strong>
                 <p>{html_escape(mode_label)}. Variante {html_escape(get_ui_version_label("tasar_playground"))}.</p>
-                <span class="avm-neo-side-button avm-neo-side-button--disabled">Plan proximamente</span>
+                <span class="avm-neo-side-button avm-neo-side-button--disabled">Ver estado del sistema</span>
             </div>
 
             <div class="avm-neo-side-footer">AVM Chile &copy; 2024<br>Todos los derechos reservados.</div>
@@ -125,6 +134,19 @@ def render_sidebar_shell(base_url: str) -> None:
             clear_session()
             st.rerun()
         _render_sidebar_admin_tools(base_url, current_user)
+
+
+def _render_sidebar_nav() -> None:
+    current_page = _current_nav_target()
+    render_html('<div class="avm-neo-side-label avm-neo-side-label--menu">Menu</div>', container=st.sidebar)
+    for slug, label, page in NAV_ITEMS:
+        if st.sidebar.button(
+            label,
+            key=f"tasar_pg_side_nav_{slug}",
+            type="primary" if page == current_page else "secondary",
+        ):
+            _set_nav_target(page)
+            st.rerun()
 
 
 def _render_sidebar_admin_tools(base_url: str, current_user: Any) -> None:
@@ -217,7 +239,7 @@ def render_top_nav(current_user: dict[str, Any] | None) -> str:
         </div>
         """,
     )
-    nav_cols = st.columns([0.72, 0.72, 0.86, 0.76, 3.2], gap="small", vertical_alignment="center")
+    nav_cols = st.columns([1.08, 1.0, 0.86, 0.76, 2.9], gap="small", vertical_alignment="center")
     for index, (slug, label, page) in enumerate(NAV_ITEMS):
         with nav_cols[index]:
             if st.button(
@@ -306,13 +328,11 @@ def _render_main_dashboard(
             error if isinstance(error, dict) else None,
             demo_mode=demo_mode,
         )
-        if view_model is not None:
-            render_consensus_panel(view_model.raw)
         render_location_intelligence(panel=panel, demo_mode=demo_mode, view_model=view_model)
         render_featured_comparables(view_model, demo_mode=demo_mode)
 
     with right_col:
-        render_right_panel(view_model, panel=panel, demo_mode=demo_mode)
+        render_right_panel(client, view_model, payload=active_payload, panel=panel, demo_mode=demo_mode)
 
     return view_model
 
@@ -615,8 +635,11 @@ def render_location_intelligence(
 ) -> None:
     with st.container(border=True):
         render_section_header("3", "Ubicacion e inteligencia", "Analisis de entorno y conectividad.")
-        if not demo_mode or view_model is None or not view_model.is_demo:
-            render_empty_state("Mapa e inteligencia local quedan como modulo conectado pendiente.")
+        if view_model is None:
+            render_empty_state("Ejecuta una tasacion para cargar inteligencia local disponible.")
+            return
+        if not view_model.is_demo:
+            render_location_intelligence_contract(view_model.location_intelligence)
             return
         location = panel.get("location", {})
         render_html(
@@ -634,6 +657,80 @@ def render_location_intelligence(
             </div>
             """,
         )
+
+
+def render_location_intelligence_contract(location: TasarLocationIntelligence) -> None:
+    badge = {
+        "available": "Backend real",
+        "partial": "Datos parciales",
+        "not_available": "No disponible",
+    }.get(location.status, "No disponible")
+    tone = {
+        "available": "positive",
+        "partial": "warning",
+        "not_available": "neutral",
+    }.get(location.status, "neutral")
+    warning_labels = tuple(detail.human_label for detail in location.location_warnings)
+    signals = location.geo_signals[:3]
+    missing = tuple(_location_reason_label(reason) for reason in location.reasons[:3])
+    metrics = [
+        ("Comuna analizada", _display_value(_comuna_label(location.comuna)), "Backend real"),
+        ("Calidad ubicacion", _display_value(location.comparable_location_quality), _display_value(location.geocoding_precision)),
+        ("Microzona", _microzone_status_label(location.microzone_status), "Estado disponible"),
+        ("Comparables usados", str(location.comparable_count) if location.comparable_count is not None else "N/D", "Respuesta API"),
+    ]
+    rows = "".join(
+        f"""
+        <div class="avm-neo-location-metric">
+            <span>{html_escape(label)}</span>
+            <strong>{html_escape(value)}</strong>
+            <p>{html_escape(caption)}</p>
+        </div>
+        """
+        for label, value, caption in metrics
+    )
+    details = []
+    if location.address_label:
+        details.append(("Referencia", location.address_label))
+    if location.coordinates is not None:
+        details.append(("Coordenadas", f"{location.coordinates[0]:.5f}, {location.coordinates[1]:.5f}"))
+    if signals:
+        details.append(("Senales detectadas", ", ".join(signals)))
+    if warning_labels:
+        details.append(("Advertencias de ubicacion", "; ".join(warning_labels[:3])))
+    if missing:
+        details.append(("Datos faltantes", "; ".join(missing)))
+    detail_rows = "".join(
+        f"""
+        <div class="avm-neo-location-row">
+            <span>{html_escape(label)}</span>
+            <strong>{html_escape(value)}</strong>
+        </div>
+        """
+        for label, value in details
+    )
+    if not detail_rows:
+        detail_rows = """
+        <div class="avm-neo-location-row">
+            <span>Estado</span>
+            <strong>Sin datos territoriales suficientes en esta respuesta.</strong>
+        </div>
+        """
+    render_html(
+        f"""
+        <div class="avm-neo-location-card avm-neo-location-card--{html_escape(tone)}">
+            <div class="avm-neo-location-card__head">
+                <div>
+                    <span>{html_escape(badge)}</span>
+                    <strong>{html_escape(location.summary)}</strong>
+                </div>
+                <em>{html_escape(location.status)}</em>
+            </div>
+            <div class="avm-neo-location-grid">{rows}</div>
+            <div class="avm-neo-location-detail">{detail_rows}</div>
+        </div>
+        """,
+    )
 
 
 def render_featured_comparables(view_model: TasarValuationViewModel | None, *, demo_mode: bool) -> None:
@@ -672,8 +769,10 @@ def render_featured_comparables(view_model: TasarValuationViewModel | None, *, d
 
 
 def render_right_panel(
+    client: ApiClient,
     view_model: TasarValuationViewModel | None,
     *,
+    payload: dict[str, Any],
     panel: dict[str, Any],
     demo_mode: bool,
 ) -> None:
@@ -686,11 +785,16 @@ def render_right_panel(
         return
 
     if not view_model.is_demo:
-        render_price_trend({})
+        risk_report = build_tasar_risk_report_contract(
+            view_model,
+            payload=payload,
+            lookup_result=_risk_report_lookup_context(),
+        )
+        render_price_trend(_load_price_m2_trend(client, payload))
         render_confidence_summary(view_model)
         render_response_signals(view_model)
-        render_recent_activity([])
-        render_risk_opportunity({})
+        render_recent_activity(_load_recent_user_activity(client))
+        render_risk_opportunity(risk_report)
         return
 
     render_price_trend(panel.get("price_trend", {}), demo_mode=True)
@@ -700,15 +804,47 @@ def render_right_panel(
     render_risk_opportunity(panel.get("risk", {}))
 
 
+def _load_price_m2_trend(client: ApiClient, payload: dict[str, Any]) -> dict[str, Any]:
+    comuna = str(payload.get("comuna") or "").strip()
+    property_type = str(payload.get("property_type") or "").strip()
+    if not comuna or not property_type:
+        return {
+            "status": "not_available",
+            "period_months": 12,
+            "reasons": ["missing_trend_inputs"],
+        }
+    try:
+        return client.get_price_m2_trend(
+            comuna=comuna,
+            property_type=property_type,
+            period_months=12,
+            token=get_token(),
+        )
+    except ApiError as exc:
+        return {
+            "status": "not_available",
+            "period_months": 12,
+            "reasons": [str(exc.message or "trend_api_unavailable")],
+        }
+
+
 def render_price_trend(trend: dict[str, Any], *, demo_mode: bool = False) -> None:
     with st.container(border=True):
+        trend = _normalize_price_trend_for_chart(trend)
         period = str(trend.get("period", "12 meses"))
         action = f"Demo/lab - {period}" if demo_mode and trend.get("values") else period
         render_panel_header(str(trend.get("title", "Tendencia de precio (UF/m2)")), action)
         if not trend.get("values"):
-            render_status_badge("Tendencia de precio", "coming_soon", "La API de tasacion no entrega serie temporal en este flujo.")
+            status = str(trend.get("status") or "not_available")
+            reason = _trend_reason_label(trend)
+            render_status_badge(
+                "Tendencia de precio",
+                status,
+                f"Tendencia no disponible con datos suficientes para esta comuna/tipo. {reason}",
+            )
             return
         render_html(build_trend_chart_html(trend))
+        render_html(_price_trend_meta_html(trend))
 
 
 def render_confidence_summary(view_model: TasarValuationViewModel, *, panel: dict[str, Any] | None = None) -> None:
@@ -772,9 +908,9 @@ def render_response_signals(view_model: TasarValuationViewModel) -> None:
             },
             {
                 "tone": "negative" if view_model.warnings else "positive",
-                "label": "Warnings",
+                "label": "Detalles tecnicos",
                 "value": str(len(view_model.warnings)),
-                "delta": "Sin datos simulados",
+                "delta": "Backend/API",
             },
         ]
         rows = "".join(
@@ -790,26 +926,126 @@ def render_response_signals(view_model: TasarValuationViewModel) -> None:
         render_html(f'<div class="avm-neo-signal-stack">{rows}</div>')
 
 
-def render_recent_activity(activity: list[dict[str, Any]]) -> None:
+def render_recent_activity(activity: list[dict[str, Any]] | dict[str, Any]) -> None:
     with st.container(border=True):
-        render_panel_header("Actividad reciente", "Demo/lab" if activity else "Coming soon")
-        if not activity:
-            render_status_badge("Actividad reciente", "coming_soon", "La tasacion real no entrega actividad historica en este contrato.")
+        normalized = _normalize_recent_activity(activity)
+        events = normalized.get("events", [])
+        source_label = "Demo/lab" if normalized.get("is_demo") else _activity_status_label(normalized)
+        render_panel_header("Actividad reciente", source_label)
+        if normalized.get("status") == "not_available":
+            render_status_badge(
+                "Actividad reciente",
+                "not_available",
+                "No pudimos cargar tu actividad reciente. La tasacion sigue disponible.",
+            )
+            return
+        if not events:
+            render_status_badge(
+                "Actividad reciente",
+                "empty",
+                "No hay actividad reciente registrada todavia. Realiza una tasacion para empezar a ver tu historial.",
+            )
             return
         rows = "".join(
             f"""
             <div class="avm-neo-activity-row">
-                <i></i><span>{html_escape(item.get("label"))}</span><small>{html_escape(item.get("time"))}</small>
+                <i></i><span>{html_escape(item.get("title") or item.get("label"))}<br><small>{html_escape(item.get("description") or "")}</small></span><small>{html_escape(_activity_time_label(item))}</small>
             </div>
             """
-            for item in activity
+            for item in events[:3]
         )
         render_html(f'<div class="avm-neo-activity-stack">{rows}</div>')
 
 
-def render_risk_opportunity(risk: dict[str, Any]) -> None:
+def _load_recent_user_activity(client: ApiClient) -> dict[str, Any]:
+    token = get_token()
+    if token is None:
+        return {
+            "status": "not_available",
+            "events": [],
+            "reasons": ["missing_auth_token"],
+        }
+    try:
+        return client.get_tasar_recent_activity(token=token, limit=3)
+    except ApiError as exc:
+        return {
+            "status": "not_available",
+            "events": [],
+            "reasons": [str(exc.message or "activity_api_unavailable")],
+        }
+
+
+def _normalize_recent_activity(activity: list[dict[str, Any]] | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(activity, dict):
+        events = activity.get("events")
+        return {
+            **activity,
+            "events": list(events) if isinstance(events, list) else [],
+        }
+    return {
+        "status": "available" if activity else "empty",
+        "events": list(activity),
+        "is_demo": bool(activity),
+    }
+
+
+def _activity_status_label(activity: dict[str, Any]) -> str:
+    status = str(activity.get("status") or "empty")
+    if status == "available":
+        return "Historial real"
+    if status == "partial":
+        return "Historial parcial"
+    if status == "empty":
+        return "Sin actividad"
+    return "No disponible"
+
+
+def _activity_time_label(item: dict[str, Any]) -> str:
+    explicit = item.get("time")
+    if explicit:
+        return str(explicit)
+    occurred_at = str(item.get("occurred_at") or "")
+    if not occurred_at:
+        return ""
+    return occurred_at.replace("T", " ")[:16]
+
+
+def render_risk_opportunity(risk: dict[str, Any] | TasarRiskReportContract) -> None:
     with st.container(border=True):
         render_section_title("Oportunidad / Riesgo")
+        if isinstance(risk, TasarRiskReportContract):
+            if not risk.risk_report_available or not risk.risk_report_html:
+                render_status_badge("Risk Report", risk.risk_report_status, _risk_report_status_body(risk))
+                return
+            render_html(
+                f"""
+                <div class="avm-neo-risk-box">
+                    <i>!</i>
+                    <div>
+                        <strong>Reportes HTML</strong>
+                        <p>Reportes reales generados con la tasacion actual.<br>{html_escape(risk.generated_at or "Generado en esta sesion")}</p>
+                    </div>
+                    <span>&gt;</span>
+                </div>
+                """,
+            )
+            if risk.investment_report_html:
+                st.download_button(
+                    "Descargar Investment Intelligence Report",
+                    data=risk.investment_report_html,
+                    file_name=risk.investment_file_name or f"investment_intelligence_report_{_risk_report_file_suffix()}.html",
+                    mime="text/html",
+                    key="tasar-playground-investment-report-download",
+                )
+            if risk.listing_report_html:
+                st.download_button(
+                    "Descargar Listing Risk Report",
+                    data=risk.listing_report_html,
+                    file_name=risk.listing_file_name or f"listing_risk_report_{_risk_report_file_suffix()}.html",
+                    mime="text/html",
+                    key="tasar-playground-listing-risk-report-download",
+                )
+            return
         if not risk:
             render_status_badge("Risk Report", "coming_soon", "No hay reporte de riesgo conectado a la ruta Tasar.")
             return
@@ -954,6 +1190,98 @@ def render_error_state(title: str, body: str, detail: str) -> None:
     )
 
 
+def _display_value(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text and text.lower() not in {"none", "n/a"} else "N/D"
+
+
+def _microzone_status_label(status: str) -> str:
+    labels = {
+        "available": "Disponible",
+        "limited": "Limitada",
+        "not_available": "No disponible",
+    }
+    return labels.get(str(status or ""), str(status or "No disponible"))
+
+
+def _location_reason_label(reason: str) -> str:
+    labels = {
+        "no_geocoding_data": "sin geocoding en respuesta",
+        "no_microzone_data": "sin microzona",
+        "no_geo_signals": "sin senales geograficas",
+        "insufficient_location_coverage": "cobertura territorial insuficiente",
+        "no_location_data": "sin datos de ubicacion",
+        "demo_data_not_used_as_real_location_intelligence": "demo/lab no usado como dato real",
+    }
+    return labels.get(reason, reason)
+
+
+def _normalize_price_trend_for_chart(trend: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(trend, dict):
+        return {}
+    if trend.get("values"):
+        return trend
+    points = trend.get("points") if isinstance(trend.get("points"), list) else []
+    values = [
+        _safe_float(point.get("median_price_m2_uf"))
+        for point in points
+        if isinstance(point, dict) and _safe_float(point.get("median_price_m2_uf")) is not None
+    ]
+    if not values:
+        return dict(trend)
+    labels = [
+        str(point.get("month"))
+        for point in points
+        if isinstance(point, dict) and _safe_float(point.get("median_price_m2_uf")) is not None
+    ]
+    status = str(trend.get("status") or "partial")
+    period_months = int(_safe_float(trend.get("period_months")) or 12)
+    return {
+        **trend,
+        "title": "Tendencia de precio (UF/m2)",
+        "period": f"{period_months} meses",
+        "values": values,
+        "labels": labels,
+        "status": status,
+    }
+
+
+def _price_trend_meta_html(trend: dict[str, Any]) -> str:
+    latest = _safe_float(trend.get("latest_value"))
+    change = _safe_float(trend.get("change_pct"))
+    latest_label = f"UF {latest:.2f}/m2" if latest is not None else "N/D"
+    change_label = f"{change:+.2f}%" if change is not None else "Sin variacion"
+    coverage = str(trend.get("coverage_count") or 0)
+    source = str(trend.get("source") or "not_available")
+    status = str(trend.get("status") or "partial")
+    return f"""
+        <div class="avm-neo-trend-meta">
+            <div><span>Ultimo valor</span><strong>{html_escape(latest_label)}</strong></div>
+            <div><span>Variacion</span><strong>{html_escape(change_label)}</strong></div>
+            <div><span>Muestras</span><strong>{html_escape(coverage)}</strong></div>
+            <div><span>Fuente</span><strong>{html_escape(source)} - {html_escape(status)}</strong></div>
+        </div>
+    """
+
+
+def _trend_reason_label(trend: dict[str, Any]) -> str:
+    reasons = trend.get("reasons") if isinstance(trend.get("reasons"), list) else []
+    if not reasons:
+        return ""
+    labels = {
+        "insufficient_price_history": "Historial de precios insuficiente.",
+        "insufficient_monthly_points": "Faltan puntos mensuales reales.",
+        "insufficient_sample_count": "Muestras mensuales insuficientes.",
+        "missing_canonical_price": "Faltan precios UF canonicos.",
+        "missing_surface": "Falta superficie para calcular UF/m2.",
+        "only_artifact_history": "El historial disponible es artifact.",
+        "unsupported_property_type": "Tipo de propiedad no soportado.",
+        "unsupported_comuna": "Comuna no soportada.",
+        "missing_trend_inputs": "Faltan comuna o tipo de propiedad.",
+    }
+    return labels.get(str(reasons[0]), str(reasons[0]))
+
+
 def render_confidence_bar(view_model: TasarValuationViewModel) -> None:
     confidence = view_model.confidence_key
     label = format_confidence(view_model.confidence_label or view_model.confidence)
@@ -980,22 +1308,47 @@ def render_confidence_bar(view_model: TasarValuationViewModel) -> None:
 
 
 def _render_view_model_warnings(view_model: TasarValuationViewModel) -> None:
-    messages = list(view_model.errors or view_model.warnings)
-    if not messages:
+    if view_model.errors:
+        rows = "".join(f"<p>{html_escape(message)}</p>" for message in view_model.errors[:4])
+        render_html(
+            f"""
+            <div class="avm-neo-status">
+                <span>{html_escape("demo/lab" if view_model.is_demo else "backend")}</span>
+                <strong>Errores de la respuesta</strong>
+                {rows}
+            </div>
+            """,
+        )
         return
-    visible_messages = messages[:4]
-    if len(messages) > len(visible_messages):
-        visible_messages.append(f"+{len(messages) - len(visible_messages)} warnings adicionales en la respuesta.")
-    rows = "".join(f"<p>{html_escape(message)}</p>" for message in visible_messages)
+
+    summary = view_model.warning_summary
+    if summary.count <= 0:
+        return
+
     render_html(
         f"""
-        <div class="avm-neo-status">
+        <div class="avm-neo-status avm-neo-warning-summary">
             <span>{html_escape("demo/lab" if view_model.is_demo else "backend")}</span>
-            <strong>Warnings de la tasacion</strong>
-            {rows}
+            <strong>{html_escape(summary.headline)}</strong>
+            <p>Los codigos tecnicos quedan disponibles para auditoria sin dominar la lectura principal.</p>
         </div>
         """,
     )
+    with st.expander(summary.details_label, expanded=False):
+        rows = "".join(
+            f"""
+            <div class="avm-neo-warning-detail">
+                <div>
+                    <strong>{html_escape(detail.human_label)}</strong>
+                    <p>{html_escape(detail.short_description)}</p>
+                </div>
+                <span>{html_escape(detail.severity)} - {html_escape(detail.category)}</span>
+                <code>{html_escape(detail.code)}</code>
+            </div>
+            """
+            for detail in summary.details
+        )
+        render_html(f'<div class="avm-neo-warning-detail-stack">{rows}</div>')
 
 
 def render_comparable_card(item: TasarComparableViewModel | dict[str, Any], *, index: int, compact: bool) -> None:
@@ -1139,6 +1492,7 @@ def _submit_valuation(client: ApiClient, payload: dict[str, Any], *, demo_mode: 
             **properties,
             "comparable_count": view_model.comparable_count if view_model else None,
             "confidence": view_model.confidence if view_model else None,
+            "estimated_value_uf": view_model.estimated_value_uf if view_model else None,
         },
     )
 
@@ -1148,6 +1502,34 @@ def _current_result() -> dict[str, Any] | None:
     if isinstance(result, dict):
         return result
     return None
+
+
+def _risk_report_lookup_context() -> dict[str, Any]:
+    prefill = st.session_state.get(PREFILL_KEY)
+    if isinstance(prefill, dict) and prefill:
+        return {"status": "prefilled", "listing_data": dict(prefill)}
+    return {}
+
+
+def _risk_report_status_body(contract: TasarRiskReportContract) -> str:
+    if contract.risk_report_status == "requires_valuation":
+        return "Ejecuta una tasacion real antes de generar el reporte."
+    if contract.risk_report_status == "requires_comparables":
+        return "La tasacion real no entrego comparables suficientes para el reporte."
+    if contract.risk_report_status == "requires_risk_inputs":
+        return "Faltan campos base de la propiedad para generar el reporte."
+    if contract.risk_report_status == "not_available":
+        return "No se genera Risk Report real desde datos demo/lab."
+    return "Risk Report no disponible para esta tasacion."
+
+
+def _risk_report_file_suffix() -> str:
+    payload = st.session_state.get(PAYLOAD_KEY)
+    if not isinstance(payload, dict):
+        return "sin_resultado"
+    comuna = str(payload.get("comuna") or "tasacion").strip().lower().replace(" ", "_")
+    suffix = "".join(ch for ch in comuna if ch.isalnum() or ch in {"_", "-"})
+    return suffix or "tasacion"
 
 
 def _form_prefill(*, demo_mode: bool) -> dict[str, Any]:
@@ -1449,6 +1831,8 @@ def _valuation_usage_properties(payload: dict[str, Any]) -> dict[str, Any]:
         "bedrooms": payload.get("dormitorios"),
         "bathrooms": payload.get("banos"),
         "parking": payload.get("estacionamientos"),
+        "precio_publicado_uf": payload.get("precio_publicado_uf"),
+        "precio_publicado_clp": payload.get("precio_publicado_clp"),
     }
 
 
@@ -1490,7 +1874,7 @@ def inject_tasar_playground_styles() -> None:
 
         .block-container {
             max-width: 1680px !important;
-            padding: 0.52rem 0.72rem 0.78rem !important;
+            padding: 0.46rem 0.68rem 0.72rem !important;
         }
 
         [data-testid="stHeader"] {
@@ -1518,7 +1902,7 @@ def inject_tasar_playground_styles() -> None:
             display: flex;
             align-items: center;
             gap: 0.72rem;
-            padding: 0.18rem 0.08rem 1rem;
+            padding: 0.18rem 0.08rem 0.72rem;
         }
 
         .avm-neo-logo-mark,
@@ -1577,6 +1961,12 @@ def inject_tasar_playground_styles() -> None:
             letter-spacing: 0;
             margin-bottom: 0.44rem;
             text-transform: uppercase;
+        }
+
+        .avm-neo-side-label--menu {
+            border-top: 1px solid rgba(70, 130, 190, 0.18);
+            margin: 0.16rem 0 0.28rem;
+            padding-top: 0.62rem;
         }
 
         .avm-neo-side-card strong {
@@ -1844,15 +2234,15 @@ def inject_tasar_playground_styles() -> None:
             position: relative;
             display: grid;
             grid-template-columns: minmax(0, 1fr) minmax(25rem, 0.56fr);
-            min-height: 12.4rem;
+            min-height: 9.7rem;
             overflow: hidden;
             border: 1px solid rgba(24, 150, 255, 0.62);
             border-radius: 8px;
             background:
                 linear-gradient(90deg, rgba(4, 18, 37, 0.99) 0%, rgba(7, 23, 54, 0.96) 42%, rgba(44, 17, 86, 0.92) 100%);
             box-shadow: var(--avm-neo-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-            padding: 1.28rem 1.62rem;
-            margin-bottom: 0.64rem;
+            padding: 0.98rem 1.38rem;
+            margin-bottom: 0.5rem;
         }
 
         .avm-neo-hero__copy {
@@ -1877,18 +2267,18 @@ def inject_tasar_playground_styles() -> None:
 
         .avm-neo-hero h1 {
             color: #ffffff;
-            font-size: 1.78rem;
+            font-size: 1.56rem;
             line-height: 1.06;
             letter-spacing: 0;
-            margin: 0.35rem 0 0;
+            margin: 0.28rem 0 0;
             max-width: 820px;
         }
 
         .avm-neo-hero p {
             color: var(--avm-neo-muted);
-            font-size: 0.84rem;
+            font-size: 0.78rem;
             line-height: 1.42;
-            margin: 0.66rem 0 0;
+            margin: 0.42rem 0 0;
             max-width: 690px;
         }
 
@@ -1896,7 +2286,7 @@ def inject_tasar_playground_styles() -> None:
             display: flex;
             gap: 0.5rem;
             flex-wrap: wrap;
-            margin-top: 0.92rem;
+            margin-top: 0.56rem;
         }
 
         .avm-neo-chip-row span {
@@ -2304,6 +2694,109 @@ def inject_tasar_playground_styles() -> None:
             margin-top: 0.12rem;
         }
 
+        .avm-neo-location-card {
+            border: 1px solid rgba(66, 132, 191, 0.2);
+            border-radius: 8px;
+            background: linear-gradient(180deg, rgba(8, 18, 34, 0.72), rgba(5, 13, 26, 0.68));
+            padding: 0.72rem;
+        }
+
+        .avm-neo-location-card--positive {
+            border-color: rgba(49, 211, 111, 0.28);
+        }
+
+        .avm-neo-location-card--warning {
+            border-color: rgba(247, 169, 40, 0.34);
+        }
+
+        .avm-neo-location-card__head {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 0.7rem;
+            align-items: start;
+            margin-bottom: 0.58rem;
+        }
+
+        .avm-neo-location-card__head span {
+            color: var(--avm-neo-amber);
+            display: block;
+            font-size: 0.66rem;
+            font-weight: 850;
+            text-transform: uppercase;
+        }
+
+        .avm-neo-location-card__head strong {
+            color: #ffffff;
+            display: block;
+            font-size: 0.86rem;
+            line-height: 1.25;
+            margin-top: 0.12rem;
+        }
+
+        .avm-neo-location-card__head em {
+            border: 1px solid rgba(66, 132, 191, 0.22);
+            border-radius: 999px;
+            color: var(--avm-neo-soft);
+            font-size: 0.64rem;
+            font-style: normal;
+            font-weight: 850;
+            padding: 0.18rem 0.44rem;
+            text-transform: uppercase;
+        }
+
+        .avm-neo-location-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.48rem;
+        }
+
+        .avm-neo-location-metric {
+            border: 1px solid rgba(66, 132, 191, 0.14);
+            border-radius: 8px;
+            background: rgba(9, 22, 39, 0.62);
+            min-width: 0;
+            padding: 0.48rem;
+        }
+
+        .avm-neo-location-metric span,
+        .avm-neo-location-row span {
+            color: var(--avm-neo-muted);
+            display: block;
+            font-size: 0.66rem;
+            font-weight: 820;
+            text-transform: uppercase;
+        }
+
+        .avm-neo-location-metric strong,
+        .avm-neo-location-row strong {
+            color: #ffffff;
+            display: block;
+            font-size: 0.78rem;
+            line-height: 1.25;
+            margin-top: 0.12rem;
+        }
+
+        .avm-neo-location-metric p {
+            color: var(--avm-neo-muted);
+            font-size: 0.66rem;
+            margin: 0.1rem 0 0;
+        }
+
+        .avm-neo-location-detail {
+            border-top: 1px solid rgba(66, 132, 191, 0.14);
+            display: grid;
+            gap: 0.38rem;
+            margin-top: 0.58rem;
+            padding-top: 0.54rem;
+        }
+
+        .avm-neo-location-row {
+            display: grid;
+            grid-template-columns: minmax(7.2rem, 0.42fr) minmax(0, 1fr);
+            gap: 0.5rem;
+            align-items: start;
+        }
+
         .avm-neo-comparable {
             display: grid;
             grid-template-columns: 3rem minmax(0, 1fr) auto;
@@ -2363,6 +2856,37 @@ def inject_tasar_playground_styles() -> None:
 
         .avm-neo-trend-chart {
             min-height: 8.65rem;
+        }
+
+        .avm-neo-trend-meta {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.34rem;
+            margin-top: 0.46rem;
+        }
+
+        .avm-neo-trend-meta div {
+            border: 1px solid rgba(66, 132, 191, 0.14);
+            border-radius: 8px;
+            background: rgba(9, 22, 39, 0.58);
+            min-width: 0;
+            padding: 0.38rem 0.42rem;
+        }
+
+        .avm-neo-trend-meta span {
+            color: var(--avm-neo-muted);
+            display: block;
+            font-size: 0.58rem;
+            font-weight: 820;
+            text-transform: uppercase;
+        }
+
+        .avm-neo-trend-meta strong {
+            color: #ffffff;
+            display: block;
+            font-size: 0.68rem;
+            line-height: 1.2;
+            margin-top: 0.1rem;
         }
 
         .avm-neo-confidence-summary {
@@ -2599,6 +3123,62 @@ def inject_tasar_playground_styles() -> None:
             text-transform: uppercase;
         }
 
+        .avm-neo-warning-summary {
+            border-style: solid;
+            border-color: rgba(247, 169, 40, 0.26);
+            background: rgba(111, 71, 11, 0.14);
+            margin-top: 0.68rem;
+        }
+
+        .avm-neo-warning-detail-stack {
+            display: grid;
+            gap: 0.46rem;
+        }
+
+        .avm-neo-warning-detail {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 0.38rem 0.72rem;
+            align-items: start;
+            border: 1px solid rgba(66, 132, 191, 0.16);
+            border-radius: 8px;
+            background: rgba(8, 18, 34, 0.58);
+            padding: 0.58rem 0.66rem;
+        }
+
+        .avm-neo-warning-detail strong {
+            color: #ffffff;
+            display: block;
+            font-size: 0.78rem;
+        }
+
+        .avm-neo-warning-detail p {
+            color: var(--avm-neo-muted);
+            font-size: 0.72rem;
+            line-height: 1.3;
+            margin: 0.12rem 0 0;
+        }
+
+        .avm-neo-warning-detail span {
+            color: var(--avm-neo-amber);
+            font-size: 0.66rem;
+            font-weight: 820;
+            text-align: right;
+            text-transform: uppercase;
+        }
+
+        .avm-neo-warning-detail code {
+            grid-column: 1 / -1;
+            color: rgba(197, 212, 236, 0.88);
+            background: rgba(3, 10, 20, 0.76);
+            border: 1px solid rgba(66, 132, 191, 0.14);
+            border-radius: 6px;
+            display: block;
+            font-size: 0.68rem;
+            overflow-wrap: anywhere;
+            padding: 0.28rem 0.38rem;
+        }
+
         div[data-testid="stTextInput"] input,
         div[data-testid="stNumberInput"] input,
         div[data-baseweb="select"] > div {
@@ -2695,8 +3275,22 @@ def inject_tasar_playground_styles() -> None:
         }
 
         section[data-testid="stSidebar"] .stButton button {
-            min-height: 2.28rem;
-            margin-top: 0.12rem;
+            justify-content: flex-start;
+            min-height: 2.34rem;
+            margin-top: 0.16rem;
+            padding-left: 0.72rem;
+        }
+
+        section[data-testid="stSidebar"] .stButton button[kind="primary"] {
+            border-color: rgba(23, 199, 255, 0.46);
+            background:
+                linear-gradient(90deg, rgba(23, 199, 255, 0.22), rgba(42, 114, 255, 0.13)),
+                rgba(13, 42, 76, 0.78);
+            box-shadow: inset 3px 0 0 rgba(23, 199, 255, 0.82), 0 0 22px rgba(23, 199, 255, 0.08);
+        }
+
+        section[data-testid="stSidebar"] .stButton button p {
+            text-align: left;
         }
 
         section[data-testid="stSidebar"] div[data-testid="stExpander"] {
@@ -2732,6 +3326,10 @@ def inject_tasar_playground_styles() -> None:
             .avm-neo-market-footer {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
+
+            .avm-neo-trend-meta {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
         }
 
         @media (max-width: 820px) {
@@ -2763,6 +3361,9 @@ def inject_tasar_playground_styles() -> None:
 
             .avm-neo-result-metrics,
             .avm-neo-map-stats,
+            .avm-neo-location-grid,
+            .avm-neo-location-row,
+            .avm-neo-trend-meta,
             .avm-neo-market-footer {
                 grid-template-columns: 1fr;
             }

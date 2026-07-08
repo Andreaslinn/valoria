@@ -101,6 +101,44 @@ class ValuationConsensusOut(BaseModel):
     engine_weights: dict[str, float] = Field(default_factory=dict)
 
 
+class ValuationVerdictOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    estimate_uf: float | None = None
+    low_uf: float | None = None
+    high_uf: float | None = None
+    confidence: float | None = None
+    explanation: str | None = None
+    source: str | None = None
+    status: str | None = None
+
+
+class ValuationEngineBreakdownOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    engine_name: str
+    label: str | None = None
+    role: str | None = None
+    estimate_uf: float | None = None
+    low_uf: float | None = None
+    high_uf: float | None = None
+    confidence: float | None = None
+    weight: float | None = None
+    status: str
+    explanation: str | None = None
+    warning_flags: list[str] = Field(default_factory=list)
+
+
+class ValuationConsensusAuditOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    engines_used: list[str] = Field(default_factory=list)
+    engines_abstained: dict[str, str] = Field(default_factory=dict)
+    engines_failed: dict[str, str] = Field(default_factory=dict)
+    disagreement_level: str | float | None = None
+    weight_audit: list[dict] = Field(default_factory=list)
+
+
 class ValuationResponse(BaseModel):
     base_estimated_price_uf: float | None = None
     base_estimated_price_clp: int | None = None
@@ -134,6 +172,10 @@ class ValuationResponse(BaseModel):
     engine_results: list[ValuationEngineResultOut] = Field(default_factory=list)
     selected_engine_names: list[str] = Field(default_factory=list)
     consensus_method: str | None = None
+    valuation_verdict: ValuationVerdictOut | None = None
+    engine_breakdown: list[ValuationEngineBreakdownOut] = Field(default_factory=list)
+    consensus_audit: ValuationConsensusAuditOut | None = None
+    weight_audit: list[dict] = Field(default_factory=list)
 
 
 class ValuationFeedbackRequest(BaseModel):

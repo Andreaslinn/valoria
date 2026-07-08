@@ -63,6 +63,13 @@ class ApiClient:
             data={"username": email, "password": password},
         )
 
+    def register(self, email: str, password: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/v1/auth/register",
+            json={"email": email, "password": password},
+        )
+
     def me(self, token: str) -> dict[str, Any]:
         return self._request("GET", "/api/v1/auth/me", token=token)
 
@@ -102,6 +109,25 @@ class ApiClient:
     def get_current_uf(self) -> dict[str, Any]:
         return self._request("GET", "/api/v1/market/uf")
 
+    def get_price_m2_trend(
+        self,
+        *,
+        comuna: str,
+        property_type: str,
+        period_months: int = 12,
+        token: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/api/v1/market/trends/price-m2",
+            token=_require_token(token),
+            params={
+                "comuna": comuna,
+                "property_type": property_type,
+                "period_months": period_months,
+            },
+        )
+
     def get_listing(self, listing_id: int, token: str | None = None) -> dict[str, Any]:
         return self._request("GET", f"/api/v1/listings/{listing_id}", token=_require_token(token))
 
@@ -140,17 +166,37 @@ class ApiClient:
             },
         )
 
+    def get_tasar_recent_activity(
+        self,
+        *,
+        token: str | None = None,
+        limit: int = 3,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/api/v1/tasar/activity/recent",
+            token=_require_token(token),
+            params={"limit": limit},
+        )
+
     def get_radar_opportunities(
         self,
         *,
         token: str | None = None,
         limit: int = 20,
+        bedrooms_min: int | None = None,
+        bedrooms_max: int | None = None,
     ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": limit}
+        if bedrooms_min is not None:
+            params["bedrooms_min"] = bedrooms_min
+        if bedrooms_max is not None:
+            params["bedrooms_max"] = bedrooms_max
         return self._request(
             "GET",
             "/api/v1/radar/opportunities",
             token=_require_token(token),
-            params={"limit": limit},
+            params=params,
             timeout=RADAR_TIMEOUT_SECONDS,
         )
 
@@ -171,6 +217,58 @@ class ApiClient:
 
     def mark_alert_read(self, alert_id: int, token: str) -> dict[str, Any]:
         return self._request("POST", f"/api/v1/alerts/{alert_id}/read", token=token)
+
+    def get_portfolio_summary(self, token: str) -> dict[str, Any]:
+        return self._request("GET", "/api/v1/portfolio/summary", token=token)
+
+    def get_portfolio_items(self, token: str) -> dict[str, Any]:
+        return self._request("GET", "/api/v1/portfolio/items", token=token)
+
+    def get_portfolio_capabilities(self, token: str) -> dict[str, Any]:
+        return self._request("GET", "/api/v1/portfolio/capabilities", token=token)
+
+    def list_portfolio_comparisons(self, token: str) -> dict[str, Any]:
+        return self._request("GET", "/api/v1/portfolio/comparisons", token=token)
+
+    def create_portfolio_comparison(self, token: str, *, title: str | None = None) -> dict[str, Any]:
+        return self._request("POST", "/api/v1/portfolio/comparisons", token=token, json={"title": title})
+
+    def get_portfolio_comparison(self, token: str, comparison_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/api/v1/portfolio/comparisons/{comparison_id}", token=token)
+
+    def add_portfolio_comparison_item(
+        self,
+        token: str,
+        comparison_id: int,
+        *,
+        listing_id: int | None = None,
+        watchlist_item_id: int | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/api/v1/portfolio/comparisons/{comparison_id}/items",
+            token=token,
+            json={"listing_id": listing_id, "watchlist_item_id": watchlist_item_id},
+        )
+
+    def remove_portfolio_comparison_item(
+        self,
+        token: str,
+        comparison_id: int,
+        item_id: int,
+    ) -> dict[str, Any]:
+        return self._request(
+            "DELETE",
+            f"/api/v1/portfolio/comparisons/{comparison_id}/items/{item_id}",
+            token=token,
+        )
+
+    def get_portfolio_comparison_report_html(self, token: str, comparison_id: int) -> str:
+        return self._request_text(
+            "GET",
+            f"/api/v1/portfolio/comparisons/{comparison_id}/report.html",
+            token=token,
+        )
 
     def track_usage_event(
         self,
@@ -231,6 +329,38 @@ class ApiClient:
         except ValueError as e:
             raise ApiError("La API respondio con un formato inesperado") from e
 
+    def _request_text(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+        **kwargs: Any,
+    ) -> str:
+        headers = dict(kwargs.pop("headers", {}) or {})
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        timeout = kwargs.pop("timeout", self._timeout)
+        try:
+            response = self._client.request(
+                method,
+                f"{self.base_url}{path}",
+                timeout=timeout,
+                headers=headers,
+                **kwargs,
+            )
+        except httpx.TimeoutException as e:
+            raise ApiError(
+                f"La API no respondio a tiempo en {self.base_url}. Intenta nuevamente o revisa los logs del backend.",
+            ) from e
+        except httpx.RequestError as e:
+            raise ApiError(
+                f"No se pudo conectar con la API. Verifica que FastAPI este corriendo en {self.base_url}",
+            ) from e
+        if response.status_code >= 400:
+            raise _api_error_from_response(response)
+        return response.text
+
 
 def get_default_base_url() -> str:
     return os.getenv("AVM_API_BASE_URL", DEFAULT_API_BASE_URL)
@@ -259,6 +389,8 @@ def _api_error_from_response(response: httpx.Response) -> ApiError:
     messages = {
         400: detail or "La solicitud no cumple una regla de negocio.",
         401: "No autorizado. Inicia sesion o revisa tus credenciales.",
+        403: detail or "No tienes permisos para realizar esta accion.",
+        409: detail or "El recurso ya existe.",
         404: detail or "Recurso no encontrado.",
         500: "La API tuvo un error interno. Revisa los logs del backend.",
     }

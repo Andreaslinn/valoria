@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from scripts.beta_readiness_report import build_beta_readiness_report
 from api.v1.valuations import ValuationResponse
 from core.assessment.confidence import build_confidence_contract
 from core.value_objects.score import Score
 from domain.valuation.beta_scope import assess_beta_scope
 from domain.valuation.comparable_quality import assess_comparable_quality
+from scripts.beta_readiness_report import build_beta_readiness_report
 from services.radar import OpportunityDTO
 from services.valuation import ComparableDTO, ValuationDTO
 from tests.unit.factories import make_listing, make_property
@@ -103,6 +103,32 @@ def test_valuation_response_accepts_typed_service_dto_without_losing_legacy_fiel
                 url=None,
             )
         ],
+        valuation_verdict={
+            "estimate_uf": 4810.0,
+            "low_uf": 4500.0,
+            "high_uf": 5100.0,
+            "confidence": 0.72,
+            "source": "consensus_experimental",
+        },
+        engine_breakdown=[
+            {
+                "engine_name": "microzone_geo_v1",
+                "label": "Microzona",
+                "role": "territorial_signal",
+                "estimate_uf": 4800.0,
+                "confidence": 0.7,
+                "weight": 0.25,
+                "status": "success",
+                "warning_flags": [],
+            }
+        ],
+        consensus_audit={
+            "engines_used": ["microzone_geo_v1"],
+            "engines_abstained": {},
+            "engines_failed": {},
+            "disagreement_level": "low",
+            "weight_audit": [],
+        },
     )
 
     response = ValuationResponse.model_validate(dto, from_attributes=True).model_dump()
@@ -111,6 +137,9 @@ def test_valuation_response_accepts_typed_service_dto_without_losing_legacy_fiel
     assert response["confidence_score"] == 0.84
     assert response["comparable_quality_metrics"]["n_comparables"] == 12
     assert response["beta_scope_metrics"]["segment_sample_count"] == 80
+    assert response["valuation_verdict"]["source"] == "consensus_experimental"
+    assert response["engine_breakdown"][0]["engine_name"] == "microzone_geo_v1"
+    assert response["consensus_audit"]["disagreement_level"] == "low"
     assert dto.to_payload()["comparables"][0]["similarity"] == 0.92
 
 

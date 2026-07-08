@@ -10,6 +10,8 @@ from ui.components.theme import html_escape
 from ui.feature_flags import is_demo_mode
 from ui.redesign.radar_adapter import (
     DATA_MODE_REAL,
+    RADAR_SCOPE_NOTE,
+    RADAR_SCOPE_PROPERTY_TYPE,
     RADAR_STATUS_EMPTY,
     RADAR_STATUS_ERROR,
     RadarFilterCriteria,
@@ -40,10 +42,11 @@ def render(client: object | None = None) -> None:
     """Render the isolated Radar playground."""
     inject_tasar_playground_styles()
     inject_radar_styles()
-    initial = _load_view_model(client, _criteria_from_state())
+    initial = _load_view_model(client, _criteria_from_state(), reload_backend=False)
     render_hero(initial)
-    criteria = render_filters(initial.filters, initial.criteria)
-    view_model = _load_view_model(client, criteria, reload_backend=False, previous=initial)
+    render_scope_notice()
+    criteria, should_search = render_filters(initial.filters, initial.criteria)
+    view_model = _load_view_model(client, criteria, reload_backend=should_search, previous=initial)
     render_dashboard(view_model)
     render_score_footer(view_model)
 
@@ -73,7 +76,7 @@ def render_hero(view_model: RadarViewModel) -> None:
     )
 
 
-def render_filters(filters: RadarFiltersViewModel, criteria: RadarFilterCriteria) -> RadarFilterCriteria:
+def render_filters(filters: RadarFiltersViewModel, criteria: RadarFilterCriteria) -> tuple[RadarFilterCriteria, bool]:
     with st.container(border=True):
         cols = st.columns([1.05, 1.35, 1.05, 0.82, 1.0, 0.92], gap="small")
         with cols[0]:
@@ -101,7 +104,7 @@ def render_filters(filters: RadarFiltersViewModel, criteria: RadarFilterCriteria
                 disabled=not filters.property_type_enabled,
             )
             if not filters.property_type_enabled:
-                st.caption("Coming soon: no viene en /radar/opportunities.")
+                st.caption("Casas quedan en pausa dentro de Radar beta.")
         with cols[3]:
             bedrooms_label = st.selectbox(
                 "Dormitorios",
@@ -130,25 +133,37 @@ def render_filters(filters: RadarFiltersViewModel, criteria: RadarFilterCriteria
                 key=FILTER_SORT_KEY,
             )
 
-        action_cols = st.columns([1, 1, 4.8], gap="small")
-        if action_cols[0].button("Mas filtros", key="tasar_pg_radar_more_filters"):
+        action_cols = st.columns([1.25, 1, 1, 4.55], gap="small")
+        should_search = action_cols[0].button(
+            "Buscar oportunidades",
+            key="tasar_pg_radar_search",
+            type="primary",
+        )
+        if action_cols[1].button("Mas filtros", key="tasar_pg_radar_more_filters"):
             st.info("Coming soon: filtros avanzados de liquidez, riesgo y microzona real.")
-        action_cols[1].button(
+        action_cols[2].button(
             "Limpiar filtros",
             key="tasar_pg_radar_reset_filters",
             on_click=_reset_filter_state,
             args=(filters,),
         )
-        action_cols[2].caption(_filters_caption(filters))
+        action_cols[3].caption(_filters_caption(filters))
 
-    return RadarFilterCriteria(
-        comuna=str(comuna),
-        price_range_uf=(int(price_range[0]), int(price_range[1])),
-        property_type=str(property_type),
-        bedrooms_min=_bedrooms_min(str(bedrooms_label)),
-        min_score=int(min_score),
-        sort_by=str(sort_by),
+    return (
+        RadarFilterCriteria(
+            comuna=str(comuna),
+            price_range_uf=(int(price_range[0]), int(price_range[1])),
+            property_type=str(property_type),
+            bedrooms_min=_bedrooms_min(str(bedrooms_label)),
+            min_score=int(min_score),
+            sort_by=str(sort_by),
+        ),
+        should_search,
     )
+
+
+def render_scope_notice() -> None:
+    st.info(RADAR_SCOPE_NOTE)
 
 
 def render_dashboard(view_model: RadarViewModel) -> None:
@@ -205,7 +220,7 @@ def opportunity_card_html(item: RadarOpportunityViewModel) -> str:
             <div class="avm-radar-opportunity__top">
                 <div class="avm-radar-opportunity__rank">{item.rank}</div>
                 <div class="avm-radar-score">
-                    <strong>{item.score}</strong>
+                    <strong>{_format_score_value(item.score)}</strong>
                     <span>Score</span>
                 </div>
             </div>
@@ -213,7 +228,7 @@ def opportunity_card_html(item: RadarOpportunityViewModel) -> str:
                 <div class="avm-radar-opportunity__head">
                     <div>
                         <strong>{html_escape(item.title)}</strong>
-                        <p>{html_escape(item.comuna)} &middot; {html_escape(item.property_type)} &middot; {item.bedrooms}D / {item.bathrooms}B / {_format_m2(item.m2)}</p>
+                        <p>{html_escape(item.comuna)} &middot; {html_escape(item.property_type)} &middot; {_format_program(item)} / {_format_m2(item.m2)}</p>
                     </div>
                     <div class="avm-radar-price">
                         <strong>{_format_uf(item.published_price_uf)}</strong>
@@ -221,7 +236,7 @@ def opportunity_card_html(item: RadarOpportunityViewModel) -> str:
                     </div>
                 </div>
                 <div class="avm-radar-opportunity__meta">
-                    <span class="avm-radar-chip avm-radar-chip--positive">-{_format_pct(item.discount_pct)} bajo mercado</span>
+                    <span class="avm-radar-chip avm-radar-chip--positive">{html_escape(_discount_chip_label(item))}</span>
                     <span class="avm-radar-chip avm-radar-chip--{html_escape(item.tone)}">UF {_format_number(item.savings_uf)} ahorro {_saving_caption(item)}</span>
                     <span class="avm-radar-chip">Estado: {html_escape(item.status_label)}</span>
                 </div>
@@ -244,24 +259,37 @@ def render_map_panel(map_model: RadarMapViewModel) -> None:
         for zone in map_model.heat_zones
     )
     pins_html = "".join(
-        f'<span class="avm-radar-map-pin" style="left:{pin.x_pct}%;top:{pin.y_pct}%"><b>{pin.rank}</b></span>'
+        f'<span class="avm-radar-map-pin" title="{html_escape(pin.tooltip or pin.label)}" '
+        f'style="left:{pin.x_pct}%;top:{pin.y_pct}%"><b>{pin.rank}</b></span>'
         for pin in map_model.pins
     )
+    labels_html = """
+                <em class="avm-radar-map-label avm-radar-map-label--p">Providencia</em>
+                <em class="avm-radar-map-label avm-radar-map-label--n">Nunoa</em>
+                <em class="avm-radar-map-label avm-radar-map-label--l">Las Condes</em>
+                <em class="avm-radar-map-label avm-radar-map-label--r">La Reina</em>
+    """ if map_model.is_demo else ""
+    empty_html = ""
+    if not map_model.pins:
+        empty_html = f"""
+                <div class="avm-radar-map-empty">
+                    <strong>{html_escape(map_model.empty_message or "Mapa experimental no disponible.")}</strong>
+                    <p>{html_escape(map_model.disclaimer)}</p>
+                </div>
+        """
     render_html(
         f"""
         <div class="avm-radar-map-card">
             <div class="avm-radar-panel-title">
                 <strong>{html_escape(map_model.title)}</strong>
-                <span>Mapa demo/lab</span>
+                <span>{html_escape(_map_badge(map_model))}</span>
             </div>
             <div class="avm-radar-map">
                 <i class="avm-radar-map-grid"></i>
                 {heat_html}
                 {pins_html}
-                <em class="avm-radar-map-label avm-radar-map-label--p">Providencia</em>
-                <em class="avm-radar-map-label avm-radar-map-label--n">Nunoa</em>
-                <em class="avm-radar-map-label avm-radar-map-label--l">Las Condes</em>
-                <em class="avm-radar-map-label avm-radar-map-label--r">La Reina</em>
+                {labels_html}
+                {empty_html}
             </div>
             <div class="avm-radar-map-legend">
                 <span>Baja</span><i></i><span>Alta</span>
@@ -280,35 +308,61 @@ def render_right_panel(view_model: RadarViewModel) -> None:
 
 
 def render_market_summary(items: tuple[RadarTrendMetricViewModel, ...]) -> None:
+    if not items:
+        render_side_panel(
+            "Resumen de mercado",
+            "Sin datos",
+            """
+            <div class="avm-radar-empty avm-radar-empty--compact">
+                <strong>Datos insuficientes para resumen de mercado.</strong>
+                <p>Ejecuta una busqueda Radar para construir el resumen con resultados reales.</p>
+            </div>
+            """,
+        )
+        return
     rows = "".join(
         f"""
         <div class="avm-radar-side-metric avm-radar-side-metric--{html_escape(item.tone)}">
             <div>
                 <span>{html_escape(item.label)}</span>
                 <strong>{html_escape(item.value)}</strong>
-                <small>{html_escape(item.delta)} &middot; demo/lab</small>
+                <small>{html_escape(item.delta)} &middot; {html_escape(_source_label(item.source_state))}</small>
             </div>
             {_sparkline_svg(item.trend)}
         </div>
         """
         for item in items
     )
-    render_side_panel("Resumen de mercado", "12 meses / demo-lab", rows)
+    badge = "Resultados reales" if any(not item.is_demo for item in items) else "Demo/lab"
+    render_side_panel("Resumen de mercado", badge, rows)
 
 
 def render_hot_zones(items: tuple[RadarHotZoneViewModel, ...]) -> None:
+    if not items:
+        render_side_panel(
+            "Zonas calientes",
+            "Sin datos",
+            """
+            <div class="avm-radar-empty avm-radar-empty--compact">
+                <strong>Sin zonas calientes reales suficientes.</strong>
+                <p>Se requieren resultados Radar reales para agrupar por comuna.</p>
+            </div>
+            """,
+        )
+        return
     rows = "".join(
         f"""
         <div class="avm-radar-zone">
             <span>{item.rank}</span>
             <strong>{html_escape(item.name)}</strong>
-            <b>{item.score}</b>
-            {_sparkline_svg(item.trend)}
+            <b>{html_escape(_format_score_value(item.score))}</b>
+            <small>{html_escape(_zone_detail(item))}</small>
         </div>
         """
         for item in items
     )
-    render_side_panel("Zonas calientes", "Score prom. simulado", rows)
+    badge = "por comuna" if any(not item.is_demo for item in items) else "Score prom. simulado"
+    render_side_panel("Zonas calientes", badge, rows)
 
 
 def render_recent_changes(items: tuple[RadarRecentChangeViewModel, ...]) -> None:
@@ -373,7 +427,7 @@ def render_score_footer(view_model: RadarViewModel) -> None:
             <div class="avm-radar-score-explainer">
                 <div class="avm-radar-panel-title">
                     <strong>Score de oportunidad: &iquest;Que significa?</strong>
-                    <span>Demo/lab</span>
+                    <span>{html_escape(_mode_label(view_model))}</span>
                 </div>
                 <div class="avm-radar-factor-grid">{factors_html}</div>
             </div>
@@ -407,7 +461,7 @@ def _criteria_from_state() -> RadarFilterCriteria | None:
     return RadarFilterCriteria(
         comuna=str(st.session_state.get(FILTER_COMUNA_KEY) or "Todas"),
         price_range_uf=_price_range_tuple(price_range),
-        property_type=str(st.session_state.get(FILTER_TYPE_KEY) or "Todos"),
+        property_type=str(st.session_state.get(FILTER_TYPE_KEY) or RADAR_SCOPE_PROPERTY_TYPE),
         bedrooms_min=_bedrooms_min(str(st.session_state.get(FILTER_BEDROOMS_KEY) or "Todos")),
         min_score=int(st.session_state.get(FILTER_SCORE_KEY) or 60),
         sort_by=str(st.session_state.get(FILTER_SORT_KEY) or "score_desc"),
@@ -423,13 +477,13 @@ def _load_view_model(
 ) -> RadarViewModel:
     if is_demo_mode():
         return build_radar_view_model(criteria)
-    if not reload_backend and previous is not None and previous.data_mode == DATA_MODE_REAL:
+    if not reload_backend:
         return get_radar_view_model(
             criteria,
             data_mode=DATA_MODE_REAL,
             radar_opportunities=_raw_opportunities_from_state(),
             alerts=_raw_alerts_from_state(),
-            error_message=previous.error_message,
+            error_message=previous.error_message if previous is not None else None,
         )
     token = get_token()
     if token is None:
@@ -439,7 +493,7 @@ def _load_view_model(
             error_message="Inicia sesion para cargar oportunidades reales del Radar.",
         )
     try:
-        opportunities = _call_radar_opportunities(client, token)
+        opportunities = _call_radar_opportunities(client, token, criteria)
     except ApiError as exc:
         st.session_state["tasar_pg_radar_real_opportunities"] = []
         st.session_state["tasar_pg_radar_real_alerts"] = []
@@ -459,10 +513,18 @@ def _load_view_model(
     )
 
 
-def _call_radar_opportunities(client: object | None, token: str) -> list[dict[str, Any]]:
+def _call_radar_opportunities(
+    client: object | None,
+    token: str,
+    criteria: RadarFilterCriteria | None,
+) -> list[dict[str, Any]]:
     if client is None or not hasattr(client, "get_radar_opportunities"):
         raise ApiError("Cliente API no disponible para cargar Radar real.")
-    result = client.get_radar_opportunities(token=token, limit=100)
+    result = client.get_radar_opportunities(
+        token=token,
+        limit=100,
+        bedrooms_min=criteria.bedrooms_min if criteria is not None else None,
+    )
     return list(result or [])
 
 
@@ -489,7 +551,7 @@ def _raw_alerts_from_state() -> list[dict[str, Any]]:
 def _reset_filter_state(filters: RadarFiltersViewModel) -> None:
     st.session_state[FILTER_COMUNA_KEY] = "Todas"
     st.session_state[FILTER_PRICE_KEY] = filters.default_price_range_uf
-    st.session_state[FILTER_TYPE_KEY] = "Todos"
+    st.session_state[FILTER_TYPE_KEY] = RADAR_SCOPE_PROPERTY_TYPE
     st.session_state[FILTER_BEDROOMS_KEY] = "Todos"
     st.session_state[FILTER_SCORE_KEY] = filters.default_min_score
     st.session_state[FILTER_SORT_KEY] = "score_desc"
@@ -547,7 +609,7 @@ def _secondary_caption(view_model: RadarViewModel) -> str:
 def _filters_caption(filters: RadarFiltersViewModel) -> str:
     if filters.is_demo:
         return "Filtros aplicados solo sobre fixtures demo/lab; no consultan backend."
-    return "Filtros client-side sobre oportunidades reales ya cargadas del backend."
+    return "Dormitorios se consulta al backend; los demas filtros se aplican sobre los resultados cargados."
 
 
 def _empty_title(view_model: RadarViewModel) -> str:
@@ -569,10 +631,14 @@ def _saving_caption(item: RadarOpportunityViewModel) -> str:
 
 
 def _third_fact_label(item: RadarOpportunityViewModel) -> str:
+    if not item.is_demo and item.uf_rate_used:
+        return "UF usada"
     return "Tiempo" if item.is_demo else "Comparables"
 
 
 def _third_fact_value(item: RadarOpportunityViewModel) -> str:
+    if not item.is_demo and item.uf_rate_used:
+        return _format_clp_rate(item.uf_rate_used)
     return f"{item.days_on_market} dias" if item.is_demo else "ver reporte"
 
 
@@ -585,11 +651,42 @@ def _publication_link(item: RadarOpportunityViewModel) -> str:
     )
 
 
-def _format_uf(value: float) -> str:
+def _format_program(item: RadarOpportunityViewModel) -> str:
+    return f"{_format_bedrooms(item)} / {_format_bathrooms(item)}"
+
+
+def _format_bedrooms(item: RadarOpportunityViewModel) -> str:
+    if item.bedrooms is None:
+        return "N/D"
+    if item.bedrooms == 0:
+        return "Studio" if _is_explicit_studio(item) else "N/D"
+    return f"{item.bedrooms}D"
+
+
+def _format_bathrooms(item: RadarOpportunityViewModel) -> str:
+    if item.bathrooms is None or item.bathrooms <= 0:
+        return "N/D"
+    return f"{item.bathrooms}B"
+
+
+def _is_explicit_studio(item: RadarOpportunityViewModel) -> bool:
+    text = f"{item.title} {item.property_type} {item.property_type_slug}".lower()
+    return any(token in text for token in ("studio", "estudio", "monoambiente"))
+
+
+def _format_uf(value: float | None) -> str:
+    if value is None:
+        return "N/D"
     return f"UF {_format_number(value)}"
 
 
+def _format_clp_rate(value: float) -> str:
+    return f"${_format_number(value)}"
+
+
 def _format_uf_m2(value: float) -> str:
+    if value <= 0:
+        return "N/D"
     return f"UF {value:.1f}/m2".replace(".", ",")
 
 
@@ -597,12 +694,45 @@ def _format_m2(value: float) -> str:
     return f"{value:.0f} m2"
 
 
-def _format_pct(value: float) -> str:
+def _format_pct(value: float | None) -> str:
+    if value is None:
+        return "N/D"
     return f"{value:.1f}%".replace(".", ",")
 
 
 def _format_number(value: float) -> str:
     return f"{value:,.0f}".replace(",", ".")
+
+
+def _format_score_value(value: int | float | None) -> str:
+    if value is None:
+        return "N/D"
+    return str(round(float(value)))
+
+
+def _discount_chip_label(item: RadarOpportunityViewModel) -> str:
+    if item.discount_pct is None:
+        return "Descuento N/D"
+    return f"-{_format_pct(item.discount_pct)} bajo mercado"
+
+
+def _source_label(source_state: str) -> str:
+    return "real" if source_state == "real" else "demo/lab"
+
+
+def _map_badge(map_model: RadarMapViewModel) -> str:
+    if map_model.is_demo:
+        return "Mapa demo/lab"
+    if map_model.status == "available":
+        return f"{map_model.reliable_points_count} puntos reales"
+    return "Sin coordenadas confiables"
+
+
+def _zone_detail(item: RadarHotZoneViewModel) -> str:
+    sample = f"n={item.sample_size}"
+    discount = f"desc. {_format_pct(item.median_discount_pct)}"
+    basis = "muestra baja" if item.status == "sample_low" else item.basis
+    return f"{sample} | {discount} | {basis}"
 
 
 def _sparkline_svg(values: tuple[int, ...]) -> str:
@@ -1070,6 +1200,29 @@ def inject_radar_styles() -> None:
             font-size: 0.76rem;
         }
 
+        .avm-radar-map-empty {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            align-content: center;
+            justify-items: center;
+            gap: 0.28rem;
+            padding: 1rem;
+            text-align: center;
+            z-index: 2;
+        }
+
+        .avm-radar-map-empty strong {
+            color: #ffffff;
+            font-size: 0.86rem;
+        }
+
+        .avm-radar-map-empty p {
+            color: var(--avm-neo-muted);
+            font-size: 0.68rem;
+            margin: 0;
+        }
+
         .avm-radar-map-label {
             position: absolute;
             color: rgba(229, 239, 255, 0.82);
@@ -1189,6 +1342,13 @@ def inject_radar_styles() -> None:
         .avm-radar-zone b {
             color: #ffffff;
             font-size: 0.74rem;
+        }
+
+        .avm-radar-zone small {
+            color: var(--avm-neo-muted);
+            font-size: 0.6rem;
+            line-height: 1.2;
+            text-align: right;
         }
 
         .avm-radar-change {

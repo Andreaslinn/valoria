@@ -10,13 +10,14 @@ Convenciones:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -172,6 +173,156 @@ class PriceHistoryORM(Base):
     )
 
 
+class UFRateORM(Base):
+    __tablename__ = "uf_rates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, unique=True, index=True)
+    value_clp: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint("value_clp > 0", name="positive_uf_value_clp"),
+    )
+
+
+class PortfolioItemValuationSnapshotORM(Base):
+    __tablename__ = "portfolio_item_valuation_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"), nullable=False, index=True)
+    watchlist_item_id: Mapped[int | None] = mapped_column(ForeignKey("saved_listings.id", ondelete="SET NULL"), index=True)
+    valuation_id: Mapped[int | None] = mapped_column(Integer)
+    estimated_value_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    estimated_value_clp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    lower_bound_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    upper_bound_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    confidence: Mapped[str | None] = mapped_column(String(32))
+    engine_name: Mapped[str | None] = mapped_column(String(64))
+    engine_version: Mapped[str | None] = mapped_column(String(64))
+    valuation_source: Mapped[str] = mapped_column(String(64), nullable=False)
+    valuation_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    unavailable_reason: Mapped[str | None] = mapped_column(String(128))
+    published_price_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    published_price_clp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    delta_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    delta_pct: Mapped[float | None] = mapped_column(Float)
+    delta_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    delta_unavailable_reason: Mapped[str | None] = mapped_column(String(128))
+    data_freshness_status: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_portfolio_item_snapshots_user_created", "user_id", "snapshot_at"),
+        Index("ix_portfolio_item_snapshots_listing_created", "listing_id", "snapshot_at"),
+        CheckConstraint(
+            "estimated_value_uf IS NULL OR estimated_value_uf > 0",
+            name="ck_portfolio_item_snapshot_positive_estimated_uf",
+        ),
+        CheckConstraint(
+            "estimated_value_clp IS NULL OR estimated_value_clp > 0",
+            name="ck_portfolio_item_snapshot_positive_estimated_clp",
+        ),
+    )
+
+
+class PortfolioAggregateSnapshotORM(Base):
+    __tablename__ = "portfolio_aggregate_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    total_estimated_value_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    average_estimated_value_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    total_published_price_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    total_upside_uf: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    average_delta_pct: Mapped[float | None] = mapped_column(Float)
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    coverage_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    unavailable_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_portfolio_aggregate_user_snapshot_at", "user_id", "snapshot_at"),
+        CheckConstraint("item_count >= 0", name="ck_portfolio_aggregate_item_count_non_negative"),
+        CheckConstraint("coverage_count >= 0", name="ck_portfolio_aggregate_coverage_count_non_negative"),
+        CheckConstraint("unavailable_count >= 0", name="ck_portfolio_aggregate_unavailable_count_non_negative"),
+    )
+
+
+class PortfolioComparisonORM(Base):
+    __tablename__ = "portfolio_comparisons"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="Comparacion de Portafolio")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", server_default="draft", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[UserORM] = relationship(back_populates="portfolio_comparisons")
+    items: Mapped[list[PortfolioComparisonItemORM]] = relationship(
+        back_populates="comparison",
+        cascade="all, delete-orphan",
+        order_by="PortfolioComparisonItemORM.position",
+    )
+
+    __table_args__ = (
+        Index("ix_portfolio_comparisons_user_updated", "user_id", "updated_at"),
+    )
+
+
+class PortfolioComparisonItemORM(Base):
+    __tablename__ = "portfolio_comparison_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    comparison_id: Mapped[int] = mapped_column(
+        ForeignKey("portfolio_comparisons.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id", ondelete="CASCADE"), nullable=False, index=True)
+    watchlist_item_id: Mapped[int | None] = mapped_column(ForeignKey("saved_listings.id", ondelete="SET NULL"), index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    comparison: Mapped[PortfolioComparisonORM] = relationship(back_populates="items")
+    listing: Mapped[ListingORM] = relationship()
+    watchlist_item: Mapped[SavedListingORM | None] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("comparison_id", "listing_id", name="uq_portfolio_comparison_listing"),
+        UniqueConstraint("comparison_id", "position", name="uq_portfolio_comparison_position"),
+        CheckConstraint("position >= 1 AND position <= 4", name="ck_portfolio_comparison_position_range"),
+    )
+
+
 class AlertORM(Base):
     __tablename__ = "alerts"
 
@@ -212,6 +363,9 @@ class UserORM(Base, TimestampMixin):
         back_populates="user", cascade="all, delete-orphan"
     )
     usage_logs: Mapped[list[UsageLogORM]] = relationship(back_populates="user")
+    portfolio_comparisons: Mapped[list[PortfolioComparisonORM]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 # ─────────────────────────────────────────────────────────

@@ -7,14 +7,20 @@ from ui.api_client import ApiError
 from ui.redesign import tasar_playground_adapter as adapter
 from ui.redesign.tasar_playground import (
     DEFAULT_COMUNA_SLUG,
+    NAV_ITEMS,
     UNKNOWN_PREFILL_COMUNA_KEY,
     _apply_url_prefill_to_tasar_state,
     _comuna_for_payload,
     _comuna_index,
     _first_present,
+    _load_recent_user_activity,
+    _normalize_price_trend_for_chart,
     _resolve_comuna_slug,
+    _trend_reason_label,
+    render_recent_activity,
 )
 from ui.redesign.tasar_playground_adapter import (
+    build_tasar_risk_report_contract,
     get_tasar_payload_from_form,
     map_valuation_response_to_view_model,
     run_valuation_for_tasar,
@@ -39,6 +45,35 @@ class FailingClient:
     def create_valuation(self, payload: dict, token: str | None = None) -> dict:
         self.calls.append((payload, token))
         raise ApiError("Backend real caido", status_code=503)
+
+
+class ActivityClient:
+    def __init__(self, response: dict | None = None, error: ApiError | None = None) -> None:
+        self.response = response or {"status": "empty", "events": []}
+        self.error = error
+        self.calls: list[tuple[str | None, int]] = []
+
+    def get_tasar_recent_activity(self, *, token: str | None = None, limit: int = 3) -> dict:
+        self.calls.append((token, limit))
+        if self.error is not None:
+            raise self.error
+        return self.response
+
+
+class DummyContainer:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_tasar_playground_navigation_matches_dashboard_layout_targets() -> None:
+    labels = [label for _slug, label, _page in NAV_ITEMS]
+    pages = [page for _slug, _label, page in NAV_ITEMS]
+
+    assert labels == ["Tasar propiedad", "Radar premium", "Portafolio", "Alertas"]
+    assert pages == ["Tasar propiedad", "Radar", "Portafolio", "Alertas Lab"]
 
 
 def test_get_tasar_payload_from_form_reuses_legacy_contract_for_apartment() -> None:
@@ -185,6 +220,80 @@ def test_url_prefill_unknown_comuna_keeps_selector_valid_and_sets_warning() -> N
     assert st.session_state[UNKNOWN_PREFILL_COMUNA_KEY] == "Marte Centro"
 
 
+def test_load_recent_user_activity_uses_real_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = ActivityClient({"status": "partial", "events": [{"title": "Tasaste una propiedad"}]})
+    monkeypatch.setattr("ui.redesign.tasar_playground.get_token", lambda: "token-123")
+
+    activity = _load_recent_user_activity(client)  # type: ignore[arg-type]
+
+    assert activity["status"] == "partial"
+    assert client.calls == [("token-123", 3)]
+
+
+def test_load_recent_user_activity_handles_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = ActivityClient(error=ApiError("Backend caido", status_code=503))
+    monkeypatch.setattr("ui.redesign.tasar_playground.get_token", lambda: "token-123")
+
+    activity = _load_recent_user_activity(client)  # type: ignore[arg-type]
+
+    assert activity["status"] == "not_available"
+    assert activity["events"] == []
+
+
+def test_recent_activity_panel_renders_real_user_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: dict[str, list] = {"headers": [], "badges": [], "html": []}
+    monkeypatch.setattr("ui.redesign.tasar_playground.st.container", lambda **kwargs: DummyContainer())
+    monkeypatch.setattr(
+        "ui.redesign.tasar_playground.render_panel_header",
+        lambda title, action: calls["headers"].append((title, action)),
+    )
+    monkeypatch.setattr(
+        "ui.redesign.tasar_playground.render_status_badge",
+        lambda *args: calls["badges"].append(args),
+    )
+    monkeypatch.setattr("ui.redesign.tasar_playground.render_html", lambda html: calls["html"].append(html))
+
+    render_recent_activity(
+        {
+            "status": "partial",
+            "events": [
+                {
+                    "event_type": "valuation_created",
+                    "title": "Tasaste una propiedad",
+                    "description": "Departamento en Providencia · UF 6.294",
+                    "occurred_at": "2026-06-25T10:28:00Z",
+                }
+            ],
+        }
+    )
+
+    markup = "\n".join(calls["html"])
+    assert calls["headers"] == [("Actividad reciente", "Historial parcial")]
+    assert calls["badges"] == []
+    assert "Tasaste una propiedad" in markup
+    assert "Departamento en Providencia" in markup
+    assert "Coming soon" not in markup
+
+
+def test_recent_activity_panel_renders_honest_empty_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: dict[str, list] = {"headers": [], "badges": []}
+    monkeypatch.setattr("ui.redesign.tasar_playground.st.container", lambda **kwargs: DummyContainer())
+    monkeypatch.setattr(
+        "ui.redesign.tasar_playground.render_panel_header",
+        lambda title, action: calls["headers"].append((title, action)),
+    )
+    monkeypatch.setattr(
+        "ui.redesign.tasar_playground.render_status_badge",
+        lambda *args: calls["badges"].append(args),
+    )
+
+    render_recent_activity({"status": "empty", "events": []})
+
+    assert calls["headers"] == [("Actividad reciente", "Sin actividad")]
+    assert calls["badges"][0][1] == "empty"
+    assert "No hay actividad reciente registrada" in calls["badges"][0][2]
+
+
 def test_run_valuation_for_tasar_real_calls_api_client_with_token() -> None:
     payload = {"comuna": "providencia", "m2": 75.0}
     client = FakeClient({"estimated_price_uf": 6200, "confidence": "high"})
@@ -276,6 +385,8 @@ def test_map_valuation_response_to_view_model_maps_real_backend_fields() -> None
     assert view_model.confidence_score == 0.87
     assert view_model.comparable_count == 1
     assert view_model.warnings == ("low_data_mode",)
+    assert view_model.warning_summary.count == 1
+    assert view_model.warning_summary.details[0].human_label == "Muestra de datos limitada"
     assert view_model.comparables[0].title == "Suecia 150"
     assert view_model.comparables[0].price_uf == 6900.0
 
@@ -343,6 +454,145 @@ def test_map_valuation_response_to_view_model_accepts_aliases_and_nested_range()
     assert view_model.comparables[0].url == "https://example.test/listing/2"
 
 
+def test_map_valuation_response_keeps_raw_warnings_and_adds_technical_details() -> None:
+    response = {
+        "estimated_price_uf": 5200,
+        "warnings": ["poor_geocoding_comparables", "future_backend_warning"],
+    }
+
+    view_model = map_valuation_response_to_view_model(response, source="real")
+
+    assert view_model is not None
+    assert view_model.warnings == ("poor_geocoding_comparables", "future_backend_warning")
+    assert view_model.raw["warnings"] == ["poor_geocoding_comparables", "future_backend_warning"]
+    assert view_model.warning_summary.count == 2
+    assert [detail.code for detail in view_model.warning_summary.details] == [
+        "poor_geocoding_comparables",
+        "future_backend_warning",
+    ]
+    assert view_model.warning_summary.details[0].human_label == "Comparables con ubicacion debil"
+    assert view_model.warning_summary.details[1].known is False
+
+
+def test_location_intelligence_available_uses_real_backend_fields() -> None:
+    response = {
+        "estimated_price_uf": 5200,
+        "comuna": "providencia",
+        "geocoding_precision": "address",
+        "lat": -33.42,
+        "lon": -70.61,
+        "microzone": "metro:los_leones",
+        "comparable_count": 20,
+        "comparable_quality_level": "strong",
+        "comparable_quality_metrics": {
+            "address_level_geo_ratio": 0.82,
+            "same_microzone_ratio": 0.64,
+        },
+        "geo_signals": {"metro": "Los Leones", "park": None},
+        "warnings": [],
+    }
+
+    view_model = map_valuation_response_to_view_model(response, payload={"comuna": "providencia"}, source="real")
+
+    assert view_model is not None
+    location = view_model.location_intelligence
+    assert location.status == "available"
+    assert location.comuna == "providencia"
+    assert location.coordinates == (-33.42, -70.61)
+    assert location.geocoding_precision == "address"
+    assert location.microzone_status == "available"
+    assert location.comparable_count == 20
+    assert location.comparable_location_quality == "alta"
+    assert location.geo_signals == ("Los Leones", "metro:los_leones")
+    assert location.reasons == ()
+
+
+def test_location_intelligence_partial_translates_location_warnings() -> None:
+    response = {
+        "estimated_price_uf": 5200,
+        "comparable_count": 5,
+        "warnings": ["weak_microzone", "poor_geocoding_comparables"],
+        "comparable_quality_metrics": {"address_level_geo_ratio": 0.28},
+    }
+
+    view_model = map_valuation_response_to_view_model(response, payload={"comuna": "nunoa"}, source="real")
+
+    assert view_model is not None
+    location = view_model.location_intelligence
+    assert location.status == "partial"
+    assert location.comuna == "nunoa"
+    assert location.microzone_status == "limited"
+    assert location.comparable_location_quality == "baja"
+    assert [warning.human_label for warning in location.location_warnings] == [
+        "Microzona limitada",
+        "Comparables con ubicacion debil",
+    ]
+    assert "weak_microzone" not in location.summary
+    assert "poor_geocoding_comparables" not in location.summary
+
+
+def test_location_intelligence_not_available_has_honest_reasons() -> None:
+    view_model = map_valuation_response_to_view_model({"estimated_price_uf": 5200}, source="real")
+
+    assert view_model is not None
+    location = view_model.location_intelligence
+    assert location.status == "not_available"
+    assert location.summary == "Inteligencia local no disponible para esta tasacion."
+    assert {
+        "no_geocoding_data",
+        "no_microzone_data",
+        "no_geo_signals",
+        "insufficient_location_coverage",
+    }.issubset(set(location.reasons))
+
+
+def test_location_intelligence_does_not_treat_demo_fixture_as_real_data() -> None:
+    view_model = map_valuation_response_to_view_model(
+        {
+            "estimated_price_uf": 5200,
+            "source": "demo",
+            "comuna": "providencia",
+            "geo_signals": {"metro": "Los Leones"},
+        },
+        source="demo",
+    )
+
+    assert view_model is not None
+    location = view_model.location_intelligence
+    assert location.status == "not_available"
+    assert location.geo_signals == ()
+    assert location.reasons == ("demo_data_not_used_as_real_location_intelligence",)
+
+
+def test_price_trend_contract_normalizes_to_existing_chart_data() -> None:
+    trend = _normalize_price_trend_for_chart(
+        {
+            "status": "partial",
+            "period_months": 12,
+            "points": [
+                {"month": "2026-01", "median_price_m2_uf": 80.0, "sample_count": 3},
+                {"month": "2026-02", "median_price_m2_uf": 82.5, "sample_count": 4},
+            ],
+            "latest_value": 82.5,
+            "coverage_count": 7,
+            "source": "price_history",
+        }
+    )
+
+    assert trend["title"] == "Tendencia de precio (UF/m2)"
+    assert trend["period"] == "12 meses"
+    assert trend["values"] == [80.0, 82.5]
+    assert trend["labels"] == ["2026-01", "2026-02"]
+    assert trend["status"] == "partial"
+
+
+def test_price_trend_not_available_reason_is_human_readable() -> None:
+    assert (
+        _trend_reason_label({"reasons": ["insufficient_monthly_points"]})
+        == "Faltan puntos mensuales reales."
+    )
+
+
 def test_map_valuation_response_without_comparables_keeps_empty_list() -> None:
     response = {
         "estimated_price_uf": 7084.45,
@@ -359,3 +609,135 @@ def test_map_valuation_response_without_comparables_keeps_empty_list() -> None:
     assert view_model.is_demo is False
     assert view_model.comparable_count == 0
     assert view_model.comparables == ()
+
+
+def test_tasar_risk_report_contract_uses_real_html_generator() -> None:
+    payload = {
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "m2": 75.0,
+        "built_area_m2": 75.0,
+        "precio_publicado_uf": 4500.0,
+    }
+    response = {
+        "estimated_price_uf": 5200.0,
+        "estimated_price_clp": 205_000_000,
+        "price_range_low_uf": 4900.0,
+        "price_range_high_uf": 5500.0,
+        "confidence": "medium",
+        "comparable_count": 1,
+        "price_m2_uf": 69.33,
+        "warnings": [],
+        "comparables": [
+            {
+                "listing_id": 10,
+                "title": "Comparable",
+                "comuna": "nunoa",
+                "price_uf": 5100.0,
+                "m2": 74.0,
+                "similarity": 0.82,
+            }
+        ],
+    }
+    view_model = map_valuation_response_to_view_model(response, payload=payload, source="real")
+
+    contract = build_tasar_risk_report_contract(view_model, payload=payload)
+
+    assert contract.risk_report_available is True
+    assert contract.risk_report_status == "available"
+    assert contract.required_data == ()
+    assert contract.source == "ui.components.risk_report_html"
+    assert contract.risk_report_html is not None
+    assert contract.investment_report_html == contract.risk_report_html
+    assert contract.listing_report_html is None
+    assert contract.investment_file_name is not None
+    assert contract.investment_file_name.startswith("investment_intelligence_report_nunoa_")
+    assert "Investment Intelligence Report" in contract.risk_report_html
+    assert "Valuation Analysis" in contract.risk_report_html
+
+
+def test_tasar_risk_report_contract_generates_dual_reports_for_listing_context() -> None:
+    payload = {
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "m2": 75.0,
+        "built_area_m2": 75.0,
+        "precio_publicado_uf": 4500.0,
+    }
+    response = {
+        "estimated_price_uf": 5200.0,
+        "estimated_price_clp": 205_000_000,
+        "confidence": "medium",
+        "comparable_count": 2,
+        "warnings": ["publication_history_missing", "single_source_comparables"],
+        "comparables": [{"title": "Comparable", "price_uf": 5100.0, "m2": 74.0}],
+    }
+    lookup = {
+        "url": "https://example.test/listing/123",
+        "source": "portal",
+        "listing_id": 123,
+        "listing_data": {
+            "listing_id": 123,
+            "url": "https://example.test/listing/123",
+            "source": "portal",
+        },
+    }
+    view_model = map_valuation_response_to_view_model(response, payload=payload, source="real")
+
+    contract = build_tasar_risk_report_contract(view_model, payload=payload, lookup_result=lookup)
+
+    assert contract.risk_report_available is True
+    assert contract.investment_report_html is not None
+    assert contract.listing_report_html is not None
+    assert contract.investment_file_name is not None
+    assert contract.listing_file_name is not None
+    assert contract.investment_file_name.startswith("investment_intelligence_report_nunoa_")
+    assert contract.listing_file_name.startswith("listing_risk_report_nunoa_")
+    assert "Investment Intelligence Report" in contract.investment_report_html
+    assert "Listing Risk / Opportunity Report" in contract.listing_report_html
+    assert "Historial de publicacion incompleto" not in contract.investment_report_html
+    assert "Historial de publicacion incompleto" in contract.listing_report_html
+
+
+def test_tasar_risk_report_contract_requires_valuation_before_result() -> None:
+    contract = build_tasar_risk_report_contract(None, payload={"comuna": "nunoa"})
+
+    assert contract.risk_report_available is False
+    assert contract.risk_report_status == "requires_valuation"
+    assert contract.risk_report_html is None
+    assert contract.required_data == ("valuation_result",)
+
+
+def test_tasar_risk_report_contract_does_not_generate_from_demo() -> None:
+    view_model = map_valuation_response_to_view_model(
+        {"estimated_price_uf": 5200.0, "is_demo": True, "source": "demo", "comparables": [{"price_uf": 5100}]},
+        payload={"comuna": "nunoa", "m2": 75.0},
+        source="demo",
+    )
+
+    contract = build_tasar_risk_report_contract(view_model, payload={"comuna": "nunoa", "m2": 75.0})
+
+    assert contract.risk_report_available is False
+    assert contract.risk_report_status == "not_available"
+    assert contract.required_data == ("real_valuation_result",)
+
+
+def test_tasar_risk_report_contract_requires_comparables_for_real_report() -> None:
+    view_model = map_valuation_response_to_view_model(
+        {
+            "estimated_price_uf": 5200.0,
+            "estimated_price_clp": 205_000_000,
+            "confidence": "medium",
+            "comparable_count": 0,
+            "comparables": [],
+        },
+        payload={"comuna": "nunoa", "m2": 75.0},
+        source="real",
+    )
+
+    contract = build_tasar_risk_report_contract(view_model, payload={"comuna": "nunoa", "m2": 75.0})
+
+    assert contract.risk_report_available is False
+    assert contract.risk_report_status == "requires_comparables"
+    assert contract.risk_report_html is None
+    assert contract.required_data == ("comparables",)

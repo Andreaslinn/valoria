@@ -8,6 +8,7 @@ Estrategia:
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest_asyncio
@@ -18,9 +19,10 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 
-from api.v1 import health as health_router
 from api.main import create_app
-from api.security import hash_password
+from api.security import hash_password, verify_password
+from api.v1 import health as health_router
+from config import get_settings
 from core.entities.user import User
 from infrastructure.db.database import get_db
 from infrastructure.db.repositories import SqlAlchemyUserRepository
@@ -44,6 +46,34 @@ async def client(
 
     app = create_app()
     app.dependency_overrides[get_db] = _get_db_override
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+@asynccontextmanager
+async def _client_with_signup(
+    engine: AsyncEngine,
+    *,
+    enabled: bool,
+) -> AsyncGenerator[httpx.AsyncClient, None]:
+    session_factory = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+
+    async def _get_db_override() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as s:
+            try:
+                yield s
+            except Exception:
+                await s.rollback()
+                raise
+
+    app = create_app()
+    app.dependency_overrides[get_db] = _get_db_override
+    settings = get_settings().model_copy(update={"beta_signup_enabled": enabled})
+    app.dependency_overrides[get_settings] = lambda: settings
 
     transport = ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
@@ -173,6 +203,72 @@ class TestLogin:
 # ─────────────────────────────────────────────────────────
 #  GET /api/v1/auth/me
 # ─────────────────────────────────────────────────────────
+class TestRegister:
+    async def test_signup_disabled_returns_403(self, engine: AsyncEngine):
+        async with _client_with_signup(engine, enabled=False) as client:
+            resp = await client.post(
+                "/api/v1/auth/register",
+                json={"email": "beta@example.com", "password": "passwordsegura123"},
+            )
+
+        assert resp.status_code == 403
+
+    async def test_signup_enabled_creates_normal_user_that_can_login(
+        self,
+        engine: AsyncEngine,
+    ):
+        async with _client_with_signup(engine, enabled=True) as client:
+            resp = await client.post(
+                "/api/v1/auth/register",
+                json={"email": "  Beta.User@Example.com  ", "password": "passwordsegura123"},
+            )
+            assert resp.status_code == 201
+            body = resp.json()
+            assert body["email"] == "beta.user@example.com"
+            assert body["role"] == "beta_user"
+            assert body["is_active"] is True
+            assert "password" not in body
+            assert "password_hash" not in body
+
+            duplicate = await client.post(
+                "/api/v1/auth/register",
+                json={"email": "beta.user@example.com", "password": "passwordsegura123"},
+            )
+            assert duplicate.status_code == 409
+
+            login = await client.post(
+                "/api/v1/auth/login",
+                data={"username": "beta.user@example.com", "password": "passwordsegura123"},
+            )
+            assert login.status_code == 200
+
+            me = await client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+            )
+            assert me.status_code == 200
+            assert me.json()["role"] == "beta_user"
+
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with factory() as s:
+            user = await SqlAlchemyUserRepository(s).find_by_email("beta.user@example.com")
+
+        assert user is not None
+        assert user.is_admin is False
+        assert user.password_hash != "passwordsegura123"
+        assert user.password_hash.startswith("$2")
+        assert verify_password("passwordsegura123", user.password_hash)
+
+    async def test_signup_rejects_short_password(self, engine: AsyncEngine):
+        async with _client_with_signup(engine, enabled=True) as client:
+            resp = await client.post(
+                "/api/v1/auth/register",
+                json={"email": "beta@example.com", "password": "short"},
+            )
+
+        assert resp.status_code == 400
+
+
 class TestMe:
     async def test_without_token_returns_401(self, client: httpx.AsyncClient):
         resp = await client.get("/api/v1/auth/me")

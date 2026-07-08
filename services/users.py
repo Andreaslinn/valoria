@@ -59,6 +59,9 @@ class UserService:
             await self._session.commit()
         return user
 
+    async def find_by_email(self, email: str) -> User | None:
+        return await self._repo.find_by_email(validate_email(email))
+
     async def list_users(self) -> list[User]:
         return await self._repo.list_users()
 

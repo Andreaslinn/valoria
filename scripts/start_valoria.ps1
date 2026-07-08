@@ -135,6 +135,27 @@ function Test-HttpOk {
   return ($response -and [int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 500)
 }
 
+function Test-DashboardRoutesRegistered {
+  $response = Invoke-HttpGet -Uri "http://127.0.0.1:8000/openapi.json"
+  if (-not $response) {
+    return $false
+  }
+
+  $content = [string]$response.Content
+  $requiredRoutes = @(
+    "/api/v1/market/briefing",
+    "/api/v1/market/liquidity/summary",
+    "/api/v1/market/microzones/summary",
+    "/api/v1/radar/summary"
+  )
+  foreach ($route in $requiredRoutes) {
+    if (-not $content.Contains($route)) {
+      return $false
+    }
+  }
+  return $true
+}
+
 function Test-FrontendLooksLikeNext {
   param([string]$Uri)
   $response = Invoke-HttpGet -Uri $Uri
@@ -256,12 +277,16 @@ function Start-Backend {
   Write-Step "Backend FastAPI"
 
   if (Test-PortOpen -Port 8000) {
-    if ((Test-HttpOk -Uri "http://127.0.0.1:8000/health") -and (Test-HttpOk -Uri "http://127.0.0.1:8000/api/v1/health")) {
-      Write-Ok "Backend already running and healthy on 127.0.0.1:8000"
+    if (
+      (Test-HttpOk -Uri "http://127.0.0.1:8000/health") -and
+      (Test-HttpOk -Uri "http://127.0.0.1:8000/api/v1/health") -and
+      (Test-DashboardRoutesRegistered)
+    ) {
+      Write-Ok "Backend already running and healthy on 127.0.0.1:8000 with dashboard routes registered"
       return
     }
-    Write-Fail "Port 8000 is occupied by $(Get-PortOwnerSummary -Port 8000), but backend health did not pass. Not killing it."
-    throw "Port 8000 occupied by non-healthy service"
+    Write-Fail "Port 8000 is occupied by $(Get-PortOwnerSummary -Port 8000), but backend health/dashboard route checks did not pass. Not killing it."
+    throw "Port 8000 occupied by stale or non-healthy service"
   }
 
   $python = Join-Path $Root ".venv-win\Scripts\python.exe"
@@ -274,12 +299,27 @@ function Start-Backend {
   $apiLogLiteral = ConvertTo-SingleQuotedPowerShellLiteral -Value $apiLog
   $pythonCmd = ConvertTo-CmdQuoted -Value $python
   $apiLogCmd = ConvertTo-CmdQuoted -Value $apiLog
+  $qualityV2Mode = Read-DotEnvValue -Name "VALUATION_QUALITY_V2_APPLY_MODE" -Default "guarded"
+  $qualityV2AllowedTypes = Read-DotEnvValue -Name "VALUATION_QUALITY_V2_ALLOWED_PROPERTY_TYPES" -Default "apartment"
+  $qualityV2BlockedComunas = Read-DotEnvValue -Name "VALUATION_QUALITY_V2_BLOCKED_COMUNAS" -Default "estacion central,la reina,macul"
+  $qualityV2RiskComunas = Read-DotEnvValue -Name "VALUATION_QUALITY_V2_P90_RISK_COMUNAS" -Default "la reina,las condes,maipu,nunoa"
+  $qualityV2MinComparables = Read-DotEnvValue -Name "VALUATION_QUALITY_V2_MIN_VALID_COMPARABLES" -Default "5"
+  $qualityV2MaxDispersion = Read-DotEnvValue -Name "VALUATION_QUALITY_V2_MAX_POOL_DISPERSION" -Default "75"
+  $qualityV2MaxDelta = Read-DotEnvValue -Name "VALUATION_QUALITY_V2_MAX_DELTA_VS_BASELINE_PCT" -Default "0.25"
   $uvicornCmdLine = "$pythonCmd -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload 1>> $apiLogCmd 2>>&1"
   $uvicornCmdLineLiteral = ConvertTo-SingleQuotedPowerShellLiteral -Value $uvicornCmdLine
   $runner = Write-RunnerScript -Name "valoria-api-runner" -Lines @(
     "`$ErrorActionPreference = 'Stop'",
     "Set-Location $rootLiteral",
+    "`$env:VALUATION_QUALITY_V2_APPLY_MODE = '$qualityV2Mode'",
+    "`$env:VALUATION_QUALITY_V2_ALLOWED_PROPERTY_TYPES = '$qualityV2AllowedTypes'",
+    "`$env:VALUATION_QUALITY_V2_BLOCKED_COMUNAS = '$qualityV2BlockedComunas'",
+    "`$env:VALUATION_QUALITY_V2_P90_RISK_COMUNAS = '$qualityV2RiskComunas'",
+    "`$env:VALUATION_QUALITY_V2_MIN_VALID_COMPARABLES = '$qualityV2MinComparables'",
+    "`$env:VALUATION_QUALITY_V2_MAX_POOL_DISPERSION = '$qualityV2MaxDispersion'",
+    "`$env:VALUATION_QUALITY_V2_MAX_DELTA_VS_BASELINE_PCT = '$qualityV2MaxDelta'",
     "Write-Host 'Starting Valoria FastAPI on http://127.0.0.1:8000'",
+    "Write-Host 'CQ v2 mode: ' `$env:VALUATION_QUALITY_V2_APPLY_MODE",
     "Write-Host 'Log: $apiLog'",
     "Add-Content -Path $apiLogLiteral -Value ('--- Valoria FastAPI starting at ' + (Get-Date -Format o) + ' ---')",
     "`$cmdLine = $uvicornCmdLineLiteral",
@@ -295,6 +335,10 @@ function Start-Backend {
   Start-RunnerWindow -Title "Valoria API" -RunnerPath $runner
   [void](Wait-HttpOk -Uri "http://127.0.0.1:8000/health" -TimeoutSeconds $BackendTimeoutSeconds -Name "Backend /health")
   [void](Wait-HttpOk -Uri "http://127.0.0.1:8000/api/v1/health" -TimeoutSeconds 10 -Name "Backend /api/v1/health")
+  if (-not (Test-DashboardRoutesRegistered)) {
+    throw "Backend started, but dashboard summary routes are missing from OpenAPI"
+  }
+  Write-Ok "Dashboard summary routes registered in OpenAPI"
 }
 
 function Start-Frontend {

@@ -121,7 +121,7 @@ def build_enrichment_validation(
             "microzones_persisted": 0,
             "land_area_updated": 0,
             "duplicates_deleted": 0,
-            "uf_37000_operational": False,
+            "legacy_uf_artifact_operational": False,
             "benchmark_default_changed": False,
         },
     }

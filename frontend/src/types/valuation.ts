@@ -61,6 +61,38 @@ export type ValuationEngineResult = {
   safe_error_message?: string | null;
 };
 
+export type ValuationVerdict = {
+  estimate_uf?: number | null;
+  low_uf?: number | null;
+  high_uf?: number | null;
+  confidence?: number | null;
+  explanation?: string | null;
+  source?: "consensus_experimental" | "current_valuation" | string | null;
+  status?: string | null;
+};
+
+export type ValuationEngineBreakdown = {
+  engine_name: string;
+  label?: string | null;
+  role?: string | null;
+  estimate_uf?: number | null;
+  low_uf?: number | null;
+  high_uf?: number | null;
+  confidence?: number | null;
+  weight?: number | null;
+  status: string;
+  explanation?: string | null;
+  warning_flags: string[];
+};
+
+export type ValuationConsensusAudit = {
+  engines_used: string[];
+  engines_abstained: Record<string, string>;
+  engines_failed: Record<string, string>;
+  disagreement_level?: string | number | null;
+  weight_audit: Record<string, unknown>[];
+};
+
 export type ValuationResponse = {
   base_estimated_price_uf?: number | null;
   base_estimated_price_clp?: number | null;
@@ -92,4 +124,8 @@ export type ValuationResponse = {
   engine_results: ValuationEngineResult[];
   selected_engine_names: string[];
   consensus_method?: string | null;
+  valuation_verdict?: ValuationVerdict | null;
+  engine_breakdown: ValuationEngineBreakdown[];
+  consensus_audit?: ValuationConsensusAudit | null;
+  weight_audit: Record<string, unknown>[];
 };

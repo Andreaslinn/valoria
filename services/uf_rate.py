@@ -23,6 +23,9 @@ async def require_real_uf_rate(uf_service: UFService) -> UFRateInfo:
 def validate_real_uf_rate(info: UFRateInfo) -> None:
     if info.is_fallback:
         raise UFServiceError("UF real no disponible: fuente fallback rechazada")
+    if info.is_stale:
+        detail = f": {info.stale_reason}" if info.stale_reason else ""
+        raise UFServiceError(f"UF real no disponible: tasa stale rechazada{detail}")
     source = str(info.source or "").strip().lower()
     if source in {"fallback", "legacy_fallback", "legacy_artifact"}:
         raise UFServiceError("UF real no disponible: fuente historica rechazada")

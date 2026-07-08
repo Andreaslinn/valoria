@@ -124,7 +124,7 @@ def build_enrichment_audit(
             "database_writes": 0,
             "external_requests": 0,
             "apply_mode": False,
-            "uf_37000_operational": False,
+            "legacy_uf_artifact_operational": False,
         },
     }
     csv_rows = {
@@ -483,7 +483,7 @@ def _canonical_recovery_tiers(rows: Sequence[dict[str, Any]], *, total: int) -> 
         "refresh_theoretical_ceiling_pct": _pct(current + refresh, total),
         "recoveries_needed_for_60_pct": needed_for_60,
         "required_refresh_yield_pct": round(100 * needed_for_60 / refresh, 2) if refresh else None,
-        "warning": "legacy UF recovery requires fresh source evidence; old CLP snapshots must not be reverse-engineered with UF 37000",
+        "warning": "legacy UF recovery requires fresh source evidence; old CLP snapshots must not be reverse-engineered with the legacy UF artifact",
     }
 
 

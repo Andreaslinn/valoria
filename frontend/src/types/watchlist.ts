@@ -28,6 +28,13 @@ export type WatchlistItem = {
   source: string;
   listing_status: string;
   captured_at: string;
+  freshness_status?: string | null;
+  last_seen_at?: string | null;
+  last_refreshed_at?: string | null;
+  last_refresh_status?: string | null;
+  freshness_note?: string | null;
+  refresh_attempted?: boolean;
+  refresh_result?: Record<string, unknown> | null;
 };
 
 export type WatchlistStatus = {

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from decimal import Decimal
 from statistics import pstdev
 from typing import Any
@@ -20,9 +20,24 @@ from domain.valuation.beta_scope import assess_beta_scope
 from domain.valuation.canonical_price import ValuationPriceBasis, valuation_price_basis
 from domain.valuation.comparable_quality import assess_comparable_quality
 from domain.valuation.comparables import candidate_discard_reason, score_and_rank
-from domain.valuation.engines.contracts import EngineComparable, EngineContext, EngineRequest, EngineResult, EngineStatus
-from domain.valuation.price_surface import lookup_price_surface, maybe_apply_surface_adjustment, surface_warnings_for_estimate
-from domain.valuation.product_classification import PRODUCT_UNKNOWN, ProductEvidence, classify_product, product_compatibility
+from domain.valuation.engines.contracts import (
+    EngineComparable,
+    EngineContext,
+    EngineRequest,
+    EngineResult,
+    EngineStatus,
+)
+from domain.valuation.price_surface import (
+    lookup_price_surface,
+    maybe_apply_surface_adjustment,
+    surface_warnings_for_estimate,
+)
+from domain.valuation.product_classification import (
+    PRODUCT_UNKNOWN,
+    ProductEvidence,
+    classify_product,
+    product_compatibility,
+)
 from domain.valuation.reliability import assess_comparable_reliability
 from domain.valuation.robust_price_m2 import RobustFilterConfig, robust_filter_listings
 from services.formatting import price_clp_int
@@ -43,10 +58,10 @@ class CanonicalComparableConfig:
     product_hard_filtering_mode: str = "strict"
     min_comparables: int = MIN_COMPARABLES
     top_n: int = TOP_N_COMPARABLES
-    robust_filter: RobustFilterConfig = RobustFilterConfig()
+    robust_filter: RobustFilterConfig = field(default_factory=RobustFilterConfig)
 
     @classmethod
-    def for_variant(cls, variant: str) -> "CanonicalComparableConfig":
+    def for_variant(cls, variant: str) -> CanonicalComparableConfig:
         if variant == "price_only":
             return cls(variant=variant, enable_product_filter=False, enable_robust_filter=False, product_hard_filtering_mode="disabled")
         if variant == "product":
@@ -183,7 +198,7 @@ class ComparablesCanonicalEngine:
             coverage_status=str(extra.get("comparable_quality_level") or ""),
         )
 
-    def _structural_pool(self, target: Property, candidates: Sequence[Listing], diagnostics: "_Diagnostics") -> list[Listing]:
+    def _structural_pool(self, target: Property, candidates: Sequence[Listing], diagnostics: _Diagnostics) -> list[Listing]:
         eligible: list[Listing] = []
         seen: set[str] = set()
         for candidate in candidates:
@@ -200,7 +215,7 @@ class ComparablesCanonicalEngine:
         diagnostics.pool["candidates_structurally_eligible"] = len(eligible)
         return eligible
 
-    def _canonical_price_pool(self, candidates: Sequence[Listing], uf_to_clp: Decimal, diagnostics: "_Diagnostics") -> list[tuple[Listing, ValuationPriceBasis]]:
+    def _canonical_price_pool(self, candidates: Sequence[Listing], uf_to_clp: Decimal, diagnostics: _Diagnostics) -> list[tuple[Listing, ValuationPriceBasis]]:
         result: list[tuple[Listing, ValuationPriceBasis]] = []
         for candidate in candidates:
             basis = valuation_price_basis(candidate, uf_to_clp)
@@ -217,7 +232,7 @@ class ComparablesCanonicalEngine:
         diagnostics.pool["canonical_price_usable"] = len(result)
         return result
 
-    def _product_pool(self, target_product: ProductEvidence, candidates: list[tuple[Listing, ValuationPriceBasis]], diagnostics: "_Diagnostics") -> list[tuple[Listing, ValuationPriceBasis]]:
+    def _product_pool(self, target_product: ProductEvidence, candidates: list[tuple[Listing, ValuationPriceBasis]], diagnostics: _Diagnostics) -> list[tuple[Listing, ValuationPriceBasis]]:
         if not self.config.enable_product_filter:
             for listing, _ in candidates:
                 evidence = classify_product(listing)
@@ -250,7 +265,7 @@ class ComparablesCanonicalEngine:
             diagnostics.warnings.append("product_class_fallback_used")
         return kept
 
-    def _robust_pool(self, target: Property, candidates: list[Listing], diagnostics: "_Diagnostics") -> list[Listing]:
+    def _robust_pool(self, target: Property, candidates: list[Listing], diagnostics: _Diagnostics) -> list[Listing]:
         if not self.config.enable_robust_filter:
             diagnostics.local_reference = {"method": "disabled", "local_sample_count": len(candidates)}
             return candidates
@@ -281,7 +296,7 @@ class ComparablesCanonicalEngine:
         estimate: Decimal,
         uf_to_clp: Decimal,
         request: EngineRequest,
-        diagnostics: "_Diagnostics",
+        diagnostics: _Diagnostics,
     ) -> tuple[int, int, int, float, list[str], dict[str, Any]]:
         range_delta = _range_delta(target, scored)
         low = max(Decimal("0"), estimate - range_delta)
@@ -315,13 +330,17 @@ class ComparablesCanonicalEngine:
             base_score=base_confidence,
             reliability_warnings=reliability.warnings,
         )
-        adjusted_clp = int(round(adjustment.adjusted_estimate))
+        adjusted_clp = round(adjustment.adjusted_estimate)
         delta_clp = adjusted_clp - base_estimated_clp
         low_clp = max(0, price_clp_int(Price(clp=low)) + delta_clp)
         high_clp = max(low_clp, price_clp_int(Price(clp=high)) + delta_clp)
         extra = {
             "base_estimated_price_clp": base_estimated_clp,
             "base_estimated_price_uf": _clp_to_uf(base_estimated_clp, uf_to_clp),
+            "range_low_uf": _clp_to_uf(low_clp, uf_to_clp),
+            "range_high_uf": _clp_to_uf(high_clp, uf_to_clp),
+            "data_quality": comparable_quality.level,
+            "explanation": "Canonical comparable weighted mean price/m2 with price provenance, product and robust filters.",
             "base_confidence": base_confidence.value,
             "confidence_penalties": _confidence_penalties(diagnostics=diagnostics, target=target, selected_count=len(scored)),
             "confidence_label": confidence_contract.confidence_label,

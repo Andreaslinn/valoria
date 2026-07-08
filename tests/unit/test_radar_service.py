@@ -3,21 +3,39 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
 import services.radar as radar_module
+from config import get_settings
 from core.entities.listing import Listing
 from core.entities.opportunity import Opportunity, RadarResult, ValuationResult
 from core.ports.uf_service import UFRateInfo
 from core.value_objects.price import Price
 from core.value_objects.score import Score
-from services.radar import RadarService, calculate_discount_pct, enrich_listing_with_avm
+from domain.radar.freshness import RadarFreshnessConfig
+from domain.radar.price_basis import display_price_uf
+from services.radar import (
+    RadarFilters,
+    RadarService,
+    calculate_discount_pct,
+    enrich_listing_with_avm,
+)
 from tests.unit.factories import make_listing
 
 UF = Decimal("39000")
 MARKET_PRICE = 180_000_000
+NOW = datetime(2026, 6, 29, 12, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _legacy_freshness_for_existing_radar_service_tests(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("RADAR_REQUIRE_FRESH_LISTINGS", "false")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def _market_listings(n: int) -> list:
@@ -53,6 +71,29 @@ def test_discount_pct_estimated_zero() -> None:
 
 def test_discount_pct_listed_none() -> None:
     assert calculate_discount_pct(5000.0, None) is None
+
+
+def test_nataniel_clp_price_uses_current_uf_for_display() -> None:
+    listing = make_listing(
+        fingerprint="nataniel",
+        title="Departamento en Nataniel Cox",
+        price_clp=70_000_000,
+        price_currency="CLP",
+        price_uf_source="scraped",
+        m2=46,
+        bedrooms=2,
+        bathrooms=1,
+        parking=0,
+    )
+
+    assert round(display_price_uf(listing, Decimal("41931.34")), 1) == 1669.4
+
+
+def _fresh_listing(fingerprint: str, *, last_seen_at: datetime) -> Listing:
+    listing = make_listing(fingerprint=fingerprint)
+    listing.url = f"https://example.test/{fingerprint}"
+    listing.last_seen_at = last_seen_at
+    return listing
 
 
 def test_enrich_listing_with_sufficient_comparables() -> None:
@@ -153,6 +194,23 @@ async def test_radar_service_opportunity_includes_avm_enrichment() -> None:
     assert opportunity.price_clp_snapshot == int(MARKET_PRICE * 0.86)
     assert opportunity.price_basis_used == "clp_legacy"
     assert opportunity.price_data_quality == "legacy_unknown_currency"
+    assert opportunity.bedrooms == cheap.bedrooms
+    assert opportunity.bathrooms == cheap.bathrooms
+    assert opportunity.parking == cheap.parking
+    assert opportunity.property_type == "apartment"
+    assert opportunity.source == cheap.source
+    assert opportunity.external_id == cheap.external_id
+    assert opportunity.lat == cheap.coordinates.lat
+    assert opportunity.lon == cheap.coordinates.lon
+    assert opportunity.geocode_precision == cheap.geocode_precision
+    assert opportunity.uf_rate_used == float(UF)
+    assert opportunity.uf_rate_source == "test"
+    assert opportunity.uf_rate_cache_hit is False
+    assert opportunity.uf_rate_stale is False
+    payload = opportunity.to_payload()
+    assert payload["lat"] == cheap.coordinates.lat
+    assert payload["lon"] == cheap.coordinates.lon
+    assert payload["geocode_precision"] == cheap.geocode_precision
 
 
 @pytest.mark.asyncio
@@ -205,6 +263,7 @@ async def test_radar_service_payload_exposes_uf_price_provenance() -> None:
     assert opportunity.price_currency == "UF"
     assert opportunity.price_basis_used == "uf"
     assert opportunity.price_data_quality == "scraped"
+    assert opportunity.price_uf_source == "scraped"
 
 
 @pytest.mark.asyncio
@@ -255,6 +314,7 @@ async def test_radar_service_marks_house_opportunity_low_data_by_type() -> None:
     service = RadarService(
         listing_repo=_FakeListingRepo([cheap_house, *house_market, *_market_listings(50)]),
         uf_service=_FakeUFService(),
+        allowed_property_types=("apartment", "house"),
     )
 
     opportunities = await service.opportunities(limit=5)
@@ -262,6 +322,233 @@ async def test_radar_service_marks_house_opportunity_low_data_by_type() -> None:
     opportunity = next(item for item in opportunities if item.title == "Depto cheap-house")
     assert "low_data_mode" in opportunity.warnings
     assert opportunity.radar_verdict == "revisar"
+
+
+@pytest.mark.asyncio
+async def test_radar_service_filters_houses_before_detector(monkeypatch) -> None:
+    apartment = make_listing(fingerprint="apt", property_type="apartment")
+    house = make_listing(fingerprint="house", property_type="house")
+    captured_property_types: list[str] = []
+
+    def fake_detect(listings, *args, **kwargs):
+        captured_property_types.extend(listing.property_type for listing in listings)
+        return RadarResult(
+            opportunities=[],
+            total_listings_analyzed=len(listings),
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([apartment, house]),
+        uf_service=_FakeUFService(),
+    )
+
+    assert await service.opportunities(limit=5) == []
+    assert captured_property_types == ["apartment"]
+
+
+@pytest.mark.asyncio
+async def test_radar_service_without_bedrooms_filter_keeps_detector_input(monkeypatch) -> None:
+    studio = make_listing(fingerprint="studio", bedrooms=0)
+    one_bed = make_listing(fingerprint="one-bed", bedrooms=1)
+    unknown = make_listing(fingerprint="unknown")
+    unknown.bedrooms = None
+    captured_fingerprints: list[str] = []
+
+    def fake_detect(listings, *args, **kwargs):
+        captured_fingerprints.extend(listing.fingerprint for listing in listings)
+        return RadarResult(
+            opportunities=[],
+            total_listings_analyzed=len(listings),
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([studio, one_bed, unknown]),
+        uf_service=_FakeUFService(),
+    )
+
+    assert await service.opportunities(limit=5) == []
+    assert captured_fingerprints == ["studio", "one-bed", "unknown"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("bedrooms_min", "expected_fingerprints"),
+    [
+        (1, ["one-bed", "two-bed", "three-bed", "house-three"]),
+        (2, ["two-bed", "three-bed", "house-three"]),
+        (3, ["three-bed", "house-three"]),
+    ],
+)
+async def test_radar_service_applies_bedrooms_filter_before_detector(
+    monkeypatch,
+    bedrooms_min: int,
+    expected_fingerprints: list[str],
+) -> None:
+    studio = make_listing(fingerprint="studio", bedrooms=0)
+    one_bed = make_listing(fingerprint="one-bed", bedrooms=1)
+    two_bed = make_listing(fingerprint="two-bed", bedrooms=2)
+    three_bed = make_listing(fingerprint="three-bed", bedrooms=3)
+    unknown = make_listing(fingerprint="unknown")
+    unknown.bedrooms = None
+    house_three = make_listing(fingerprint="house-three", bedrooms=3, property_type="house")
+    captured_fingerprints: list[str] = []
+
+    def fake_detect(listings, *args, **kwargs):
+        captured_fingerprints.extend(listing.fingerprint for listing in listings)
+        return RadarResult(
+            opportunities=[],
+            total_listings_analyzed=len(listings),
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([studio, one_bed, two_bed, three_bed, unknown, house_three]),
+        uf_service=_FakeUFService(),
+        allowed_property_types=("apartment", "house"),
+    )
+
+    assert await service.opportunities(limit=5, filters=RadarFilters(bedrooms_min=bedrooms_min)) == []
+    assert captured_fingerprints == expected_fingerprints
+
+
+@pytest.mark.asyncio
+async def test_radar_service_bedrooms_filter_respects_apartment_scope(monkeypatch) -> None:
+    apartment = make_listing(fingerprint="apt-three", bedrooms=3, property_type="apartment")
+    house = make_listing(fingerprint="house-three", bedrooms=3, property_type="house")
+    captured_fingerprints: list[str] = []
+
+    def fake_detect(listings, *args, **kwargs):
+        captured_fingerprints.extend(listing.fingerprint for listing in listings)
+        return RadarResult(
+            opportunities=[],
+            total_listings_analyzed=len(listings),
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([apartment, house]),
+        uf_service=_FakeUFService(),
+    )
+
+    assert await service.opportunities(limit=5, filters=RadarFilters(bedrooms_min=3)) == []
+    assert captured_fingerprints == ["apt-three"]
+
+
+@pytest.mark.asyncio
+async def test_radar_service_freshness_on_filters_stale_before_detector(monkeypatch) -> None:
+    current = datetime.now(UTC)
+    fresh = _fresh_listing("fresh", last_seen_at=current - timedelta(days=2))
+    stale = _fresh_listing("stale", last_seen_at=current - timedelta(days=30))
+    captured_fingerprints: list[str] = []
+
+    def fake_detect(listings, *args, **kwargs):
+        captured_fingerprints.extend(listing.fingerprint for listing in listings)
+        return RadarResult(
+            opportunities=[],
+            total_listings_analyzed=len(listings),
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([fresh, stale]),
+        uf_service=_FakeUFService(),
+        freshness_config=RadarFreshnessConfig(
+            require_fresh_listings=True,
+            max_listing_staleness_days=7,
+        ),
+    )
+
+    assert await service.opportunities(limit=5) == []
+    assert captured_fingerprints == ["fresh"]
+
+
+@pytest.mark.asyncio
+async def test_radar_service_freshness_off_preserves_legacy_detector_input(monkeypatch) -> None:
+    current = datetime.now(UTC)
+    fresh = _fresh_listing("fresh", last_seen_at=current - timedelta(days=2))
+    stale = _fresh_listing("stale", last_seen_at=current - timedelta(days=30))
+    missing_url = _fresh_listing("missing-url", last_seen_at=current - timedelta(days=30))
+    missing_url.url = None
+    captured_fingerprints: list[str] = []
+
+    def fake_detect(listings, *args, **kwargs):
+        captured_fingerprints.extend(listing.fingerprint for listing in listings)
+        return RadarResult(
+            opportunities=[],
+            total_listings_analyzed=len(listings),
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([fresh, stale, missing_url]),
+        uf_service=_FakeUFService(),
+        freshness_config=RadarFreshnessConfig(require_fresh_listings=False),
+    )
+
+    assert await service.opportunities(limit=5) == []
+    assert captured_fingerprints == ["fresh", "stale", "missing-url"]
+
+
+def test_radar_filters_reject_invalid_bedrooms_values() -> None:
+    with pytest.raises(ValueError):
+        RadarFilters(bedrooms_min=0)
+    with pytest.raises(ValueError):
+        RadarFilters(bedrooms_min=3, bedrooms_max=2)
+
+
+@pytest.mark.asyncio
+async def test_radar_service_scope_metadata_counts_houses_on_hold(monkeypatch) -> None:
+    listing = make_listing(fingerprint="fake-scope", property_type="apartment", price_clp=100_000_000)
+    house = make_listing(fingerprint="fake-house", property_type="house", price_clp=100_000_000)
+    valuation = _valuation_result(
+        beta_scope_status="beta_supported",
+        beta_scope_flags=[],
+        comparable_quality_level="acceptable",
+    )
+    opportunity = Opportunity(
+        listing=listing,
+        market_price=valuation.estimated_price,
+        discount_pct=0.2,
+        confidence=valuation.confidence,
+        comparables_used=valuation.comparables_used,
+        valuation_result=valuation,
+    )
+
+    def fake_detect(*args, **kwargs):
+        return RadarResult(
+            opportunities=[opportunity],
+            total_listings_analyzed=1,
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([listing, house]),
+        uf_service=_FakeUFService(),
+    )
+
+    result = (await service.opportunities(limit=5))[0]
+
+    assert result.allowed_property_types == ["apartment"]
+    assert result.excluded_by_property_type_count == {"house": 1}
+    assert result.houses_on_hold_count == 1
+    assert result.radar_scope_label == "Departamentos"
+    assert result.radar_scope_note == "Radar beta: por ahora analiza solo departamentos."
 
 
 @pytest.mark.asyncio

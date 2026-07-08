@@ -42,19 +42,55 @@ class Settings(BaseSettings):
         60,
         validation_alias=AliasChoices("JWT_EXPIRATION_MINUTES", "ACCESS_TOKEN_EXPIRE_MINUTES"),
     )
+    beta_signup_enabled: bool = False
 
     # APIs externas
     uf_api_url: str = "https://mindicador.cl/api/uf"
+    uf_cache_ttl_hours: int = 24
+    uf_max_staleness_days: int = 1
+    uf_allow_stale_on_failure: bool = False
+    uf_require_fresh_for_radar: bool = True
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     nominatim_user_agent: str = "AVM-v2-geocoder/0.1 (contact: dev-local)"
 
     # Entorno
     environment: Literal["local", "development", "beta", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    backend_cors_origins: str = Field(
+        "http://localhost:3000,http://127.0.0.1:3000",
+        validation_alias=AliasChoices("BACKEND_CORS_ORIGINS", "CORS_ORIGINS"),
+        description="Comma-separated browser origins allowed to call the API.",
+    )
+
+    # Radar beta
+    radar_allowed_property_types: str = "apartment"
+    radar_require_fresh_listings: bool = True
+    radar_max_listing_staleness_days: int = 7
+    radar_exclude_refresh_failed: bool = True
+    radar_exclude_removed_or_unavailable: bool = True
+
+    # Market Intelligence v1
+    market_commune_min_active_listings: int = 30
+    market_commune_min_time_sample: int = 20
+    market_commune_min_price_history_sample: int = 15
+
+    # On-demand listing verification for strong-intent user flows.
+    listing_on_demand_refresh_enabled: bool = True
+    listing_on_demand_refresh_cooldown_hours: int = 24
+    listing_on_demand_refresh_skip_blocked_hours: int = 24
+    listing_on_demand_refresh_timeout_sec: float = 12.0
 
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def backend_cors_origin_list(self) -> tuple[str, ...]:
+        return tuple(
+            origin.strip().rstrip("/")
+            for origin in self.backend_cors_origins.split(",")
+            if origin.strip()
+        )
 
 
 @lru_cache

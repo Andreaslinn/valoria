@@ -25,16 +25,26 @@ def render_auth(
 ) -> None:
     target = container or st.sidebar
     token = get_token()
-    target.subheader("Sesión")
+    target.subheader("Sesion")
 
     if token:
         _render_authenticated(client, token, target)
         return
 
+    mode = target.radio(
+        "Acceso",
+        ("Iniciar sesion", "Crear cuenta"),
+        horizontal=True,
+        key=f"{form_key}_mode",
+    )
+    if mode == "Crear cuenta":
+        _render_signup_form(client, target, form_key=form_key)
+        return
+
     with target.form(key=form_key):
         email = st.text_input("Email", key=f"{form_key}_email")
         password = st.text_input("Password", type="password", key=f"{form_key}_password")
-        submitted = st.form_submit_button("Iniciar sesión")
+        submitted = st.form_submit_button("Iniciar sesion")
 
     if submitted:
         if not email or not password:
@@ -46,19 +56,51 @@ def render_auth(
             access_token = result.get("access_token")
 
             if not access_token:
-                target.error("La API no devolvió un token válido.")
+                target.error("La API no devolvio un token valido.")
                 return
 
             set_token(access_token)
-            target.success("Sesión iniciada.")
+            target.success("Sesion iniciada.")
             _safe_rerun()
 
         except ApiError as e:
             target.error(
-                "Credenciales inválidas"
+                "Credenciales invalidas"
                 if e.status_code == 401
                 else e.message
             )
+
+
+def _render_signup_form(client: ApiClient, target: Any, *, form_key: str) -> None:
+    with target.form(key=f"{form_key}_signup"):
+        email = st.text_input("Email", key=f"{form_key}_signup_email")
+        password = st.text_input("Password", type="password", key=f"{form_key}_signup_password")
+        confirm_password = st.text_input(
+            "Confirmar password",
+            type="password",
+            key=f"{form_key}_signup_confirm_password",
+        )
+        submitted = st.form_submit_button("Crear cuenta")
+
+    if not submitted:
+        return
+
+    email = email.strip()
+    if not email:
+        target.warning("Ingresa email.")
+        return
+    if len(password) < 8:
+        target.warning("El password debe tener al menos 8 caracteres.")
+        return
+    if password != confirm_password:
+        target.warning("Los passwords no coinciden.")
+        return
+
+    try:
+        client.register(email, password)
+        target.success("Cuenta creada. Ahora puedes iniciar sesion.")
+    except ApiError as e:
+        target.error(e.message)
 
 
 def _render_authenticated(client: ApiClient, token: str, target: Any) -> None:
@@ -74,7 +116,7 @@ def _render_authenticated(client: ApiClient, token: str, target: Any) -> None:
             return
         target.warning(e.message)
 
-    if target.button("Cerrar sesión", key="auth_logout_button"):
+    if target.button("Cerrar sesion", key="auth_logout_button"):
         clear_session()
         _safe_rerun()
 

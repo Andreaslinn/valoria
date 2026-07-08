@@ -133,6 +133,14 @@ _TITLE_STOP_WORDS = {
     "bodega",
     "uf",
 }
+_CAPTCHA_MARKERS = (
+    "captcha",
+    "recaptcha",
+    "hcaptcha",
+    "verifychallenge",
+    "verify you are human",
+    "verifica que eres humano",
+)
 
 
 class YapoTarget(TypedDict):
@@ -142,6 +150,10 @@ class YapoTarget(TypedDict):
     max_pages: int
     property_type: str
     search_base_url: NotRequired[str]
+
+
+class YapoBlockedError(RuntimeError):
+    """Raised when Yapo returns a block, captcha, 403, or 429 signal."""
 
 
 @dataclass(frozen=True)
@@ -173,6 +185,10 @@ class YapoScraper(ScraperBase):
         self.last_raw_count = 0
         self.last_unique_count = 0
         self.last_target_stats: list[YapoTargetStats] = []
+        self.last_forbidden_count = 0
+        self.last_rate_limited_count = 0
+        self.last_blocked_or_captcha_count = 0
+        self.last_fetch_error_count = 0
 
     async def scrape(self) -> list[ScraperResult]:
         uf_rate = await self._resolve_uf_rate()
@@ -180,9 +196,16 @@ class YapoScraper(ScraperBase):
         self.last_raw_count = 0
         self.last_unique_count = 0
         self.last_target_stats = []
+        self.last_forbidden_count = 0
+        self.last_rate_limited_count = 0
+        self.last_blocked_or_captcha_count = 0
+        self.last_fetch_error_count = 0
         results: list[ScraperResult] = []
         seen_keys: set[str] = set()
+        stop_discovery = False
         for target in self._targets:
+            if stop_discovery:
+                break
             target_raw_count = 0
             target_unique_count = 0
             previous_page_keys: set[str] | None = None
@@ -191,7 +214,18 @@ class YapoScraper(ScraperBase):
                 page_url = build_page_url(build_target_url(target), page)
                 try:
                     html = await self._fetch(page_url)
+                except YapoBlockedError as e:
+                    _log.warning(
+                        "YapoScraper block guardrail target=%s scope=%s url=%s: %s",
+                        target["label"],
+                        target["scope"],
+                        page_url,
+                        e,
+                    )
+                    stop_discovery = True
+                    break
                 except httpx.HTTPError as e:
+                    self.last_fetch_error_count += 1
                     _log.warning(
                         "No se pudo descargar target=%s scope=%s url=%s: %s",
                         target["label"],
@@ -279,7 +313,18 @@ class YapoScraper(ScraperBase):
 
         async def _do() -> str:
             resp = await self._http.get(url)
+            if resp.status_code == 403:
+                self.last_forbidden_count += 1
+                self.last_blocked_or_captcha_count += 1
+                raise YapoBlockedError("Yapo discovery received HTTP 403")
+            if resp.status_code == 429:
+                self.last_rate_limited_count += 1
+                self.last_blocked_or_captcha_count += 1
+                raise YapoBlockedError("Yapo discovery received HTTP 429")
             resp.raise_for_status()
+            if _looks_blocked_or_captcha(resp.text):
+                self.last_blocked_or_captcha_count += 1
+                raise YapoBlockedError("Yapo discovery received captcha/block HTML")
             return resp.text
 
         return await with_retry(_do)
@@ -758,12 +803,10 @@ def _m2_match_looks_like_price_per_m2(text: str, start: int, end: int, *, proper
     after = _normalize_detail_label(text[end:min(len(text), end + 32)])
     if _is_price_per_m2_label(before) or before.rstrip().endswith("$") or after.startswith("totales"):
         return True
-    if property_type == "house" and (
+    return property_type == "house" and (
         "terreno" in before
         or after.startswith(("terreno", "de terreno", "sitio", "de sitio", "lote", "de lote"))
-    ):
-        return True
-    return False
+    )
 
 
 def _price_match_looks_like_price_per_m2(text: str, start: int, end: int) -> bool:
@@ -1029,6 +1072,13 @@ def _dedupe_key(item: ScraperResult) -> str:
     if url:
         return f"url:{url}"
     return f"fallback:{item.get('title')}|{item.get('comuna')}|{item.get('price_clp')}"
+
+
+def _looks_blocked_or_captcha(html: str) -> bool:
+    text = (html or "").lower()
+    if "d3-ad-tile" in text:
+        return False
+    return any(marker in text for marker in _CAPTCHA_MARKERS)
 
 
 def _clamp_max_pages(max_pages: int) -> int:

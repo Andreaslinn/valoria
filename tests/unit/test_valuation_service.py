@@ -352,6 +352,7 @@ async def test_valuation_returns_surface_adjustment_audit_fields() -> None:
 
 async def test_consensus_flag_disabled_preserves_legacy_flow(monkeypatch) -> None:
     monkeypatch.setenv("VALORIA_USE_CONSENSUS", "false")
+    monkeypatch.setenv("VALORIA_EXPERIMENTAL_ENGINE_LAB_ENABLED", "false")
     listings = [
         make_listing(fingerprint=f"legacy-{idx}", price_clp=180_000_000)
         for idx in range(6)
@@ -371,6 +372,73 @@ async def test_consensus_flag_disabled_preserves_legacy_flow(monkeypatch) -> Non
     assert result.engine_results == []
     assert result.selected_engine_names == []
     assert result.consensus_method is None
+    assert result.valuation_verdict is None
+    assert result.engine_breakdown == []
+    assert result.consensus_audit is None
+    assert result.weight_audit == []
+
+
+async def test_experimental_engine_lab_metadata_is_optional_and_does_not_change_estimate(monkeypatch) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "false")
+    monkeypatch.setenv("VALORIA_EXPERIMENTAL_ENGINE_LAB_ENABLED", "true")
+    listings = [
+        make_listing(
+            fingerprint=f"lab-{idx}",
+            price_clp=180_000_000 + idx * 1_000_000,
+            price_uf=4600 + idx * 20,
+            price_currency="UF",
+        )
+        for idx in range(10)
+    ]
+    service = ValuationService(
+        listing_repo=FakeListingRepository(listings),
+        uf_service=FakeUFService(),
+    )
+
+    result = await service.valuate_property(
+        ValuationInput(comuna="nunoa", property_type="apartment", m2=75)
+    )
+
+    assert result.estimated_price_clp == 184_500_000
+    assert result.valuation_verdict is not None
+    assert result.valuation_verdict["source"] in {
+        "consensus_experimental",
+        "current_valuation",
+    }
+    assert result.engine_breakdown
+    assert {
+        "comparables_canonical_outliers",
+        "microzone_geo_v1",
+        "hedonic_baseline_v1",
+    } <= {item["engine_name"] for item in result.engine_breakdown}
+    assert result.consensus_audit is not None
+    assert isinstance(result.weight_audit, list)
+
+
+async def test_experimental_engine_lab_failure_does_not_break_valuation(monkeypatch) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "false")
+    monkeypatch.setenv("VALORIA_EXPERIMENTAL_ENGINE_LAB_ENABLED", "true")
+
+    def fail_lab(*args, **kwargs):
+        raise RuntimeError("lab unavailable")
+
+    monkeypatch.setattr("services.valuation.run_experimental_engine_lab", fail_lab)
+    listings = [
+        make_listing(fingerprint=f"lab-fail-{idx}", price_clp=180_000_000)
+        for idx in range(6)
+    ]
+    service = ValuationService(
+        listing_repo=FakeListingRepository(listings),
+        uf_service=FakeUFService(),
+    )
+
+    result = await service.valuate_property(
+        ValuationInput(comuna="nunoa", property_type="apartment", m2=75)
+    )
+
+    assert result.estimated_price_clp == 180_000_000
+    assert result.valuation_verdict is None
+    assert result.engine_breakdown == []
 
 
 async def test_consensus_uses_real_canonical_outliers_and_preserves_core_fields(
@@ -458,6 +526,155 @@ async def test_consensus_all_engines_insufficient_keeps_controlled_error(
         await service.valuate_property(
             ValuationInput(comuna="nunoa", property_type="apartment", m2=75)
         )
+
+
+def _quality_v2_listings(prices: list[int], *, comuna: str = "nunoa", property_type: str = "apartment") -> list[Listing]:
+    return [
+        make_listing(
+            fingerprint=f"qv2-{comuna}-{property_type}-{idx}",
+            comuna=comuna,
+            property_type=property_type,
+            m2=75,
+            built_area_m2=75,
+            price_clp=price,
+        )
+        for idx, price in enumerate(prices)
+    ]
+
+
+def _enable_quality_v2(monkeypatch, mode: str) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "false")
+    monkeypatch.setenv("VALUATION_QUALITY_V2_APPLY_MODE", mode)
+    monkeypatch.setenv("VALUATION_QUALITY_V2_ALLOWED_PROPERTY_TYPES", "apartment")
+    monkeypatch.setenv("VALUATION_QUALITY_V2_BLOCKED_COMUNAS", "estacion central,la reina,macul")
+    monkeypatch.setenv("VALUATION_QUALITY_V2_MAX_POOL_DISPERSION", "75")
+    monkeypatch.setenv("VALUATION_QUALITY_V2_MAX_DELTA_VS_BASELINE_PCT", "0.25")
+    monkeypatch.setenv("VALUATION_QUALITY_V2_MIN_VALID_COMPARABLES", "5")
+
+
+async def test_quality_v2_off_preserves_baseline(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "off")
+    listings = _quality_v2_listings([100_000_000, 100_000_000, 100_000_000, 130_000_000, 130_000_000])
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(ValuationInput(comuna="nunoa", property_type="apartment", m2=75))
+
+    assert result.estimated_price_clp == 112_000_000
+    assert result.engine_results == []
+    assert result.selected_engine_names == []
+
+
+async def test_quality_v2_shadow_does_not_change_final_estimate(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "shadow")
+    listings = _quality_v2_listings([100_000_000, 100_000_000, 100_000_000, 130_000_000, 130_000_000])
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(ValuationInput(comuna="nunoa", property_type="apartment", m2=75))
+
+    assert result.estimated_price_clp == 112_000_000
+    assert len(result.engine_results) == 1
+    shadow = result.engine_results[0]
+    assert shadow.engine_name == "comparables_quality_v2"
+    assert shadow.role == "shadow"
+    assert shadow.estimate_clp == 100_000_000
+    assert shadow.selected_for_final is False
+
+
+async def test_quality_v2_guarded_uses_challenger_when_guardrails_pass(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "guarded")
+    listings = _quality_v2_listings([100_000_000, 100_000_000, 100_000_000, 130_000_000, 130_000_000])
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(ValuationInput(comuna="nunoa", property_type="apartment", m2=75))
+
+    assert result.estimated_price_clp == 100_000_000
+    assert result.selected_engine_names == ["comparables_quality_v2"]
+    assert result.engine_results[0].selected_for_final is True
+
+
+async def test_quality_v2_guarded_falls_back_for_bad_comuna(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "guarded")
+    listings = _quality_v2_listings(
+        [100_000_000, 100_000_000, 100_000_000, 130_000_000, 130_000_000],
+        comuna="macul",
+    )
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(ValuationInput(comuna="macul", property_type="apartment", m2=75))
+
+    assert result.estimated_price_clp == 112_000_000
+    assert result.selected_engine_names == []
+    assert result.engine_results[0].safe_error_message == "CQ v2 esta deshabilitado para esta comuna por guardrail."
+
+
+async def test_quality_v2_guarded_falls_back_with_few_valid_comparables(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "guarded")
+    monkeypatch.setenv("VALUATION_QUALITY_V2_MIN_VALID_COMPARABLES", "6")
+    listings = _quality_v2_listings([100_000_000, 100_000_000, 100_000_000, 130_000_000, 130_000_000])
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(ValuationInput(comuna="nunoa", property_type="apartment", m2=75))
+
+    assert result.estimated_price_clp == 112_000_000
+    assert result.engine_results[0].warnings == ["insufficient_valid_comparables"]
+
+
+async def test_quality_v2_guarded_falls_back_when_pool_dispersion_is_high(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "guarded")
+    listings = _quality_v2_listings([50_000_000, 50_000_000, 100_000_000, 150_000_000, 150_000_000])
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(ValuationInput(comuna="nunoa", property_type="apartment", m2=75))
+
+    assert result.estimated_price_clp == 100_000_000
+    assert result.engine_results[0].warnings == ["pool_dispersion_too_high"]
+
+
+async def test_quality_v2_guarded_falls_back_when_delta_exceeds_threshold(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "guarded")
+    monkeypatch.setenv("VALUATION_QUALITY_V2_MAX_POOL_DISPERSION", "500")
+    listings = _quality_v2_listings([100_000_000, 100_000_000, 100_000_000, 300_000_000, 300_000_000])
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(ValuationInput(comuna="nunoa", property_type="apartment", m2=75))
+
+    assert result.estimated_price_clp == 180_000_000
+    assert result.engine_results[0].warnings == ["delta_vs_baseline_too_high"]
+
+
+async def test_quality_v2_house_not_allowed_by_default(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "guarded")
+    listings = _quality_v2_listings(
+        [500_000_000, 500_000_000, 500_000_000, 650_000_000, 650_000_000],
+        property_type="house",
+    )
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(
+        ValuationInput(comuna="nunoa", property_type="house", m2=75, built_area_m2=75)
+    )
+
+    assert result.estimated_price_clp == 560_000_000
+    assert result.engine_results[0].warnings == ["property_type_not_allowed"]
+
+
+async def test_quality_v2_does_not_require_subject_actual_price(monkeypatch) -> None:
+    _enable_quality_v2(monkeypatch, "guarded")
+    listings = _quality_v2_listings([100_000_000, 100_000_000, 100_000_000, 130_000_000, 130_000_000])
+    service = ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FakeUFService())
+
+    result = await service.valuate_property(
+        ValuationInput(
+            comuna="nunoa",
+            property_type="apartment",
+            m2=75,
+            precio_publicado_uf=None,
+            precio_publicado_clp=None,
+        )
+    )
+
+    assert result.estimated_price_clp == 100_000_000
+    assert "published_price_not_provided" in result.warnings
 
 
 def make_listing_target_property():

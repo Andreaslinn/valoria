@@ -11,6 +11,42 @@ Use `start_valoria.bat` to start the current Valoria local beta stack on Windows
 
 The launcher does not run scraper jobs, refresh jobs, scheduler jobs, migrations, deploys, engine changes, or DB resets.
 
+## Comparable Quality v2
+
+For local beta startup, the launcher runs the FastAPI process with:
+
+```text
+VALUATION_QUALITY_V2_APPLY_MODE=guarded
+```
+
+This activates the Comparable Quality v2 robust weighted median challenger only behind guardrails. The code default remains `off` when the variable is absent outside the local/beta launcher.
+
+For this beta/local profile, keep the consensus orchestrator disabled so the guarded CQ v2 challenger is the active valuation path:
+
+```text
+VALORIA_USE_CONSENSUS=false
+```
+
+Rollback:
+
+```powershell
+$env:VALUATION_QUALITY_V2_APPLY_MODE="off"
+```
+
+Or set this in `.env`:
+
+```text
+VALUATION_QUALITY_V2_APPLY_MODE=off
+```
+
+Shadow mode:
+
+```text
+VALUATION_QUALITY_V2_APPLY_MODE=shadow
+```
+
+Current beta guardrails keep CQ v2 limited to apartments, block `estacion central`, `la reina`, and `macul`, and fallback when pool dispersion or delta vs baseline is too high.
+
 ## Usage
 
 From the repository root:

@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal
 from time import perf_counter
 
+from config import get_settings
 from config.constants import MIN_COMPARABLES
 from core.assessment.beta_status import beta_scope_warning_codes
 from core.assessment.confidence import build_confidence_contract
@@ -20,7 +23,12 @@ from core.ports.uf_service import UFService
 from domain.radar.beta_safety import assess_radar_safety
 from domain.radar.detector import detect_opportunities
 from domain.radar.filters import apply_quality_filters, top_n
+from domain.radar.freshness import (
+    RadarFreshnessConfig,
+    is_fresh_for_radar,
+)
 from domain.radar.price_basis import display_price_uf, radar_price_basis
+from domain.radar.scope import apply_radar_property_scope, parse_allowed_property_types
 from domain.valuation.comparables import filter_candidates, valuate
 from services.formatting import price_clp_int, price_uf_float
 from services.uf_rate import require_real_uf_rate
@@ -37,6 +45,52 @@ class RadarAvmEnrichment:
     confidence_reasons: list[str]
     confidence_risk_flags: list[str]
     discount_pct: float | None
+
+
+@dataclass(frozen=True)
+class RadarFilters:
+    bedrooms_min: int | None = None
+    bedrooms_max: int | None = None
+    bathrooms_min: int | None = None
+    price_min: float | None = None
+    price_max: float | None = None
+    comuna: str | None = None
+    area_min: float | None = None
+    area_max: float | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("bedrooms_min", "bedrooms_max"):
+            value = getattr(self, name)
+            if value is not None and value < 1:
+                raise ValueError(f"{name} debe ser mayor o igual a 1")
+        if (
+            self.bedrooms_min is not None
+            and self.bedrooms_max is not None
+            and self.bedrooms_min > self.bedrooms_max
+        ):
+            raise ValueError("bedrooms_min no puede ser mayor que bedrooms_max")
+
+    @property
+    def bedrooms_filter_applied(self) -> bool:
+        return self.bedrooms_min is not None or self.bedrooms_max is not None
+
+
+@dataclass(frozen=True)
+class RadarFilterDiagnostics:
+    bedrooms_filter_applied: bool = False
+    bedrooms_min: int | None = None
+    bedrooms_max: int | None = None
+    excluded_by_bedrooms_count: int = 0
+
+
+@dataclass(frozen=True)
+class RadarFreshnessDiagnostics:
+    included_count: int = 0
+    excluded_by_missing_url_count: int = 0
+    excluded_by_stale_count: int = 0
+    excluded_by_removed_or_unavailable_count: int = 0
+    excluded_by_refresh_failed_count: int = 0
+    excluded_by_missing_freshness_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -72,6 +126,33 @@ class OpportunityDTO:
     price_clp_snapshot: int | None = None
     price_basis_used: str | None = None
     price_data_quality: str | None = None
+    price_uf_source: str | None = None
+    uf_rate_used: float | None = None
+    uf_rate_date: str | None = None
+    uf_rate_fetched_at: str | None = None
+    uf_rate_source: str | None = None
+    uf_rate_cache_hit: bool | None = None
+    uf_rate_stale: bool | None = None
+    built_area_m2: float | None = None
+    usable_area_m2: float | None = None
+    bedrooms: int | None = None
+    bathrooms: int | None = None
+    parking: int | None = None
+    property_type: str | None = None
+    source: str | None = None
+    external_id: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    geocode_precision: str | None = None
+    allowed_property_types: list[str] = field(default_factory=list)
+    excluded_by_property_type_count: dict[str, int] = field(default_factory=dict)
+    houses_on_hold_count: int = 0
+    radar_scope_note: str | None = None
+    radar_scope_label: str | None = None
+    bedrooms_filter_applied: bool = False
+    bedrooms_min: int | None = None
+    bedrooms_max: int | None = None
+    excluded_by_bedrooms_count: int = 0
 
     def to_payload(self) -> RadarOpportunityPayload:
         return {
@@ -81,6 +162,17 @@ class OpportunityDTO:
             "price_uf": self.price_uf,
             "price_clp": self.price_clp,
             "m2": self.m2,
+            "built_area_m2": self.built_area_m2,
+            "usable_area_m2": self.usable_area_m2,
+            "bedrooms": self.bedrooms,
+            "bathrooms": self.bathrooms,
+            "parking": self.parking,
+            "property_type": self.property_type,
+            "source": self.source,
+            "external_id": self.external_id,
+            "lat": self.lat,
+            "lon": self.lon,
+            "geocode_precision": self.geocode_precision,
             "estimated_price_uf": self.estimated_price_uf,
             "discount_pct": self.discount_pct,
             "score": self.score,
@@ -106,6 +198,22 @@ class OpportunityDTO:
             "price_clp_snapshot": self.price_clp_snapshot,
             "price_basis_used": self.price_basis_used,
             "price_data_quality": self.price_data_quality,
+            "price_uf_source": self.price_uf_source,
+            "uf_rate_used": self.uf_rate_used,
+            "uf_rate_date": self.uf_rate_date,
+            "uf_rate_fetched_at": self.uf_rate_fetched_at,
+            "uf_rate_source": self.uf_rate_source,
+            "uf_rate_cache_hit": self.uf_rate_cache_hit,
+            "uf_rate_stale": self.uf_rate_stale,
+            "allowed_property_types": list(self.allowed_property_types),
+            "excluded_by_property_type_count": dict(self.excluded_by_property_type_count),
+            "houses_on_hold_count": self.houses_on_hold_count,
+            "radar_scope_note": self.radar_scope_note,
+            "radar_scope_label": self.radar_scope_label,
+            "bedrooms_filter_applied": self.bedrooms_filter_applied,
+            "bedrooms_min": self.bedrooms_min,
+            "bedrooms_max": self.bedrooms_max,
+            "excluded_by_bedrooms_count": self.excluded_by_bedrooms_count,
         }
 
 
@@ -115,12 +223,33 @@ class RadarService:
         *,
         listing_repo: ListingRepository,
         uf_service: UFService,
+        allowed_property_types: Sequence[str] | None = None,
+        freshness_config: RadarFreshnessConfig | None = None,
     ) -> None:
         self._listing_repo = listing_repo
         self._uf_service = uf_service
+        settings = get_settings()
+        configured_types = (
+            allowed_property_types
+            if allowed_property_types is not None
+            else settings.radar_allowed_property_types
+        )
+        self._allowed_property_types = parse_allowed_property_types(configured_types)
+        self._freshness_config = freshness_config or RadarFreshnessConfig(
+            require_fresh_listings=settings.radar_require_fresh_listings,
+            max_listing_staleness_days=settings.radar_max_listing_staleness_days,
+            exclude_refresh_failed=settings.radar_exclude_refresh_failed,
+            exclude_removed_or_unavailable=settings.radar_exclude_removed_or_unavailable,
+        )
 
-    async def opportunities(self, *, limit: int = 20) -> list[OpportunityDTO]:
+    async def opportunities(
+        self,
+        *,
+        limit: int = 20,
+        filters: RadarFilters | None = None,
+    ) -> list[OpportunityDTO]:
         total_start = perf_counter()
+        filters = filters or RadarFilters()
 
         uf_start = perf_counter()
         uf_info = await require_real_uf_rate(self._uf_service)
@@ -131,8 +260,16 @@ class RadarService:
         listings = await self._listing_repo.list_active()
         listings_ms = _elapsed_ms(listings_start)
 
+        scope = apply_radar_property_scope(listings, self._allowed_property_types)
+        fresh_listings, freshness_diagnostics = _apply_radar_freshness(
+            scope.included,
+            config=self._freshness_config,
+            now=datetime.now(UTC),
+        )
+        scoped_listings, filter_diagnostics = _apply_radar_filters(fresh_listings, filters)
+
         detection_start = perf_counter()
-        result = detect_opportunities(listings, uf_to_clp)
+        result = detect_opportunities(scoped_listings, uf_to_clp)
         detection_ms = _elapsed_ms(detection_start)
 
         filtering_start = perf_counter()
@@ -154,7 +291,7 @@ class RadarService:
                 continue
             basis = radar_price_basis(o.listing)
             listed_price_uf = display_price_uf(o.listing, uf_to_clp)
-            avm = _enrichment_from_opportunity(o, listings, uf_to_clp)
+            avm = _enrichment_from_opportunity(o, scoped_listings, uf_to_clp)
             opportunity_confidence = build_confidence_contract(
                 score=o.confidence,
                 base_score=(
@@ -176,6 +313,17 @@ class RadarService:
                     price_uf=listed_price_uf,
                     price_clp=price_clp_int(o.listing.price),
                     m2=float(_effective_area_m2(o.listing) or 0),
+                    built_area_m2=_float_or_none(o.listing.built_area_m2),
+                    usable_area_m2=_float_or_none(o.listing.usable_area_m2),
+                    bedrooms=o.listing.bedrooms,
+                    bathrooms=o.listing.bathrooms,
+                    parking=o.listing.parking,
+                    property_type=_property_type(o.listing),
+                    source=o.listing.source,
+                    external_id=o.listing.external_id,
+                    lat=o.listing.coordinates.lat if o.listing.coordinates is not None else None,
+                    lon=o.listing.coordinates.lon if o.listing.coordinates is not None else None,
+                    geocode_precision=o.listing.geocode_precision,
                     estimated_price_uf=price_uf_float(o.market_price, uf_to_clp),
                     discount_pct=round(o.discount_pct * 100, 2),
                     score=round(o.ranking_score, 4),
@@ -221,11 +369,37 @@ class RadarService:
                     price_clp_snapshot=int(o.price_clp_snapshot or basis.price_clp_snapshot),
                     price_basis_used=o.price_basis_used or basis.price_basis_used,
                     price_data_quality=o.price_data_quality or basis.price_data_quality,
+                    price_uf_source=o.listing.price_uf_source,
+                    uf_rate_used=float(uf_to_clp),
+                    uf_rate_date=uf_info.rate_date.isoformat() if uf_info.rate_date else None,
+                    uf_rate_fetched_at=uf_info.fetched_at.isoformat() if uf_info.fetched_at else None,
+                    uf_rate_source=uf_info.source,
+                    uf_rate_cache_hit=uf_info.cache_hit,
+                    uf_rate_stale=uf_info.is_stale,
+                    allowed_property_types=list(scope.allowed_property_types),
+                    excluded_by_property_type_count=dict(scope.excluded_by_property_type_count),
+                    houses_on_hold_count=scope.houses_on_hold_count,
+                    radar_scope_note=scope.radar_scope_note,
+                    radar_scope_label=scope.radar_scope_label,
+                    bedrooms_filter_applied=filter_diagnostics.bedrooms_filter_applied,
+                    bedrooms_min=filter_diagnostics.bedrooms_min,
+                    bedrooms_max=filter_diagnostics.bedrooms_max,
+                    excluded_by_bedrooms_count=filter_diagnostics.excluded_by_bedrooms_count,
                 )
             )
         dto_ms = _elapsed_ms(dto_start)
         _log.info(
             "radar_opportunities_timing limit=%s listings_loaded=%s "
+            "allowed_property_types=%s excluded_by_property_type_count=%s "
+            "houses_on_hold_count=%s bedrooms_filter_applied=%s "
+            "bedrooms_min=%s bedrooms_max=%s excluded_by_bedrooms_count=%s "
+            "freshness_required=%s freshness_max_staleness_days=%s "
+            "scoped_listings=%s freshness_included=%s "
+            "freshness_excluded_missing_url=%s freshness_excluded_stale=%s "
+            "freshness_excluded_removed_or_unavailable=%s "
+            "freshness_excluded_refresh_failed=%s "
+            "freshness_excluded_missing_freshness=%s "
+            "candidates_sent_to_detector=%s "
             "listings_analyzed=%s opportunities_detected=%s "
             "opportunities_filtered=%s opportunities_returned=%s "
             "total_candidates=%s processed_candidates=%s "
@@ -234,6 +408,23 @@ class RadarService:
             "filtering_ms=%.1f dto_ms=%.1f total_ms=%.1f",
             limit,
             len(listings),
+            ",".join(scope.allowed_property_types),
+            scope.excluded_by_property_type_count,
+            scope.houses_on_hold_count,
+            filter_diagnostics.bedrooms_filter_applied,
+            filter_diagnostics.bedrooms_min,
+            filter_diagnostics.bedrooms_max,
+            filter_diagnostics.excluded_by_bedrooms_count,
+            self._freshness_config.require_fresh_listings,
+            self._freshness_config.max_listing_staleness_days,
+            len(scope.included),
+            freshness_diagnostics.included_count,
+            freshness_diagnostics.excluded_by_missing_url_count,
+            freshness_diagnostics.excluded_by_stale_count,
+            freshness_diagnostics.excluded_by_removed_or_unavailable_count,
+            freshness_diagnostics.excluded_by_refresh_failed_count,
+            freshness_diagnostics.excluded_by_missing_freshness_count,
+            len(scoped_listings),
             result.total_listings_analyzed,
             len(result.opportunities),
             len(filtered),
@@ -254,6 +445,62 @@ class RadarService:
 
 def _elapsed_ms(start: float) -> float:
     return (perf_counter() - start) * 1000
+
+
+def _apply_radar_freshness(
+    listings: Sequence[Listing],
+    *,
+    config: RadarFreshnessConfig,
+    now: datetime,
+) -> tuple[list[Listing], RadarFreshnessDiagnostics]:
+    included: list[Listing] = []
+    excluded = Counter[str]()
+
+    for listing in listings:
+        decision = is_fresh_for_radar(listing, now=now, config=config)
+        if decision.allowed:
+            included.append(listing)
+            continue
+        excluded[decision.cause] += 1
+
+    return included, RadarFreshnessDiagnostics(
+        included_count=len(included),
+        excluded_by_missing_url_count=excluded["missing_url"],
+        excluded_by_stale_count=excluded["stale"],
+        excluded_by_removed_or_unavailable_count=excluded["removed_or_unavailable"],
+        excluded_by_refresh_failed_count=excluded["refresh_failed"],
+        excluded_by_missing_freshness_count=excluded["missing_freshness"],
+    )
+
+
+def _apply_radar_filters(
+    listings: Sequence[Listing],
+    filters: RadarFilters,
+) -> tuple[list[Listing], RadarFilterDiagnostics]:
+    if not filters.bedrooms_filter_applied:
+        return list(listings), RadarFilterDiagnostics()
+
+    included: list[Listing] = []
+    excluded_by_bedrooms = 0
+    for listing in listings:
+        bedrooms = listing.bedrooms
+        if bedrooms is None:
+            excluded_by_bedrooms += 1
+            continue
+        if filters.bedrooms_min is not None and bedrooms < filters.bedrooms_min:
+            excluded_by_bedrooms += 1
+            continue
+        if filters.bedrooms_max is not None and bedrooms > filters.bedrooms_max:
+            excluded_by_bedrooms += 1
+            continue
+        included.append(listing)
+
+    return included, RadarFilterDiagnostics(
+        bedrooms_filter_applied=True,
+        bedrooms_min=filters.bedrooms_min,
+        bedrooms_max=filters.bedrooms_max,
+        excluded_by_bedrooms_count=excluded_by_bedrooms,
+    )
 
 
 def _enrichment_from_opportunity(
@@ -383,6 +630,10 @@ def _same_property_type(a: Listing, b: Listing) -> bool:
 
 def _effective_area_m2(listing: Listing) -> float | None:
     return listing.built_area_m2 or listing.usable_area_m2 or listing.m2
+
+
+def _float_or_none(value: float | Decimal | None) -> float | None:
+    return float(value) if value is not None else None
 
 
 def _dedupe(values: list[str]) -> list[str]:
