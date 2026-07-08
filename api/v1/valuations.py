@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.deps import CurrentUser, ValuationServiceDep
+from api.deps import AppSettings, CurrentUser, ValuationServiceDep
 from core.exceptions import InsufficientDataError, ValidationError
 from services.valuation import ValuationInput
 from services.valuation_feedback import submit_valuation_feedback
@@ -225,7 +225,15 @@ async def valuate(
 
 
 @router.post("/feedback", response_model=ValuationFeedbackResponse)
-async def submit_feedback(payload: ValuationFeedbackRequest) -> ValuationFeedbackResponse:
+async def submit_feedback(
+    payload: ValuationFeedbackRequest,
+    settings: AppSettings,
+) -> ValuationFeedbackResponse:
+    if settings.is_cloud_beta or not settings.valuation_feedback_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="Valuation feedback is disabled for this runtime profile",
+        )
     try:
         result = submit_valuation_feedback(
             valuation_result=payload.valuation_result,
@@ -242,3 +250,4 @@ async def submit_feedback(payload: ValuationFeedbackRequest) -> ValuationFeedbac
             detail="Error inesperado al guardar feedback de tasacion",
         ) from e
     return ValuationFeedbackResponse.model_validate({"status": "ok", **result})
+

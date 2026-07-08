@@ -77,7 +77,7 @@ async def ensure_listing_fresh(
     """Verify one listing URL when a user takes a strong-intent action."""
     settings = settings or get_settings()
     current_time = now or datetime.now(UTC)
-    if not settings.listing_on_demand_refresh_enabled and not force:
+    if (settings.is_cloud_beta or not settings.listing_on_demand_refresh_enabled) and not force:
         listing = await _load_listing(session_factory, listing_id)
         return _result_from_listing(
             listing,
@@ -283,3 +283,4 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+

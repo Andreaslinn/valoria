@@ -777,6 +777,14 @@ async def main() -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
+    if settings.is_cloud_beta or not settings.scheduler_enabled:
+        _log.info(
+            "Scheduler disabled for runtime profile=%s environment=%s",
+            settings.valoria_runtime_profile,
+            settings.environment,
+        )
+        return
+
     config = scheduler_config_from_env()
     await run_startup_catchup(config=config)
     scheduler = build_scheduler(config=config)
@@ -1194,3 +1202,4 @@ def _env_optional_int(values: Mapping[str, str], name: str) -> int | None:
 
 if __name__ == "__main__":  # pragma: no cover
     asyncio.run(main())
+

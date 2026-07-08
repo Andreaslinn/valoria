@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import (
+    AppSettings,
     CurrentUser,
     PortfolioComparisonServiceDep,
     PortfolioServiceDep,
@@ -99,7 +100,13 @@ async def create_portfolio_snapshot(
     payload: PortfolioSnapshotRunIn,
     current_user: CurrentUser,
     service: PortfolioSnapshotServiceDep,
+    settings: AppSettings,
 ) -> PortfolioSnapshotRunOut:
+    if settings.is_cloud_beta or not settings.portfolio_snapshot_write_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="Portfolio snapshots are disabled for this runtime profile",
+        )
     assert current_user.id is not None
     result = await service.create_snapshot(
         user_id=current_user.id,
@@ -195,3 +202,4 @@ async def get_portfolio_comparison_report_html(
     except PortfolioComparisonError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return HTMLResponse(content=html)
+
