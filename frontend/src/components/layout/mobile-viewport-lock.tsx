@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 const LOCKED_VIEWPORT_DIRECTIVES = ["maximum-scale=1", "user-scalable=no"] as const;
@@ -32,11 +33,23 @@ function lockViewportZoom(): void {
 }
 
 export function MobileViewportLock() {
+  const pathname = usePathname();
+
   useEffect(() => {
-    if (shouldLockZoom()) {
-      lockViewportZoom();
+    if (!shouldLockZoom()) {
+      return;
     }
-  }, []);
+
+    lockViewportZoom();
+
+    const frameId = requestAnimationFrame(() => {
+      lockViewportZoom();
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [pathname]);
 
   return null;
 }
