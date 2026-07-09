@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { MobileViewportLock } from "@/components/layout/mobile-viewport-lock";
 import "./globals.css";
 
 const appName = "Valoria Beta";
@@ -35,7 +36,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        <MobileViewportLock />
+        {children}
+      </body>
     </html>
   );
 }
