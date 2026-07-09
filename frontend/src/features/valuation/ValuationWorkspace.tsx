@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { StatusNote } from "@/components/ui/status-note";
 import { ApiError } from "@/lib/api/client";
@@ -17,10 +17,19 @@ export function ValuationWorkspace() {
   const [prefill, setPrefill] = useState<ValuationFormPrefill | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPrefill(consumeTasarPrefill());
   }, []);
+
+  useEffect(() => {
+    if (!result || !window.matchMedia("(max-width: 1023px)").matches) {
+      return;
+    }
+
+    resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [result]);
 
   async function handleSubmit(payload: ValuationRequest) {
     setIsSubmitting(true);
@@ -42,7 +51,9 @@ export function ValuationWorkspace() {
         <ValuationForm importedPrefill={prefill} isSubmitting={isSubmitting} onSubmit={handleSubmit} />
         {error ? <StatusNote tone="warning">{error}</StatusNote> : null}
       </div>
-      <ValuationResult payload={lastPayload} result={result} />
+      <div ref={resultRef}>
+        <ValuationResult payload={lastPayload} result={result} />
+      </div>
     </div>
   );
 }
