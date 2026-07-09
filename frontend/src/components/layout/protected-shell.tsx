@@ -22,16 +22,61 @@ import { getAccessToken, clearAccessToken } from "@/lib/auth/token";
 import { me, type User } from "@/lib/api/auth";
 import type { NavigationItem } from "@/types/navigation";
 
-const navigation: NavigationItem[] = [
-  { label: "Inicio", href: "/app", icon: LayoutDashboard },
-  { label: "Tasar propiedad", href: "/app/tasar", icon: Gauge },
+type ProtectedNavigationItem = NavigationItem & {
+  mobileLabel?: string;
+  showInMobileNav?: boolean;
+};
+
+const navigation: ProtectedNavigationItem[] = [
+  {
+    label: "Inicio",
+    href: "/app",
+    icon: LayoutDashboard,
+    mobileLabel: "Inicio",
+    showInMobileNav: true,
+  },
+  {
+    label: "Tasar propiedad",
+    href: "/app/tasar",
+    icon: Gauge,
+    mobileLabel: "Tasar",
+    showInMobileNav: true,
+  },
   { label: "Analizar publicación", href: "/app/analizar-url", icon: Link2 },
-  { label: "Buscar oportunidades", href: "/app/radar", icon: Radar },
-  { label: "Watchlist", href: "/app/portfolio", icon: WalletCards },
-  { label: "Alertas", href: "/app/alerts", icon: Bell },
+  {
+    label: "Buscar oportunidades",
+    href: "/app/radar",
+    icon: Radar,
+    mobileLabel: "Radar",
+    showInMobileNav: true,
+  },
+  {
+    label: "Watchlist",
+    href: "/app/portfolio",
+    icon: WalletCards,
+    mobileLabel: "Portfolio",
+    showInMobileNav: true,
+  },
+  {
+    label: "Alertas",
+    href: "/app/alerts",
+    icon: Bell,
+    mobileLabel: "Alertas",
+    showInMobileNav: true,
+  },
   { label: "Reportes", href: "/app/reportes", icon: FileText },
   { label: "Settings", href: "/app/settings", icon: Settings },
 ];
+
+const mobileNavigation = navigation.filter((item) => item.showInMobileNav);
+
+function isActiveRoute(pathname: string, href: string) {
+  if (href === "/app") {
+    return pathname === href;
+  }
+
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function ProtectedShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -106,7 +151,7 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
         <nav className="grid flex-1 content-start gap-1 overflow-y-auto pr-1">
           {navigation.map((item) => {
             const Icon = item.icon;
-            const active = pathname === item.href;
+            const active = isActiveRoute(pathname, item.href);
             return (
               <Link
                 className={clsx(
@@ -144,8 +189,48 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
             </Button>
           </div>
         </header>
-        <div className="mx-auto w-full max-w-[1600px] px-5 py-6 lg:px-6">{children}</div>
+        <div className="mx-auto w-full max-w-[1600px] px-5 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-6 lg:px-6 lg:pb-6">
+          {children}
+        </div>
       </div>
+      <nav
+        aria-label="Navegacion principal movil"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#050914]/85 px-3 pb-[calc(0.55rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_48px_rgba(0,0,0,0.45)] backdrop-blur-2xl lg:hidden"
+      >
+        <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
+          {mobileNavigation.map((item) => {
+            const Icon = item.icon;
+            const active = isActiveRoute(pathname, item.href);
+            return (
+              <Link
+                aria-current={active ? "page" : undefined}
+                className={clsx(
+                  "flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[11px] font-semibold transition",
+                  active
+                    ? "text-ink"
+                    : "text-muted hover:bg-white/[0.055] hover:text-ink active:bg-white/[0.08]",
+                )}
+                href={item.href}
+                key={item.href}
+              >
+                <span
+                  className={clsx(
+                    "grid h-8 w-8 place-items-center rounded-lg border transition",
+                    active
+                      ? "border-brand-500/40 bg-brand-500/[0.18] text-brand-500 shadow-glow"
+                      : "border-transparent bg-transparent text-slate-400",
+                  )}
+                >
+                  <Icon size={18} aria-hidden />
+                </span>
+                <span className="w-full truncate text-center leading-none">
+                  {item.mobileLabel ?? item.label}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }
