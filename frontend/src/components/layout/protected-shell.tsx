@@ -70,7 +70,9 @@ const navigation: ProtectedNavigationItem[] = [
   { label: "Settings", href: "/app/settings", icon: Settings },
 ];
 
-const mobileNavigation = navigation.filter((item) => item.showInMobileNav);
+const mobileNavigation = ["/app", "/app/radar", "/app/tasar", "/app/portfolio", "/app/alerts"]
+  .map((href) => navigation.find((item) => item.href === href))
+  .filter((item): item is ProtectedNavigationItem => Boolean(item));
 const secondaryMobileNavigation = navigation.filter((item) => !item.showInMobileNav);
 
 function isActiveRoute(pathname: string, href: string) {
@@ -228,17 +230,19 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
       </div>
       <nav
         aria-label="Navegacion principal movil"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#050914]/85 px-3 pb-[calc(0.55rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_48px_rgba(0,0,0,0.45)] backdrop-blur-2xl lg:hidden"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(0.55rem+env(safe-area-inset-bottom))] pt-2 lg:hidden"
       >
-        <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
+        <div className="pointer-events-auto mx-auto grid max-w-md grid-cols-5 gap-1 rounded-lg border border-white/10 bg-[#050914]/90 p-1.5 shadow-[0_-18px_56px_rgba(0,0,0,0.5)] backdrop-blur-2xl">
           {mobileNavigation.map((item) => {
             const Icon = item.icon;
             const active = isActiveRoute(pathname, item.href);
+            const primary = item.href === "/app/tasar";
             return (
               <Link
                 aria-current={active ? "page" : undefined}
                 className={clsx(
-                  "flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[11px] font-semibold transition",
+                  "relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[11px] font-semibold transition",
+                  primary && "-mt-3 min-h-[4.25rem]",
                   active
                     ? "text-ink"
                     : "text-muted hover:bg-white/[0.055] hover:text-ink active:bg-white/[0.08]",
@@ -248,13 +252,16 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
               >
                 <span
                   className={clsx(
-                    "grid h-8 w-8 place-items-center rounded-lg border transition",
-                    active
+                    "grid place-items-center rounded-lg border transition",
+                    primary
+                      ? "h-11 w-11 border-brand-500/45 bg-brand-600 text-white shadow-[0_0_28px_rgba(124,92,255,0.28)]"
+                      : "h-8 w-8",
+                    active && !primary
                       ? "border-brand-500/40 bg-brand-500/[0.18] text-brand-500 shadow-glow"
-                      : "border-transparent bg-transparent text-slate-400",
+                      : !primary && "border-transparent bg-transparent text-slate-400",
                   )}
                 >
-                  <Icon size={18} aria-hidden />
+                  <Icon size={primary ? 20 : 18} aria-hidden />
                 </span>
                 <span className="w-full truncate text-center leading-none">
                   {item.mobileLabel ?? item.label}

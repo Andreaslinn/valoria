@@ -214,27 +214,16 @@ export function DashboardWorkspace() {
   return (
     <>
       <div className="min-w-0 space-y-4 lg:hidden">
-        <MobileTodayCard pulse={pulse} uf={uf} userName={userName} />
-        <FeaturedValuation activity={activity} latestValuation={latestValuation ?? null} />
-        <section className="grid min-w-0 gap-3">
-          <RadarPanel state={radarSummary} />
-          <div className="grid grid-cols-2 gap-3">
-            <MobileSummaryLink
-              description={watchlist.loading ? "Cargando" : "Ver propiedades guardadas"}
-              href="/app/portfolio"
-              icon={<Building2 className="h-5 w-5" aria-hidden />}
-              label="Portfolio"
-              value={watchlist.loading ? "..." : `${watchlistItems.length}`}
-            />
-            <MobileSummaryLink
-              description={alerts.loading ? "Cargando" : "Revisar cambios"}
-              href="/app/alerts"
-              icon={<AlertTriangle className="h-5 w-5" aria-hidden />}
-              label="Alertas"
-              value={alerts.loading ? "..." : `${unreadAlerts.length}`}
-            />
-          </div>
-        </section>
+        <MobileBriefingStory
+          alerts={alerts}
+          latestValuation={latestValuation ?? null}
+          pulse={pulse}
+          radarSummary={radarSummary}
+          unreadAlerts={unreadAlerts.length}
+          userName={userName}
+          watchlist={watchlist}
+          watchlistItems={watchlistItems}
+        />
         <details className="group rounded-lg border border-line bg-white/[0.045] p-4 shadow-soft backdrop-blur-xl">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
             Analisis de mercado
@@ -309,47 +298,104 @@ export function DashboardWorkspace() {
   );
 }
 
-function MobileTodayCard({
+function MobileBriefingStory({
+  alerts,
+  latestValuation,
   pulse,
-  uf,
+  radarSummary,
+  unreadAlerts,
   userName,
+  watchlist,
+  watchlistItems,
 }: {
+  alerts: LoadState<AlertItem[]>;
+  latestValuation: RecentTasarActivity["events"][number] | null;
   pulse: LoadState<MarketPulse>;
-  uf: LoadState<UFRate>;
+  radarSummary: LoadState<RadarSummary>;
+  unreadAlerts: number;
   userName: string;
+  watchlist: LoadState<WatchlistItem[]>;
+  watchlistItems: WatchlistItem[];
 }) {
   const balance = pulse.data?.market_balance;
   const coverage = pulse.data?.coverage;
+  const activity = pulse.data?.recent_activity;
+  const radarData = radarSummary.data;
   const headline = balance?.headline ?? pulse.error ?? "Senales de mercado en preparacion";
-  const insight =
-    pulse.data?.insight.text ??
-    "Valoria muestra datos reales cuando existe cobertura suficiente para sostener la lectura.";
+  const changedText =
+    pulse.loading
+      ? "Valoria esta revisando el movimiento reciente del mercado."
+      : pulse.error ||
+        (activity
+          ? `${formatNumber(activity.new_24h)} publicaciones nuevas hoy y ${formatNumber(activity.price_drops_7d)} ${pluralizeEs(activity.price_drops_7d, "rebaja detectada", "rebajas detectadas")} en 7 dias.`
+          : "Aun no hay suficiente actividad reciente para resumir cambios con confianza.");
+  const todayText =
+    unreadAlerts > 0
+      ? `Partir por Alertas: hay ${unreadAlerts} ${pluralizeEs(unreadAlerts, "evento pendiente", "eventos pendientes")} en propiedades que sigues.`
+      : radarData?.ready_for_radar_count
+        ? `Radar tiene ${radarData.ready_for_radar_count} ${pluralizeEs(radarData.ready_for_radar_count, "candidata lista", "candidatas listas")} para revisar.`
+        : latestValuation
+          ? `Tu ultima tasacion en ${formatCommuneName(latestValuation.comuna)} queda como referencia para comparar nuevos movimientos.`
+          : "Si quieres crear una referencia base, Tasar propiedad es la mejor primera accion.";
+  const radarValue =
+    radarSummary.loading
+      ? "Revisando"
+      : radarSummary.error
+        ? "Sin resumen"
+        : radarData?.ready_for_radar_count != null
+          ? `${radarData.ready_for_radar_count} listas`
+          : radarData?.mode === "manual"
+            ? "Bajo demanda"
+            : "Sin datos";
 
   return (
-    <Card className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_80%_18%,rgba(124,92,255,0.16),transparent_16rem),rgba(255,255,255,0.055)] p-0">
+    <Card className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_80%_10%,rgba(124,92,255,0.16),transparent_15rem),linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.035))] p-0">
       <div className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
-              Estado del dia
-            </p>
-            <h2 className="mt-3 text-2xl font-semibold leading-tight text-ink">{headline}</h2>
-          </div>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-500">
+            Briefing
+          </p>
           <StatusPill status={toMetricStatus(balance?.status, pulse)} />
         </div>
-        <p className="mt-3 text-sm leading-6 text-muted">Hola, {userName}. {insight}</p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <MiniStat
+        <h2 className="mt-4 text-2xl font-semibold leading-tight text-ink">{headline}</h2>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          Hola, {userName}. {pulse.data?.insight.text ?? "Valoria revisa el mercado con datos reales y muestra senales cuando hay cobertura suficiente."}
+        </p>
+
+        <div className="mt-5 space-y-4 border-t border-line pt-4">
+          <BriefingStep label="Que cambio" value={changedText} />
+          <BriefingStep label="Mira hoy" value={todayText} />
+          <BriefingStep
             label="Cobertura"
             value={
               coverage
-                ? `${formatNumber(coverage.communes_with_minimum_sample)} comunas`
-                : "Sin dato"
+                ? `${formatNumber(coverage.active_listings)} publicaciones activas en ${formatNumber(coverage.communes_with_minimum_sample)} comunas con muestra.`
+                : "Cobertura pendiente de consolidar."
             }
           />
-          <MiniStat
-            label="UF"
-            value={uf.loading ? "Cargando" : uf.error ? "Sin dato" : formatClp(uf.data?.rate_clp)}
+        </div>
+
+        <div className="mt-5 divide-y divide-line rounded-lg border border-line bg-black/20">
+          <MobileBriefingRow
+            description={radarSummary.loading ? "Revisando oportunidades" : radarSummary.error || "Feed de oportunidades bajo demanda"}
+            href="/app/radar"
+            icon={<Search className="h-5 w-5" aria-hidden />}
+            label="Radar"
+            value={radarValue}
+          />
+          <MobileBriefingRow
+            description={watchlist.loading ? "Cargando propiedades" : "Lo que estas vigilando"}
+            href="/app/portfolio"
+            icon={<Building2 className="h-5 w-5" aria-hidden />}
+            label="Portfolio"
+            value={watchlist.loading ? "..." : `${watchlistItems.length}`}
+          />
+          <MobileBriefingRow
+            description={alerts.loading ? "Cargando eventos" : "Cronologia de cambios"}
+            href="/app/alerts"
+            icon={<AlertTriangle className="h-5 w-5" aria-hidden />}
+            label="Alertas"
+            value={alerts.loading ? "..." : `${unreadAlerts}`}
           />
         </div>
       </div>
@@ -357,7 +403,19 @@ function MobileTodayCard({
   );
 }
 
-function MobileSummaryLink({
+function BriefingStep({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[7px_minmax(0,1fr)] gap-3">
+      <span className="mt-2 h-1.5 w-1.5 rounded-full bg-brand-500 shadow-glow" aria-hidden />
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">{label}</p>
+        <p className="mt-1 text-sm leading-6 text-ink">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function MobileBriefingRow({
   description,
   href,
   icon,
@@ -371,19 +429,15 @@ function MobileSummaryLink({
   value: string;
 }) {
   return (
-    <Link
-      className="min-w-0 rounded-lg border border-line bg-white/[0.055] p-4 shadow-soft backdrop-blur-xl transition active:bg-white/[0.08]"
-      href={href}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-500">
-          {icon}
-        </span>
-        <ArrowRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-      </div>
-      <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-ink">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-muted">{description}</p>
+    <Link className="flex min-h-[4.75rem] items-center gap-3 px-3 py-3 active:bg-white/[0.06]" href={href}>
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-500">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-ink">{label}</span>
+        <span className="mt-1 block truncate text-xs text-muted">{description}</span>
+      </span>
+      <span className="shrink-0 text-right text-sm font-semibold text-ink">{value}</span>
     </Link>
   );
 }

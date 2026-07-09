@@ -99,7 +99,12 @@ export function RadarWorkspace() {
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardTitle>Radar beta conectado</CardTitle>
+            <div className="lg:hidden">
+              <CardTitle>Feed Radar</CardTitle>
+            </div>
+            <div className="hidden lg:block">
+              <CardTitle>Radar beta conectado</CardTitle>
+            </div>
             <CardDescription>
               Radar analiza publicaciones recientes y busca precios bajo el valor estimado por Valoria.
             </CardDescription>
@@ -242,13 +247,23 @@ export function RadarWorkspace() {
         </div>
       ) : null}
 
-      <StatusNote>
-        Las oportunidades se filtran por publicaciones confirmadas recientemente en la base de datos. Beta: Valoria no reemplaza una tasacion profesional ni garantiza disponibilidad en tiempo real.
-      </StatusNote>
+      <div className="lg:hidden">
+        <StatusNote tone="info">
+          Feed bajo demanda con publicaciones confirmadas recientemente. Los filtros estan disponibles sin ocupar la lectura principal.
+        </StatusNote>
+      </div>
 
-      <StatusNote tone="info">
-        Filtros avanzados proximamente. En esta beta solo se envian filtros soportados por el endpoint: limite y dormitorios.
-      </StatusNote>
+      <div className="hidden lg:block">
+        <StatusNote>
+          Las oportunidades se filtran por publicaciones confirmadas recientemente en la base de datos. Beta: Valoria no reemplaza una tasacion profesional ni garantiza disponibilidad en tiempo real.
+        </StatusNote>
+      </div>
+
+      <div className="hidden lg:block">
+        <StatusNote tone="info">
+          Filtros avanzados proximamente. En esta beta solo se envian filtros soportados por el endpoint: limite y dormitorios.
+        </StatusNote>
+      </div>
 
       {slow ? (
         <StatusNote tone="warning">
@@ -343,7 +358,7 @@ function OpportunityCard({
   ].filter(Boolean);
 
   return (
-    <Card className="flex min-h-96 flex-col">
+    <Card className="flex flex-col lg:min-h-96">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">Oportunidad #{rank}</p>
@@ -358,7 +373,13 @@ function OpportunityCard({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-5 grid grid-cols-3 gap-2 lg:hidden">
+        <Fact label="Descuento" value={formatDiscount(item.discount_pct, estimatedUf - item.price_uf)} />
+        <Fact label="Precio" value={formatUf(item.price_uf)} />
+        <Fact label="Confianza" value={formatConfidence(item.confidence_score ?? item.confidence_label ?? item.confidence)} />
+      </div>
+
+      <div className="mt-5 hidden gap-3 sm:grid-cols-2 lg:grid">
         <Fact label="Precio publicado" value={`${formatUf(item.price_uf)} / ${formatClp(item.price_clp)}`} />
         <Fact label="Valor estimado" value={`${formatUf(estimatedUf)} / ${formatClp(item.estimated_value_clp)}`} />
         <Fact label="Brecha estimada" value={formatDiscount(item.discount_pct, estimatedUf - item.price_uf)} />

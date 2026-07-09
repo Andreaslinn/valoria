@@ -54,7 +54,12 @@ export function PortfolioWorkspace() {
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardTitle>Watchlist real</CardTitle>
+            <div className="lg:hidden">
+              <CardTitle>Lo que estas vigilando</CardTitle>
+            </div>
+            <div className="hidden lg:block">
+              <CardTitle>Watchlist real</CardTitle>
+            </div>
             <CardDescription>
               Propiedades guardadas desde endpoints reales. Portfolio avanzado queda para una fase posterior.
             </CardDescription>
@@ -63,7 +68,7 @@ export function PortfolioWorkspace() {
             {loading ? "Cargando" : `${items.length} guardada(s)`}
           </span>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
           <SummaryFact label="Fuente" value="GET /api/v1/watchlist" />
           <SummaryFact label="Escritura" value="Guardar / quitar" />
           <SummaryFact label="Portfolio avanzado" value="Pendiente" />
@@ -131,7 +136,12 @@ function WatchlistCard({
         </span>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-2 rounded-lg border border-line bg-black/20 p-3 lg:hidden">
+        <Fact label="Estado" value={formatText(item.listing_status)} />
+        <Fact label="Cambio a vigilar" value={formatText(item.price_data_quality || item.price_display_basis)} />
+      </div>
+
+      <div className="mt-5 hidden gap-3 sm:grid-cols-2 lg:grid">
         <Fact label="Precio UF" value={formatUf(item.price_uf_display ?? item.price_uf ?? item.saved_price_uf)} />
         <Fact label="Precio CLP" value={formatClp(item.price_clp_display ?? item.price_clp)} />
         <Fact label="Superficie" value={formatM2(item.m2)} />

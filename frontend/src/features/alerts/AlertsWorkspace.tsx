@@ -61,7 +61,12 @@ export function AlertsWorkspace() {
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardTitle>Inbox real de alertas</CardTitle>
+            <div className="lg:hidden">
+              <CardTitle>Cronologia de eventos</CardTitle>
+            </div>
+            <div className="hidden lg:block">
+              <CardTitle>Inbox real de alertas</CardTitle>
+            </div>
             <CardDescription>
               Alertas no leidas generadas para propiedades guardadas en tu watchlist.
             </CardDescription>
@@ -70,7 +75,7 @@ export function AlertsWorkspace() {
             {loading ? "Cargando" : `${alerts.length} no leida(s)`}
           </span>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
           <SummaryFact label="Fuente" value="GET /api/v1/alerts" />
           <SummaryFact label="Tipo activo" value={priceDrops ? `${priceDrops} baja(s) de precio` : "Sin bajas no leidas"} />
           <SummaryFact label="Accion" value="Marcar como leida" />
@@ -88,7 +93,7 @@ export function AlertsWorkspace() {
           </div>
         </Card>
       ) : alerts.length ? (
-        <section className="grid gap-4 xl:grid-cols-2">
+        <section className="grid gap-3 xl:grid-cols-2">
           {alerts.map((alert) => (
             <AlertCard
               alert={alert}
@@ -138,7 +143,10 @@ function AlertCard({
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <Card className="flex min-h-72 flex-col">
+    <Card className="relative flex min-h-72 flex-col overflow-hidden lg:min-h-72">
+      {!alert.is_read ? (
+        <span className="absolute inset-y-5 left-0 w-1 rounded-r-full bg-brand-500/70 lg:hidden" aria-hidden />
+      ) : null}
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
