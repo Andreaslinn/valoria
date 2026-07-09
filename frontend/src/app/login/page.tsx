@@ -38,38 +38,38 @@ export default function LoginPage() {
       <div className="pointer-events-none absolute inset-x-[-10%] bottom-[-34rem] h-[52rem] rounded-[50%] border border-violet-400/25 bg-[radial-gradient(circle_at_50%_0%,rgba(124,92,255,0.3),rgba(20,10,48,0.18)_32%,transparent_62%)] shadow-[0_-42px_160px_rgba(124,92,255,0.28)]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-[linear-gradient(180deg,transparent,rgba(2,4,11,0.78)),linear-gradient(90deg,transparent,rgba(124,92,255,0.14),transparent)]" />
 
-      <section className="relative z-10 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center px-5 py-10">
-        <Link className="group mt-2 flex flex-col items-center text-center" href="/">
-          <span className="grid h-20 w-20 place-items-center rounded-[1.25rem] border border-violet-300/25 bg-white/[0.035] text-5xl font-black text-brand-500 shadow-[0_0_70px_rgba(124,92,255,0.38)] backdrop-blur-xl transition group-hover:border-violet-300/45">
+      <section className="relative z-10 mx-auto flex min-h-screen w-full max-w-2xl flex-col items-center px-5 py-8 sm:py-9">
+        <Link className="group flex flex-col items-center text-center" href="/">
+          <span className="grid h-16 w-16 place-items-center rounded-[1.1rem] border border-violet-300/25 bg-white/[0.035] text-4xl font-black text-brand-500 shadow-[0_0_70px_rgba(124,92,255,0.38)] backdrop-blur-xl transition group-hover:border-violet-300/45">
             V
           </span>
-          <span className="mt-6 text-5xl font-semibold uppercase leading-none tracking-[0.28em] text-white sm:text-6xl">
+          <span className="mt-5 text-4xl font-semibold uppercase leading-none tracking-[0.28em] text-white sm:text-5xl">
             Valoria
           </span>
         </Link>
 
-        <div className="mt-10 text-center">
-          <h1 className="mx-auto max-w-xl text-3xl font-semibold leading-tight text-white sm:text-4xl">
+        <div className="mt-7 text-center">
+          <h1 className="mx-auto max-w-lg text-2xl font-semibold leading-tight text-white sm:text-3xl">
             Inteligencia inmobiliaria para decisiones con{" "}
             <span className="text-brand-500">ventaja.</span>
           </h1>
-          <div className="mt-7 inline-flex items-center gap-2 rounded-lg border border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-violet-200 shadow-glow">
+          <div className="mt-5 inline-flex items-center gap-2 rounded-lg border border-brand-500/30 bg-brand-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-violet-200 shadow-glow">
             <LockKeyhole size={16} />
             Acceso beta privado
           </div>
-          <p className="mt-4 text-sm text-slate-300">Acceso exclusivo para usuarios invitados</p>
+          <p className="mt-3 text-sm text-slate-300">Acceso exclusivo para usuarios invitados</p>
         </div>
 
-        <div className="mt-12 w-full rounded-lg border border-violet-400/25 bg-[#050812]/80 p-6 shadow-[0_28px_110px_rgba(0,0,0,0.62),0_0_70px_rgba(124,92,255,0.14)] backdrop-blur-2xl sm:p-9">
+        <div className="mt-8 w-full max-w-xl rounded-lg border border-violet-400/25 bg-[#050812]/80 p-5 shadow-[0_28px_110px_rgba(0,0,0,0.62),0_0_70px_rgba(124,92,255,0.14)] backdrop-blur-2xl sm:p-7">
           <div>
             <h2 className="text-2xl font-semibold text-white">Iniciar sesion</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
+            <p className="mt-2 text-sm leading-6 text-slate-300">
               Ingresa tus credenciales para acceder a Valoria.
             </p>
           </div>
 
-          <form className="mt-8 grid gap-5" onSubmit={onSubmit}>
-            <label className="grid gap-2 text-sm font-medium text-white" htmlFor="email">
+          <form className="mt-6 grid gap-4" onSubmit={onSubmit}>
+            <label className="grid gap-1.5 text-sm font-medium text-white" htmlFor="email">
               Email
               <span className="relative block">
                 <Mail
@@ -78,7 +78,7 @@ export default function LoginPage() {
                 />
                 <input
                   autoComplete="email"
-                  className="min-h-14 w-full rounded-lg border border-slate-700/70 bg-black/25 px-12 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500/80 focus:ring-4 focus:ring-brand-100"
+                  className="min-h-12 w-full rounded-lg border border-slate-700/70 bg-black/25 px-11 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500/80 focus:ring-4 focus:ring-brand-100"
                   id="email"
                   name="email"
                   onChange={(event) => setEmail(event.target.value)}
@@ -90,7 +90,7 @@ export default function LoginPage() {
               </span>
             </label>
 
-            <label className="grid gap-2 text-sm font-medium text-white" htmlFor="password">
+            <label className="grid gap-1.5 text-sm font-medium text-white" htmlFor="password">
               Contrasena
               <span className="relative block">
                 <LockKeyhole
@@ -99,7 +99,7 @@ export default function LoginPage() {
                 />
                 <input
                   autoComplete="current-password"
-                  className="min-h-14 w-full rounded-lg border border-slate-700/70 bg-black/25 px-12 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500/80 focus:ring-4 focus:ring-brand-100"
+                  className="min-h-12 w-full rounded-lg border border-slate-700/70 bg-black/25 px-11 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500/80 focus:ring-4 focus:ring-brand-100"
                   id="password"
                   name="password"
                   onChange={(event) => setPassword(event.target.value)}
@@ -111,14 +111,14 @@ export default function LoginPage() {
               </span>
             </label>
 
-            <div className="rounded-lg border border-line bg-white/[0.045] px-4 py-3 text-sm text-slate-300">
+            <div className="rounded-lg border border-line bg-white/[0.045] px-3 py-2.5 text-xs leading-5 text-slate-300 sm:text-sm">
               La sesion se recuerda en este navegador usando el flujo actual de Valoria.
             </div>
 
             {error ? <StatusNote tone="warning">{error}</StatusNote> : null}
 
             <Button
-              className="min-h-14 w-full px-6 text-base"
+              className="min-h-12 w-full px-5 text-sm"
               disabled={loading}
               type="submit"
             >
@@ -127,7 +127,7 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 flex flex-col gap-3 border-t border-line pt-5 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
             <span>Beta privada para usuarios aprobados.</span>
             <Link className="font-semibold text-violet-300 hover:text-white" href="/register">
               Solicitar acceso
@@ -135,7 +135,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <footer className="mt-auto flex w-full flex-col items-center gap-5 pb-4 pt-10 text-center text-xs text-slate-400">
+        <footer className="mt-auto flex w-full flex-col items-center gap-4 pb-4 pt-8 text-center text-xs text-slate-400">
           <div className="flex items-center gap-4">
             <span className="hidden h-px w-24 bg-line sm:block" />
             <ShieldCheck className="text-slate-300" size={26} />
@@ -150,3 +150,4 @@ export default function LoginPage() {
     </main>
   );
 }
+
