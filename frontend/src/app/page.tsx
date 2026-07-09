@@ -1,134 +1,164 @@
 import {
   ArrowRight,
-  Bell,
-  FileText,
-  Gauge,
-  Link2,
+  BarChart3,
+  Building2,
+  LockKeyhole,
   Radar,
   ShieldCheck,
-  WalletCards,
+  Sparkles,
 } from "lucide-react";
+import Link from "next/link";
 
-import { PublicHeader } from "@/components/layout/public-header";
 import { ButtonLink } from "@/components/ui/button";
-import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 
 const productAreas = [
   {
-    title: "Tasacion inteligente",
+    title: "Tasaciones inteligentes",
     description:
-      "Valoracion real, comparables y senales de confianza en una pantalla clara.",
-    icon: Gauge,
+      "Estima valor con comparables, contexto y senales de confiabilidad para evaluar una propiedad con mas claridad.",
+    icon: Building2,
   },
   {
-    title: "Analisis de publicacion",
+    title: "Analisis de publicaciones",
     description:
-      "Revisa URLs soportadas y lleva datos extraidos hacia Tasar sin inventar atributos faltantes.",
-    icon: Link2,
+      "Convierte URLs soportadas en informacion revisable y la conecta con el flujo de tasacion cuando hay datos suficientes.",
+    icon: BarChart3,
   },
   {
     title: "Radar de oportunidades",
     description:
-      "Busqueda manual de oportunidades recientes conectada al endpoint real de Radar.",
+      "Explora oportunidades recientes dentro del alcance beta, con filtros y criterios conectados al backend real.",
     icon: Radar,
-  },
-  {
-    title: "Portafolio y alertas",
-    description:
-      "Watchlist y alertas reales para propiedades guardadas dentro de la beta.",
-    icon: WalletCards,
-  },
-  {
-    title: "Reportes de inversion",
-    description:
-      "Espacio en preparacion para reportes reales, sin previews ni descargas simuladas.",
-    icon: FileText,
   },
 ];
 
 export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-transparent">
-      <PublicHeader />
-      <section className="mx-auto grid max-w-7xl gap-10 px-5 pb-16 pt-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:pb-20 lg:pt-14">
+    <main className="relative min-h-screen overflow-hidden bg-[#02040b] text-ink">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(124,92,255,0.23),transparent_27rem),radial-gradient(circle_at_82%_8%,rgba(61,220,151,0.09),transparent_24rem),radial-gradient(circle_at_50%_100%,rgba(124,92,255,0.25),transparent_35rem),linear-gradient(180deg,#02040b_0%,#07101d_48%,#02040b_100%)]" />
+      <div className="pointer-events-none absolute inset-x-[-22%] top-[22rem] h-[42rem] rounded-[50%] border border-violet-400/20 bg-[radial-gradient(circle_at_50%_0%,rgba(124,92,255,0.18),transparent_62%)]" />
+
+      <header className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5">
+        <Link className="flex items-center gap-3" href="/">
+          <span className="grid h-11 w-11 place-items-center rounded-lg border border-violet-300/30 bg-white/[0.045] text-2xl font-black text-brand-500 shadow-glow backdrop-blur-xl">
+            V
+          </span>
+          <span>
+            <span className="block text-sm font-bold uppercase tracking-[0.26em] text-white">
+              Valoria
+            </span>
+            <span className="block text-xs text-slate-400">Beta privada</span>
+          </span>
+        </Link>
+        <nav className="flex items-center gap-2">
+          <ButtonLink href="/login" variant="ghost">
+            Iniciar sesion
+          </ButtonLink>
+          <ButtonLink href="/register" variant="secondary">
+            Solicitar acceso
+          </ButtonLink>
+        </nav>
+      </header>
+
+      <section className="relative z-10 mx-auto grid max-w-7xl gap-12 px-5 pb-16 pt-8 lg:grid-cols-[1.02fr_0.98fr] lg:items-center lg:pb-24 lg:pt-12">
         <div>
-          <p className="mb-4 inline-flex rounded-lg border border-brand-500/25 bg-brand-500/10 px-3 py-1 text-sm font-semibold text-violet-100">
-            Fintech de inteligencia inmobiliaria para Chile
-          </p>
-          <h1 className="max-w-4xl text-4xl font-semibold leading-tight text-ink sm:text-6xl">
-            Decide mejor al comprar, vender o invertir en propiedades.
+          <div className="inline-flex items-center gap-2 rounded-lg border border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-violet-200 shadow-glow">
+            <LockKeyhole size={16} />
+            Acceso beta privado
+          </div>
+          <h1 className="mt-7 max-w-4xl text-5xl font-semibold leading-[1.02] text-white sm:text-6xl lg:text-7xl">
+            Inteligencia inmobiliaria para decisiones con{" "}
+            <span className="text-brand-500">ventaja.</span>
           </h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-muted">
-            Valoria ordena tasaciones, publicaciones, radar, portfolio, alertas y reportes en una
-            experiencia premium conectada al backend existente, sin mezclar datos reales con demos.
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+            Valoria reune tasaciones, analisis de publicaciones y radar de oportunidades en una
+            experiencia premium para compradores, vendedores e inversionistas en Chile.
           </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/login">
-              Entrar a la beta
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+            La beta es privada: el acceso se habilita por invitacion y las funcionalidades visibles
+            trabajan sobre los modulos reales disponibles hoy.
+          </p>
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <ButtonLink href="/login" className="min-h-12 px-5">
+              Entrar a beta
               <ArrowRight size={18} />
             </ButtonLink>
-            <ButtonLink href="/register" variant="secondary">
+            <ButtonLink href="/register" variant="secondary" className="min-h-12 px-5">
               Solicitar acceso
             </ButtonLink>
           </div>
         </div>
 
-        <div className="rounded-lg border border-line bg-white/[0.055] p-5 shadow-soft backdrop-blur-xl">
-          <div className="rounded-lg border border-line bg-black/30 p-5 text-white">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-ink">Cockpit Valoria</span>
-              <span className="rounded-lg border border-accent-500/25 bg-accent-500/10 px-3 py-1 text-xs text-emerald-100">
-                Beta por fases
-              </span>
-            </div>
-            <div className="mt-8 grid gap-3">
-              {[
-                ["Tasar propiedad", "Conectado a POST /api/v1/valuations"],
-                ["Analizar publicacion", "Conectado a POST /api/v1/listings/lookup-url"],
-                ["Radar", "Conectado con ejecucion manual"],
-                ["Portfolio / Watchlist", "Conectado a Watchlist real"],
-              ].map(([label, detail]) => (
-                <div className="rounded-lg border border-line bg-white/[0.055] p-4" key={label}>
-                  <div className="text-sm font-semibold">{label}</div>
-                  <div className="mt-1 text-xs text-slate-300">{detail}</div>
+        <div className="relative">
+          <div className="absolute -inset-6 rounded-[2rem] bg-brand-500/10 blur-3xl" />
+          <div className="relative rounded-lg border border-violet-400/25 bg-[#060916]/80 p-5 shadow-[0_28px_110px_rgba(0,0,0,0.55),0_0_70px_rgba(124,92,255,0.13)] backdrop-blur-2xl">
+            <div className="rounded-lg border border-line bg-black/30 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-200">
+                    Cockpit Valoria
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    Beta enfocada en evaluacion inmobiliaria.
+                  </h2>
                 </div>
-              ))}
-            </div>
-            <div className="mt-5 rounded-lg border border-dashed border-line p-4 text-sm leading-6 text-muted">
-              Las metricas de mercado apareceran cuando cada modulo tenga contrato estable. Esta
-              vista evita mostrar cifras ficticias.
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-brand-500/30 bg-brand-500/10 text-brand-500">
+                  <Sparkles size={21} />
+                </span>
+              </div>
+
+              <div className="mt-7 grid gap-3">
+                {[
+                  ["Tasar propiedad", "Comparables y confiabilidad en una vista accionable."],
+                  ["Analizar publicacion", "Lectura de URL soportada sin completar datos faltantes."],
+                  ["Explorar Radar", "Busqueda manual dentro del alcance beta privado."],
+                ].map(([label, detail]) => (
+                  <div
+                    className="rounded-lg border border-line bg-white/[0.055] p-4"
+                    key={label}
+                  >
+                    <div className="text-sm font-semibold text-white">{label}</div>
+                    <div className="mt-1 text-xs leading-5 text-slate-400">{detail}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 rounded-lg border border-dashed border-violet-300/25 bg-brand-500/[0.035] p-4 text-sm leading-6 text-slate-300">
+                Sin metricas simuladas, clientes ficticios ni promesas fuera del alcance actual de
+                la beta.
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-4 px-5 pb-16 md:grid-cols-2 lg:grid-cols-3">
+      <section className="relative z-10 mx-auto grid max-w-7xl gap-4 px-5 pb-16 md:grid-cols-3">
         {productAreas.map((area) => {
           const Icon = area.icon;
           return (
-            <Card key={area.title}>
-              <div className="mb-4 grid h-10 w-10 place-items-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-500">
-                <Icon size={20} />
+            <article
+              className="rounded-lg border border-line bg-white/[0.055] p-6 shadow-soft backdrop-blur-xl"
+              key={area.title}
+            >
+              <div className="mb-5 grid h-11 w-11 place-items-center rounded-lg border border-brand-500/30 bg-brand-500/10 text-brand-500">
+                <Icon size={21} />
               </div>
-              <CardTitle>{area.title}</CardTitle>
-              <CardDescription>{area.description}</CardDescription>
-            </Card>
+              <h2 className="text-xl font-semibold text-white">{area.title}</h2>
+              <p className="mt-3 text-sm leading-6 text-slate-300">{area.description}</p>
+            </article>
           );
         })}
       </section>
 
-      <section className="border-t border-line bg-black/20">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-8 text-sm text-muted md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2">
+      <footer className="relative z-10 border-t border-line bg-black/25">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-8 text-sm text-slate-400 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2 text-slate-300">
             <ShieldCheck size={18} />
-            Beta cerrada conectada al backend FastAPI existente.
+            Acceso beta privado conectado al producto real.
           </div>
-          <div className="flex items-center gap-2">
-            <Bell size={18} />
-            Streamlit queda como backoffice y laboratorio.
-          </div>
+          <div>(c) 2026 Valoria. Inteligencia inmobiliaria para Chile.</div>
         </div>
-      </section>
+      </footer>
     </main>
   );
 }

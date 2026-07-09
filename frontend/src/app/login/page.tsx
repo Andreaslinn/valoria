@@ -1,12 +1,11 @@
 "use client";
 
+import { ArrowRight, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { PublicHeader } from "@/components/layout/public-header";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { StatusNote } from "@/components/ui/status-note";
 import { login } from "@/lib/api/auth";
 import { setAccessToken } from "@/lib/auth/token";
@@ -34,56 +33,119 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-transparent">
-      <PublicHeader />
-      <section className="mx-auto grid max-w-5xl gap-8 px-5 py-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-        <div className="hidden lg:block">
-          <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">Acceso beta</p>
-          <h1 className="mt-3 text-4xl font-semibold leading-tight text-ink">
-            Tu cockpit inmobiliario empieza con una sesion segura.
+    <main className="relative min-h-screen overflow-hidden bg-[#02040b] text-ink">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_28%,rgba(124,92,255,0.24),transparent_24rem),radial-gradient(circle_at_50%_94%,rgba(95,45,255,0.32),transparent_34rem),linear-gradient(180deg,#02040b_0%,#060916_52%,#02040b_100%)]" />
+      <div className="pointer-events-none absolute inset-x-[-10%] bottom-[-34rem] h-[52rem] rounded-[50%] border border-violet-400/25 bg-[radial-gradient(circle_at_50%_0%,rgba(124,92,255,0.3),rgba(20,10,48,0.18)_32%,transparent_62%)] shadow-[0_-42px_160px_rgba(124,92,255,0.28)]" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-[linear-gradient(180deg,transparent,rgba(2,4,11,0.78)),linear-gradient(90deg,transparent,rgba(124,92,255,0.14),transparent)]" />
+
+      <section className="relative z-10 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center px-5 py-10">
+        <Link className="group mt-2 flex flex-col items-center text-center" href="/">
+          <span className="grid h-20 w-20 place-items-center rounded-[1.25rem] border border-violet-300/25 bg-white/[0.035] text-5xl font-black text-brand-500 shadow-[0_0_70px_rgba(124,92,255,0.38)] backdrop-blur-xl transition group-hover:border-violet-300/45">
+            V
+          </span>
+          <span className="mt-6 text-5xl font-semibold uppercase leading-none tracking-[0.28em] text-white sm:text-6xl">
+            Valoria
+          </span>
+        </Link>
+
+        <div className="mt-10 text-center">
+          <h1 className="mx-auto max-w-xl text-3xl font-semibold leading-tight text-white sm:text-4xl">
+            Inteligencia inmobiliaria para decisiones con{" "}
+            <span className="text-brand-500">ventaja.</span>
           </h1>
-          <p className="mt-4 text-sm leading-6 text-muted">
-            Login mantiene el endpoint actual de FastAPI. La experiencia visual cambia; la
-            autenticacion no.
-          </p>
+          <div className="mt-7 inline-flex items-center gap-2 rounded-lg border border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-violet-200 shadow-glow">
+            <LockKeyhole size={16} />
+            Acceso beta privado
+          </div>
+          <p className="mt-4 text-sm text-slate-300">Acceso exclusivo para usuarios invitados</p>
         </div>
-        <div className="rounded-lg border border-line bg-white/[0.06] p-6 shadow-soft backdrop-blur-xl">
-          <h1 className="text-2xl font-semibold text-ink">Entrar a Valoria</h1>
-          <p className="mt-2 text-sm leading-6 text-muted">
-            Usa las credenciales de la beta privada. El token se guarda localmente para esta
-            primera version.
-          </p>
-          <form className="mt-6 grid gap-4" onSubmit={onSubmit}>
-            <Input
-              autoComplete="email"
-              label="Email"
-              name="email"
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              type="email"
-              value={email}
-            />
-            <Input
-              autoComplete="current-password"
-              label="Password"
-              name="password"
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              type="password"
-              value={password}
-            />
+
+        <div className="mt-12 w-full rounded-lg border border-violet-400/25 bg-[#050812]/80 p-6 shadow-[0_28px_110px_rgba(0,0,0,0.62),0_0_70px_rgba(124,92,255,0.14)] backdrop-blur-2xl sm:p-9">
+          <div>
+            <h2 className="text-2xl font-semibold text-white">Iniciar sesion</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              Ingresa tus credenciales para acceder a Valoria.
+            </p>
+          </div>
+
+          <form className="mt-8 grid gap-5" onSubmit={onSubmit}>
+            <label className="grid gap-2 text-sm font-medium text-white" htmlFor="email">
+              Email
+              <span className="relative block">
+                <Mail
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+                  size={20}
+                />
+                <input
+                  autoComplete="email"
+                  className="min-h-14 w-full rounded-lg border border-slate-700/70 bg-black/25 px-12 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500/80 focus:ring-4 focus:ring-brand-100"
+                  id="email"
+                  name="email"
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="tucorreo@ejemplo.com"
+                  required
+                  type="email"
+                  value={email}
+                />
+              </span>
+            </label>
+
+            <label className="grid gap-2 text-sm font-medium text-white" htmlFor="password">
+              Contrasena
+              <span className="relative block">
+                <LockKeyhole
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+                  size={19}
+                />
+                <input
+                  autoComplete="current-password"
+                  className="min-h-14 w-full rounded-lg border border-slate-700/70 bg-black/25 px-12 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-brand-500/80 focus:ring-4 focus:ring-brand-100"
+                  id="password"
+                  name="password"
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Ingresa tu contrasena"
+                  required
+                  type="password"
+                  value={password}
+                />
+              </span>
+            </label>
+
+            <div className="rounded-lg border border-line bg-white/[0.045] px-4 py-3 text-sm text-slate-300">
+              La sesion se recuerda en este navegador usando el flujo actual de Valoria.
+            </div>
+
             {error ? <StatusNote tone="warning">{error}</StatusNote> : null}
-            <Button disabled={loading} type="submit">
-              {loading ? "Conectando..." : "Iniciar sesion"}
+
+            <Button
+              className="min-h-14 w-full px-6 text-base"
+              disabled={loading}
+              type="submit"
+            >
+              {loading ? "Conectando..." : "Entrar a Valoria"}
+              <ArrowRight size={20} />
             </Button>
           </form>
-          <p className="mt-5 text-sm text-muted">
-            No tienes cuenta?{" "}
-            <Link className="font-semibold text-brand-500" href="/register">
-              Solicitar acceso beta
+
+          <div className="mt-6 flex flex-col gap-3 border-t border-line pt-5 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+            <span>Beta privada para usuarios aprobados.</span>
+            <Link className="font-semibold text-violet-300 hover:text-white" href="/register">
+              Solicitar acceso
             </Link>
-          </p>
+          </div>
         </div>
+
+        <footer className="mt-auto flex w-full flex-col items-center gap-5 pb-4 pt-10 text-center text-xs text-slate-400">
+          <div className="flex items-center gap-4">
+            <span className="hidden h-px w-24 bg-line sm:block" />
+            <ShieldCheck className="text-slate-300" size={26} />
+            <span className="max-w-56 text-sm leading-6 text-slate-300">
+              Tu informacion esta protegida. Infraestructura segura en Chile.
+            </span>
+            <span className="hidden h-px w-24 bg-line sm:block" />
+          </div>
+          <p>(c) 2026 Valoria. Todos los derechos reservados.</p>
+        </footer>
       </section>
     </main>
   );
