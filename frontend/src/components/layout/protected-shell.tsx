@@ -9,8 +9,10 @@ import {
   LayoutDashboard,
   Link2,
   LogOut,
+  MoreHorizontal,
   Radar,
   Settings,
+  X,
   WalletCards,
 } from "lucide-react";
 import { clsx } from "clsx";
@@ -69,6 +71,7 @@ const navigation: ProtectedNavigationItem[] = [
 ];
 
 const mobileNavigation = navigation.filter((item) => item.showInMobileNav);
+const secondaryMobileNavigation = navigation.filter((item) => !item.showInMobileNav);
 
 function isActiveRoute(pathname: string, href: string) {
   if (href === "/app") {
@@ -83,6 +86,10 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [status, setStatus] = useState<"checking" | "ready" | "missing">("checking");
   const [user, setUser] = useState<User | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const activeNavigationItem =
+    navigation.find((item) => isActiveRoute(pathname, item.href)) ?? navigation[0];
+  const mobileTitle = activeNavigationItem.mobileLabel ?? activeNavigationItem.label;
 
   useEffect(() => {
     const token = getAccessToken();
@@ -102,7 +109,12 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
       });
   }, []);
 
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [pathname]);
+
   function logout() {
+    setMoreOpen(false);
     clearAccessToken();
     router.push("/login");
   }
@@ -175,7 +187,28 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="min-w-0 lg:pl-72">
-        <header className="relative z-20 border-b border-line bg-surface/72 px-5 py-2.5 backdrop-blur-xl">
+        <header className="sticky top-0 z-30 border-b border-white/10 bg-[#050914]/85 px-4 py-2.5 backdrop-blur-2xl lg:hidden">
+          <div className="mx-auto flex min-h-12 max-w-md items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
+                Valoria
+              </p>
+              <h1 className="truncate text-lg font-semibold text-ink">{mobileTitle}</h1>
+            </div>
+            {pathname === "/app" ? (
+              <button
+                aria-expanded={moreOpen}
+                aria-label="Abrir menu secundario"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line bg-white/[0.06] text-ink transition active:bg-white/[0.1]"
+                onClick={() => setMoreOpen((current) => !current)}
+                type="button"
+              >
+                <MoreHorizontal className="h-5 w-5" aria-hidden />
+              </button>
+            ) : null}
+          </div>
+        </header>
+        <header className="relative z-20 hidden border-b border-line bg-surface/72 px-5 py-2.5 backdrop-blur-xl lg:block">
           <div className="mx-auto flex w-full max-w-[1600px] items-center justify-end gap-3">
             <div className="min-w-0 text-right">
               <p className="truncate text-xs font-semibold uppercase tracking-wide text-muted">
@@ -231,6 +264,57 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
           })}
         </div>
       </nav>
+      {moreOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            aria-label="Cerrar menu secundario"
+            className="absolute inset-0 h-full w-full bg-black/55"
+            onClick={() => setMoreOpen(false)}
+            type="button"
+          />
+          <div className="absolute inset-x-3 bottom-3 mx-auto max-w-md rounded-lg border border-line bg-[#050914]/95 p-4 shadow-[0_-24px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+                  Menu
+                </p>
+                <p className="mt-1 truncate text-sm text-ink">{user?.email ?? "Usuario beta"}</p>
+              </div>
+              <button
+                aria-label="Cerrar menu"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-line bg-white/[0.06] text-muted"
+                onClick={() => setMoreOpen(false)}
+                type="button"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+            <div className="mt-4 grid gap-2">
+              {secondaryMobileNavigation.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    className="flex min-h-12 items-center gap-3 rounded-lg border border-line bg-white/[0.045] px-3 text-sm font-semibold text-ink"
+                    href={item.href}
+                    key={item.href}
+                  >
+                    <Icon className="h-4 w-4 text-brand-500" aria-hidden />
+                    {item.mobileLabel ?? item.label}
+                  </Link>
+                );
+              })}
+              <button
+                className="flex min-h-12 items-center gap-3 rounded-lg border border-line bg-white/[0.045] px-3 text-left text-sm font-semibold text-ink"
+                onClick={logout}
+                type="button"
+              >
+                <LogOut className="h-4 w-4 text-brand-500" aria-hidden />
+                Cerrar sesion
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

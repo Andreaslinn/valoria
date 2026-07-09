@@ -52,7 +52,7 @@ export function PlaceholderPanel({
 
 export function InternalBackLink() {
   return (
-    <Link className="mb-5 inline-flex text-sm font-semibold text-brand-500" href="/app">
+    <Link className="mb-5 hidden text-sm font-semibold text-brand-500 lg:inline-flex" href="/app">
       Volver al dashboard
     </Link>
   );

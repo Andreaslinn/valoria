@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Loader2, Trash2, WalletCards } from "lucide-react";
+import { ExternalLink, Loader2, MoreVertical, Trash2, WalletCards } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -117,6 +117,8 @@ function WatchlistCard({
   onRemove: () => void;
   removing: boolean;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <Card className="flex min-h-80 flex-col">
       <div className="flex items-start justify-between gap-4">
@@ -140,7 +142,7 @@ function WatchlistCard({
         <Fact label="Calidad precio" value={formatText(item.price_data_quality || item.price_display_basis)} />
       </div>
 
-      <div className="mt-auto flex flex-wrap gap-3 pt-5">
+      <div className="mt-auto hidden flex-wrap gap-3 pt-5 lg:flex">
         {item.url ? (
           <a
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line bg-white/[0.06] px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand-500/45 hover:bg-brand-500/10"
@@ -156,6 +158,48 @@ function WatchlistCard({
           {removing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
           Quitar
         </Button>
+      </div>
+      <div className="relative mt-auto flex items-center justify-between gap-3 pt-5 lg:hidden">
+        {item.url ? (
+          <a
+            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-line bg-white/[0.06] px-4 py-2 text-sm font-semibold text-ink transition active:bg-white/[0.1]"
+            href={item.url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ExternalLink className="h-4 w-4" aria-hidden />
+            Abrir
+          </a>
+        ) : (
+          <span className="min-h-11 flex-1 rounded-lg border border-line bg-white/[0.035] px-4 py-3 text-center text-sm text-muted">
+            Sin URL
+          </span>
+        )}
+        <button
+          aria-expanded={menuOpen}
+          aria-label="Abrir opciones de propiedad"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-line bg-white/[0.06] text-ink"
+          onClick={() => setMenuOpen((current) => !current)}
+          type="button"
+        >
+          <MoreVertical className="h-5 w-5" aria-hidden />
+        </button>
+        {menuOpen ? (
+          <div className="absolute bottom-14 right-0 z-10 w-48 rounded-lg border border-line bg-[#050914]/95 p-2 shadow-soft backdrop-blur-xl">
+            <button
+              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-ink active:bg-white/[0.08]"
+              disabled={removing}
+              onClick={() => {
+                setMenuOpen(false);
+                onRemove();
+              }}
+              type="button"
+            >
+              {removing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+              Quitar
+            </button>
+          </div>
+        ) : null}
       </div>
     </Card>
   );

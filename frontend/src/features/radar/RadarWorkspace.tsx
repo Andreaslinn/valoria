@@ -7,7 +7,9 @@ import {
   Radar,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
   WalletCards,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -42,6 +44,7 @@ export function RadarWorkspace() {
   const [message, setMessage] = useState<string | null>(null);
   const [limit, setLimit] = useState(20);
   const [bedroomsMin, setBedroomsMin] = useState<number | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [saveState, setSaveState] = useState<Record<number, SaveState>>({});
   const loadingRef = useRef(false);
 
@@ -70,6 +73,7 @@ export function RadarWorkspace() {
     } finally {
       loadingRef.current = false;
       setLoading(false);
+      setFiltersOpen(false);
     }
   }
 
@@ -100,18 +104,29 @@ export function RadarWorkspace() {
               Radar analiza publicaciones recientes y busca precios bajo el valor estimado por Valoria.
             </CardDescription>
           </div>
-          <span className="rounded-lg border border-accent-500/25 bg-accent-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-100">
-            Solo departamentos
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-lg border border-accent-500/25 bg-accent-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-100">
+              Solo departamentos
+            </span>
+            <Button
+              className="min-h-9 px-3 lg:hidden"
+              onClick={() => setFiltersOpen(true)}
+              type="button"
+              variant="secondary"
+            >
+              <SlidersHorizontal className="h-4 w-4" aria-hidden />
+              Filtros
+            </Button>
+          </div>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
           <SummaryFact label="Fuente" value="GET /api/v1/radar/opportunities" />
           <SummaryFact label="Ejecucion" value="Manual con boton" />
           <SummaryFact label="Resultados" value={hasSearched ? `${items.length} oportunidad(es)` : "Sin buscar"} />
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
           <label className="grid gap-2 text-sm text-muted">
             Limite
             <select
@@ -150,6 +165,82 @@ export function RadarWorkspace() {
           </Button>
         </div>
       </Card>
+
+      {!hasSearched ? (
+        <div className="lg:hidden">
+          <Button className="w-full" disabled={loading} onClick={search} type="button">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Search className="h-4 w-4" aria-hidden />}
+            {loading ? "Buscando..." : "Buscar oportunidades"}
+          </Button>
+        </div>
+      ) : null}
+
+      {filtersOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            aria-label="Cerrar filtros"
+            className="absolute inset-0 h-full w-full bg-black/55"
+            onClick={() => setFiltersOpen(false)}
+            type="button"
+          />
+          <div className="absolute inset-x-3 bottom-3 mx-auto max-w-md rounded-lg border border-line bg-[#050914]/95 p-4 shadow-[0_-24px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
+                  Radar
+                </p>
+                <h3 className="mt-1 text-lg font-semibold text-ink">Filtros de busqueda</h3>
+              </div>
+              <button
+                aria-label="Cerrar filtros"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-line bg-white/[0.06] text-muted"
+                onClick={() => setFiltersOpen(false)}
+                type="button"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+            <div className="mt-5 grid gap-4">
+              <label className="grid gap-2 text-sm text-muted">
+                Limite
+                <select
+                  className="min-h-11 rounded-lg border border-line bg-black/25 px-3 text-sm font-semibold text-ink outline-none transition focus:border-brand-500/60"
+                  disabled={loading}
+                  onChange={(event) => setLimit(Number(event.target.value))}
+                  value={limit}
+                >
+                  {LIMIT_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option} resultados
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm text-muted">
+                Dormitorios
+                <select
+                  className="min-h-11 rounded-lg border border-line bg-black/25 px-3 text-sm font-semibold text-ink outline-none transition focus:border-brand-500/60"
+                  disabled={loading}
+                  onChange={(event) => setBedroomsMin(bedroomsValue(event.target.value))}
+                  value={bedroomsMin === null ? "Todos" : `${bedroomsMin}+`}
+                >
+                  {BEDROOM_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <Button disabled={loading} onClick={search} type="button">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Search className="h-4 w-4" aria-hidden />}
+                {loading ? "Buscando..." : "Aplicar y buscar"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <StatusNote>
         Las oportunidades se filtran por publicaciones confirmadas recientemente en la base de datos. Beta: Valoria no reemplaza una tasacion profesional ni garantiza disponibilidad en tiempo real.

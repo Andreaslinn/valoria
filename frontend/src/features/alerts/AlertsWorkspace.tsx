@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, CheckCircle2, Loader2, WalletCards } from "lucide-react";
+import { Bell, CheckCircle2, Loader2, MoreVertical, WalletCards } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -135,12 +135,18 @@ function AlertCard({
   const newUf = ufPayloadValue(alert, "new");
   const previousClp = clpPayloadValue(alert, "previous");
   const newClp = clpPayloadValue(alert, "new");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <Card className="flex min-h-72 flex-col">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-base font-semibold leading-6 text-ink">{alert.title || "Propiedad con alerta"}</h3>
+          <div className="flex items-center gap-2">
+            {!alert.is_read ? (
+              <span className="h-2 w-2 rounded-full bg-brand-500 shadow-glow lg:hidden" aria-hidden />
+            ) : null}
+            <h3 className="text-base font-semibold leading-6 text-ink">{alert.title || "Propiedad con alerta"}</h3>
+          </div>
           <p className="mt-1 text-sm text-muted">{alert.comuna || "Comuna no disponible"}</p>
         </div>
         <span className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-100">
@@ -158,7 +164,7 @@ function AlertCard({
         <Fact label="CLP anterior / nuevo" value={`${formatClp(previousClp)} / ${formatClp(newClp)}`} />
       </div>
 
-      <div className="mt-auto flex flex-wrap gap-3 pt-5">
+      <div className="mt-auto hidden flex-wrap gap-3 pt-5 lg:flex">
         <Button disabled={marking || alert.is_read} onClick={onMarkRead} type="button" variant="secondary">
           {marking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />}
           {marking ? "Marcando..." : "Marcar como leida"}
@@ -167,6 +173,37 @@ function AlertCard({
           <WalletCards className="h-4 w-4" aria-hidden />
           Ver portfolio
         </ButtonLink>
+      </div>
+      <div className="relative mt-auto flex items-center justify-between gap-3 pt-5 lg:hidden">
+        <ButtonLink className="flex-1" href="/app/portfolio" variant="secondary">
+          <WalletCards className="h-4 w-4" aria-hidden />
+          Portfolio
+        </ButtonLink>
+        <button
+          aria-expanded={menuOpen}
+          aria-label="Abrir opciones de alerta"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-line bg-white/[0.06] text-ink"
+          onClick={() => setMenuOpen((current) => !current)}
+          type="button"
+        >
+          <MoreVertical className="h-5 w-5" aria-hidden />
+        </button>
+        {menuOpen ? (
+          <div className="absolute bottom-14 right-0 z-10 w-56 rounded-lg border border-line bg-[#050914]/95 p-2 shadow-soft backdrop-blur-xl">
+            <button
+              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-ink active:bg-white/[0.08] disabled:opacity-50"
+              disabled={marking || alert.is_read}
+              onClick={() => {
+                setMenuOpen(false);
+                onMarkRead();
+              }}
+              type="button"
+            >
+              {marking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />}
+              Marcar como leida
+            </button>
+          </div>
+        ) : null}
       </div>
     </Card>
   );

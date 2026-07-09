@@ -212,46 +212,179 @@ export function DashboardWorkspace() {
   const userName = user.data ? displayName(user.data) : "usuario beta";
 
   return (
-    <div className="min-w-0 space-y-4">
-      <section className="grid min-w-0 gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(380px,460px)]">
-        <MarketBriefing pulse={pulse} userName={userName} />
+    <>
+      <div className="min-w-0 space-y-4 lg:hidden">
+        <MobileTodayCard pulse={pulse} uf={uf} userName={userName} />
         <FeaturedValuation activity={activity} latestValuation={latestValuation ?? null} />
-      </section>
-
-      <section className="grid min-w-0 gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(380px,460px)]">
-        <div className="min-w-0 space-y-4">
-          <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] gap-4">
-            <RecentActivityCard state={pulse} />
-            <ObservedTimeCard state={pulse} />
-            <FeaturedCommuneCard state={pulse} />
+        <section className="grid min-w-0 gap-3">
+          <RadarPanel state={radarSummary} />
+          <div className="grid grid-cols-2 gap-3">
+            <MobileSummaryLink
+              description={watchlist.loading ? "Cargando" : "Ver propiedades guardadas"}
+              href="/app/portfolio"
+              icon={<Building2 className="h-5 w-5" aria-hidden />}
+              label="Portfolio"
+              value={watchlist.loading ? "..." : `${watchlistItems.length}`}
+            />
+            <MobileSummaryLink
+              description={alerts.loading ? "Cargando" : "Revisar cambios"}
+              href="/app/alerts"
+              icon={<AlertTriangle className="h-5 w-5" aria-hidden />}
+              label="Alertas"
+              value={alerts.loading ? "..." : `${unreadAlerts.length}`}
+            />
           </div>
-          <QuickActions />
-          <div className="grid min-w-0 gap-4 min-[1500px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <RadarPanel state={radarSummary} />
+        </section>
+        <details className="group rounded-lg border border-line bg-white/[0.045] p-4 shadow-soft backdrop-blur-xl">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
+            Analisis de mercado
+            <span className="text-xs uppercase tracking-[0.16em] text-muted group-open:hidden">
+              Ver
+            </span>
+            <span className="hidden text-xs uppercase tracking-[0.16em] text-muted group-open:inline">
+              Ocultar
+            </span>
+          </summary>
+          <div className="mt-4 grid min-w-0 gap-4">
+            <div className="grid min-w-0 gap-3">
+              <RecentActivityCard state={pulse} />
+              <ObservedTimeCard state={pulse} />
+              <FeaturedCommuneCard state={pulse} />
+            </div>
             <CommunesPanel state={communes} />
-          </div>
-          <div className="grid min-w-0 gap-4 min-[1500px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <DynamismPanel state={dynamism} />
             <SignalConfidenceCard state={pulse} />
+            <DataStatusCard
+              description={ufDescription(uf)}
+              icon={<CircleDollarSign className="h-5 w-5" aria-hidden />}
+              label="UF"
+              status={ufStatus(uf)}
+              value={uf.loading ? "Cargando" : uf.error ? "No disponible" : formatClp(uf.data?.rate_clp)}
+            />
           </div>
-        </div>
+        </details>
+      </div>
 
-        <div className="min-w-0 space-y-4">
-          <WatchlistPanel items={watchlistItems} state={watchlist} />
-        </div>
-      </section>
+      <div className="hidden min-w-0 space-y-4 lg:block">
+        <section className="grid min-w-0 gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(380px,460px)]">
+          <MarketBriefing pulse={pulse} userName={userName} />
+          <FeaturedValuation activity={activity} latestValuation={latestValuation ?? null} />
+        </section>
 
-      <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-        <AlertsPanel alerts={alertItems} state={alerts} unreadCount={unreadAlerts.length} />
-        <DataStatusCard
-          description={ufDescription(uf)}
-          icon={<CircleDollarSign className="h-5 w-5" aria-hidden />}
-          label="UF"
-          status={ufStatus(uf)}
-          value={uf.loading ? "Cargando" : uf.error ? "No disponible" : formatClp(uf.data?.rate_clp)}
-        />
-      </section>
-    </div>
+        <section className="grid min-w-0 gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(380px,460px)]">
+          <div className="min-w-0 space-y-4">
+            <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] gap-4">
+              <RecentActivityCard state={pulse} />
+              <ObservedTimeCard state={pulse} />
+              <FeaturedCommuneCard state={pulse} />
+            </div>
+            <QuickActions />
+            <div className="grid min-w-0 gap-4 min-[1500px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <RadarPanel state={radarSummary} />
+              <CommunesPanel state={communes} />
+            </div>
+            <div className="grid min-w-0 gap-4 min-[1500px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <DynamismPanel state={dynamism} />
+              <SignalConfidenceCard state={pulse} />
+            </div>
+          </div>
+
+          <div className="min-w-0 space-y-4">
+            <WatchlistPanel items={watchlistItems} state={watchlist} />
+          </div>
+        </section>
+
+        <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+          <AlertsPanel alerts={alertItems} state={alerts} unreadCount={unreadAlerts.length} />
+          <DataStatusCard
+            description={ufDescription(uf)}
+            icon={<CircleDollarSign className="h-5 w-5" aria-hidden />}
+            label="UF"
+            status={ufStatus(uf)}
+            value={uf.loading ? "Cargando" : uf.error ? "No disponible" : formatClp(uf.data?.rate_clp)}
+          />
+        </section>
+      </div>
+    </>
+  );
+}
+
+function MobileTodayCard({
+  pulse,
+  uf,
+  userName,
+}: {
+  pulse: LoadState<MarketPulse>;
+  uf: LoadState<UFRate>;
+  userName: string;
+}) {
+  const balance = pulse.data?.market_balance;
+  const coverage = pulse.data?.coverage;
+  const headline = balance?.headline ?? pulse.error ?? "Senales de mercado en preparacion";
+  const insight =
+    pulse.data?.insight.text ??
+    "Valoria muestra datos reales cuando existe cobertura suficiente para sostener la lectura.";
+
+  return (
+    <Card className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_80%_18%,rgba(124,92,255,0.16),transparent_16rem),rgba(255,255,255,0.055)] p-0">
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
+              Estado del dia
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold leading-tight text-ink">{headline}</h2>
+          </div>
+          <StatusPill status={toMetricStatus(balance?.status, pulse)} />
+        </div>
+        <p className="mt-3 text-sm leading-6 text-muted">Hola, {userName}. {insight}</p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <MiniStat
+            label="Cobertura"
+            value={
+              coverage
+                ? `${formatNumber(coverage.communes_with_minimum_sample)} comunas`
+                : "Sin dato"
+            }
+          />
+          <MiniStat
+            label="UF"
+            value={uf.loading ? "Cargando" : uf.error ? "Sin dato" : formatClp(uf.data?.rate_clp)}
+          />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function MobileSummaryLink({
+  description,
+  href,
+  icon,
+  label,
+  value,
+}: {
+  description: string;
+  href: string;
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <Link
+      className="min-w-0 rounded-lg border border-line bg-white/[0.055] p-4 shadow-soft backdrop-blur-xl transition active:bg-white/[0.08]"
+      href={href}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-500">
+          {icon}
+        </span>
+        <ArrowRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+      </div>
+      <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-ink">{value}</p>
+      <p className="mt-1 text-xs leading-5 text-muted">{description}</p>
+    </Link>
   );
 }
 

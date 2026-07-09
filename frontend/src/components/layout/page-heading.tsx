@@ -8,7 +8,7 @@ export function PageHeading({
   description: string;
 }) {
   return (
-    <div className="mb-6">
+    <div className="mb-6 hidden lg:block">
       {eyebrow ? (
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-brand-500">
           {eyebrow}

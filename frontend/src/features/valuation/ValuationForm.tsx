@@ -154,149 +154,187 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
           </StatusNote>
         ) : null}
 
-        <label className="grid min-w-0 gap-2 text-sm font-medium text-ink" htmlFor="propertyType">
-          Tipo de propiedad
-          <select
-            id="propertyType"
-            className={selectClassName}
-            value={values.propertyType}
+        <div className="grid gap-5 rounded-lg border border-line bg-black/20 p-4 lg:contents lg:border-0 lg:bg-transparent lg:p-0">
+          <div className="lg:hidden">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
+              Que es
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted">Tipo, comuna y una referencia para ubicar la propiedad.</p>
+          </div>
+
+          <label className="grid min-w-0 gap-2 text-sm font-medium text-ink" htmlFor="propertyType">
+            Tipo de propiedad
+            <select
+              id="propertyType"
+              className={selectClassName}
+              value={values.propertyType}
+              onChange={(event) =>
+                setValues((current) => ({
+                  ...current,
+                  propertyType: event.target.value as PropertyType,
+                }))
+              }
+            >
+              {propertyTypes.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="grid min-w-0 gap-2 text-sm font-medium text-ink" htmlFor="comuna">
+            Comuna
+            <select
+              id="comuna"
+              className={selectClassName}
+              name="comuna"
+              value={values.comuna}
+              onChange={(event) => setValues((current) => ({ ...current, comuna: event.target.value }))}
+              required
+            >
+              <option value="">Selecciona una comuna</option>
+              {comunaOptions.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <Input
+            label="Referencia visual local"
+            name="reference"
+            placeholder="Ej: Metro Chile Espana, sector plaza"
+            value={values.reference}
             onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                propertyType: event.target.value as PropertyType,
-              }))
+              setValues((current) => ({ ...current, reference: event.target.value }))
             }
+          />
+          <p className="-mt-3 text-xs leading-5 text-muted">
+            Esta referencia ayuda a ordenar tu lectura, pero el modelo actual no la recibe ni la usa
+            para calcular la tasacion.
+          </p>
+        </div>
+
+        <div className="grid gap-5 rounded-lg border border-line bg-black/20 p-4 lg:contents lg:border-0 lg:bg-transparent lg:p-0">
+          <div className="lg:hidden">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
+              Cuanto mide
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted">Superficie principal y terreno cuando corresponde.</p>
+          </div>
+
+          <div className="grid min-w-0 gap-4 md:grid-cols-2">
+            <Input
+              label="Superficie util/construida"
+              min="1"
+              name="builtAreaM2"
+              placeholder="75"
+              type="number"
+              value={values.builtAreaM2}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, builtAreaM2: event.target.value }))
+              }
+              required
+            />
+            <Input
+              disabled={!isHouse}
+              label="Superficie total/terreno"
+              min="1"
+              name="landAreaM2"
+              placeholder={isHouse ? "300" : "No aplica"}
+              type="number"
+              value={values.landAreaM2}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, landAreaM2: event.target.value }))
+              }
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-5 rounded-lg border border-line bg-black/20 p-4 lg:contents lg:border-0 lg:bg-transparent lg:p-0">
+          <div className="lg:hidden">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
+              Detalle
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted">Programa y precio publicado si quieres comparar.</p>
+          </div>
+
+          <div className="grid min-w-0 gap-4 lg:grid-cols-3">
+            <Input
+              label="Dormitorios"
+              min="0"
+              name="dormitorios"
+              type="number"
+              value={values.dormitorios}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, dormitorios: event.target.value }))
+              }
+            />
+            <Input
+              label="Banos"
+              min="0"
+              name="banos"
+              type="number"
+              value={values.banos}
+              onChange={(event) => setValues((current) => ({ ...current, banos: event.target.value }))}
+            />
+            <Input
+              label="Estacionamientos"
+              min="0"
+              name="estacionamientos"
+              type="number"
+              value={values.estacionamientos}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, estacionamientos: event.target.value }))
+              }
+            />
+          </div>
+
+          <div className="grid min-w-0 gap-4 md:grid-cols-2">
+            <Input
+              label="Precio publicado UF"
+              min="0"
+              name="publishedPriceUf"
+              placeholder="Opcional"
+              type="number"
+              value={values.publishedPriceUf}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, publishedPriceUf: event.target.value }))
+              }
+            />
+            <Input
+              label="Precio publicado CLP"
+              min="0"
+              name="publishedPriceClp"
+              placeholder="Opcional"
+              type="number"
+              value={values.publishedPriceClp}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, publishedPriceClp: event.target.value }))
+              }
+            />
+          </div>
+
+          {formError ? <StatusNote tone="warning">{formError}</StatusNote> : null}
+
+          <Button
+            className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-20 w-full shadow-[0_18px_52px_rgba(0,0,0,0.45)] lg:static lg:shadow-none"
+            disabled={isSubmitting}
+            type="submit"
           >
-            {propertyTypes.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="grid min-w-0 gap-2 text-sm font-medium text-ink" htmlFor="comuna">
-          Comuna
-          <select
-            id="comuna"
-            className={selectClassName}
-            name="comuna"
-            value={values.comuna}
-            onChange={(event) => setValues((current) => ({ ...current, comuna: event.target.value }))}
-            required
-          >
-            <option value="">Selecciona una comuna</option>
-            {comunaOptions.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <Input
-          label="Referencia visual local"
-          name="reference"
-          placeholder="Ej: Metro Chile Espana, sector plaza"
-          value={values.reference}
-          onChange={(event) =>
-            setValues((current) => ({ ...current, reference: event.target.value }))
-          }
-        />
-        <p className="-mt-3 text-xs leading-5 text-muted">
-          Esta referencia ayuda a ordenar tu lectura, pero el modelo actual no la recibe ni la usa
-          para calcular la tasacion.
-        </p>
-
-        <div className="grid min-w-0 gap-4 md:grid-cols-2">
-          <Input
-            label="Superficie util/construida"
-            min="1"
-            name="builtAreaM2"
-            placeholder="75"
-            type="number"
-            value={values.builtAreaM2}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, builtAreaM2: event.target.value }))
-            }
-            required
-          />
-          <Input
-            disabled={!isHouse}
-            label="Superficie total/terreno"
-            min="1"
-            name="landAreaM2"
-            placeholder={isHouse ? "300" : "No aplica"}
-            type="number"
-            value={values.landAreaM2}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, landAreaM2: event.target.value }))
-            }
-          />
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+            {isSubmitting ? (
+              "Tasando..."
+            ) : (
+              <>
+                <span className="lg:hidden">Tasar ahora</span>
+                <span className="hidden lg:inline">Tasar propiedad</span>
+              </>
+            )}
+          </Button>
         </div>
-
-        <div className="grid min-w-0 gap-4 lg:grid-cols-3">
-          <Input
-            label="Dormitorios"
-            min="0"
-            name="dormitorios"
-            type="number"
-            value={values.dormitorios}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, dormitorios: event.target.value }))
-            }
-          />
-          <Input
-            label="Banos"
-            min="0"
-            name="banos"
-            type="number"
-            value={values.banos}
-            onChange={(event) => setValues((current) => ({ ...current, banos: event.target.value }))}
-          />
-          <Input
-            label="Estacionamientos"
-            min="0"
-            name="estacionamientos"
-            type="number"
-            value={values.estacionamientos}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, estacionamientos: event.target.value }))
-            }
-          />
-        </div>
-
-        <div className="grid min-w-0 gap-4 md:grid-cols-2">
-          <Input
-            label="Precio publicado UF"
-            min="0"
-            name="publishedPriceUf"
-            placeholder="Opcional"
-            type="number"
-            value={values.publishedPriceUf}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, publishedPriceUf: event.target.value }))
-            }
-          />
-          <Input
-            label="Precio publicado CLP"
-            min="0"
-            name="publishedPriceClp"
-            placeholder="Opcional"
-            type="number"
-            value={values.publishedPriceClp}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, publishedPriceClp: event.target.value }))
-            }
-          />
-        </div>
-
-        {formError ? <StatusNote tone="warning">{formError}</StatusNote> : null}
-
-        <Button className="w-full" disabled={isSubmitting} type="submit">
-          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-          {isSubmitting ? "Tasando..." : "Tasar propiedad"}
-        </Button>
       </form>
     </Card>
   );

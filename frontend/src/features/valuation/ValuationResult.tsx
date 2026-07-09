@@ -64,6 +64,43 @@ export function ValuationResult({
     }
   }
 
+  function renderComparables() {
+    if (!valuationResult.comparables?.length) {
+      return (
+        <div className="mt-5 rounded-lg border border-dashed border-line bg-black/20 p-6 text-sm leading-6 text-muted">
+          No hay comparables para mostrar. La tasacion puede seguir siendo util como referencia,
+          pero no devolvio publicaciones revisables en esta respuesta.
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="mt-5 grid gap-4 xl:grid-cols-2">
+          {visibleComparables.map((comparable, index) => (
+            <ComparableCard
+              key={`${comparable.listing_id ?? "comparable"}-${index}`}
+              comparable={comparable}
+            />
+          ))}
+        </div>
+        {valuationResult.comparables.length > 4 ? (
+          <div className="mt-5 flex justify-center">
+            <Button
+              onClick={() => setShowAllComparables((current) => !current)}
+              type="button"
+              variant="secondary"
+            >
+              {showAllComparables
+                ? "Ver menos comparables"
+                : `Ver mas comparables (${valuationResult.comparables.length})`}
+            </Button>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
   return (
     <div className="grid gap-5">
       <Card>
@@ -132,7 +169,17 @@ export function ValuationResult({
         )}
       </Card>
 
-      <ExperimentalConsensusPanel result={result} />
+      <div className="hidden lg:block">
+        <ExperimentalConsensusPanel result={result} />
+      </div>
+      <details className="rounded-lg border border-line bg-white/[0.055] p-5 shadow-soft backdrop-blur-xl lg:hidden">
+        <summary className="cursor-pointer list-none text-base font-semibold text-ink">
+          Como llego Valoria a esta estimacion
+        </summary>
+        <div className="mt-4">
+          <ExperimentalConsensusPanel result={result} />
+        </div>
+      </details>
 
       <ValuationReliabilitySummary result={result} />
 
@@ -162,36 +209,13 @@ export function ValuationResult({
           </div>
         ) : null}
 
-        {result.comparables?.length ? (
-          <>
-            <div className="mt-5 grid gap-4 xl:grid-cols-2">
-              {visibleComparables.map((comparable, index) => (
-                <ComparableCard
-                  key={`${comparable.listing_id ?? "comparable"}-${index}`}
-                  comparable={comparable}
-                />
-              ))}
-            </div>
-            {result.comparables.length > 4 ? (
-              <div className="mt-5 flex justify-center">
-                <Button
-                  onClick={() => setShowAllComparables((current) => !current)}
-                  type="button"
-                  variant="secondary"
-                >
-                  {showAllComparables
-                    ? "Ver menos comparables"
-                    : `Ver mas comparables (${result.comparables.length})`}
-                </Button>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <div className="mt-5 rounded-lg border border-dashed border-line bg-black/20 p-6 text-sm leading-6 text-muted">
-            No hay comparables para mostrar. La tasacion puede seguir siendo util como referencia,
-            pero no devolvio publicaciones revisables en esta respuesta.
-          </div>
-        )}
+        <div className="hidden lg:block">{renderComparables()}</div>
+        <details className="mt-5 rounded-lg border border-line bg-black/20 p-4 lg:hidden">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-ink">
+            Ver comparables ({valuationResult.comparables?.length ?? 0})
+          </summary>
+          {renderComparables()}
+        </details>
       </Card>
     </div>
   );
