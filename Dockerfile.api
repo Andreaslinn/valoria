@@ -18,6 +18,11 @@ COPY domain ./domain
 COPY infrastructure ./infrastructure
 COPY scripts ./scripts
 COPY services ./services
+COPY ui/__init__.py ./ui/__init__.py
+COPY ui/formatting.py ./ui/formatting.py
+COPY ui/components/__init__.py ./ui/components/__init__.py
+COPY ui/components/risk_report_contract.py ./ui/components/risk_report_contract.py
+COPY ui/components/risk_report_html.py ./ui/components/risk_report_html.py
 COPY workers ./workers
 
 RUN python -m pip install --upgrade pip && python -m pip install -e .
