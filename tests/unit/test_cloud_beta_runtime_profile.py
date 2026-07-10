@@ -53,10 +53,33 @@ def test_cloud_beta_settings_disable_heavy_runtime_flags() -> None:
     assert settings.database_max_overflow == 3
 
 
+def test_oracle_beta_settings_can_enable_live_runtime_flags() -> None:
+    settings = _settings(
+        valoria_runtime_profile="oracle_beta",
+        environment="beta",
+        redis_enabled=True,
+        scheduler_enabled=True,
+        listing_on_demand_refresh_enabled=True,
+        portfolio_snapshot_write_enabled=False,
+        database_pool_size=5,
+        database_max_overflow=5,
+    )
+
+    assert settings.is_cloud_beta is False
+    assert settings.is_oracle_beta is True
+    assert settings.redis_enabled is True
+    assert settings.scheduler_enabled is True
+    assert settings.listing_on_demand_refresh_enabled is True
+    assert settings.portfolio_snapshot_write_enabled is False
+    assert settings.database_pool_size == 5
+    assert settings.database_max_overflow == 5
+
+
 def test_local_settings_preserve_defaults() -> None:
     settings = _settings()
 
     assert settings.is_cloud_beta is False
+    assert settings.is_oracle_beta is False
     assert settings.redis_enabled is True
     assert settings.redis_url is not None
     assert settings.scheduler_enabled is True
@@ -102,6 +125,35 @@ async def test_cloud_beta_scheduler_main_returns_without_jobs(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
+async def test_oracle_beta_scheduler_main_starts_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _settings(valoria_runtime_profile="oracle_beta", environment="beta", scheduler_enabled=True)
+    calls: list[str] = []
+
+    class FakeScheduler:
+        def start(self) -> None:
+            calls.append("start")
+
+        def shutdown(self) -> None:
+            calls.append("shutdown")
+
+        def get_jobs(self) -> list[object]:
+            return []
+
+    class FakeEvent:
+        async def wait(self) -> None:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(scheduler_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(scheduler_module, "run_startup_catchup", AsyncMock(return_value=None))
+    monkeypatch.setattr(scheduler_module, "build_scheduler", lambda *args, **kwargs: FakeScheduler())
+    monkeypatch.setattr(scheduler_module.asyncio, "Event", lambda: FakeEvent())
+
+    await scheduler_module.main()
+
+    assert calls == ["start", "shutdown"]
+
+
+@pytest.mark.asyncio
 async def test_cloud_beta_listing_freshness_does_not_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     listing = SimpleNamespace(
         id=123,
@@ -129,6 +181,46 @@ async def test_cloud_beta_listing_freshness_does_not_refresh(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
+async def test_oracle_beta_listing_freshness_can_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing = SimpleNamespace(
+        id=123,
+        url="https://www.yapo.cl/region-metropolitana/departamentos/departamento-test",
+        source="yapo",
+        last_seen_at=datetime(2026, 7, 8, tzinfo=UTC),
+        last_refresh_attempted_at=None,
+        last_refresh_status=None,
+        status="active",
+    )
+    refresh_stats = SimpleNamespace(
+        refreshed_ok=1,
+        removed=0,
+        inactive=0,
+        blocked_or_captcha=0,
+        unexpected_errors=0,
+        unexpected_http=0,
+        timeouts=0,
+        parse_errors=0,
+        validation_errors=0,
+        reason_counts={},
+    )
+    monkeypatch.setattr("services.listing_freshness._load_listing", AsyncMock(return_value=listing))
+    refresh = AsyncMock(return_value=refresh_stats)
+    monkeypatch.setattr("services.listing_freshness.refresh_listing_once", refresh)
+    monkeypatch.setattr("services.listing_freshness._optional_uf_info", AsyncMock(return_value=None))
+
+    result = await ensure_listing_fresh(
+        123,
+        reason="test",
+        session_factory=object(),
+        settings=_settings(valoria_runtime_profile="oracle_beta", environment="beta"),
+    )
+
+    assert result.status == "fresh_confirmed"
+    assert result.refresh_attempted is True
+    refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_cloud_beta_blocks_portfolio_snapshot() -> None:
     with pytest.raises(HTTPException) as exc:
         await create_portfolio_snapshot(
@@ -140,6 +232,23 @@ async def test_cloud_beta_blocks_portfolio_snapshot() -> None:
 
     assert exc.value.status_code == 403
     assert "disabled" in str(exc.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_oracle_beta_blocks_portfolio_snapshot_until_flag_is_enabled() -> None:
+    with pytest.raises(HTTPException) as exc:
+        await create_portfolio_snapshot(
+            PortfolioSnapshotRunIn(dry_run=True, limit=1),
+            current_user=SimpleNamespace(id=1),
+            service=object(),
+            settings=_settings(
+                valoria_runtime_profile="oracle_beta",
+                environment="beta",
+                portfolio_snapshot_write_enabled=False,
+            ),
+        )
+
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio

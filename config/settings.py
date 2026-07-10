@@ -58,8 +58,17 @@ class Settings(BaseSettings):
     nominatim_user_agent: str = "AVM-v2-geocoder/0.1 (contact: dev-local)"
 
     # Entorno
-    valoria_runtime_profile: Literal["local", "cloud_beta"] = "local"
-    environment: Literal["local", "development", "beta", "production", "cloud_beta", "cloud-beta"] = "development"
+    valoria_runtime_profile: Literal["local", "cloud_beta", "oracle_beta"] = "local"
+    environment: Literal[
+        "local",
+        "development",
+        "beta",
+        "production",
+        "cloud_beta",
+        "cloud-beta",
+        "oracle_beta",
+        "oracle-beta",
+    ] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     backend_cors_origins: str = Field(
         "http://localhost:3000,http://127.0.0.1:3000",
@@ -98,6 +107,10 @@ class Settings(BaseSettings):
     @property
     def is_cloud_beta(self) -> bool:
         return self.valoria_runtime_profile == "cloud_beta" or self.environment in {"cloud_beta", "cloud-beta"}
+
+    @property
+    def is_oracle_beta(self) -> bool:
+        return self.valoria_runtime_profile == "oracle_beta" or self.environment in {"oracle_beta", "oracle-beta"}
 
     @property
     def backend_cors_origin_list(self) -> tuple[str, ...]:

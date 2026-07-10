@@ -1,0 +1,5 @@
+{$ORACLE_API_HOSTNAME:localhost} {
+    encode zstd gzip
+
+    reverse_proxy api:8000
+}
