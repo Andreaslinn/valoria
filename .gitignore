@@ -8,6 +8,7 @@ venv/
 .env
 .env.*
 !.env.example
+deploy/oracle.env
 .streamlit/secrets.toml
 users.json
 .pycache_compile/

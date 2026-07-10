@@ -5,7 +5,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     env_file:
-      - deploy/oracle.env.example
+      - ${VALORIA_ENV_FILE:-deploy/oracle.env.example}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -38,7 +38,7 @@ services:
       dockerfile: Dockerfile.api
     restart: unless-stopped
     env_file:
-      - deploy/oracle.env.example
+      - ${VALORIA_ENV_FILE:-deploy/oracle.env.example}
     environment:
       VALORIA_RUNTIME_PROFILE: oracle_beta
       ENVIRONMENT: beta
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "workers.scheduler"]
     env_file:
-      - deploy/oracle.env.example
+      - ${VALORIA_ENV_FILE:-deploy/oracle.env.example}
     environment:
       VALORIA_RUNTIME_PROFILE: oracle_beta
       ENVIRONMENT: beta
@@ -105,7 +105,7 @@ services:
     restart: "no"
     command: ["python", "-m", "alembic", "upgrade", "head"]
     env_file:
-      - deploy/oracle.env.example
+      - ${VALORIA_ENV_FILE:-deploy/oracle.env.example}
     environment:
       VALORIA_RUNTIME_PROFILE: oracle_beta
       ENVIRONMENT: beta
