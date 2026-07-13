@@ -5,7 +5,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -13,9 +13,12 @@ from api.deps import (
     CurrentUser,
     DbSession,
     ListingServiceDep,
+    RateLimiterDep,
     UFServiceDep,
     ValuationServiceDep,
 )
+from api.rate_limit import RateLimitRule, enforce_rate_limit, user_identifier
+from config import Settings, get_settings
 from core.entities.listing import Listing
 from core.exceptions import ListingNotFoundError, UFServiceError
 from core.ports.uf_service import UFRateInfo
@@ -153,10 +156,21 @@ async def list_listings(
 @router.post("/lookup-url", response_model=ListingUrlLookupResponse)
 async def lookup_url(
     payload: ListingUrlLookupRequest,
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
+    limiter: RateLimiterDep,
     session: DbSession,
     uf_service: UFServiceDep,
+    settings: Settings = Depends(get_settings),
 ) -> ListingUrlLookupResponse:
+    await enforce_rate_limit(
+        limiter,
+        RateLimitRule(
+            namespace="listings:lookup-url:user",
+            max_requests=settings.rate_limit_analyze_url_user_max,
+            window_seconds=settings.rate_limit_analyze_url_user_window_seconds,
+        ),
+        user_identifier(current_user),
+    )
     url = payload.url.strip()
     if not url:
         raise HTTPException(
@@ -203,11 +217,22 @@ async def lookup_url(
 @router.post("/analyze-url", response_model=ListingUrlAnalyzeResponse)
 async def analyze_url(
     payload: ListingUrlAnalyzeRequest,
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
+    limiter: RateLimiterDep,
     valuation_service: ValuationServiceDep,
     session: DbSession,
     uf_service: UFServiceDep,
+    settings: Settings = Depends(get_settings),
 ) -> ListingUrlAnalyzeResponse:
+    await enforce_rate_limit(
+        limiter,
+        RateLimitRule(
+            namespace="listings:analyze-url:user",
+            max_requests=settings.rate_limit_analyze_url_user_max,
+            window_seconds=settings.rate_limit_analyze_url_user_window_seconds,
+        ),
+        user_identifier(current_user),
+    )
     url = payload.url.strip()
     if not url:
         raise HTTPException(

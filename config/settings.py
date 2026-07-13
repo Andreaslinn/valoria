@@ -35,6 +35,20 @@ class Settings(BaseSettings):
     redis_enabled: bool = True
     redis_url: str | None = "redis://localhost:6379/0"
 
+    # Rate limiting
+    rate_limit_enabled: bool = True
+    rate_limit_fail_open: bool = True
+    rate_limit_login_ip_max: int = 10
+    rate_limit_login_ip_window_seconds: int = 300
+    rate_limit_login_account_max: int = 20
+    rate_limit_login_account_window_seconds: int = 3600
+    rate_limit_register_ip_max: int = 6
+    rate_limit_register_ip_window_seconds: int = 3600
+    rate_limit_analyze_url_user_max: int = 10
+    rate_limit_analyze_url_user_window_seconds: int = 600
+    rate_limit_report_user_max: int = 20
+    rate_limit_report_user_window_seconds: int = 600
+
     # Auth
     jwt_secret_key: str = Field(
         ...,

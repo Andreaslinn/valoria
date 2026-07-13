@@ -7,7 +7,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api import deps
+from api.rate_limit import RateLimiter
 from api.v1 import listings as listings_api
+from config import get_settings
 from core.entities.user import User
 
 
@@ -31,8 +33,16 @@ class _LookupResult:
 
 def _client(*, authenticated: bool = True) -> TestClient:
     app = FastAPI()
+
+    async def _db_override():
+        yield None
+
     if authenticated:
         app.dependency_overrides[deps._resolve_current_user] = _authenticated_user
+    settings = get_settings().model_copy(update={"rate_limit_enabled": False})
+    app.dependency_overrides[deps.get_db] = _db_override
+    app.dependency_overrides[deps.get_uf_service] = lambda: object()
+    app.dependency_overrides[deps.get_rate_limiter] = lambda: RateLimiter(redis=None, settings=settings)
     app.include_router(listings_api.router, prefix="/api/v1")
     return TestClient(app)
 
@@ -74,7 +84,20 @@ def test_lookup_url_authenticated_happy_path_mocking_service(monkeypatch) -> Non
 
     assert response.status_code == 200
     assert calls == ["https://www.yapo.cl/metropolitana/departamento-test"]
-    assert response.json() == {
+    body = response.json()
+    assert body | {
+        "freshness_status": None,
+        "last_seen_at": None,
+        "last_refreshed_at": None,
+        "last_refresh_status": None,
+        "freshness_note": None,
+        "refresh_attempted": False,
+        "refresh_result": None,
+    } == body
+    assert {
+        key: body[key]
+        for key in ("status", "listing_data", "warnings", "source", "url")
+    } == {
         "status": "parsed_new",
         "listing_data": {
             "title": "Depto Yapo",

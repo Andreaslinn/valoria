@@ -4,10 +4,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.deps import CurrentUser
+from api.deps import CurrentUser, RateLimiterDep
+from api.rate_limit import RateLimitRule, enforce_rate_limit, user_identifier
+from config import Settings, get_settings
 from services.reports import (
     ReportGenerationError,
     build_listing_analysis_report_html,
@@ -36,9 +38,12 @@ class ListingAnalysisReportRequest(BaseModel):
 @router.post("/valuation")
 async def download_property_valuation_report(
     payload: PropertyValuationReportRequest,
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
+    limiter: RateLimiterDep,
+    settings: Settings = Depends(get_settings),
     format: Literal["html", "pdf"] = Query(default="html"),
 ) -> Response:
+    await _enforce_report_rate_limit(current_user, limiter, settings)
     if format == "pdf":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -66,9 +71,12 @@ async def download_property_valuation_report(
 @router.post("/listing-analysis")
 async def download_listing_analysis_report(
     payload: ListingAnalysisReportRequest,
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
+    limiter: RateLimiterDep,
+    settings: Settings = Depends(get_settings),
     format: Literal["html", "pdf"] = Query(default="html"),
 ) -> Response:
+    await _enforce_report_rate_limit(current_user, limiter, settings)
     if format == "pdf":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -87,6 +95,22 @@ async def download_listing_analysis_report(
     return _html_attachment_response(
         html,
         filename=listing_analysis_filename(payload.analysis),
+    )
+
+
+async def _enforce_report_rate_limit(
+    current_user: CurrentUser,
+    limiter: RateLimiterDep,
+    settings: Settings,
+) -> None:
+    await enforce_rate_limit(
+        limiter,
+        RateLimitRule(
+            namespace="reports:generate:user",
+            max_requests=settings.rate_limit_report_user_max,
+            window_seconds=settings.rate_limit_report_user_window_seconds,
+        ),
+        user_identifier(current_user),
     )
 
 
