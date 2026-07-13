@@ -7,9 +7,9 @@ export default function RadarPage() {
     <>
       <InternalBackLink />
       <PageHeading
-        eyebrow="Beta real"
+        eyebrow="Beta"
         title="Radar"
-        description="Busca oportunidades reales bajo el valor estimado por Valoria cuando tu decidas ejecutar Radar."
+        description="Busca oportunidades bajo el valor estimado por Valoria cuando tu decidas ejecutar Radar."
       />
       <RadarWorkspace />
     </>

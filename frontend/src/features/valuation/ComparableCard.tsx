@@ -38,7 +38,7 @@ export function ComparableCard({ comparable }: { comparable: Comparable }) {
         <ComparableFact label="Superficie" value={formatM2(comparable.m2)} />
         <ComparableFact label="Programa" value={program || "No disponible"} />
         <ComparableFact label="Similitud" value={formatNumber(comparable.similarity, 2)} />
-        <ComparableFact label="Fuente" value={comparable.listing_id ? `#${comparable.listing_id}` : "No disponible"} />
+        <ComparableFact label="Referencia" value={comparable.listing_id ? `#${comparable.listing_id}` : "No disponible"} />
       </div>
     </Card>
   );

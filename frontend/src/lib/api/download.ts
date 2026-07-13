@@ -33,7 +33,7 @@ export async function downloadAuthenticatedReport({
       cache: "no-store",
     });
   } catch (error) {
-    throw new ApiError("No pudimos conectar con la API de Valoria.", 0, error);
+    throw new ApiError("No pudimos conectar con Valoria. Intenta nuevamente en unos minutos.", 0, error);
   }
 
   if (!response.ok) {

@@ -103,7 +103,7 @@ export function RadarWorkspace() {
               <CardTitle>Feed Radar</CardTitle>
             </div>
             <div className="hidden lg:block">
-              <CardTitle>Radar beta conectado</CardTitle>
+              <CardTitle>Radar beta</CardTitle>
             </div>
             <CardDescription>
               Radar analiza publicaciones recientes y busca precios bajo el valor estimado por Valoria.
@@ -126,7 +126,7 @@ export function RadarWorkspace() {
         </div>
 
         <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
-          <SummaryFact label="Fuente" value="GET /api/v1/radar/opportunities" />
+          <SummaryFact label="Estado" value={loading ? "Buscando" : "Listo"} />
           <SummaryFact label="Ejecucion" value="Manual con boton" />
           <SummaryFact label="Resultados" value={hasSearched ? `${items.length} oportunidad(es)` : "Sin buscar"} />
         </div>
@@ -255,19 +255,19 @@ export function RadarWorkspace() {
 
       <div className="hidden lg:block">
         <StatusNote>
-          Las oportunidades se filtran por publicaciones confirmadas recientemente en la base de datos. Beta: Valoria no reemplaza una tasacion profesional ni garantiza disponibilidad en tiempo real.
+          Las oportunidades se filtran por publicaciones confirmadas recientemente. Beta: Valoria no reemplaza una tasacion profesional ni garantiza disponibilidad en tiempo real.
         </StatusNote>
       </div>
 
       <div className="hidden lg:block">
         <StatusNote tone="info">
-          Filtros avanzados proximamente. En esta beta solo se envian filtros soportados por el endpoint: limite y dormitorios.
+          Filtros avanzados proximamente. En esta beta puedes ajustar limite y dormitorios.
         </StatusNote>
       </div>
 
       {slow ? (
         <StatusNote tone="warning">
-          Radar puede tardar mientras calcula oportunidades reales. Seguimos esperando la respuesta del backend.
+          Radar puede tardar mientras calcula oportunidades. Seguimos preparando los resultados.
         </StatusNote>
       ) : null}
       {message ? <StatusNote tone="success">{message}</StatusNote> : null}
@@ -288,7 +288,7 @@ export function RadarWorkspace() {
         <Card>
           <div className="flex min-h-56 items-center justify-center gap-3 text-sm text-muted">
             <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-            Ejecutando Radar con datos reales...
+            Ejecutando Radar...
           </div>
         </Card>
       ) : hasSearched && items.length ? (
@@ -310,7 +310,7 @@ export function RadarWorkspace() {
               <Radar className="mx-auto h-9 w-9 text-brand-500" aria-hidden />
               <h3 className="mt-4 text-lg font-semibold text-ink">Sin oportunidades para estos parametros</h3>
               <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
-                El backend respondio sin resultados. Puedes ampliar el limite o quitar el filtro de dormitorios.
+                No encontramos resultados para estos parametros. Puedes ampliar el limite o quitar el filtro de dormitorios.
               </p>
               <div className="mt-5">
                 <ButtonLink href="/app/portfolio" variant="secondary">
@@ -328,7 +328,7 @@ export function RadarWorkspace() {
               <ShieldCheck className="mx-auto h-9 w-9 text-accent-500" aria-hidden />
               <h3 className="mt-4 text-lg font-semibold text-ink">Radar listo para ejecutar</h3>
               <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
-                La busqueda no se dispara al cargar esta pantalla. Presiona el boton para consultar oportunidades reales.
+                La busqueda no se dispara al cargar esta pantalla. Presiona el boton para consultar oportunidades.
               </p>
             </div>
           </div>
@@ -500,10 +500,10 @@ function median(values: number[]): number | null {
 
 function errorText(error: unknown, fallback: string): string {
   if (!(error instanceof ApiError)) return fallback;
-  if (error.status === 0) return "No pudimos conectar con la API de Valoria. Revisa que FastAPI este corriendo.";
+  if (error.status === 0) return "No pudimos conectar con Valoria. Intenta nuevamente en unos minutos.";
   if (error.status === 401 || error.status === 403) return "Tu sesion no esta vigente o no tiene permisos para Radar.";
-  if (error.status === 404) return "El endpoint de Radar no esta disponible en esta API.";
+  if (error.status === 404) return "Radar no esta disponible en este momento.";
   if (error.status === 400 || error.status === 422) return "Los parametros enviados a Radar no son validos.";
-  if (error.status >= 500) return "Radar tuvo un problema en el backend. Intenta nuevamente mas tarde.";
+  if (error.status >= 500) return "Radar tuvo un problema. Intenta nuevamente mas tarde.";
   return error.message;
 }

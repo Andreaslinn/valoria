@@ -42,18 +42,16 @@ export default function RegisterPage() {
         <div className="hidden lg:block">
           <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">Beta cerrada</p>
           <h1 className="mt-3 text-4xl font-semibold leading-tight text-ink">
-            Prepara tu acceso sin cambiar la autenticacion existente.
+            Prepara tu acceso a la beta privada de Valoria.
           </h1>
           <p className="mt-4 text-sm leading-6 text-muted">
-            Registro sigue llamando al endpoint actual. Si la beta esta cerrada, la UI muestra el
-            error de forma controlada.
+            Si la beta esta cerrada, te mostraremos una respuesta clara para que sepas como seguir.
           </p>
         </div>
         <div className="rounded-lg border border-line bg-white/[0.06] p-6 shadow-soft backdrop-blur-xl">
           <h1 className="text-2xl font-semibold text-ink">Solicitar acceso beta</h1>
           <p className="mt-2 text-sm leading-6 text-muted">
-            Este formulario usa el endpoint actual de registro. Si la beta esta cerrada, Valoria
-            mostrara una respuesta amable sin romper la pantalla.
+            Si la beta esta cerrada, Valoria mostrara una respuesta clara sin interrumpir tu flujo.
           </p>
           <form className="mt-6 grid gap-4" onSubmit={onSubmit}>
             <Input

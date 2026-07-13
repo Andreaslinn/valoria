@@ -139,7 +139,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
         <div>
           <CardTitle>Datos de la propiedad</CardTitle>
           <CardDescription>
-            Usa los atributos principales para ejecutar la tasacion real del backend.
+            Usa los atributos principales para calcular una estimacion Valoria.
           </CardDescription>
         </div>
         <div className="rounded-lg border border-brand-500/25 bg-brand-500/10 p-2 text-brand-500">

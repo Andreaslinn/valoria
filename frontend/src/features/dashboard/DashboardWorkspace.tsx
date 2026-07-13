@@ -76,7 +76,7 @@ const initialState = <T,>(): LoadState<T> => ({
 
 const quickActions = [
   {
-    description: "Calcula valor estimado con comparables reales.",
+    description: "Calcula valor estimado con comparables disponibles.",
     href: "/app/tasar",
     icon: Home,
     title: "Tasar propiedad",
@@ -359,7 +359,7 @@ function MobileBriefingStory({
         </div>
         <h2 className="mt-4 text-2xl font-semibold leading-tight text-ink">{headline}</h2>
         <p className="mt-3 text-sm leading-6 text-muted">
-          Hola, {userName}. {pulse.data?.insight.text ?? "Valoria revisa el mercado con datos reales y muestra senales cuando hay cobertura suficiente."}
+          Hola, {userName}. {pulse.data?.insight.text ?? "Valoria revisa el mercado y muestra senales cuando hay cobertura suficiente."}
         </p>
 
         <div className="mt-5 space-y-4 border-t border-line pt-4">

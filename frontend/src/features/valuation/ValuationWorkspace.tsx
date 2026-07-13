@@ -73,7 +73,7 @@ function errorText(error: unknown): string {
     return validationErrorText(error.payload);
   }
   if (error.status >= 500) {
-    return "La API tuvo un problema al tasar. Intenta nuevamente en unos minutos.";
+    return "No pudimos completar la tasacion. Intenta nuevamente en unos minutos.";
   }
   return error.message;
 }

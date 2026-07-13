@@ -31,7 +31,7 @@ const productAreas = [
   {
     title: "Radar de oportunidades",
     description:
-      "Explora oportunidades recientes dentro del alcance beta, con filtros y criterios conectados al backend real.",
+      "Explora oportunidades recientes dentro del alcance beta, con filtros y criterios claros.",
     icon: Radar,
   },
 ];
@@ -111,47 +111,50 @@ export default function LandingPage() {
       <TerritorialTexture />
       <div className="pointer-events-none absolute inset-x-[-22%] top-[20rem] h-[36rem] rounded-[50%] border border-violet-400/15 bg-[radial-gradient(circle_at_50%_0%,rgba(124,92,255,0.14),transparent_62%)]" />
 
-      <header className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5">
-        <Link className="flex items-center gap-3" href="/">
+      <header className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-5 sm:px-5">
+        <Link className="flex min-w-0 items-center gap-3" href="/">
           <span className="grid h-11 w-11 place-items-center rounded-lg border border-violet-300/30 bg-white/[0.045] text-2xl font-black text-brand-500 shadow-glow backdrop-blur-xl">
             V
           </span>
-          <span>
+          <span className="min-w-0">
             <span className="block text-sm font-bold uppercase tracking-[0.26em] text-white">
               Valoria
             </span>
             <span className="block text-xs text-slate-400">Beta privada</span>
           </span>
         </Link>
-        <nav className="flex items-center gap-2">
-          <ButtonLink href="/login" variant="ghost">
+        <nav className="flex shrink-0 items-center gap-2">
+          <ButtonLink className="min-h-10 px-3" href="/login" variant="ghost">
             Iniciar sesion
           </ButtonLink>
-          <ButtonLink href="/register" variant="secondary">
+          <ButtonLink className="hidden min-h-10 px-3 sm:inline-flex" href="/register" variant="secondary">
             Solicitar acceso
           </ButtonLink>
         </nav>
       </header>
 
       <section className="relative z-10 mx-auto grid max-w-7xl gap-10 px-5 pb-12 pt-5 lg:grid-cols-[1.01fr_0.99fr] lg:items-center lg:pb-16 lg:pt-8">
-        <div>
+        <div className="min-w-0">
           <div className="inline-flex items-center gap-2 rounded-lg border border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-violet-200 shadow-glow">
             <LockKeyhole size={16} />
             Acceso beta privado
           </div>
-          <h1 className="mt-6 max-w-3xl text-[2.7rem] font-semibold leading-[1.03] text-white sm:text-5xl lg:text-[4.5rem]">
-            Inteligencia inmobiliaria para decisiones con{" "}
-            <span className="text-brand-500">ventaja.</span>
+          <h1 className="mt-6 max-w-3xl text-[2.15rem] font-semibold leading-[1.08] text-white sm:text-5xl lg:text-[4.5rem]">
+            Inteligencia <br className="sm:hidden" />
+            inmobiliaria <br className="sm:hidden" />
+            para decisiones <br className="sm:hidden" />
+            con{" "}
+            <span className="block text-brand-500 sm:inline">ventaja.</span>
           </h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
+          <p className="mt-5 max-w-[21.5rem] text-base leading-7 text-slate-300 sm:max-w-2xl sm:text-lg">
             Valoria reune tasaciones, analisis de publicaciones y radar de oportunidades en una
             experiencia premium para compradores, vendedores e inversionistas en Chile.
           </p>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+          <p className="mt-3 max-w-[21.5rem] text-sm leading-6 text-slate-400 sm:max-w-2xl">
             La beta es privada: el acceso se habilita por invitacion y las funcionalidades visibles
-            trabajan sobre los modulos reales disponibles hoy.
+            trabajan sobre los modulos disponibles hoy.
           </p>
-          <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-7 flex max-w-[21.5rem] flex-col gap-3 sm:max-w-none sm:flex-row">
             <ButtonLink
               href="/login"
               className="min-h-[3.35rem] min-w-44 px-7 shadow-[0_0_34px_rgba(124,92,255,0.28)]"
@@ -165,7 +168,7 @@ export default function LandingPage() {
           </div>
         </div>
 
-        <div className="relative">
+        <div className="relative min-w-0 overflow-hidden">
           <div className="absolute -inset-5 rounded-[2rem] bg-brand-500/10 blur-3xl" />
           <div className="relative overflow-hidden rounded-lg border border-violet-400/25 bg-[#060916]/[0.82] p-5 shadow-[0_28px_100px_rgba(0,0,0,0.52),0_0_70px_rgba(124,92,255,0.12)] backdrop-blur-2xl">
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.08),transparent_28%),radial-gradient(circle_at_80%_18%,rgba(124,92,255,0.18),transparent_18rem)]" />
@@ -230,7 +233,7 @@ export default function LandingPage() {
                   Alcance beta
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-300">
-                  Sin metricas simuladas, clientes ficticios ni promesas fuera del alcance actual.
+                  Cobertura limitada, criterios visibles y foco en decisiones revisables.
                 </p>
               </div>
             </div>
@@ -272,7 +275,7 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-8 text-sm text-slate-400 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2 text-slate-300">
             <ShieldCheck size={18} />
-            Acceso beta privado conectado al producto real.
+            Acceso beta privado a Valoria.
           </div>
           <div>(c) 2026 Valoria. Inteligencia inmobiliaria para Chile.</div>
         </div>

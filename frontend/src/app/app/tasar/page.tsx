@@ -7,9 +7,9 @@ export default function TasarPage() {
     <>
       <InternalBackLink />
       <PageHeading
-        eyebrow="Tasacion conectada"
+        eyebrow="Tasacion"
         title="Tasar propiedad"
-        description="Ejecuta una valoracion real contra FastAPI y revisa estimacion, rango, confianza, warnings y comparables cuando esten disponibles."
+        description="Ejecuta una valoracion y revisa estimacion, rango, confianza, advertencias y comparables cuando esten disponibles."
       />
       <ValuationWorkspace />
     </>

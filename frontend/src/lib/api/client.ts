@@ -49,7 +49,7 @@ async function request<T>(
     });
   } catch (error) {
     throw new ApiError(
-      "No pudimos conectar con la API de Valoria. Revisa que FastAPI este corriendo.",
+      "No pudimos conectar con Valoria. Intenta nuevamente en unos minutos.",
       0,
       error,
     );
@@ -91,7 +91,7 @@ function errorMessage(payload: unknown, status: number): string {
   if (status === 409) {
     return "El recurso ya existe.";
   }
-  return "La API respondio con un error inesperado.";
+  return "No pudimos completar la solicitud. Intenta nuevamente.";
 }
 
 export const apiClient = {

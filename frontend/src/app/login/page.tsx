@@ -112,7 +112,7 @@ export default function LoginPage() {
             </label>
 
             <div className="rounded-lg border border-line bg-white/[0.045] px-3 py-2.5 text-xs leading-5 text-slate-300 sm:text-sm">
-              La sesion se recuerda en este navegador usando el flujo actual de Valoria.
+              La sesion se recuerda en este navegador para que puedas volver con facilidad.
             </div>
 
             {error ? <StatusNote tone="warning">{error}</StatusNote> : null}

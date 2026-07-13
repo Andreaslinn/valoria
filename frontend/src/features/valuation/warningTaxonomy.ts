@@ -156,9 +156,9 @@ export function mapWarningCodes(codes: Array<string | null | undefined>): Warnin
       result.push({
         category: "datos",
         code,
-        description: "Codigo tecnico recibido desde backend. Queda disponible para auditoria.",
+        description: "Valoria encontro una senal adicional que conviene revisar con cautela.",
         known: false,
-        label: "Senal tecnica no clasificada",
+        label: "Senal adicional no clasificada",
         severity: "info",
       });
       continue;

@@ -9,7 +9,7 @@ export default function AlertsPage() {
       <PageHeading
         eyebrow="Monitoreo"
         title="Alertas"
-        description="Revisa alertas reales de propiedades guardadas y marca como leidas las que ya gestionaste."
+        description="Revisa alertas de propiedades guardadas y marca como leidas las que ya gestionaste."
       />
       <AlertsWorkspace />
     </>

@@ -81,7 +81,7 @@ export function ListingUrlWorkspace() {
             required
           />
           <StatusNote>
-            Esta pantalla consulta endpoints reales. No crea reportes, previews ni descargas simuladas.
+            Analiza publicaciones soportadas y muestra solo datos disponibles para revision.
           </StatusNote>
           {error ? <StatusNote tone="warning">{error}</StatusNote> : null}
           <Button disabled={loading} type="submit">
@@ -140,8 +140,8 @@ function LookupResult({
             <Link2 className="mx-auto h-8 w-8 text-brand-500" aria-hidden />
             <h3 className="mt-4 text-lg font-semibold text-ink">Lista para analizar</h3>
             <p className="mt-2 max-w-md text-sm leading-6 text-muted">
-              Pega una URL soportada. Si la API logra parsearla, veras los atributos que puede usar
-              el flujo de tasacion.
+              Pega una URL soportada para ver los atributos disponibles y usarlos como punto de
+              partida para una tasacion.
             </p>
           </div>
         </div>
@@ -173,8 +173,8 @@ function LookupResult({
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardTitle>Resultado del lookup</CardTitle>
-            <CardDescription>Respuesta real de POST /api/v1/listings/lookup-url.</CardDescription>
+            <CardTitle>Datos de la publicacion</CardTitle>
+            <CardDescription>Informacion extraida desde la publicacion soportada.</CardDescription>
           </div>
           <span className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${status.className}`}>
             <CheckCircle2 className="h-4 w-4" aria-hidden />
@@ -197,7 +197,7 @@ function LookupResult({
 
         <div className="mt-5">
           <StatusNote>
-            El Listing Risk Report descargable sigue en preparacion. Esta accion genera un analisis JSON real, no un reporte falso.
+            El informe descargable estara disponible despues de completar el analisis de la publicacion.
           </StatusNote>
         </div>
         <FreshnessStatusNote freshness={analysis ?? result} />
@@ -224,7 +224,7 @@ function LookupResult({
               {saving ? "Guardando..." : "Guardar en watchlist"}
             </Button>
           ) : (
-            <Button disabled title="El lookup no devolvio listing_id para guardar." type="button" variant="secondary">
+            <Button disabled title="Esta publicacion no esta disponible para guardar." type="button" variant="secondary">
               Guardar no disponible
             </Button>
           )}
@@ -256,7 +256,7 @@ function LookupResult({
       <Card>
         <CardTitle>Calidad de extraccion</CardTitle>
         <CardDescription>
-          Campos faltantes o parciales vienen desde la API. No se completan con datos inventados.
+          Campos faltantes o parciales se mantienen como no disponibles para evitar conclusiones forzadas.
         </CardDescription>
         {result.warnings?.length ? (
           <div className="mt-5 grid gap-2">
@@ -274,7 +274,7 @@ function LookupResult({
           </div>
         ) : (
           <div className="mt-5 rounded-lg border border-line bg-white/[0.04] p-3 text-sm text-muted">
-            La API no devolvio advertencias para esta publicacion.
+            No encontramos advertencias de extraccion para esta publicacion.
           </div>
         )}
       </Card>
@@ -310,7 +310,7 @@ function ListingAnalysisCard({ analysis }: { analysis: ListingAnalysisResponse }
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <CardTitle>Analisis de publicacion</CardTitle>
-          <CardDescription>Resultado real de POST /api/v1/listings/analyze-url.</CardDescription>
+          <CardDescription>Lectura de precio, senales y soporte disponible.</CardDescription>
         </div>
         <span className={`inline-flex items-center rounded-lg border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${tone}`}>
           {analysis.price_analysis.verdict_label}
@@ -340,7 +340,7 @@ function ListingAnalysisCard({ analysis }: { analysis: ListingAnalysisResponse }
           {downloadState === "downloading" ? "Descargando..." : "Descargar analisis"}
         </Button>
         <span className="text-sm leading-6 text-muted">
-          Listing Risk Report HTML generado por el backend con este analisis.
+          Informe HTML preparado con este analisis.
         </span>
       </div>
       {downloadState === "error" ? (
@@ -394,7 +394,7 @@ function errorText(error: unknown): string {
     return "No se pudo parsear la publicacion. Prueba con otra URL soportada.";
   }
   if (error.status >= 500) {
-    return "La API tuvo un problema al analizar la URL.";
+    return "No pudimos analizar la URL en este momento. Intenta nuevamente en unos minutos.";
   }
   return error.message;
 }

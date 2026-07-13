@@ -32,8 +32,8 @@ export function ValuationResult({
             <Sparkles className="mx-auto h-8 w-8 text-brand-600" aria-hidden />
             <h3 className="mt-4 text-lg font-semibold text-ink">Lista para tasar</h3>
             <p className="mt-2 max-w-md text-sm leading-6 text-muted">
-              Ejecuta una tasacion para ver valor estimado, rango, confianza y comparables reales
-              devueltos por FastAPI.
+              Ejecuta una tasacion para ver valor estimado, rango, confianza y comparables
+              disponibles.
             </p>
           </div>
         </div>
@@ -107,7 +107,7 @@ export function ValuationResult({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <CardTitle>Resultado estimado</CardTitle>
-            <CardDescription>Respuesta real de POST /api/v1/valuations.</CardDescription>
+            <CardDescription>Estimacion, rango y soporte disponible para esta propiedad.</CardDescription>
           </div>
           <span className="rounded-lg bg-accent-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-accent-600">
             {result.status || "beta"}
@@ -281,7 +281,7 @@ function reportState(result: ValuationResponse, payload: ValuationRequest | null
   }
   return {
     available: true,
-    description: "Descarga un Investment Intelligence Report HTML generado por el backend con esta tasacion.",
+    description: "Descarga un Investment Intelligence Report HTML preparado con esta tasacion.",
     label: "Descargar informe",
     title: "Descargar informe HTML",
   };

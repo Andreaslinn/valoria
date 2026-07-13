@@ -65,7 +65,7 @@ export function AlertsWorkspace() {
               <CardTitle>Cronologia de eventos</CardTitle>
             </div>
             <div className="hidden lg:block">
-              <CardTitle>Inbox real de alertas</CardTitle>
+              <CardTitle>Inbox de alertas</CardTitle>
             </div>
             <CardDescription>
               Alertas no leidas generadas para propiedades guardadas en tu watchlist.
@@ -76,7 +76,7 @@ export function AlertsWorkspace() {
           </span>
         </div>
         <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
-          <SummaryFact label="Fuente" value="GET /api/v1/alerts" />
+          <SummaryFact label="Estado" value={loading ? "Actualizando" : "Actualizado"} />
           <SummaryFact label="Tipo activo" value={priceDrops ? `${priceDrops} baja(s) de precio` : "Sin bajas no leidas"} />
           <SummaryFact label="Accion" value="Marcar como leida" />
         </div>
@@ -89,7 +89,7 @@ export function AlertsWorkspace() {
         <Card>
           <div className="flex min-h-56 items-center justify-center gap-3 text-sm text-muted">
             <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-            Cargando alertas reales...
+            Cargando alertas...
           </div>
         </Card>
       ) : alerts.length ? (
@@ -110,7 +110,7 @@ export function AlertsWorkspace() {
               <Bell className="mx-auto h-9 w-9 text-brand-500" aria-hidden />
               <h3 className="mt-4 text-lg font-semibold text-ink">Sin alertas pendientes</h3>
               <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
-                Las alertas aparecen cuando una propiedad guardada cumple una condicion detectada por el backend.
+                Las alertas aparecen cuando una propiedad guardada cumple una condicion relevante.
               </p>
               <div className="mt-5">
                 <ButtonLink href="/app/portfolio" variant="secondary">
@@ -239,8 +239,8 @@ function errorText(error: unknown, fallback: string): string {
   if (!(error instanceof ApiError)) return fallback;
   if (error.status === 401 || error.status === 403) return "Tu sesion no esta vigente o no tiene permisos.";
   if (error.status === 404) return "La alerta no existe o ya fue procesada.";
-  if (error.status === 422) return "La API no pudo procesar esta accion.";
-  if (error.status >= 500) return "La API tuvo un problema cargando alertas.";
+  if (error.status === 422) return "No pudimos procesar esta accion.";
+  if (error.status >= 500) return "No pudimos cargar alertas en este momento.";
   return error.message;
 }
 

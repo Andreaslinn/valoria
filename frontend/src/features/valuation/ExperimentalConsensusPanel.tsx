@@ -80,7 +80,7 @@ function VerdictSummary({ verdict }: { verdict: ValuationVerdict }) {
         </div>
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <SmallFact label="Fuente" value={isConsensus ? "Consensus experimental" : "Tasacion actual"} />
+        <SmallFact label="Metodo" value={isConsensus ? "Consenso Valoria" : "Tasacion actual"} />
         <SmallFact label="Confianza" value={formatPercent(verdict.confidence ?? null)} />
         <SmallFact label="Estado" value={statusLabel(verdict.status)} />
       </div>
