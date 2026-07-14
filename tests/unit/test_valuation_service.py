@@ -6,11 +6,19 @@ from decimal import Decimal
 
 import pytest
 
+from api.v1.valuations import ValuationResponse
 from core.entities.listing import Listing
 from core.exceptions import InsufficientDataError, ValidationError
 from core.ports.listing_repo import ListingRepository
 from core.ports.uf_service import UFService
 from domain.valuation import comparables
+from domain.valuation.engines.contracts import (
+    EngineContext,
+    EngineRequest,
+    EngineResult,
+    EngineStatus,
+)
+from domain.valuation.engines.registry import EngineRegistry
 from services.valuation import ValuationInput, ValuationService
 from tests.unit.factories import make_listing
 
@@ -79,6 +87,26 @@ class FakeListingRepository(ListingRepository):
 class FakeUFService(UFService):
     async def get_current_rate(self) -> Decimal:
         return Decimal("39000")
+
+
+class _StubEngine:
+    def __init__(self, name: str, estimate: int) -> None:
+        self.name = name
+        self.version = f"{name}_test_v1"
+        self._estimate = Decimal(estimate)
+
+    def valuate(self, request: EngineRequest, context: EngineContext) -> EngineResult:
+        return EngineResult(
+            engine_name=self.name,
+            engine_version=self.version,
+            status=EngineStatus.OK,
+            estimated_price_clp=self._estimate,
+            estimated_price_uf=self._estimate / Decimal("39000"),
+            range_low_clp=self._estimate - Decimal("10000000"),
+            range_high_clp=self._estimate + Decimal("10000000"),
+            confidence=0.8,
+            comparables_used=8,
+        )
 
 
 async def test_unknown_property_type_adds_warning_and_low_data_mode() -> None:
@@ -441,7 +469,7 @@ async def test_experimental_engine_lab_failure_does_not_break_valuation(monkeypa
     assert result.engine_breakdown == []
 
 
-async def test_consensus_uses_real_canonical_outliers_and_preserves_core_fields(
+async def test_consensus_flag_alone_preserves_current_strategy(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("VALORIA_USE_CONSENSUS", "true")
@@ -476,39 +504,98 @@ async def test_consensus_uses_real_canonical_outliers_and_preserves_core_fields(
     assert result.price_range_high_clp is not None
     assert result.confidence_score is not None
     assert result.comparable_count == len(result.comparables)
-    assert result.selected_engine_names == ["comparables_canonical_outliers"]
+    assert result.valuation_strategy == "current"
+    assert result.consensus_used is False
+    assert result.consensus is None
+    assert result.engine_results == []
+
+
+async def test_consensus_strategy_uses_two_valid_families(monkeypatch) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "true")
+    listings = [
+        make_listing(fingerprint=f"consensus-{idx}", price_clp=180_000_000)
+        for idx in range(8)
+    ]
+    registry = EngineRegistry()
+    registry.register(_StubEngine("comparables_canonical_outliers", 190_000_000))
+    registry.register(_StubEngine("hedonic_baseline_v1", 186_000_000))
+    service = ValuationService(
+        listing_repo=FakeListingRepository(listings),
+        uf_service=FakeUFService(),
+        engine_registry=registry,
+    )
+
+    result = await service.valuate_property(
+        ValuationInput(comuna="nunoa", property_type="apartment", m2=75),
+        valuation_strategy="consensus_v1",
+    )
+
+    assert result.valuation_strategy == "consensus_v1"
+    assert result.consensus_used is True
+    assert result.selected_engine_names == ["valoria_consensus_v1"]
     assert result.consensus is not None
+    assert result.consensus.valid_engine_count == 2
+    assert result.consensus.engine_family_count == 2
     assert result.consensus.estimate_clp == result.estimated_price_clp
-    assert result.consensus_method == "favorite_first_with_legacy_fallback_v1"
-    assert {item.engine_name for item in result.engine_results} == {
-        "comparables_canonical_outliers",
-        "comparables_legacy",
-        "comparables_canonical",
-    }
+    assert result.consensus_method == "valoria_consensus_v1_min_two_families"
 
 
-async def test_consensus_falls_back_to_real_legacy_engine(monkeypatch) -> None:
+async def test_consensus_response_with_list_verdict_explanation_is_serializable(monkeypatch) -> None:
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "true")
+    listings = [
+        make_listing(fingerprint=f"consensus-serializable-{idx}", price_clp=180_000_000)
+        for idx in range(8)
+    ]
+    registry = EngineRegistry()
+    registry.register(_StubEngine("comparables_canonical_outliers", 190_000_000))
+    registry.register(_StubEngine("hedonic_baseline_v1", 186_000_000))
+    service = ValuationService(
+        listing_repo=FakeListingRepository(listings),
+        uf_service=FakeUFService(),
+        engine_registry=registry,
+    )
+
+    result = await service.valuate_property(
+        ValuationInput(comuna="nunoa", property_type="apartment", m2=75),
+        valuation_strategy="consensus_v1",
+    )
+
+    assert isinstance(result.valuation_verdict["explanation"], list)
+    response = ValuationResponse.model_validate(result, from_attributes=True)
+    payload = response.model_dump(mode="json")
+
+    assert payload["valuation_strategy"] == "consensus_v1"
+    assert payload["consensus_used"] is True
+    assert isinstance(payload["valuation_verdict"]["explanation"], list)
+    assert payload["estimated_price_uf"] is not None
+
+
+async def test_consensus_strategy_with_one_family_keeps_current_fallback(monkeypatch) -> None:
     monkeypatch.setenv("VALORIA_USE_CONSENSUS", "true")
     listings = [
         make_listing(fingerprint=f"legacy-fallback-{idx}", price_clp=180_000_000)
         for idx in range(6)
     ]
+    registry = EngineRegistry()
+    registry.register(_StubEngine("comparables_canonical_outliers", 190_000_000))
     service = ValuationService(
         listing_repo=FakeListingRepository(listings),
         uf_service=FakeUFService(),
+        engine_registry=registry,
     )
 
     result = await service.valuate_property(
-        ValuationInput(comuna="nunoa", property_type="apartment", m2=75)
+        ValuationInput(comuna="nunoa", property_type="apartment", m2=75),
+        valuation_strategy="consensus_v1",
     )
 
     assert result.estimated_price_clp == 180_000_000
-    assert result.selected_engine_names == ["comparables_legacy"]
-    legacy = next(
-        item for item in result.engine_results if item.engine_name == "comparables_legacy"
-    )
-    assert legacy.role == "fallback"
-    assert legacy.selected_for_final is True
+    assert result.valuation_strategy == "current_engine_fallback"
+    assert result.consensus_used is False
+    assert result.consensus_unavailable_reason == "insufficient_distinct_engine_families"
+    assert result.fallback_engine_used == "current_valuation"
+    assert result.consensus is not None
+    assert result.consensus.valid_engine_count == 1
 
 
 async def test_consensus_all_engines_insufficient_keeps_controlled_error(

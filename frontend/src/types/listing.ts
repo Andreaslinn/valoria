@@ -69,6 +69,10 @@ export type ListingAnalysisResponse = ListingFreshnessMetadata & {
     confidence_label?: string | null;
     comparables_used?: number | null;
     warnings?: string[];
+    valuation_strategy?: string;
+    consensus_used?: boolean;
+    consensus_unavailable_reason?: string | null;
+    fallback_engine_used?: string | null;
   };
   price_analysis: {
     published_price_uf?: number | null;

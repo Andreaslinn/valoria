@@ -23,9 +23,11 @@ class _ValuationService:
     def __init__(self, valuation: _Valuation) -> None:
         self.valuation = valuation
         self.inputs = []
+        self.strategies = []
 
-    async def valuate_property(self, valuation_input):
+    async def valuate_property(self, valuation_input, *, valuation_strategy: str = "current"):
         self.inputs.append(valuation_input)
+        self.strategies.append(valuation_strategy)
         return self.valuation
 
 
@@ -63,6 +65,7 @@ async def test_listing_analysis_detects_under_market() -> None:
     assert result.price_analysis["difference_pct"] == 14
     assert result.report_status["listing_risk_report_available"] is False
     assert service.inputs[0].precio_publicado_uf == 4300
+    assert service.strategies == ["consensus_v1"]
 
 
 @pytest.mark.asyncio

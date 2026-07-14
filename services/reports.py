@@ -49,6 +49,10 @@ def build_listing_analysis_report_html(*, analysis: dict[str, Any]) -> str:
         "comparable_count": valuation.get("comparables_used"),
         "warnings": valuation.get("warnings") or [],
         "comparables": valuation.get("comparables") or [],
+        "valuation_strategy": valuation.get("valuation_strategy"),
+        "consensus_used": valuation.get("consensus_used"),
+        "consensus_unavailable_reason": valuation.get("consensus_unavailable_reason"),
+        "fallback_engine_used": valuation.get("fallback_engine_used"),
     }
     valuation_payload = {
         "comuna": listing.get("comuna"),

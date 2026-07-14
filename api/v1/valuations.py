@@ -76,6 +76,7 @@ class BetaScopeMetricsOut(BaseModel):
 class ValuationEngineResultOut(BaseModel):
     engine_name: str
     engine_version: str
+    engine_family: str | None = None
     role: str
     status: str
     estimate_uf: float | None = None
@@ -99,6 +100,12 @@ class ValuationConsensusOut(BaseModel):
     confidence: float | None = None
     selected_engine_names: list[str] = Field(default_factory=list)
     engine_weights: dict[str, float] = Field(default_factory=dict)
+    consensus_used: bool = False
+    valid_engine_count: int = 0
+    engine_family_count: int = 0
+    engine_families: list[str] = Field(default_factory=list)
+    fallback_reason: str | None = None
+    fallback_engine_used: str | None = None
 
 
 class ValuationVerdictOut(BaseModel):
@@ -108,7 +115,7 @@ class ValuationVerdictOut(BaseModel):
     low_uf: float | None = None
     high_uf: float | None = None
     confidence: float | None = None
-    explanation: str | None = None
+    explanation: str | list[str] | None = None
     source: str | None = None
     status: str | None = None
 
@@ -176,6 +183,10 @@ class ValuationResponse(BaseModel):
     engine_breakdown: list[ValuationEngineBreakdownOut] = Field(default_factory=list)
     consensus_audit: ValuationConsensusAuditOut | None = None
     weight_audit: list[dict] = Field(default_factory=list)
+    valuation_strategy: str = "current"
+    consensus_used: bool = False
+    consensus_unavailable_reason: str | None = None
+    fallback_engine_used: str | None = None
 
 
 class ValuationFeedbackRequest(BaseModel):
@@ -211,7 +222,8 @@ async def valuate(
                 estacionamientos=payload.estacionamientos,
                 precio_publicado_uf=payload.precio_publicado_uf,
                 precio_publicado_clp=payload.precio_publicado_clp,
-            )
+            ),
+            valuation_strategy="consensus_v1",
         )
     except (ValidationError, InsufficientDataError, ValueError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

@@ -602,14 +602,22 @@ async def test_valuation_endpoint_exposes_beta_consensus_when_enabled(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["consensus"]["status"] == "ok"
-    assert body["consensus"]["estimate_clp"] == body["estimated_price_clp"]
-    assert body["selected_engine_names"] == ["comparables_canonical_outliers"]
-    assert body["consensus_method"] == "favorite_first_with_legacy_fallback_v1"
-    assert {item["engine_name"] for item in body["engine_results"]} == {
+    assert body["valuation_strategy"] == "current_engine_fallback"
+    assert body["consensus_used"] is False
+    assert body["consensus_unavailable_reason"] == "insufficient_distinct_engine_families"
+    assert body["consensus"]["status"] == "insufficient_data"
+    assert body["consensus"]["consensus_used"] is False
+    assert body["consensus"]["engine_family_count"] == 1
+    assert body["consensus_method"] == "valoria_consensus_v1_min_two_families"
+    assert body["selected_engine_names"] == []
+    assert {
+        item["engine_name"]
+        for item in body["engine_results"]
+        if item["engine_name"] in {"comparables_canonical_outliers", "microzone_geo_v1", "hedonic_baseline_v1"}
+    } == {
         "comparables_canonical_outliers",
-        "comparables_legacy",
-        "comparables_canonical",
+        "microzone_geo_v1",
+        "hedonic_baseline_v1",
     }
     assert all("traceback" not in str(item).lower() for item in body["engine_results"])
 

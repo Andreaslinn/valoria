@@ -164,6 +164,44 @@ def test_manual_property_valuation_does_not_penalize_missing_listing_fields() ->
     assert report_data["report_type"] == "Investment Intelligence Report"
 
 
+def test_manual_property_valuation_report_marks_consensus_result() -> None:
+    payload = {
+        "comuna": "nunoa",
+        "property_type": "apartment",
+        "m2": 75.0,
+        "built_area_m2": 75.0,
+    }
+    result = {
+        "estimated_price_uf": 5200.0,
+        "estimated_price_clp": 205_000_000,
+        "price_range_low_uf": 4900.0,
+        "price_range_high_uf": 5500.0,
+        "confidence": "medium",
+        "confidence_label": "medium",
+        "comparable_count": 6,
+        "price_m2_uf": 69.33,
+        "consensus_used": True,
+        "valuation_strategy": "consensus_v1",
+        "warnings": [],
+        "comparables": [
+            {
+                "listing_id": 10,
+                "title": "Comparable Nunoa",
+                "comuna": "nunoa",
+                "price_uf": 5100.0,
+                "m2": 74.0,
+                "similarity": 0.82,
+            }
+        ],
+    }
+
+    report_data = build_investment_intelligence_report_data(result, payload, {})
+    html = build_risk_report_html(report_data)
+
+    assert "Consenso Valoria" in html
+    assert "Estimacion calculada mediante Consenso Valoria" in html
+
+
 def test_listing_analysis_uses_listing_copy_and_hides_raw_warning_codes() -> None:
     payload = {
         "comuna": "nunoa",

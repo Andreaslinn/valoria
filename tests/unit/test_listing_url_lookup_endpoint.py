@@ -181,9 +181,10 @@ def test_lookup_url_parse_failure_returns_502(monkeypatch) -> None:
 
 def test_analyze_url_authenticated_happy_path_mocking_services(monkeypatch) -> None:
     class FakeValuationService:
-        async def valuate_property(self, valuation_input):
+        async def valuate_property(self, valuation_input, *, valuation_strategy: str = "current"):
             assert valuation_input.comuna == "nunoa"
             assert valuation_input.precio_publicado_uf == 4300
+            assert valuation_strategy == "consensus_v1"
 
             class Result:
                 estimated_price_uf = 5000

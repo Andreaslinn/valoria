@@ -44,7 +44,10 @@ async def analyze_listing_lookup(
         )
 
     try:
-        valuation = await valuation_service.valuate_property(valuation_input)
+        valuation = await valuation_service.valuate_property(
+            valuation_input,
+            valuation_strategy="consensus_v1",
+        )
     except (ValidationError, InsufficientDataError, ValueError) as error:
         unavailable.append(str(error))
         return _analysis_result(
@@ -156,6 +159,10 @@ def _valuation_payload(valuation: Any) -> dict[str, Any]:
         "confidence_label": getattr(valuation, "confidence_label", None),
         "comparables_used": _safe_int(getattr(valuation, "comparable_count", None)),
         "warnings": list(getattr(valuation, "warnings", []) or []),
+        "valuation_strategy": getattr(valuation, "valuation_strategy", "current"),
+        "consensus_used": bool(getattr(valuation, "consensus_used", False)),
+        "consensus_unavailable_reason": getattr(valuation, "consensus_unavailable_reason", None),
+        "fallback_engine_used": getattr(valuation, "fallback_engine_used", None),
     }
 
 
@@ -169,6 +176,10 @@ def _empty_valuation() -> dict[str, Any]:
         "confidence_label": None,
         "comparables_used": 0,
         "warnings": [],
+        "valuation_strategy": "unavailable",
+        "consensus_used": False,
+        "consensus_unavailable_reason": None,
+        "fallback_engine_used": None,
     }
 
 

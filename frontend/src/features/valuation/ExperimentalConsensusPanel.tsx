@@ -9,9 +9,9 @@ import { formatPercent, formatUf } from "./formatters";
 
 const ENGINE_LABELS: Record<string, string> = {
   comparables_canonical_outliers: "Mercado comparable",
-  microzone_geo_v1: "Microzona",
-  hedonic_baseline_v1: "Atributos",
-  land_building_v1: "Terreno y construccion",
+  microzone_geo_v1: "Modelo territorial",
+  hedonic_baseline_v1: "Modelo estructural",
+  land_building_v1: "Suelo y construccion",
   market_trends_v1: "Tendencia de mercado",
   valoria_consensus_v1: "Consenso Valoria",
 };
@@ -22,12 +22,13 @@ const ENGINE_ROLES: Record<string, string> = {
   structural_signal: "Atributos de la propiedad",
   house_land_building_signal: "Casas con terreno",
   time_trend_signal: "Ajuste temporal",
-  experimental_signal: "Juez experimental",
+  experimental_signal: "Senal adicional",
 };
 
 export function ExperimentalConsensusPanel({ result }: { result: ValuationResponse }) {
   const verdict = result.valuation_verdict;
   const engines = result.engine_breakdown ?? [];
+  const isConsensus = result.consensus_used === true;
 
   if (!verdict && engines.length === 0) {
     return null;
@@ -39,12 +40,16 @@ export function ExperimentalConsensusPanel({ result }: { result: ValuationRespon
         <div>
           <CardTitle>Como llego Valoria a esta estimacion</CardTitle>
           <CardDescription>
-            Bloque experimental de motores. La tasacion actual se mantiene si el consenso no esta disponible.
+            {isConsensus
+              ? "Estimacion combinada a partir de multiples modelos de valoracion."
+              : "Estimacion basada en el modelo disponible."}
           </CardDescription>
         </div>
-        <span className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-violet-100">
-          Experimental
-        </span>
+        {isConsensus ? (
+          <span className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-violet-100">
+            Consenso Valoria
+          </span>
+        ) : null}
       </div>
 
       {verdict ? <VerdictSummary verdict={verdict} /> : null}
@@ -61,7 +66,8 @@ export function ExperimentalConsensusPanel({ result }: { result: ValuationRespon
 }
 
 function VerdictSummary({ verdict }: { verdict: ValuationVerdict }) {
-  const isConsensus = verdict.source === "consensus_experimental";
+  const isConsensus = verdict.source === "consensus_v1" || verdict.source === "consensus_experimental";
+  const explanation = verdictExplanation(verdict, isConsensus);
   return (
     <div className="mt-5 rounded-lg border border-line bg-black/20 p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -71,7 +77,7 @@ function VerdictSummary({ verdict }: { verdict: ValuationVerdict }) {
             {isConsensus ? "Veredicto Valoria" : "Veredicto actual"}
           </div>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-            {verdict.explanation || fallbackVerdictExplanation(isConsensus)}
+            {explanation}
           </p>
         </div>
         <div className="text-right">
@@ -86,6 +92,16 @@ function VerdictSummary({ verdict }: { verdict: ValuationVerdict }) {
       </div>
     </div>
   );
+}
+
+function verdictExplanation(verdict: ValuationVerdict, isConsensus: boolean) {
+  if (Array.isArray(verdict.explanation) && verdict.explanation.length) {
+    return verdict.explanation.join(" ");
+  }
+  if (typeof verdict.explanation === "string" && verdict.explanation.trim()) {
+    return verdict.explanation;
+  }
+  return fallbackVerdictExplanation(isConsensus);
 }
 
 function EngineRow({ engine }: { engine: ValuationEngineBreakdown }) {
@@ -161,7 +177,7 @@ function engineState(status: string) {
 }
 
 function roleLabel(engine: ValuationEngineBreakdown) {
-  return ENGINE_ROLES[engine.role || ""] || "Juez experimental";
+  return ENGINE_ROLES[engine.role || ""] || "Senal adicional";
 }
 
 function friendlyExplanation(engine: ValuationEngineBreakdown) {
@@ -169,7 +185,7 @@ function friendlyExplanation(engine: ValuationEngineBreakdown) {
     return engine.explanation;
   }
   if (engine.status === "ok" || engine.status === "success") {
-    return "Aporto una estimacion usable al consenso experimental.";
+    return "Aporto una estimacion usable a Consenso Valoria.";
   }
   if (engine.status === "not_applicable") {
     return "Este motor no aplica para esta propiedad.";
@@ -189,8 +205,8 @@ function friendlyWarning(warning: string) {
 
 function fallbackVerdictExplanation(isConsensus: boolean) {
   return isConsensus
-    ? "Consenso Valoria combino los motores experimentales disponibles."
-    : "El consenso experimental no entrego un veredicto usable para esta tasacion.";
+    ? "Consenso Valoria combino los motores disponibles."
+    : "No hubo evidencia suficiente para formar consenso en esta tasacion.";
 }
 
 function rangeLabel(low?: number | null, high?: number | null) {

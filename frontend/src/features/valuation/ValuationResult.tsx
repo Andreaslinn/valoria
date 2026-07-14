@@ -41,11 +41,8 @@ export function ValuationResult({
     );
   }
 
-  const selectedEngine =
-    result.selected_engine_names?.join(", ") ||
-    result.consensus?.selected_engine_names?.join(", ") ||
-    result.consensus_method ||
-    "No disponible";
+  const selectedEngine = modelSummary(result);
+  const consensusModelCount = result.consensus?.valid_engine_count;
   const marketSignal = publishedPriceSignal(result, payload);
   const visibleComparables = showAllComparables
     ? result.comparables
@@ -126,6 +123,24 @@ export function ValuationResult({
           <Metric label="Comparables usados" value={String(result.comparable_count ?? "No disponible")} />
           <Metric label="Motor/modelo" value={selectedEngine} />
         </div>
+
+        {result.consensus_used ? (
+          <div className="mt-5 rounded-lg border border-brand-500/30 bg-brand-500/10 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-ink">Consenso Valoria</p>
+                <p className="mt-1 text-sm leading-6 text-muted">
+                  Estimacion combinada a partir de multiples modelos de valoracion.
+                </p>
+              </div>
+              {consensusModelCount ? (
+                <span className="rounded-lg bg-white/[0.06] px-3 py-1 text-sm font-semibold text-ink">
+                  {consensusModelCount} modelos participaron
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-6 rounded-lg border border-line bg-black/20 p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
@@ -219,6 +234,16 @@ export function ValuationResult({
       </Card>
     </div>
   );
+}
+
+function modelSummary(result: ValuationResponse) {
+  if (result.consensus_used) {
+    return "Consenso Valoria";
+  }
+  if (result.fallback_engine_used || result.valuation_strategy === "current_engine_fallback") {
+    return "Modelo disponible";
+  }
+  return "Modelo Valoria";
 }
 
 function publishedPriceSignal(result: ValuationResponse, payload: ValuationRequest | null) {

@@ -43,11 +43,18 @@ export type ValuationConsensus = {
   confidence: number | null;
   selected_engine_names: string[];
   engine_weights: Record<string, number>;
+  consensus_used?: boolean;
+  valid_engine_count?: number;
+  engine_family_count?: number;
+  engine_families?: string[];
+  fallback_reason?: string | null;
+  fallback_engine_used?: string | null;
 };
 
 export type ValuationEngineResult = {
   engine_name: string;
   engine_version: string;
+  engine_family?: string | null;
   role: string;
   status: string;
   estimate_uf?: number | null;
@@ -66,8 +73,8 @@ export type ValuationVerdict = {
   low_uf?: number | null;
   high_uf?: number | null;
   confidence?: number | null;
-  explanation?: string | null;
-  source?: "consensus_experimental" | "current_valuation" | string | null;
+  explanation?: string | string[] | null;
+  source?: "consensus_v1" | "consensus_experimental" | "current_valuation" | string | null;
   status?: string | null;
 };
 
@@ -128,4 +135,8 @@ export type ValuationResponse = {
   engine_breakdown: ValuationEngineBreakdown[];
   consensus_audit?: ValuationConsensusAudit | null;
   weight_audit: Record<string, unknown>[];
+  valuation_strategy?: string;
+  consensus_used?: boolean;
+  consensus_unavailable_reason?: string | null;
+  fallback_engine_used?: string | null;
 };

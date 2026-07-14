@@ -145,6 +145,10 @@ class ValuationDTO:
     engine_breakdown: list[dict[str, Any]] = field(default_factory=list)
     consensus_audit: dict[str, Any] | None = None
     weight_audit: list[dict[str, Any]] = field(default_factory=list)
+    valuation_strategy: str = "current"
+    consensus_used: bool = False
+    consensus_unavailable_reason: str | None = None
+    fallback_engine_used: str | None = None
     uf_rate_source: str | None = None
     uf_rate_date: str | None = None
     uf_rate_is_stale: bool = False
@@ -187,6 +191,10 @@ class ValuationDTO:
             "engine_breakdown": [dict(item) for item in self.engine_breakdown],
             "consensus_audit": dict(self.consensus_audit) if self.consensus_audit is not None else None,
             "weight_audit": [dict(item) for item in self.weight_audit],
+            "valuation_strategy": self.valuation_strategy,
+            "consensus_used": self.consensus_used,
+            "consensus_unavailable_reason": self.consensus_unavailable_reason,
+            "fallback_engine_used": self.fallback_engine_used,
             "uf_rate_source": self.uf_rate_source,
             "uf_rate_date": self.uf_rate_date,
             "uf_rate_is_stale": self.uf_rate_is_stale,
@@ -205,7 +213,12 @@ class ValuationService:
         self._uf_service = uf_service
         self._engine_registry = engine_registry
 
-    async def valuate_property(self, data: ValuationInput) -> ValuationDTO:
+    async def valuate_property(
+        self,
+        data: ValuationInput,
+        *,
+        valuation_strategy: str = "current",
+    ) -> ValuationDTO:
         property_type = _normalize_property_type(data.property_type)
         built_area_m2 = data.built_area_m2 or data.usable_area_m2 or data.m2
         usable_area_m2 = data.usable_area_m2 or built_area_m2 if property_type == "apartment" else data.usable_area_m2
@@ -232,36 +245,6 @@ class ValuationService:
             data.comuna,
             property_type=property_type,
         )
-
-        if valoria_consensus_enabled():
-            consensus_run = run_beta_consensus(
-                target=target,
-                candidates=list(candidates),
-                uf_to_clp=uf_to_clp,
-                published_price_provided=(
-                    data.precio_publicado_uf is not None
-                    or data.precio_publicado_clp is not None
-                ),
-                registry=self._engine_registry,
-            )
-            if consensus_run.selected_result is None:
-                raise _consensus_insufficient_data(consensus_run.raw_results)
-            return _with_uf_trace(
-                _with_experimental_lab(
-                    _valuation_dto_from_engine(
-                        result=consensus_run.selected_result,
-                        candidates=candidates,
-                        built_area_m2=built_area_m2,
-                        uf_to_clp=uf_to_clp,
-                        consensus=consensus_run.consensus,
-                        engine_results=consensus_run.engine_results,
-                    ),
-                    target=target,
-                    candidates=candidates,
-                    uf_to_clp=uf_to_clp,
-                ),
-                uf_info,
-            )
 
         valuation_run = valuate_with_comparables(target, candidates, uf_to_clp)
         result = valuation_run.result
@@ -363,6 +346,18 @@ class ValuationService:
             uf_rate_date=uf_info.rate_date.isoformat() if uf_info.rate_date else None,
             uf_rate_is_stale=uf_info.is_stale,
         )
+        if valuation_strategy == "consensus_v1" and valoria_consensus_enabled():
+            dto = _with_product_consensus(
+                dto,
+                target=target,
+                candidates=candidates,
+                uf_to_clp=uf_to_clp,
+                published_price_provided=(
+                    data.precio_publicado_uf is not None
+                    or data.precio_publicado_clp is not None
+                ),
+                registry=self._engine_registry,
+            )
         return _with_experimental_lab(
             dto,
             target=target,
@@ -378,7 +373,7 @@ def _with_experimental_lab(
     candidates: Sequence[Listing],
     uf_to_clp: Decimal,
 ) -> ValuationDTO:
-    if not experimental_engine_lab_enabled():
+    if dto.consensus_used or not experimental_engine_lab_enabled():
         return dto
     try:
         lab = run_experimental_engine_lab(
@@ -423,8 +418,169 @@ def _current_valuation_verdict(dto: ValuationDTO) -> dict[str, Any]:
         "low_uf": dto.price_range_low_uf,
         "high_uf": dto.price_range_high_uf,
         "confidence": dto.confidence_score,
-        "explanation": "Valoria mantiene la tasacion actual porque el consenso experimental no produjo un veredicto usable.",
+        "explanation": "Valoria mantiene la tasacion actual porque no hubo evidencia suficiente para formar consenso.",
     }
+
+
+def _with_product_consensus(
+    dto: ValuationDTO,
+    *,
+    target: Property,
+    candidates: Sequence[Listing],
+    uf_to_clp: Decimal,
+    published_price_provided: bool,
+    registry: EngineRegistry | None,
+) -> ValuationDTO:
+    consensus_run = run_beta_consensus(
+        target=target,
+        candidates=list(candidates),
+        uf_to_clp=uf_to_clp,
+        published_price_provided=published_price_provided,
+        registry=registry,
+    )
+    consensus = consensus_run.consensus
+    selected = consensus_run.selected_result
+    engine_breakdown = _engine_breakdown_from_beta(
+        consensus_run.engine_results,
+        consensus_run.weight_audit,
+    )
+    consensus_audit = _consensus_audit_from_beta(consensus_run)
+    if selected is None:
+        verdict = _current_valuation_verdict(dto)
+        verdict.update({
+            "source": "current_valuation",
+            "status": "fallback",
+        })
+        return replace(
+            dto,
+            consensus=consensus,
+            engine_results=consensus_run.engine_results,
+            consensus_method=CONSENSUS_METHOD,
+            valuation_verdict=verdict,
+            engine_breakdown=engine_breakdown,
+            consensus_audit=consensus_audit,
+            weight_audit=consensus_run.weight_audit,
+            valuation_strategy="current_engine_fallback",
+            consensus_used=False,
+            consensus_unavailable_reason=consensus.fallback_reason or "consensus_unavailable",
+            fallback_engine_used=_fallback_engine_name(dto),
+        )
+
+    estimated_clp = _decimal_int(selected.estimated_price_clp)
+    low_clp = _decimal_int(selected.range_low_clp)
+    high_clp = _decimal_int(selected.range_high_clp)
+    if estimated_clp is None or low_clp is None or high_clp is None:
+        return replace(
+            dto,
+            consensus=consensus,
+            engine_results=consensus_run.engine_results,
+            consensus_method=CONSENSUS_METHOD,
+            engine_breakdown=engine_breakdown,
+            consensus_audit=consensus_audit,
+            weight_audit=consensus_run.weight_audit,
+            valuation_strategy="current_engine_fallback",
+            consensus_used=False,
+            consensus_unavailable_reason="consensus_incomplete_output",
+            fallback_engine_used=_fallback_engine_name(dto),
+        )
+
+    estimate_uf = _clp_to_uf(estimated_clp, uf_to_clp)
+    low_uf = _clp_to_uf(low_clp, uf_to_clp)
+    high_uf = _clp_to_uf(high_clp, uf_to_clp)
+    price_m2_uf = estimate_uf / target.built_area_m2 if target.built_area_m2 else dto.price_m2_uf
+    verdict = {
+        "estimate_uf": estimate_uf,
+        "low_uf": low_uf,
+        "high_uf": high_uf,
+        "confidence": selected.confidence,
+        "explanation": selected.diagnostics.get("final_explanation")
+        or selected.diagnostics.get("explanation")
+        or "Consenso Valoria combino los motores disponibles.",
+        "source": "consensus_v1",
+        "status": selected.status,
+    }
+    return replace(
+        dto,
+        estimated_price_uf=estimate_uf,
+        estimated_price_clp=estimated_clp,
+        price_range_low_uf=low_uf,
+        price_range_high_uf=high_uf,
+        price_range_low_clp=low_clp,
+        price_range_high_clp=high_clp,
+        confidence_score=selected.confidence,
+        price_m2_uf=price_m2_uf,
+        consensus=consensus,
+        engine_results=consensus_run.engine_results,
+        selected_engine_names=consensus_run.selected_engine_names,
+        consensus_method=CONSENSUS_METHOD,
+        valuation_verdict=verdict,
+        engine_breakdown=engine_breakdown,
+        consensus_audit=consensus_audit,
+        weight_audit=consensus_run.weight_audit,
+        valuation_strategy="consensus_v1",
+        consensus_used=True,
+        consensus_unavailable_reason=None,
+        fallback_engine_used=None,
+    )
+
+
+def _engine_breakdown_from_beta(
+    engine_results: list[BetaEngineResult],
+    weight_audit: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    weights = {row["engine_name"]: row for row in weight_audit}
+    return [
+        {
+            "engine_name": result.engine_name,
+            "label": _engine_label(result.engine_name),
+            "role": result.engine_family or result.role,
+            "estimate_uf": result.estimate_uf,
+            "low_uf": result.range_low_uf,
+            "high_uf": result.range_high_uf,
+            "confidence": result.confidence,
+            "weight": float(weights.get(result.engine_name, {}).get("final_normalized_weight", 0.0)),
+            "status": result.status,
+            "explanation": result.safe_error_message or _engine_explanation(result),
+            "warning_flags": list(result.warnings),
+        }
+        for result in engine_results
+    ]
+
+
+def _consensus_audit_from_beta(run) -> dict[str, Any]:
+    selected_diagnostics = dict(run.selected_result.diagnostics or {}) if run.selected_result else {}
+    return {
+        "engines_used": selected_diagnostics.get("engines_used", []),
+        "engines_abstained": selected_diagnostics.get("engines_abstained", {}),
+        "engines_failed": selected_diagnostics.get("engines_failed", {}),
+        "disagreement_level": selected_diagnostics.get("disagreement_level"),
+        "weight_audit": list(run.weight_audit),
+        "valid_engine_count": run.consensus.valid_engine_count,
+        "engine_family_count": run.consensus.engine_family_count,
+        "engine_families": list(run.consensus.engine_families or []),
+        "fallback_reason": run.consensus.fallback_reason,
+    }
+
+
+def _fallback_engine_name(dto: ValuationDTO) -> str:
+    return ",".join(dto.selected_engine_names) if dto.selected_engine_names else "current_valuation"
+
+
+def _engine_label(engine_name: str) -> str:
+    return {
+        "comparables_canonical_outliers": "Mercado comparable",
+        "microzone_geo_v1": "Microzona",
+        "hedonic_baseline_v1": "Modelo hedonico",
+        "land_building_v1": "Suelo y construccion",
+        "market_trends_v1": "Tendencia de mercado",
+        "valoria_consensus_v1": "Consenso Valoria",
+    }.get(engine_name, engine_name)
+
+
+def _engine_explanation(result: BetaEngineResult) -> str:
+    if result.status == "ok":
+        return "Aporto una estimacion usable a Consenso Valoria."
+    return "No hubo evidencia suficiente para que este motor participe."
 
 
 def _valuation_dto_from_engine(
