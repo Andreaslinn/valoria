@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 
 from api.main import app
 
@@ -41,3 +42,12 @@ def test_radar_summary_route_does_not_resolve_heavy_detector() -> None:
     }
 
     assert "get_radar_service" not in dependency_call_names
+
+
+def test_dashboard_radar_panel_does_not_turn_summary_errors_into_zero() -> None:
+    source = Path("frontend/src/features/dashboard/DashboardWorkspace.tsx").read_text(encoding="utf-8")
+
+    assert 'error: "Resumen Radar no disponible"' in source
+    assert "state.error ||" in source
+    assert "ready_for_radar_count ?? 0" not in source
+    assert "fresh_candidates_count ?? 0" not in source

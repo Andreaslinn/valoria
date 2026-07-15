@@ -350,6 +350,32 @@ async def test_radar_service_filters_houses_before_detector(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_radar_service_sends_only_initially_eligible_candidates_to_detector(monkeypatch) -> None:
+    ready = make_listing(fingerprint="ready", price_currency="CLP", price_uf=None)
+    missing_price = make_listing(fingerprint="missing-price", price_currency="UF", price_uf=None)
+    missing_area = _without_valid_area("missing-area")
+    captured_fingerprints: list[str] = []
+
+    def fake_detect(listings, *args, **kwargs):
+        captured_fingerprints.extend(listing.fingerprint for listing in listings)
+        return RadarResult(
+            opportunities=[],
+            total_listings_analyzed=len(listings),
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([ready, missing_price, missing_area]),
+        uf_service=_FakeUFService(),
+    )
+
+    assert await service.opportunities(limit=5) == []
+    assert captured_fingerprints == ["ready"]
+
+
+@pytest.mark.asyncio
 async def test_radar_service_without_bedrooms_filter_keeps_detector_input(monkeypatch) -> None:
     studio = make_listing(fingerprint="studio", bedrooms=0)
     one_bed = make_listing(fingerprint="one-bed", bedrooms=1)

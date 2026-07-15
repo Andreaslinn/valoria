@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from domain.radar.eligibility import list_initial_radar_candidates
+from domain.radar.freshness import RadarFreshnessConfig
+from tests.unit.factories import make_listing
+
+NOW = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
+
+
+def test_initial_radar_eligibility_matches_oracle_radar_gates() -> None:
+    ready_clp = _fresh_listing("ready-clp", price_currency="CLP", price_uf=None)
+    missing_price = _fresh_listing("missing-price", price_currency="UF", price_uf=None)
+    missing_area = _fresh_listing("missing-area")
+    missing_area.m2 = None
+    missing_area.built_area_m2 = None
+    missing_area.usable_area_m2 = None
+    stale = _fresh_listing("stale", last_seen_at=NOW - timedelta(days=30))
+    refresh_failed = _fresh_listing("refresh-failed")
+    refresh_failed.last_refresh_status = "timeout"
+    inactive = _fresh_listing("inactive")
+    inactive.status = "inactive"
+    house = _fresh_listing("house", property_type="house")
+
+    result = list_initial_radar_candidates(
+        [ready_clp, missing_price, missing_area, stale, refresh_failed, inactive, house],
+        allowed_property_types=("apartment",),
+        freshness_config=RadarFreshnessConfig(
+            require_fresh_listings=True,
+            max_listing_staleness_days=7,
+            exclude_refresh_failed=True,
+            exclude_removed_or_unavailable=True,
+        ),
+        now=NOW,
+    )
+
+    assert result.candidates == (ready_clp,)
+    assert result.scope.houses_on_hold_count == 1
+    assert result.diagnostics.active_scope_count == 5
+    assert result.diagnostics.fresh_candidates_count == 3
+    assert result.diagnostics.ready_for_radar_count == 1
+    assert result.diagnostics.excluded_missing_price_count == 1
+    assert result.diagnostics.excluded_missing_area_count == 1
+    assert result.diagnostics.excluded_stale_count == 1
+    assert result.diagnostics.excluded_removed_count == 1
+    assert result.diagnostics.freshness_excluded_refresh_failed_count == 1
+
+
+def _fresh_listing(
+    fingerprint: str,
+    *,
+    last_seen_at: datetime = NOW - timedelta(days=1),
+    price_currency: str | None = "CLP",
+    price_uf: int | None = None,
+    property_type: str = "apartment",
+):
+    listing = make_listing(
+        fingerprint=fingerprint,
+        price_currency=price_currency,
+        price_uf=price_uf,
+        property_type=property_type,
+    )
+    listing.url = f"https://example.test/{fingerprint}"
+    listing.last_seen_at = last_seen_at
+    return listing

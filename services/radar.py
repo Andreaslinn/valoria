@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -22,13 +21,13 @@ from core.ports.listing_repo import ListingRepository
 from core.ports.uf_service import UFService
 from domain.radar.beta_safety import assess_radar_safety
 from domain.radar.detector import detect_opportunities
+from domain.radar.eligibility import list_initial_radar_candidates
 from domain.radar.filters import apply_quality_filters, top_n
 from domain.radar.freshness import (
     RadarFreshnessConfig,
-    is_fresh_for_radar,
 )
 from domain.radar.price_basis import display_price_uf, radar_price_basis
-from domain.radar.scope import apply_radar_property_scope, parse_allowed_property_types
+from domain.radar.scope import parse_allowed_property_types
 from domain.valuation.comparables import filter_candidates, valuate
 from services.formatting import price_clp_int, price_uf_float
 from services.uf_rate import require_real_uf_rate
@@ -81,16 +80,6 @@ class RadarFilterDiagnostics:
     bedrooms_min: int | None = None
     bedrooms_max: int | None = None
     excluded_by_bedrooms_count: int = 0
-
-
-@dataclass(frozen=True)
-class RadarFreshnessDiagnostics:
-    included_count: int = 0
-    excluded_by_missing_url_count: int = 0
-    excluded_by_stale_count: int = 0
-    excluded_by_removed_or_unavailable_count: int = 0
-    excluded_by_refresh_failed_count: int = 0
-    excluded_by_missing_freshness_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -260,13 +249,15 @@ class RadarService:
         listings = await self._listing_repo.list_active()
         listings_ms = _elapsed_ms(listings_start)
 
-        scope = apply_radar_property_scope(listings, self._allowed_property_types)
-        fresh_listings, freshness_diagnostics = _apply_radar_freshness(
-            scope.included,
-            config=self._freshness_config,
+        eligibility = list_initial_radar_candidates(
+            listings,
+            allowed_property_types=self._allowed_property_types,
+            freshness_config=self._freshness_config,
             now=datetime.now(UTC),
         )
-        scoped_listings, filter_diagnostics = _apply_radar_filters(fresh_listings, filters)
+        scope = eligibility.scope
+        eligibility_diagnostics = eligibility.diagnostics
+        scoped_listings, filter_diagnostics = _apply_radar_filters(eligibility.candidates, filters)
 
         detection_start = perf_counter()
         result = detect_opportunities(scoped_listings, uf_to_clp)
@@ -418,12 +409,12 @@ class RadarService:
             self._freshness_config.require_fresh_listings,
             self._freshness_config.max_listing_staleness_days,
             len(scope.included),
-            freshness_diagnostics.included_count,
-            freshness_diagnostics.excluded_by_missing_url_count,
-            freshness_diagnostics.excluded_by_stale_count,
-            freshness_diagnostics.excluded_by_removed_or_unavailable_count,
-            freshness_diagnostics.excluded_by_refresh_failed_count,
-            freshness_diagnostics.excluded_by_missing_freshness_count,
+            eligibility_diagnostics.fresh_candidates_count,
+            eligibility_diagnostics.freshness_excluded_missing_url_count,
+            eligibility_diagnostics.excluded_stale_count,
+            eligibility_diagnostics.excluded_removed_count,
+            eligibility_diagnostics.freshness_excluded_refresh_failed_count,
+            eligibility_diagnostics.freshness_excluded_missing_freshness_count,
             len(scoped_listings),
             result.total_listings_analyzed,
             len(result.opportunities),
@@ -445,32 +436,6 @@ class RadarService:
 
 def _elapsed_ms(start: float) -> float:
     return (perf_counter() - start) * 1000
-
-
-def _apply_radar_freshness(
-    listings: Sequence[Listing],
-    *,
-    config: RadarFreshnessConfig,
-    now: datetime,
-) -> tuple[list[Listing], RadarFreshnessDiagnostics]:
-    included: list[Listing] = []
-    excluded = Counter[str]()
-
-    for listing in listings:
-        decision = is_fresh_for_radar(listing, now=now, config=config)
-        if decision.allowed:
-            included.append(listing)
-            continue
-        excluded[decision.cause] += 1
-
-    return included, RadarFreshnessDiagnostics(
-        included_count=len(included),
-        excluded_by_missing_url_count=excluded["missing_url"],
-        excluded_by_stale_count=excluded["stale"],
-        excluded_by_removed_or_unavailable_count=excluded["removed_or_unavailable"],
-        excluded_by_refresh_failed_count=excluded["refresh_failed"],
-        excluded_by_missing_freshness_count=excluded["missing_freshness"],
-    )
 
 
 def _apply_radar_filters(

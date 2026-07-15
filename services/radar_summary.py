@@ -14,11 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.entities.listing import Listing
 from core.value_objects.price import Price
-from domain.radar.freshness import RadarFreshnessConfig, is_fresh_for_radar
+from domain.radar.eligibility import list_initial_radar_candidates
+from domain.radar.freshness import RadarFreshnessConfig
 from domain.radar.scope import parse_allowed_property_types
 from infrastructure.db.models import ListingORM
-
-RELIABLE_PRICE_UF_CONFIDENCE = frozenset({"high", "medium", "derived", "explicit"})
 
 
 async def build_radar_summary(
@@ -43,26 +42,13 @@ async def build_radar_summary(
         exclude_removed_or_unavailable=exclude_removed_or_unavailable,
     )
 
-    active_scope = [row for row in listings if row.status == "active"]
-    decisions = [
-        is_fresh_for_radar(_to_domain_listing(row), now=now, config=config)
-        for row in active_scope
-    ]
-    fresh_candidates_count = sum(1 for decision in decisions if decision.allowed)
-    fresh_rows = [
-        row for row, decision in zip(active_scope, decisions, strict=True) if decision.allowed
-    ]
-    excluded_missing_price_count = sum(1 for row in active_scope if not _has_reliable_price(row))
-    excluded_missing_area_count = sum(1 for row in active_scope if _usable_area(row) is None)
-    ready_for_radar_count = sum(
-        1 for row in fresh_rows if _has_reliable_price(row) and _usable_area(row) is not None
+    eligibility = list_initial_radar_candidates(
+        [_to_domain_listing(row) for row in listings],
+        allowed_property_types=allowed,
+        freshness_config=config,
+        now=now,
     )
-    excluded_stale_count = sum(
-        1 for decision in decisions if decision.cause in {"stale", "missing_freshness"}
-    )
-    excluded_removed_count = sum(1 for row in listings if row.status != "active") + sum(
-        1 for decision in decisions if decision.cause == "removed_or_unavailable"
-    )
+    diagnostics = eligibility.diagnostics
     last_refresh_at = _latest_refresh_at(listings)
     status = "available" if listings else "empty"
 
@@ -71,21 +57,21 @@ async def build_radar_summary(
         "mode": "manual",
         "auto_run": False,
         "title": "Oportunidades bajo demanda",
-        "summary": _summary_text(ready_for_radar_count=ready_for_radar_count),
+        "summary": _summary_text(ready_for_radar_count=diagnostics.ready_for_radar_count),
         "last_run_at": None,
         "opportunities_count": None,
-        "fresh_candidates_count": fresh_candidates_count,
-        "ready_for_radar_count": ready_for_radar_count,
-        "active_scope_count": len(active_scope),
-        "excluded_stale_count": excluded_stale_count,
-        "excluded_removed_count": excluded_removed_count,
-        "excluded_missing_price_count": excluded_missing_price_count,
-        "excluded_missing_area_count": excluded_missing_area_count,
+        "fresh_candidates_count": diagnostics.fresh_candidates_count,
+        "ready_for_radar_count": diagnostics.ready_for_radar_count,
+        "active_scope_count": diagnostics.active_scope_count,
+        "excluded_stale_count": diagnostics.excluded_stale_count,
+        "excluded_removed_count": diagnostics.excluded_removed_count,
+        "excluded_missing_price_count": diagnostics.excluded_missing_price_count,
+        "excluded_missing_area_count": diagnostics.excluded_missing_area_count,
         "allowed_property_types": list(allowed),
         "requires_manual_run": True,
         "last_refresh_at": last_refresh_at.isoformat() if last_refresh_at else None,
         "cta_path": "/app/radar",
-        "source": "radar_summary_listings_freshness_v0",
+        "source": "radar_shared_initial_eligibility_v1",
     }
 
 
@@ -96,20 +82,6 @@ def _summary_text(*, ready_for_radar_count: int) -> str:
             "evaluacion Radar bajo demanda."
         )
     return "Radar se mantiene manual; no hay candidatos frescos visibles en el resumen v0."
-
-
-def _has_reliable_price(row: ListingORM) -> bool:
-    if row.price_uf is None or row.price_uf <= 0:
-        return False
-    confidence = (row.price_uf_confidence or "").strip().lower()
-    return not confidence or confidence in RELIABLE_PRICE_UF_CONFIDENCE
-
-
-def _usable_area(row: ListingORM) -> float | None:
-    for value in (row.usable_area_m2, row.built_area_m2, row.m2):
-        if value is not None and value > 0:
-            return value
-    return None
 
 
 def _latest_refresh_at(listings: list[ListingORM]) -> datetime | None:
