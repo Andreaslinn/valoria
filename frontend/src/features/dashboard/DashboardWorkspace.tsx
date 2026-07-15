@@ -727,43 +727,61 @@ function QuickActions() {
 
 function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
   const data = state.data;
-  const radarCounts =
-    data?.ready_for_radar_count != null
-      ? `${data.ready_for_radar_count}`
-      : data?.fresh_candidates_count != null && data?.active_scope_count != null
-        ? `${data.fresh_candidates_count}/${data.active_scope_count}`
-      : data?.mode === "manual"
-        ? "Manual"
-        : "Sin datos";
-  const radarTitle = data?.ready_for_radar_count != null ? "Publicaciones disponibles para analizar" : (data?.title ?? "Radar bajo demanda");
-  const radarValue = data?.ready_for_radar_count != null ? `${data.ready_for_radar_count} ${pluralizeEs(data.ready_for_radar_count, "candidata", "candidatas")}` : radarCounts;
+  const activeScopeCount = data?.active_scope_count;
+  const freshCandidatesCount = data?.fresh_candidates_count;
+  const readyForRadarCount = data?.ready_for_radar_count;
+  const hasSummary = !state.error && activeScopeCount != null;
+  const formatRadarCount = (value: number) => new Intl.NumberFormat("es-CL").format(value);
+  const readyText =
+    readyForRadarCount != null && readyForRadarCount > 0
+      ? `${formatRadarCount(readyForRadarCount)} ${readyForRadarCount === 1 ? "candidata" : "candidatas"} para análisis avanzado`
+      : readyForRadarCount === 0
+        ? "Ninguna cumple hoy todos los filtros avanzados"
+        : null;
+  const freshText =
+    freshCandidatesCount != null
+      ? `${formatRadarCount(freshCandidatesCount)} ${freshCandidatesCount === 1 ? "confirmada" : "confirmadas"} recientemente`
+      : null;
   return (
     <Card className="p-4">
-      <PanelHeader
-        action={<StatusPill status={toMetricStatus(data?.mode ?? data?.status, state)} />}
-        kicker="Radar"
-        title={radarTitle}
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <CardTitle>Radar</CardTitle>
+        <span className="inline-flex min-h-7 shrink-0 items-center whitespace-nowrap rounded-lg border border-blue-400/30 bg-blue-400/10 px-3 text-xs font-semibold text-blue-100">
+          Bajo demanda
+        </span>
+      </div>
       <div className="mt-4">
-          <p className="text-3xl font-semibold text-ink">{radarValue}</p>
-          {data?.ready_for_radar_count != null ? (
+        <p className="text-3xl font-semibold text-ink">
+          {hasSummary ? formatRadarCount(activeScopeCount) : state.loading ? "Cargando" : "Resumen no disponible"}
+        </p>
+        {hasSummary ? (
+          <>
             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-              listas para Radar
+              publicaciones monitoreadas por Radar
             </p>
-          ) : data?.fresh_candidates_count != null && data?.active_scope_count != null ? (
-            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-              frescos / activos
-            </p>
-          ) : null}
-          <p className="mt-2 text-sm leading-6 text-muted">
-            {state.error || (data?.ready_for_radar_count != null ? "Cumplen los requisitos mínimos de datos y vigencia para ejecutar Radar." : data?.summary || "Abre Radar para revisar publicaciones bajo demanda.")}
-          </p>
-          <div className="mt-4">
-            <ButtonLink href={data?.cta_path ?? "/app/radar"} variant="secondary">
-              Ver radar completo
-              <ArrowRight className="h-4 w-4" aria-hidden />
-            </ButtonLink>
-          </div>
+            <div className="mt-4 rounded-lg border border-line bg-black/20 p-3">
+              {readyText ? (
+                <p className="text-sm font-semibold leading-5 text-ink">{readyText}</p>
+              ) : null}
+              {freshText ? (
+                <p className="mt-1 text-xs leading-5 text-muted">{freshText}</p>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+        <p className="mt-3 text-sm leading-6 text-muted">
+          {hasSummary
+            ? "Radar aplica filtros de vigencia, precio y calidad de datos antes de buscar oportunidades."
+            : state.loading
+              ? "Cargando resumen Radar."
+              : "Resumen no disponible"}
+        </p>
+        <div className="mt-4">
+          <ButtonLink href={data?.cta_path ?? "/app/radar"} variant="secondary">
+            Ver Radar completo
+            <ArrowRight className="h-4 w-4" aria-hidden />
+          </ButtonLink>
+        </div>
       </div>
     </Card>
   );
