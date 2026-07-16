@@ -38,6 +38,8 @@ class RecentUserActivityEvent:
     comuna: str | None = None
     property_type: str | None = None
     estimated_value_uf: float | None = None
+    range_low_uf: float | None = None
+    range_high_uf: float | None = None
     confidence: str | None = None
     status: str | None = None
     reason: str | None = None
@@ -104,6 +106,8 @@ def _activity_event_from_usage_log(row: UsageLogORM) -> RecentUserActivityEvent 
     comuna = _clean_text(metadata.get("comuna"))
     property_type = _clean_text(metadata.get("property_type"))
     estimated_value_uf = _safe_float(metadata.get("estimated_value_uf"))
+    range_low_uf = _safe_float(metadata.get("range_low_uf"))
+    range_high_uf = _safe_float(metadata.get("range_high_uf"))
     confidence = _clean_text(metadata.get("confidence") or metadata.get("confidence_score"))
     if row.event_type == "valuation_completed":
         with_price = _safe_float(metadata.get("precio_publicado_uf")) is not None or _safe_float(
@@ -119,6 +123,8 @@ def _activity_event_from_usage_log(row: UsageLogORM) -> RecentUserActivityEvent 
             comuna=comuna,
             property_type=property_type,
             estimated_value_uf=estimated_value_uf,
+            range_low_uf=range_low_uf,
+            range_high_uf=range_high_uf,
             confidence=confidence,
             status="completed",
         )

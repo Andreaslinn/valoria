@@ -6,8 +6,10 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.deps import AppSettings, CurrentUser, ValuationServiceDep
+from api.deps import AppSettings, CurrentUser, DbSession, ValuationServiceDep
 from core.exceptions import InsufficientDataError, ValidationError
+from infrastructure.db.models import UsageLogORM
+from services.product_usage import sanitize_properties
 from services.valuation import ValuationInput
 from services.valuation_feedback import submit_valuation_feedback
 
@@ -204,9 +206,10 @@ class ValuationFeedbackResponse(BaseModel):
 
 @router.post("", response_model=ValuationResponse)
 async def valuate(
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
     payload: ValuationRequest,
     service: ValuationServiceDep,
+    session: DbSession,
 ) -> ValuationResponse:
     try:
         result = await service.valuate_property(
@@ -233,7 +236,56 @@ async def valuate(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error inesperado al tasar propiedad",
         ) from e
-    return ValuationResponse.model_validate(result, from_attributes=True)
+    response = ValuationResponse.model_validate(result, from_attributes=True)
+    try:
+        await _record_valuation_completed_event(
+            session=session,
+            user_id=current_user.id,
+            payload=payload,
+            response=response,
+        )
+    except Exception:
+        _log.exception("Failed to record valuation_completed usage event")
+    return response
+
+
+async def _record_valuation_completed_event(
+    *,
+    session: DbSession,
+    user_id: int | None,
+    payload: ValuationRequest,
+    response: ValuationResponse,
+) -> None:
+    if user_id is None:
+        return
+    raw_metadata = {
+        "comuna": payload.comuna,
+        "property_type": payload.property_type,
+        "m2": payload.m2,
+        "built_area_m2": payload.built_area_m2,
+        "land_area_m2": payload.land_area_m2,
+        "precio_publicado_uf": payload.precio_publicado_uf,
+        "precio_publicado_clp": payload.precio_publicado_clp,
+        "estimated_value_uf": response.estimated_price_uf,
+        "range_low_uf": response.price_range_low_uf,
+        "range_high_uf": response.price_range_high_uf,
+        "comparable_count": response.comparable_count,
+        "comparables_used": response.comparable_count,
+        "confidence": response.confidence,
+        "confidence_score": response.confidence_score,
+        "status": response.status,
+    }
+    metadata = sanitize_properties(
+        {key: value for key, value in raw_metadata.items() if value is not None}
+    )
+    session.add(
+        UsageLogORM(
+            user_id=user_id,
+            event_type="valuation_completed",
+            payload={"feature": "tasar_playground", "metadata": metadata},
+        )
+    )
+    await session.commit()
 
 
 @router.post("/feedback", response_model=ValuationFeedbackResponse)
