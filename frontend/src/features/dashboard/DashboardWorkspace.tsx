@@ -121,6 +121,21 @@ export function DashboardWorkspace() {
     void loadRadarSummary();
   }, []);
 
+  useEffect(() => {
+    function reloadVisibleActivity() {
+      if (document.visibilityState === "visible") {
+        void loadActivity();
+      }
+    }
+
+    window.addEventListener("focus", reloadVisibleActivity);
+    document.addEventListener("visibilitychange", reloadVisibleActivity);
+    return () => {
+      window.removeEventListener("focus", reloadVisibleActivity);
+      document.removeEventListener("visibilitychange", reloadVisibleActivity);
+    };
+  }, []);
+
   async function loadUser() {
     setUser({ data: null, error: null, loading: true });
     try {
@@ -524,7 +539,7 @@ function FeaturedValuation({
           title="Aún no tienes tasaciones recientes"
         />
         <p className="mt-4 text-sm leading-6 text-muted">
-          Realiza una tasación para ver aquí el valor estimado, el rango de confianza y su evolución.
+          Realiza una tasación para ver aquí el valor estimado y la confianza del último resultado disponible.
         </p>
         <div className="mt-4">
           <ButtonLink href="/app/tasar">
@@ -544,12 +559,12 @@ function FeaturedValuation({
         title={formatText(latestValuation.title, "Tasación reciente")}
       />
       <p className="mt-1 text-sm text-muted">
-        {formatCommuneName(latestValuation.comuna)} · {formatPropertyType(latestValuation.property_type)}
+        {formatPropertyType(latestValuation.property_type)} · {formatCommuneName(latestValuation.comuna)}
       </p>
-      <div className="mt-7 grid grid-cols-[1fr_auto] gap-4">
+      <div className="mt-7 grid gap-4 sm:grid-cols-[1fr_auto]">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-            Valor estimado
+            Estimación
           </p>
           <p className="mt-2 text-4xl font-semibold tracking-normal text-ink">
             {formatUf(latestValuation.estimated_value_uf)}
@@ -560,25 +575,34 @@ function FeaturedValuation({
             Confianza
           </p>
           <p className="mt-2 text-xl font-semibold text-emerald-200">
-            {formatConfidence(latestValuation.confidence)}
+            {formatActivityConfidence(latestValuation.confidence)}
           </p>
         </div>
       </div>
-      <div className="mt-7">
-        <RangeBar
-          current={latestValuation.estimated_value_uf ?? null}
-          max={latestValuation.range_high_uf ?? null}
-          min={latestValuation.range_low_uf ?? null}
-        />
+      <div className="mt-5 grid gap-2 text-sm leading-6 text-muted">
+        {latestValuation.range_low_uf != null && latestValuation.range_high_uf != null ? (
+          <p>
+            Rango: {formatUf(latestValuation.range_low_uf)}-{formatUf(latestValuation.range_high_uf)}
+          </p>
+        ) : null}
+        <p>{formatDateTime(latestValuation.occurred_at)}</p>
       </div>
       <div className="mt-6">
         <ButtonLink href="/app/tasar" variant="secondary">
-          Ver tasación completa
+          Tasar otra propiedad
           <ArrowRight className="h-4 w-4" aria-hidden />
         </ButtonLink>
       </div>
     </Card>
   );
+}
+
+function formatActivityConfidence(value: string | null | undefined): string {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) {
+    return `${Math.round(parsed * 100)}%`;
+  }
+  return formatConfidence(value);
 }
 
 function MetricCard({
@@ -1138,39 +1162,6 @@ function MiniStat({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-line bg-black/20 p-2.5">
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">{label}</p>
       <p className="mt-1 text-base font-semibold text-ink">{value}</p>
-    </div>
-  );
-}
-
-function RangeBar({
-  current,
-  max,
-  min,
-}: {
-  current: number | null;
-  max: number | null;
-  min: number | null;
-}) {
-  if (current == null || min == null || max == null) {
-    return (
-      <p className="rounded-lg border border-line bg-black/20 p-3 text-sm leading-6 text-muted">
-        Rango de confianza pendiente para esta tasación.
-      </p>
-    );
-  }
-  const pct = max > min ? Math.max(0, Math.min(100, ((current - min) / (max - min)) * 100)) : 50;
-  return (
-    <div>
-      <div className="flex items-center justify-between text-xs text-muted">
-        <span>{formatUf(min)}</span>
-        <span>{formatUf(max)}</span>
-      </div>
-      <div className="mt-3 h-2 rounded-full bg-white/[0.08]">
-        <div className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-200 opacity-60" style={{ width: `${pct}%` }} />
-      </div>
-      <p className="mt-2 text-xs text-muted">
-        Centro actual: {formatUf(current)}
-      </p>
     </div>
   );
 }
