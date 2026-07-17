@@ -35,6 +35,13 @@ htmlcov/
 *.sql
 
 # Runtime artifacts
+.local/
+.local/portal_browser_profile/
+.local/portal_chrome_profile/
+.local/portal_storage_state.json
+portal.env
+*storage_state*.json
+*cookie*.json
 audit_export/
 releases/
 reports/*

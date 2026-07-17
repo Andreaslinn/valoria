@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     uf_max_staleness_days: int = 1
     uf_allow_stale_on_failure: bool = False
     uf_require_fresh_for_radar: bool = True
+    # Portal remains opt-in. The manual canary additionally requires --apply
+    # before it can write; this flag is reserved for future orchestration.
+    portal_http_enabled: bool = False
+    portal_http_max_details: int = Field(50, ge=1, le=50)
+    portal_http_max_pages_per_target: int = Field(1, ge=1, le=2)
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     nominatim_user_agent: str = "AVM-v2-geocoder/0.1 (contact: dev-local)"
 

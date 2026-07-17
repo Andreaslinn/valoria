@@ -5,11 +5,23 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
+import pytest
 
 from infrastructure.scrapers.base import RateLimiter
-from infrastructure.scrapers.portalinmobiliario import PortalInmobiliarioScraper
+from infrastructure.scrapers.portalinmobiliario import (
+    PortalInmobiliarioScraper,
+    apply_portal_uf_conversion,
+    build_portal_page_url,
+    classify_portal_detail_page_state,
+    parse_listing_detail_portal,
+    portal_dedupe_key,
+    validate_portal_rm_location,
+)
 
 _FIXTURE = Path(__file__).parent.parent / "fixtures" / "portal_list.html"
+_REAL_FIXTURE = Path(__file__).parent.parent / "fixtures" / "portal_results_real_sanitized.html"
+_DETAIL_FIXTURE_1 = Path(__file__).parent.parent / "fixtures" / "portal_detail_real_1_sanitized.html"
+_DETAIL_FIXTURE_2 = Path(__file__).parent.parent / "fixtures" / "portal_detail_real_2_sanitized.html"
 _UF = Decimal("37000")
 
 
@@ -23,9 +35,13 @@ class TestPortalParser:
         results = PortalInmobiliarioScraper.parse_listings(_load(), uf_to_clp=_UF)
         assert len(results) == 2
 
-    def test_uf_without_rate_returns_empty(self):
-        """Sin tasa UF, todas las cards del portal se descartan (todas en UF)."""
-        assert PortalInmobiliarioScraper.parse_listings(_load(), uf_to_clp=None) == []
+    def test_uf_without_rate_keeps_items_with_zero_clp(self):
+        """Sin tasa UF conservamos la publicacion y dejamos trazabilidad en metadata."""
+        results = PortalInmobiliarioScraper.parse_listings(_load(), uf_to_clp=None)
+        assert len(results) == 2
+        assert results[0]["price_clp"] == 0
+        assert results[0]["raw_metadata"]["price_uf"] == 12400.0
+        assert results[0]["raw_metadata"]["price_clp_missing_reason"] == "missing_uf_rate"
 
 
 class TestSsrLayout:
@@ -67,6 +83,71 @@ class TestHydratedSpaLayout:
         de atributos con el mismo heurístico."""
         results = PortalInmobiliarioScraper.parse_listings(_load(), uf_to_clp=_UF)
         assert results[1]["comuna"] == "Las Condes"
+
+
+class TestCurrentResultsLayout:
+    def test_real_sanitized_fixture_parses_items(self):
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
+        results = PortalInmobiliarioScraper.parse_listings(html, uf_to_clp=None)
+        assert len(results) > 0
+        assert all(result["title"] for result in results)
+        assert all(result["url"] for result in results)
+
+    def test_ignores_empty_image_link_before_title(self):
+        html = """
+        <li class="ui-search-layout__item"><div class="poly-card">
+          <a class="poly-component__badge poly-component__badge--image poly-component__link"
+             href="/MLC-1949798443-empty-image"></a>
+          <a class="poly-component__title" href="/MLC-1949798443-eco-espana-fundamenta-_JM">
+            Eco España - Fundamenta
+          </a>
+          <div class="poly-component__price">DesdeUF3.139</div>
+          <span class="poly-component__location">Domeyko 2477, Barrio República, Santiago</span>
+          <ul class="poly-attributes_list">
+            <li class="poly-attributes_list__item poly-attributes_list__separator">Estudio a 2 dormitorios</li>
+            <li class="poly-attributes_list__item poly-attributes_list__separator">1 a 2 baños</li>
+            <li class="poly-attributes_list__item poly-attributes_list__separator">27 - 58 m² útiles</li>
+          </ul>
+        </div></li>
+        """
+
+        results = PortalInmobiliarioScraper.parse_listings(html, uf_to_clp=None)
+
+        assert len(results) == 1
+        assert results[0]["external_id"] == "MLC-1949798443"
+        assert results[0]["title"] == "Eco España - Fundamenta"
+        assert results[0]["url"] == "/MLC-1949798443-eco-espana-fundamenta-_JM"
+        assert results[0]["price_clp"] == 0
+        assert results[0]["raw_metadata"]["price_uf"] == 3139.0
+        assert results[0]["m2"] == 27
+        assert results[0]["bedrooms"] == 2
+        assert results[0]["bathrooms"] == 1
+
+    def test_desde_uf_with_space_and_clp_prices_parse(self):
+        html = """
+        <ol>
+          <li class="ui-search-layout__item"><div class="poly-card">
+            <a class="poly-component__title" href="/MLC-1">UF con desde</a>
+            <div class="poly-component__price">Desde UF 2.551</div>
+            <span class="poly-component__location">Santiago, Región Metropolitana</span>
+          </div></li>
+          <li class="ui-search-layout__item"><div class="poly-card">
+            <a class="poly-component__title" href="/MLC-2">CLP</a>
+            <div class="poly-component__price">$128.211.801</div>
+            <span class="poly-component__location">Santiago, Región Metropolitana</span>
+          </div></li>
+        </ol>
+        """
+
+        results = PortalInmobiliarioScraper.parse_listings(html, uf_to_clp=_UF)
+
+        assert [r["price_clp"] for r in results] == [2551 * 37000, 128_211_801]
+
+    def test_detailed_report_counts_discards(self):
+        report = PortalInmobiliarioScraper.parse_listings_detailed(_load(), uf_to_clp=_UF)
+        assert report["cards_detected"] == 3
+        assert len(report["items"]) == 2
+        assert [discard["reason"] for discard in report["discarded"]] == ["missing_price"]
 
 
 class TestComunaHeuristic:
@@ -128,22 +209,21 @@ class TestEdgeCases:
 
 
 class TestBotChallengeDetection:
-    """Portal devuelve una shell ~5kb con _bmc + verifyChallenge cuando nos detecta
-    como bot. Debemos detectarla y loguear en vez de procesar silenciosamente."""
+    """Scripts pasivos de challenge no deben clasificarse como CAPTCHA visible."""
 
-    def test_detects_akamai_shell_and_returns_empty(self, caplog):
+    def test_recaptcha_script_without_visible_challenge_returns_empty_without_warning(self, caplog):
         import logging
 
         shell = (
             '<!DOCTYPE html><html><head><title> </title></head><body>'
             '<script>document.cookie=`_bmc=...`;'
             'function verifyChallenge(){}</script>'
-            '<button id="continue-button">Continuar</button></body></html>'
+            '</body></html>'
         )
         with caplog.at_level(logging.WARNING):
             results = PortalInmobiliarioScraper.parse_listings(shell, uf_to_clp=_UF)
         assert results == []
-        assert any("CAPTCHA/BLOCK DETECTADO" in rec.message for rec in caplog.records)
+        assert not any("CAPTCHA/BLOCK DETECTADO" in rec.message for rec in caplog.records)
 
     def test_large_html_not_flagged_as_challenge(self):
         """HTML grande con contenido real no debe marcarse como shell."""
@@ -153,6 +233,22 @@ class TestBotChallengeDetection:
         # No debería disparar la detección por tamaño
         results = PortalInmobiliarioScraper.parse_listings(big, uf_to_clp=_UF)
         assert results == []  # sin items, pero sin warning
+
+    def test_login_link_does_not_block_real_results(self):
+        html = """
+        <html><body>
+          <a href="/login">Iniciar sesión</a>
+          <li class="ui-search-layout__item"><div class="poly-card">
+            <a class="poly-component__title" href="/MLC-1">Depto</a>
+            <div class="poly-component__price">UF 3.139</div>
+            <span class="poly-component__location">Santiago, Región Metropolitana</span>
+          </div></li>
+        </body></html>
+        """
+
+        results = PortalInmobiliarioScraper.parse_listings(html, uf_to_clp=None)
+
+        assert len(results) == 1
 
 
 class TestPipelineCompat:
@@ -165,6 +261,104 @@ class TestPipelineCompat:
         assert cleaned.comuna == "las_condes"
         assert cleaned.price.clp == 12_400 * 37_000
         assert cleaned.m2 == 160
+
+
+class TestPortalDetailParser:
+    @pytest.mark.parametrize("external_id", ["MLC-3225344318", "MLC-3252270364"])
+    def test_parking_note_with_publication_id_is_not_parsed_as_parking(self, external_id):
+        html = f"""
+        <html><head><link rel="canonical" href="https://www.portalinmobiliario.com/venta/departamento/santiago-metropolitana/{external_id}-x"/></head>
+        <body><h1>Departamento de prueba</h1><div class="price">UF 3.000</div>
+        <p>Nota: estacionamientos y bodegas, revisar condiciones. Publicación #{external_id.split('-')[1]}</p></body></html>
+        """
+
+        detail = parse_listing_detail_portal(html, f"https://www.portalinmobiliario.com/{external_id}-x")
+
+        assert detail["state"] == "detail"
+        assert detail["parking"] is None
+        assert detail["raw_metadata"]["parking_rejection_reason"] == "out_of_range"
+
+    def test_real_detail_fixture_1_parses_refresh_fields(self):
+        html = _DETAIL_FIXTURE_1.read_text(encoding="utf-8")
+        detail = parse_listing_detail_portal(html, "https://www.portalinmobiliario.com/MLC-1949798443-x")
+
+        assert detail["state"] == "detail"
+        assert detail["external_id"] == "MLC-1949798443"
+        assert detail["canonical_url"].startswith("https://www.portalinmobiliario.com/venta/")
+        assert detail["title"] == "Eco España - Fundamenta"
+        assert detail["price_uf"] == 3139.0
+        assert detail["price_clp"] == 128_211_801
+        assert detail["usable_area_m2"] == 27.9
+        assert detail["total_area_m2"] == 30.9
+        assert detail["bedrooms"] == 2
+        assert detail["bathrooms"] == 2
+        assert detail["comuna"] == "Santiago"
+        assert detail["seller"] == "Fundamenta"
+        assert detail["description"]
+
+    def test_real_detail_fixture_2_parses_refresh_fields(self):
+        html = _DETAIL_FIXTURE_2.read_text(encoding="utf-8")
+        detail = parse_listing_detail_portal(html, "https://www.portalinmobiliario.com/MLC-3621878454-x")
+
+        assert detail["state"] == "detail"
+        assert detail["external_id"] == "MLC-3621878454"
+        assert detail["title"] == "Edificio Centenario - Ingevec"
+        assert detail["price_uf"] == 3040.0
+        assert detail["price_clp"] == 124_168_167
+        assert detail["usable_area_m2"] == 27.03
+        assert detail["total_area_m2"] == 50.74
+        assert detail["bedrooms"] == 2
+        assert detail["bathrooms"] == 2
+        assert detail["comuna"] == "Santiago"
+        assert detail["seller"] == "Inmobiliaria Ingevec"
+
+    def test_json_ld_product_is_positive_detail_evidence_before_passive_login(self):
+        html = """
+        <html><body>
+          <script>const passive = "login captcha recaptcha";</script>
+          <script type="application/ld+json">
+            {"@context":"https://schema.org","@type":"Product","name":"Depto",
+             "productID":"MLC123","offers":{"price":3139,"priceCurrency":"CLF"}}
+          </script>
+        </body></html>
+        """
+
+        assert classify_portal_detail_page_state(html) == "detail"
+        detail = parse_listing_detail_portal(html, "https://www.portalinmobiliario.com/MLC-123-x")
+        assert detail["external_id"] == "MLC-123"
+        assert detail["title"] == "Depto"
+        assert detail["price_uf"] == 3139.0
+
+    def test_uf_price_provenance_keeps_displayed_clp_separate_from_runner_conversion(self):
+        html = _DETAIL_FIXTURE_1.read_text(encoding="utf-8")
+        detail = parse_listing_detail_portal(html, "https://www.portalinmobiliario.com/MLC-1949798443-x")
+
+        assert detail["currency_original"] == "UF"
+        assert detail["price_clp_displayed"] == 128_211_801
+        assert detail["price_clp_published"] is None
+        apply_portal_uf_conversion(detail, uf_to_clp=Decimal("40845"))
+        assert detail["price_clp_derived"] == 128_212_455
+        assert detail["uf_rate_used"] == 40845.0
+
+
+class TestPortalDiscoveryHelpers:
+    def test_build_page_url_preserves_scope_and_uses_portal_offset(self):
+        base = "https://www.portalinmobiliario.com/venta/departamento/santiago-metropolitana"
+
+        assert build_portal_page_url(base, 1) == base
+        assert build_portal_page_url(base, 2) == base + "_Desde_49"
+        assert build_portal_page_url(base + "_Desde_49", 2) == base + "_Desde_49"
+
+    def test_dedupe_prefers_source_and_external_id_then_canonical_url(self):
+        assert portal_dedupe_key(source="portalinmobiliario", external_id="MLC-5", url="https://x/a") == (
+            "source_external:portalinmobiliario|MLC-5"
+        )
+        assert portal_dedupe_key(source="portalinmobiliario", external_id=None, url="https://x/a?track=1#top") == "url:https://x/a"
+
+    def test_rm_validation_rejects_unknown_or_explicitly_non_metropolitan_location(self):
+        assert validate_portal_rm_location({"comuna": "Ñuñoa"}) == "accepted_rm"
+        assert validate_portal_rm_location({"comuna": None, "location": "Viña del Mar, Región de Valparaíso"}) == "outside_rm"
+        assert validate_portal_rm_location({"comuna": None, "location": "Barrio sin comuna"}) == "unknown_comuna"
 
 
 class StaticUFService:
