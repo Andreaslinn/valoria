@@ -2,7 +2,6 @@ import { Settings } from "lucide-react";
 
 import { PageHeading } from "@/components/layout/page-heading";
 import { InternalBackLink, PlaceholderPanel } from "@/components/layout/placeholder-panel";
-import { API_BASE_URL } from "@/lib/config";
 
 export default function SettingsPage() {
   return (
@@ -11,15 +10,15 @@ export default function SettingsPage() {
       <PageHeading
         eyebrow="Configuracion"
         title="Settings"
-        description="Configuracion tecnica visible para la beta del frontend."
+        description="Preferencias y datos de cuenta para la beta privada."
       />
       <PlaceholderPanel
-        description={`API configurada: ${API_BASE_URL}. En el futuro aqui viviran preferencias de cuenta y entorno.`}
+        description="En el futuro aqui viviran preferencias de cuenta, notificaciones y entorno de trabajo."
         icon={Settings}
         nextSteps={[
-          "Mostrar estado de health check de API.",
+          "Mostrar preferencias de notificacion.",
           "Agregar perfil de usuario y preferencias simples.",
-          "Documentar URL de API para entornos tunnel.",
+          "Ordenar opciones de cuenta para la beta.",
         ]}
         title="Settings inicial"
       />

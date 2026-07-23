@@ -11,25 +11,25 @@ export default function ReportesPage() {
     <>
       <InternalBackLink />
       <PageHeading
-        eyebrow="Reportes reales"
+        eyebrow="Reportes"
         title="Reportes"
-        description="Centro de descargas HTML generadas por backend para tasaciones manuales y analisis de publicaciones."
+        description="Centro de descargas HTML para tasaciones manuales y analisis de publicaciones."
       />
       <div className="grid gap-5">
         <StatusNote>
-          Los informes se descargan desde los flujos reales despues de ejecutar una tasacion o analizar una publicacion. No hay previews ni archivos de ejemplo.
+          Los informes se descargan despues de ejecutar una tasacion o analizar una publicacion.
         </StatusNote>
 
         <section className="grid gap-4 xl:grid-cols-2">
           <ReportTypeCard
             ctaHref="/app/tasar"
             ctaLabel="Tasar propiedad"
-            description="Informe de una tasacion manual con estimacion Valoria, rango, confianza, comparables y senales de mercado. No requiere URL, listing_id, precio publicado ni watchlist."
+            description="Informe de una tasacion manual con estimacion Valoria, rango, confianza, comparables y senales de mercado. No requiere URL, precio publicado ni watchlist."
             icon={<Sparkles className="h-5 w-5" aria-hidden />}
             signals={[
               "Investment Intelligence Report HTML",
               "Disponible despues de una tasacion exitosa",
-              "Generado por el backend",
+              "Preparado con la tasacion",
               "PDF fuera de esta fase",
             ]}
             title="Investment Intelligence Report"
@@ -37,12 +37,12 @@ export default function ReportesPage() {
           <ReportTypeCard
             ctaHref="/app/analizar-url"
             ctaLabel="Analizar publicacion"
-            description="Informe de una publicacion concreta con precio publicado, diferencia frente a Valoria, URL, listing_id y riesgos del anuncio cuando existen datos reales."
+            description="Informe de una publicacion concreta con precio publicado, diferencia frente a Valoria, URL y riesgos del anuncio cuando existe soporte suficiente."
             icon={<ShieldAlert className="h-5 w-5" aria-hidden />}
             signals={[
               "Listing Risk Report HTML",
               "Disponible despues de analizar una URL",
-              "Usa el analisis real mostrado",
+              "Usa el analisis mostrado",
               "PDF fuera de esta fase",
             ]}
             title="Listing Risk Report"
@@ -54,17 +54,17 @@ export default function ReportesPage() {
             <div>
               <CardTitle>Formatos disponibles</CardTitle>
               <CardDescription>
-                Esta version expone HTML autonomo descargable. PDF no se muestra porque no hay infraestructura backend estable para generarlo.
+                Esta version expone HTML autonomo descargable. PDF queda fuera de esta fase.
               </CardDescription>
             </div>
             <span className="rounded-lg border border-accent-500/25 bg-accent-500/10 px-3 py-1 text-xs font-semibold text-emerald-100">
-              HTML conectado
+              HTML disponible
             </span>
           </div>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <Fact label="Tasar" value="Descargar informe tras una tasacion real" />
-            <Fact label="Analizar URL" value="Descargar analisis tras una publicacion real" />
-            <Fact label="Sin historial unificado" value="No se inventa una lista de reportes recientes" />
+            <Fact label="Tasar" value="Descargar informe tras una tasacion" />
+            <Fact label="Analizar URL" value="Descargar analisis tras revisar una publicacion" />
+            <Fact label="Historial" value="Disponible en una fase posterior" />
           </div>
         </Card>
       </div>

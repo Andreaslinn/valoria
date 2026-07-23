@@ -275,3 +275,55 @@ export type LiquiditySummary = {
   };
   source: string;
 };
+
+export type MarketDashboardFilters = {
+  periodDays?: 7 | 30 | 90;
+  commune?: string | null;
+  selectedCommune?: string | null;
+};
+
+export type MarketDashboardPulsePoint = {
+  date: string;
+  new_listings: number;
+  removed_or_inactive: number;
+  listings_with_price_drop: number;
+  price_drop_events: number;
+};
+
+export type MarketDashboardCommune = {
+  comuna: string;
+  active_listings: number;
+  new_listings: number;
+  listings_with_price_drop: number;
+  median_price_m2_uf: number | null;
+  median_observed_days: number | null;
+  market_balance: MarketBalance;
+  dynamism: MarketDynamism;
+  confidence: string;
+};
+
+export type MarketDashboard = {
+  status: DashboardContractStatus;
+  scope: {
+    market: string;
+    property_type: string;
+    commune: string | null;
+    period_days: 7 | 30 | 90;
+  };
+  cutoff_at: string;
+  overview: {
+    market_balance: MarketBalance;
+    confidence: string;
+    new_listings: number;
+    removed_or_inactive: number;
+    listings_with_price_drop: number;
+    price_drop_events: number;
+    median_observed_days: number | null;
+  };
+  daily_pulse: MarketDashboardPulsePoint[];
+  communes: MarketDashboardCommune[];
+  selected_commune: ({ status: "available" } & MarketDashboardCommune) | { status: "empty"; comuna: string } | null;
+  bedrooms_supply: Array<{ bucket: "1" | "2" | "3" | "4_plus"; active_listings: number }>;
+  coverage: Record<string, number>;
+  methodology: string;
+};

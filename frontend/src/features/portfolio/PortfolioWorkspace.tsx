@@ -58,10 +58,10 @@ export function PortfolioWorkspace() {
               <CardTitle>Lo que estas vigilando</CardTitle>
             </div>
             <div className="hidden lg:block">
-              <CardTitle>Watchlist real</CardTitle>
+              <CardTitle>Watchlist</CardTitle>
             </div>
             <CardDescription>
-              Propiedades guardadas desde endpoints reales. Portfolio avanzado queda para una fase posterior.
+              Propiedades guardadas para seguimiento. Portfolio avanzado queda para una fase posterior.
             </CardDescription>
           </div>
           <span className="rounded-lg border border-brand-500/25 bg-brand-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-violet-100">
@@ -69,7 +69,7 @@ export function PortfolioWorkspace() {
           </span>
         </div>
         <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
-          <SummaryFact label="Fuente" value="GET /api/v1/watchlist" />
+          <SummaryFact label="Estado" value={loading ? "Actualizando" : "Actualizado"} />
           <SummaryFact label="Escritura" value="Guardar / quitar" />
           <SummaryFact label="Portfolio avanzado" value="Pendiente" />
         </div>
@@ -82,7 +82,7 @@ export function PortfolioWorkspace() {
         <Card>
           <div className="flex min-h-56 items-center justify-center gap-3 text-sm text-muted">
             <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-            Cargando watchlist real...
+            Cargando watchlist...
           </div>
         </Card>
       ) : items.length ? (
@@ -103,7 +103,7 @@ export function PortfolioWorkspace() {
               <WalletCards className="mx-auto h-9 w-9 text-brand-500" aria-hidden />
               <h3 className="mt-4 text-lg font-semibold text-ink">Watchlist vacia</h3>
               <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
-                Guarda una publicacion desde Analizar URL cuando el lookup devuelva un listing_id compatible.
+                Guarda una publicacion desde Analizar URL cuando este disponible para seguimiento.
               </p>
             </div>
           </div>
@@ -237,9 +237,9 @@ function errorText(error: unknown, fallback: string): string {
   if (!(error instanceof ApiError)) return fallback;
   if (error.status === 401 || error.status === 403) return "Tu sesion no esta vigente o no tiene permisos.";
   if (error.status === 404) return "La propiedad no existe o ya no esta disponible.";
-  if (error.status === 422) return "La API no pudo procesar esta accion.";
-  if (error.status === 503) return "UF real no disponible. Intenta nuevamente mas tarde.";
-  if (error.status >= 500) return "La API tuvo un problema con la watchlist.";
+  if (error.status === 422) return "No pudimos procesar esta accion.";
+  if (error.status === 503) return "UF no disponible. Intenta nuevamente mas tarde.";
+  if (error.status >= 500) return "No pudimos actualizar la watchlist.";
   return error.message;
 }
 

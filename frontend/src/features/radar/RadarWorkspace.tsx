@@ -44,9 +44,21 @@ export function RadarWorkspace() {
   const [message, setMessage] = useState<string | null>(null);
   const [limit, setLimit] = useState(20);
   const [bedroomsMin, setBedroomsMin] = useState<number | null>(null);
+  const [propertyType, setPropertyType] = useState("");
+  const [communes, setCommunes] = useState("");
+  const [maxPriceUf, setMaxPriceUf] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [saveState, setSaveState] = useState<Record<number, SaveState>>({});
+  const [strategyFiltersLoaded, setStrategyFiltersLoaded] = useState(false);
   const loadingRef = useRef(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setStrategyFiltersLoaded(params.get("source") === "mi-estrategia");
+    setPropertyType(params.get("property_type") ?? "");
+    setCommunes(params.getAll("communes").join(", "));
+    setMaxPriceUf(params.get("max_price_uf") ?? "");
+  }, []);
 
   useEffect(() => {
     if (!loading) {
@@ -65,7 +77,13 @@ export function RadarWorkspace() {
     setError(null);
     setMessage(null);
     try {
-      const result = await listRadarOpportunities({ bedroomsMin, limit });
+      const result = await listRadarOpportunities({
+        bedroomsMin,
+        communes: communeValues(communes),
+        limit,
+        maxPriceUf: optionalNumber(maxPriceUf),
+        propertyType: propertyType.trim() || null,
+      });
       setItems(result.filter((item) => !isHouse(item.property_type)));
     } catch (caught) {
       setItems([]);
@@ -93,6 +111,17 @@ export function RadarWorkspace() {
   }
 
   const summary = useMemo(() => buildSummary(items), [items]);
+  const strategyFilterSummary = strategyFiltersSummary(propertyType, communes, maxPriceUf);
+  const requestedTypeOutsideScope = isRequestedTypeOutsideScope(propertyType);
+
+  function clearStrategyFilters() {
+    setStrategyFiltersLoaded(false);
+    setPropertyType("");
+    setCommunes("");
+    setMaxPriceUf("");
+    setBedroomsMin(null);
+    window.history.replaceState(null, "", "/app/radar");
+  }
 
   return (
     <div className="grid gap-5">
@@ -103,7 +132,7 @@ export function RadarWorkspace() {
               <CardTitle>Feed Radar</CardTitle>
             </div>
             <div className="hidden lg:block">
-              <CardTitle>Radar beta conectado</CardTitle>
+              <CardTitle>Radar beta</CardTitle>
             </div>
             <CardDescription>
               Radar analiza publicaciones recientes y busca precios bajo el valor estimado por Valoria.
@@ -126,12 +155,12 @@ export function RadarWorkspace() {
         </div>
 
         <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
-          <SummaryFact label="Fuente" value="GET /api/v1/radar/opportunities" />
+          <SummaryFact label="Estado" value={loading ? "Buscando" : "Listo"} />
           <SummaryFact label="Ejecucion" value="Manual con boton" />
           <SummaryFact label="Resultados" value={hasSearched ? `${items.length} oportunidad(es)` : "Sin buscar"} />
         </div>
 
-        <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
           <label className="grid gap-2 text-sm text-muted">
             Limite
             <select
@@ -164,12 +193,68 @@ export function RadarWorkspace() {
             </select>
           </label>
 
+          <label className="grid gap-2 text-sm text-muted">
+            Tipo de propiedad
+            <input
+              className="min-h-11 rounded-lg border border-line bg-black/25 px-3 text-sm font-semibold text-ink outline-none transition focus:border-brand-500/60"
+              disabled={loading}
+              onChange={(event) => setPropertyType(event.target.value)}
+              placeholder="Departamento"
+              value={propertyType}
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm text-muted">
+            Comunas
+            <input
+              className="min-h-11 rounded-lg border border-line bg-black/25 px-3 text-sm font-semibold text-ink outline-none transition focus:border-brand-500/60"
+              disabled={loading}
+              onChange={(event) => setCommunes(event.target.value)}
+              placeholder="Vitacura, Las Condes"
+              value={communes}
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm text-muted">
+            Presupuesto maximo UF
+            <input
+              className="min-h-11 rounded-lg border border-line bg-black/25 px-3 text-sm font-semibold text-ink outline-none transition focus:border-brand-500/60"
+              disabled={loading}
+              inputMode="decimal"
+              min="1"
+              onChange={(event) => setMaxPriceUf(event.target.value)}
+              placeholder="Opcional"
+              type="number"
+              value={maxPriceUf}
+            />
+          </label>
+
           <Button className="self-end" disabled={loading} onClick={search} type="button">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Search className="h-4 w-4" aria-hidden />}
             {loading ? "Buscando..." : "Buscar oportunidades"}
           </Button>
         </div>
       </Card>
+
+      {strategyFiltersLoaded ? (
+        <StatusNote tone="info">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p>Filtros cargados desde Mi estrategia</p>
+              {strategyFilterSummary ? <p className="mt-1 text-sm text-muted">{strategyFilterSummary}</p> : null}
+            </div>
+            <button className="text-sm font-semibold text-ink underline underline-offset-4" onClick={clearStrategyFilters} type="button">
+              Limpiar filtros
+            </button>
+          </div>
+        </StatusNote>
+      ) : null}
+
+      {requestedTypeOutsideScope ? (
+        <StatusNote tone="warning">
+          Radar beta analiza solo departamentos. El tipo solicitado no ampliara el alcance actual y puede no entregar resultados.
+        </StatusNote>
+      ) : null}
 
       {!hasSearched ? (
         <div className="lg:hidden">
@@ -238,6 +323,42 @@ export function RadarWorkspace() {
                 </select>
               </label>
 
+              <label className="grid gap-2 text-sm text-muted">
+                Tipo de propiedad
+                <input
+                  className="min-h-11 rounded-lg border border-line bg-black/25 px-3 text-sm font-semibold text-ink outline-none transition focus:border-brand-500/60"
+                  disabled={loading}
+                  onChange={(event) => setPropertyType(event.target.value)}
+                  placeholder="Departamento"
+                  value={propertyType}
+                />
+              </label>
+
+              <label className="grid gap-2 text-sm text-muted">
+                Comunas
+                <input
+                  className="min-h-11 rounded-lg border border-line bg-black/25 px-3 text-sm font-semibold text-ink outline-none transition focus:border-brand-500/60"
+                  disabled={loading}
+                  onChange={(event) => setCommunes(event.target.value)}
+                  placeholder="Vitacura, Las Condes"
+                  value={communes}
+                />
+              </label>
+
+              <label className="grid gap-2 text-sm text-muted">
+                Presupuesto maximo UF
+                <input
+                  className="min-h-11 rounded-lg border border-line bg-black/25 px-3 text-sm font-semibold text-ink outline-none transition focus:border-brand-500/60"
+                  disabled={loading}
+                  inputMode="decimal"
+                  min="1"
+                  onChange={(event) => setMaxPriceUf(event.target.value)}
+                  placeholder="Opcional"
+                  type="number"
+                  value={maxPriceUf}
+                />
+              </label>
+
               <Button disabled={loading} onClick={search} type="button">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Search className="h-4 w-4" aria-hidden />}
                 {loading ? "Buscando..." : "Aplicar y buscar"}
@@ -255,19 +376,19 @@ export function RadarWorkspace() {
 
       <div className="hidden lg:block">
         <StatusNote>
-          Las oportunidades se filtran por publicaciones confirmadas recientemente en la base de datos. Beta: Valoria no reemplaza una tasacion profesional ni garantiza disponibilidad en tiempo real.
+          Las oportunidades se filtran por publicaciones confirmadas recientemente. Beta: Valoria no reemplaza una tasacion profesional ni garantiza disponibilidad en tiempo real.
         </StatusNote>
       </div>
 
       <div className="hidden lg:block">
         <StatusNote tone="info">
-          Filtros avanzados proximamente. En esta beta solo se envian filtros soportados por el endpoint: limite y dormitorios.
+          Filtros avanzados proximamente. En esta beta puedes ajustar limite y dormitorios.
         </StatusNote>
       </div>
 
       {slow ? (
         <StatusNote tone="warning">
-          Radar puede tardar mientras calcula oportunidades reales. Seguimos esperando la respuesta del backend.
+          Radar puede tardar mientras calcula oportunidades. Seguimos preparando los resultados.
         </StatusNote>
       ) : null}
       {message ? <StatusNote tone="success">{message}</StatusNote> : null}
@@ -288,7 +409,7 @@ export function RadarWorkspace() {
         <Card>
           <div className="flex min-h-56 items-center justify-center gap-3 text-sm text-muted">
             <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-            Ejecutando Radar con datos reales...
+            Ejecutando Radar...
           </div>
         </Card>
       ) : hasSearched && items.length ? (
@@ -310,7 +431,7 @@ export function RadarWorkspace() {
               <Radar className="mx-auto h-9 w-9 text-brand-500" aria-hidden />
               <h3 className="mt-4 text-lg font-semibold text-ink">Sin oportunidades para estos parametros</h3>
               <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
-                El backend respondio sin resultados. Puedes ampliar el limite o quitar el filtro de dormitorios.
+                No encontramos resultados para estos parametros. Puedes ampliar el limite o quitar el filtro de dormitorios.
               </p>
               <div className="mt-5">
                 <ButtonLink href="/app/portfolio" variant="secondary">
@@ -328,7 +449,7 @@ export function RadarWorkspace() {
               <ShieldCheck className="mx-auto h-9 w-9 text-accent-500" aria-hidden />
               <h3 className="mt-4 text-lg font-semibold text-ink">Radar listo para ejecutar</h3>
               <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
-                La busqueda no se dispara al cargar esta pantalla. Presiona el boton para consultar oportunidades reales.
+                La busqueda no se dispara al cargar esta pantalla. Presiona el boton para consultar oportunidades.
               </p>
             </div>
           </div>
@@ -448,6 +569,47 @@ function bedroomsValue(value: string): number | null {
   return Number(value.replace("+", ""));
 }
 
+function communeValues(value: string): string[] {
+  return value
+    .split(",")
+    .map((commune) => commune.trim())
+    .filter(Boolean);
+}
+
+function optionalNumber(value: string): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function strategyFiltersSummary(propertyType: string, communes: string, maxPriceUf: string): string | null {
+  const parts: string[] = [];
+  if (propertyType.trim()) {
+    parts.push(strategyPropertyTypeLabel(propertyType));
+  }
+  const communeList = communeValues(communes);
+  if (communeList.length) {
+    parts.push(communeList.join(" y "));
+  }
+  const budget = optionalNumber(maxPriceUf);
+  if (budget != null) {
+    parts.push(`Hasta ${formatNumber(budget, 0)} UF`);
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function strategyPropertyTypeLabel(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (["apartment", "apartamento", "departamento", "depto", "dpto"].includes(normalized)) {
+    return "Departamento";
+  }
+  return formatPropertyType(value);
+}
+
+function isRequestedTypeOutsideScope(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return Boolean(normalized) && !["apartment", "apartamento", "departamento", "depto", "dpto"].includes(normalized);
+}
+
 function isHouse(value: string | null | undefined): boolean {
   const normalized = String(value ?? "").trim().toLowerCase();
   return normalized === "house" || normalized === "casa";
@@ -500,10 +662,10 @@ function median(values: number[]): number | null {
 
 function errorText(error: unknown, fallback: string): string {
   if (!(error instanceof ApiError)) return fallback;
-  if (error.status === 0) return "No pudimos conectar con la API de Valoria. Revisa que FastAPI este corriendo.";
+  if (error.status === 0) return "No pudimos conectar con Valoria. Intenta nuevamente en unos minutos.";
   if (error.status === 401 || error.status === 403) return "Tu sesion no esta vigente o no tiene permisos para Radar.";
-  if (error.status === 404) return "El endpoint de Radar no esta disponible en esta API.";
+  if (error.status === 404) return "Radar no esta disponible en este momento.";
   if (error.status === 400 || error.status === 422) return "Los parametros enviados a Radar no son validos.";
-  if (error.status >= 500) return "Radar tuvo un problema en el backend. Intenta nuevamente mas tarde.";
+  if (error.status >= 500) return "Radar tuvo un problema. Intenta nuevamente mas tarde.";
   return error.message;
 }

@@ -7,9 +7,9 @@ export default function AnalizarUrlPage() {
     <>
       <InternalBackLink />
       <PageHeading
-        eyebrow="Lookup conectado"
+        eyebrow="Analisis de publicacion"
         title="Analizar URL"
-        description="Consulta el endpoint real de lookup para extraer datos disponibles desde una publicacion soportada."
+        description="Extrae datos disponibles desde una publicacion soportada y prepara una lectura inicial."
       />
       <ListingUrlWorkspace />
     </>

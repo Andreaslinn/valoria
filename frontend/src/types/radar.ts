@@ -63,6 +63,9 @@ export type RadarOpportunityFilters = {
   limit?: number;
   bedroomsMin?: number | null;
   bedroomsMax?: number | null;
+  propertyType?: string | null;
+  communes?: string[];
+  maxPriceUf?: number | null;
 };
 
 export type RadarSummary = {

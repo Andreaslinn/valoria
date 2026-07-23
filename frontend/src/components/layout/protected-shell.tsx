@@ -6,6 +6,7 @@ import {
   Bell,
   FileText,
   Gauge,
+  Home,
   LayoutDashboard,
   Link2,
   LogOut,
@@ -44,6 +45,13 @@ const navigation: ProtectedNavigationItem[] = [
     mobileLabel: "Tasar",
     showInMobileNav: true,
   },
+  {
+    label: "Mi patrimonio",
+    href: "/app/patrimonio",
+    icon: Home,
+    mobileLabel: "Mi hogar",
+    showInMobileNav: true,
+  },
   { label: "Analizar publicación", href: "/app/analizar-url", icon: Link2 },
   {
     label: "Buscar oportunidades",
@@ -70,7 +78,7 @@ const navigation: ProtectedNavigationItem[] = [
   { label: "Settings", href: "/app/settings", icon: Settings },
 ];
 
-const mobileNavigation = ["/app", "/app/radar", "/app/tasar", "/app/portfolio", "/app/alerts"]
+const mobileNavigation = ["/app", "/app/radar", "/app/tasar", "/app/patrimonio", "/app/alerts"]
   .map((href) => navigation.find((item) => item.href === href))
   .filter((item): item is ProtectedNavigationItem => Boolean(item));
 const secondaryMobileNavigation = navigation.filter((item) => !item.showInMobileNav);
@@ -135,7 +143,7 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
         <div className="max-w-md rounded-lg border border-line bg-white/[0.06] p-6 text-center shadow-soft backdrop-blur-xl">
           <h1 className="text-xl font-semibold text-ink">Necesitas iniciar sesion</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            La primera version del frontend usa el token actual de la API para una beta cerrada.
+            Inicia sesion para acceder a tu espacio privado de Valoria.
           </p>
           <Link
             className="mt-5 inline-flex min-h-11 items-center justify-center rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white"
@@ -185,7 +193,7 @@ export function ProtectedShell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="mt-4 shrink-0 rounded-lg border border-line bg-white/[0.045] p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Beta privada</p>
-          <p className="mt-1 text-sm text-ink">Datos reales / cobertura limitada</p>
+          <p className="mt-1 text-sm text-ink">Cobertura limitada</p>
         </div>
       </aside>
       <div className="min-w-0 lg:pl-72">

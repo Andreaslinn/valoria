@@ -7,9 +7,9 @@ export default function PortfolioPage() {
     <>
       <InternalBackLink />
       <PageHeading
-        eyebrow="Watchlist conectada"
+        eyebrow="Watchlist"
         title="Portfolio / Watchlist"
-        description="Primera capa real de propiedades guardadas. Portfolio financiero avanzado queda fuera de esta fase."
+        description="Primera capa de propiedades guardadas. Portfolio financiero avanzado queda fuera de esta fase."
       />
       <PortfolioWorkspace />
     </>

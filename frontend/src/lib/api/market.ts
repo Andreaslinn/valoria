@@ -3,6 +3,8 @@ import type {
   CommunesSummary,
   DynamismSummary,
   LiquiditySummary,
+  MarketDashboard,
+  MarketDashboardFilters,
   MarketBriefing,
   MarketPulse,
   MicrozonesSummary,
@@ -15,6 +17,14 @@ export function getCurrentUf() {
 
 export function getMarketPulse() {
   return apiClient.get<MarketPulse>("/api/v1/market/pulse");
+}
+
+export function getMarketDashboard(filters: MarketDashboardFilters = {}) {
+  const params = new URLSearchParams();
+  params.set("period_days", String(filters.periodDays ?? 30));
+  if (filters.commune) params.set("commune", filters.commune);
+  if (filters.selectedCommune) params.set("selected_commune", filters.selectedCommune);
+  return apiClient.get<MarketDashboard>(`/api/v1/market/dashboard?${params.toString()}`);
 }
 
 export function getCommunesSummary() {

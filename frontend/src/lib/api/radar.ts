@@ -17,5 +17,17 @@ export function listRadarOpportunities(filters: RadarOpportunityFilters = {}) {
     params.set("bedrooms_max", String(filters.bedroomsMax));
   }
 
+  if (filters.propertyType) {
+    params.set("property_type", filters.propertyType);
+  }
+
+  for (const commune of filters.communes ?? []) {
+    params.append("communes", commune);
+  }
+
+  if (filters.maxPriceUf != null) {
+    params.set("max_price_uf", String(filters.maxPriceUf));
+  }
+
   return apiClient.get<RadarOpportunity[]>(`/api/v1/radar/opportunities?${params.toString()}`);
 }

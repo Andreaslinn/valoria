@@ -24,10 +24,10 @@ export function PlaceholderPanel({
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
         <div className="mt-5">
-          <StatusNote>Modulo en preparacion. No muestra datos simulados como reales.</StatusNote>
+          <StatusNote>Modulo en preparacion para una fase posterior.</StatusNote>
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          {["Contrato API", "Estados UI", "QA beta"].map((item) => (
+          {["Flujo", "Contenido", "Pruebas beta"].map((item) => (
             <div className="rounded-lg border border-line bg-white/[0.04] p-3" key={item}>
               <p className="text-xs uppercase tracking-wide text-muted">{item}</p>
               <p className="mt-2 text-sm font-semibold text-ink">Pendiente</p>

@@ -30,7 +30,7 @@ export function ValuationReliabilitySummary({ result }: { result: ValuationRespo
         <div>
           <CardTitle>Confiabilidad del AVM</CardTitle>
           <CardDescription>
-            Lectura de calidad basada solo en campos devueltos por la API.
+            Lectura de calidad basada en la evidencia disponible para esta tasacion.
           </CardDescription>
         </div>
         <span
@@ -92,7 +92,7 @@ export function ValuationReliabilitySummary({ result }: { result: ValuationRespo
         </div>
       ) : (
         <div className="mt-5 rounded-lg border border-line bg-white/[0.04] p-3 text-sm text-muted">
-          La API no devolvio warnings tecnicos para esta tasacion.
+          No encontramos advertencias adicionales para esta tasacion.
         </div>
       )}
     </Card>
@@ -133,12 +133,12 @@ function reliabilitySignals(result: ValuationResponse, warnings: WarningDetail[]
 
   return [
     {
-      caption: locationSignals.length ? "La API reporto senales de ubicacion/geocoding." : "Sin senales de ubicacion en warnings.",
+      caption: locationSignals.length ? "Hay senales de ubicacion que conviene revisar." : "Sin senales de ubicacion pendientes.",
       label: "Ubicacion",
       value: locationSignals.length ? `${locationSignals.length} senal(es)` : "Sin alerta",
     },
     {
-      caption: comparableSignals.length ? "Revisar diversidad, fuente o cantidad de comparables." : "Sin flags especificos de comparables.",
+      caption: comparableSignals.length ? "Revisar diversidad, fuente o cantidad de comparables." : "Sin observaciones especificas de comparables.",
       label: "Comparables",
       value: comparableSignals.length ? `${comparableSignals.length} senal(es)` : "Sin alerta",
     },
@@ -173,7 +173,7 @@ function confidenceExplanation(confidence: ReturnType<typeof normalizeConfidence
   if (confidence === "low") {
     return "Confianza baja debe leerse como resultado exploratorio o con datos insuficientes.";
   }
-  return "La API no entrego un nivel de confianza claro; interpreta la tasacion como referencia inicial.";
+  return "No hay un nivel de confianza claro; interpreta la tasacion como referencia inicial.";
 }
 
 function confidenceTone(confidence: ReturnType<typeof normalizeConfidence>): string {
@@ -195,8 +195,8 @@ function hasLowDataSignal(warnings: WarningDetail[]): boolean {
 }
 
 function betaScopeLabel(result: ValuationResponse): string {
-  if (result.beta_scope_message) return "Con mensaje beta";
+  if (result.beta_scope_message) return "Con aviso beta";
   if (result.beta_scope_status) return result.beta_scope_status.replaceAll("_", " ");
-  if (result.beta_scope_flags?.length) return "Con flags beta";
+  if (result.beta_scope_flags?.length) return "Con observaciones beta";
   return "No informado";
 }

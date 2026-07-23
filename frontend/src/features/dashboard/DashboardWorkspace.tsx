@@ -1,1380 +1,205 @@
 "use client";
 
-import Link from "next/link";
 import {
   AlertTriangle,
-  ArrowDownRight,
-  ArrowRight,
-  ArrowUpRight,
+  Bell,
   Building2,
+  ChevronRight,
   CircleDollarSign,
-  Clock3,
   Compass,
   Home,
-  LineChart,
-  Link2,
   Loader2,
-  MapPinned,
-  Search,
-  ShieldCheck,
-  Sparkles,
+  Radar,
+  TrendingDown,
+  TrendingUp,
+  WalletCards,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { ButtonLink } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
+import { DashboardFilters } from "@/features/dashboard/DashboardFilters";
+import { MarketPulseChart } from "@/features/dashboard/MarketPulseChart";
 import { listAlerts } from "@/lib/api/alerts";
 import { me, type User } from "@/lib/api/auth";
-import {
-  getCurrentUf,
-  getCommunesSummary,
-  getMarketDynamismSummary,
-  getMarketPulse,
-} from "@/lib/api/market";
+import { getMarketDashboard } from "@/lib/api/market";
+import { listPatrimonyProperties } from "@/lib/api/patrimony";
 import { getRadarSummary } from "@/lib/api/radar";
 import { getRecentTasarActivity, type RecentTasarActivity } from "@/lib/api/tasar";
 import { listWatchlist } from "@/lib/api/watchlist";
-import {
-  formatClp,
-  formatCommuneName,
-  formatConfidence,
-  formatDate,
-  formatDateTime,
-  formatListingStatus,
-  formatM2,
-  formatPropertyType,
-  formatText,
-  formatUf,
-  formatWatchlistTitle,
-  pluralizeEs,
-} from "@/lib/formatters";
+import { formatCommuneName, formatConfidence, formatNumber, formatPropertyType, formatUf, pluralizeEs } from "@/lib/formatters";
 import type { AlertItem } from "@/types/alerts";
-import type {
-  CommunesSummary,
-  DynamismSummary,
-  MarketBalanceComponent,
-  MarketPulse,
-  UFRate,
-} from "@/types/market";
+import type { MarketDashboard, MarketDashboardCommune } from "@/types/market";
+import type { PropertyAsset } from "@/types/patrimony";
 import type { RadarSummary } from "@/types/radar";
 import type { WatchlistItem } from "@/types/watchlist";
 
-type LoadState<T> = {
-  data: T | null;
-  error: string | null;
-  loading: boolean;
-};
-
-type MetricStatus = "available" | "partial" | "empty" | "unavailable" | "coming_soon" | "error" | "manual";
-type Tone = "green" | "orange" | "blue" | "neutral";
-
-const initialState = <T,>(): LoadState<T> => ({
-  data: null,
-  error: null,
-  loading: true,
-});
-
-const quickActions = [
-  {
-    description: "Calcula valor estimado con comparables reales.",
-    href: "/app/tasar",
-    icon: Home,
-    title: "Tasar propiedad",
-    tone: "green" as Tone,
-  },
-  {
-    description: "Revisa cualquier aviso soportado.",
-    href: "/app/analizar-url",
-    icon: Link2,
-    title: "Analizar publicación",
-    tone: "blue" as Tone,
-  },
-  {
-    description: "Busca oportunidades cuando lo necesites.",
-    href: "/app/radar",
-    icon: Search,
-    title: "Explorar oportunidades",
-    tone: "orange" as Tone,
-  },
-];
+type Loadable<T> = { data: T | null; loading: boolean; error: string | null };
+const pending = <T,>(): Loadable<T> => ({ data: null, loading: true, error: null });
 
 export function DashboardWorkspace() {
-  const [user, setUser] = useState<LoadState<User>>(initialState);
-  const [watchlist, setWatchlist] = useState<LoadState<WatchlistItem[]>>(initialState);
-  const [alerts, setAlerts] = useState<LoadState<AlertItem[]>>(initialState);
-  const [uf, setUf] = useState<LoadState<UFRate>>(initialState);
-  const [activity, setActivity] = useState<LoadState<RecentTasarActivity>>(initialState);
-  const [pulse, setPulse] = useState<LoadState<MarketPulse>>(initialState);
-  const [dynamism, setDynamism] = useState<LoadState<DynamismSummary>>(initialState);
-  const [communes, setCommunes] = useState<LoadState<CommunesSummary>>(initialState);
-  const [radarSummary, setRadarSummary] = useState<LoadState<RadarSummary>>(initialState);
+  const [market, setMarket] = useState<Loadable<MarketDashboard>>(pending);
+  const [user, setUser] = useState<Loadable<User>>(pending);
+  const [radar, setRadar] = useState<Loadable<RadarSummary>>(pending);
+  const [activity, setActivity] = useState<Loadable<RecentTasarActivity>>(pending);
+  const [properties, setProperties] = useState<Loadable<PropertyAsset[]>>(pending);
+  const [watchlist, setWatchlist] = useState<Loadable<WatchlistItem[]>>(pending);
+  const [alerts, setAlerts] = useState<Loadable<AlertItem[]>>(pending);
+  const [periodDays, setPeriodDays] = useState<7 | 30 | 90>(30);
+  const [commune, setCommune] = useState("");
+  const [selectedCommune, setSelectedCommune] = useState<string | null>(null);
 
+  const loadMarket = useCallback(async (nextSelected: string | null) => {
+    setMarket((current) => ({ ...current, loading: true, error: null }));
+    try {
+      const data = await getMarketDashboard({ commune: commune || null, periodDays, selectedCommune: nextSelected });
+      setMarket({ data, loading: false, error: null });
+    } catch {
+      setMarket((current) => ({ ...current, loading: false, error: "No pudimos actualizar el mercado." }));
+    }
+  }, [commune, periodDays]);
+
+  useEffect(() => { void loadMarket(null); }, [loadMarket]); // Filters refresh only the market contract.
   useEffect(() => {
-    void loadUser();
-    void loadWatchlist();
-    void loadAlerts();
-    void loadUf();
-    void loadActivity();
-    void loadPulse();
-    void loadDynamism();
-    void loadCommunes();
-    void loadRadarSummary();
+    void Promise.all([
+      me().then((data) => setUser({ data, loading: false, error: null })).catch(() => setUser({ data: null, loading: false, error: "Sesion no disponible" })),
+      getRadarSummary().then((data) => setRadar({ data, loading: false, error: null })).catch(() => setRadar({ data: null, loading: false, error: "Radar no disponible" })),
+      getRecentTasarActivity(3).then((data) => setActivity({ data, loading: false, error: null })).catch(() => setActivity({ data: null, loading: false, error: "Tasacion no disponible" })),
+      listPatrimonyProperties().then((data) => setProperties({ data: data.items, loading: false, error: null })).catch(() => setProperties({ data: null, loading: false, error: "Patrimonio no disponible" })),
+      listWatchlist().then((data) => setWatchlist({ data, loading: false, error: null })).catch(() => setWatchlist({ data: null, loading: false, error: "Watchlist no disponible" })),
+      listAlerts(3).then((data) => setAlerts({ data, loading: false, error: null })).catch(() => setAlerts({ data: null, loading: false, error: "Alertas no disponibles" })),
+    ]);
   }, []);
 
-  async function loadUser() {
-    setUser({ data: null, error: null, loading: true });
-    try {
-      setUser({ data: await me(), error: null, loading: false });
-    } catch {
-      setUser({ data: null, error: "Sesion no disponible", loading: false });
-    }
+  const marketData = market.data;
+  const communes = useMemo(() => marketData?.communes.map((item) => item.comuna) ?? [], [marketData]);
+  const selected = useMemo(() => {
+    if (marketData?.selected_commune?.status === "available") return marketData.selected_commune;
+    return marketData?.communes.find((item) => item.comuna === selectedCommune) ?? marketData?.communes[0] ?? null;
+  }, [marketData, selectedCommune]);
+  const latestValuation = useMemo(() => (activity.data?.events ?? []).find((event) => event.estimated_value_uf != null) ?? null, [activity.data]);
+  const unreadAlerts = useMemo(() => (alerts.data ?? []).filter((item) => !item.is_read), [alerts.data]);
+
+  function changeCommune(value: string) {
+    setCommune(value);
+    setSelectedCommune(null);
   }
 
-  async function loadWatchlist() {
-    setWatchlist({ data: null, error: null, loading: true });
-    try {
-      setWatchlist({ data: await listWatchlist(), error: null, loading: false });
-    } catch {
-      setWatchlist({ data: null, error: "No se pudo cargar Watchlist", loading: false });
-    }
-  }
-
-  async function loadAlerts() {
-    setAlerts({ data: null, error: null, loading: true });
-    try {
-      setAlerts({ data: await listAlerts(6), error: null, loading: false });
-    } catch {
-      setAlerts({ data: null, error: "No se pudo cargar Alertas", loading: false });
-    }
-  }
-
-  async function loadUf() {
-    setUf({ data: null, error: null, loading: true });
-    try {
-      setUf({ data: await getCurrentUf(), error: null, loading: false });
-    } catch {
-      setUf({ data: null, error: "UF no disponible", loading: false });
-    }
-  }
-
-  async function loadActivity() {
-    setActivity({ data: null, error: null, loading: true });
-    try {
-      setActivity({ data: await getRecentTasarActivity(3), error: null, loading: false });
-    } catch {
-      setActivity({ data: null, error: "Actividad reciente no disponible", loading: false });
-    }
-  }
-
-  async function loadPulse() {
-    setPulse({ data: null, error: null, loading: true });
-    try {
-      setPulse({ data: await getMarketPulse(), error: null, loading: false });
-    } catch {
-      setPulse({ data: null, error: "Señales de mercado no disponibles temporalmente", loading: false });
-    }
-  }
-
-  async function loadDynamism() {
-    setDynamism({ data: null, error: null, loading: true });
-    try {
-      setDynamism({ data: await getMarketDynamismSummary(), error: null, loading: false });
-    } catch {
-      setDynamism({ data: null, error: "Actividad no disponible temporalmente", loading: false });
-    }
-  }
-
-  async function loadCommunes() {
-    setCommunes({ data: null, error: null, loading: true });
-    try {
-      setCommunes({ data: await getCommunesSummary(), error: null, loading: false });
-    } catch {
-      setCommunes({ data: null, error: "Mercado por comuna no disponible temporalmente", loading: false });
-    }
-  }
-
-  async function loadRadarSummary() {
-    setRadarSummary({ data: null, error: null, loading: true });
-    try {
-      setRadarSummary({ data: await getRadarSummary(), error: null, loading: false });
-    } catch {
-      setRadarSummary({ data: null, error: "Resumen Radar no disponible", loading: false });
-    }
-  }
-
-  const watchlistItems = useMemo(() => watchlist.data ?? [], [watchlist.data]);
-  const alertItems = useMemo(() => alerts.data ?? [], [alerts.data]);
-  const latestValuation = useMemo(
-    () => (activity.data?.events ?? []).find((event) => event.estimated_value_uf),
-    [activity.data],
-  );
-  const unreadAlerts = useMemo(() => alertItems.filter((alert) => !alert.is_read), [alertItems]);
-  const userName = user.data ? displayName(user.data) : "usuario beta";
-
-  return (
-    <>
-      <div className="min-w-0 space-y-4 lg:hidden">
-        <MobileBriefingStory
-          alerts={alerts}
-          latestValuation={latestValuation ?? null}
-          pulse={pulse}
-          radarSummary={radarSummary}
-          unreadAlerts={unreadAlerts.length}
-          userName={userName}
-          watchlist={watchlist}
-          watchlistItems={watchlistItems}
-        />
-        <details className="group rounded-lg border border-line bg-white/[0.045] p-4 shadow-soft backdrop-blur-xl">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
-            Analisis de mercado
-            <span className="text-xs uppercase tracking-[0.16em] text-muted group-open:hidden">
-              Ver
-            </span>
-            <span className="hidden text-xs uppercase tracking-[0.16em] text-muted group-open:inline">
-              Ocultar
-            </span>
-          </summary>
-          <div className="mt-4 grid min-w-0 gap-4">
-            <div className="grid min-w-0 gap-3">
-              <RecentActivityCard state={pulse} />
-              <ObservedTimeCard state={pulse} />
-              <FeaturedCommuneCard state={pulse} />
-            </div>
-            <CommunesPanel state={communes} />
-            <DynamismPanel state={dynamism} />
-            <SignalConfidenceCard state={pulse} />
-            <DataStatusCard
-              description={ufDescription(uf)}
-              icon={<CircleDollarSign className="h-5 w-5" aria-hidden />}
-              label="UF"
-              status={ufStatus(uf)}
-              value={uf.loading ? "Cargando" : uf.error ? "No disponible" : formatClp(uf.data?.rate_clp)}
-            />
-          </div>
-        </details>
-      </div>
-
-      <div className="hidden min-w-0 space-y-4 lg:block">
-        <section className="grid min-w-0 gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(380px,460px)]">
-          <MarketBriefing pulse={pulse} userName={userName} />
-          <FeaturedValuation activity={activity} latestValuation={latestValuation ?? null} />
-        </section>
-
-        <section className="grid min-w-0 gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(380px,460px)]">
-          <div className="min-w-0 space-y-4">
-            <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] gap-4">
-              <RecentActivityCard state={pulse} />
-              <ObservedTimeCard state={pulse} />
-              <FeaturedCommuneCard state={pulse} />
-            </div>
-            <QuickActions />
-            <div className="grid min-w-0 gap-4 min-[1500px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <RadarPanel state={radarSummary} />
-              <CommunesPanel state={communes} />
-            </div>
-            <div className="grid min-w-0 gap-4 min-[1500px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <DynamismPanel state={dynamism} />
-              <SignalConfidenceCard state={pulse} />
-            </div>
-          </div>
-
-          <div className="min-w-0 space-y-4">
-            <WatchlistPanel items={watchlistItems} state={watchlist} />
-          </div>
-        </section>
-
-        <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-          <AlertsPanel alerts={alertItems} state={alerts} unreadCount={unreadAlerts.length} />
-          <DataStatusCard
-            description={ufDescription(uf)}
-            icon={<CircleDollarSign className="h-5 w-5" aria-hidden />}
-            label="UF"
-            status={ufStatus(uf)}
-            value={uf.loading ? "Cargando" : uf.error ? "No disponible" : formatClp(uf.data?.rate_clp)}
-          />
-        </section>
-      </div>
-    </>
-  );
-}
-
-function MobileBriefingStory({
-  alerts,
-  latestValuation,
-  pulse,
-  radarSummary,
-  unreadAlerts,
-  userName,
-  watchlist,
-  watchlistItems,
-}: {
-  alerts: LoadState<AlertItem[]>;
-  latestValuation: RecentTasarActivity["events"][number] | null;
-  pulse: LoadState<MarketPulse>;
-  radarSummary: LoadState<RadarSummary>;
-  unreadAlerts: number;
-  userName: string;
-  watchlist: LoadState<WatchlistItem[]>;
-  watchlistItems: WatchlistItem[];
-}) {
-  const balance = pulse.data?.market_balance;
-  const coverage = pulse.data?.coverage;
-  const activity = pulse.data?.recent_activity;
-  const radarData = radarSummary.data;
-  const headline = balance?.headline ?? pulse.error ?? "Senales de mercado en preparacion";
-  const changedText =
-    pulse.loading
-      ? "Valoria esta revisando el movimiento reciente del mercado."
-      : pulse.error ||
-        (activity
-          ? `${formatNumber(activity.new_24h)} publicaciones nuevas hoy y ${formatNumber(activity.price_drops_7d)} ${pluralizeEs(activity.price_drops_7d, "rebaja detectada", "rebajas detectadas")} en 7 dias.`
-          : "Aun no hay suficiente actividad reciente para resumir cambios con confianza.");
-  const todayText =
-    unreadAlerts > 0
-      ? `Partir por Alertas: hay ${unreadAlerts} ${pluralizeEs(unreadAlerts, "evento pendiente", "eventos pendientes")} en propiedades que sigues.`
-      : radarData?.ready_for_radar_count
-        ? `Radar tiene ${radarData.ready_for_radar_count} ${pluralizeEs(radarData.ready_for_radar_count, "candidata lista", "candidatas listas")} para revisar.`
-        : latestValuation
-          ? `Tu ultima tasacion en ${formatCommuneName(latestValuation.comuna)} queda como referencia para comparar nuevos movimientos.`
-          : "Si quieres crear una referencia base, Tasar propiedad es la mejor primera accion.";
-  const radarValue =
-    radarSummary.loading
-      ? "Revisando"
-      : radarSummary.error
-        ? "Sin resumen"
-        : radarData?.ready_for_radar_count != null
-          ? `${radarData.ready_for_radar_count} listas`
-          : radarData?.mode === "manual"
-            ? "Bajo demanda"
-            : "Sin datos";
-
-  return (
-    <Card className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_80%_10%,rgba(124,92,255,0.16),transparent_15rem),linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.035))] p-0">
-      <div className="p-5">
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-500">
-            Briefing
-          </p>
-          <StatusPill status={toMetricStatus(balance?.status, pulse)} />
-        </div>
-        <h2 className="mt-4 text-2xl font-semibold leading-tight text-ink">{headline}</h2>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          Hola, {userName}. {pulse.data?.insight.text ?? "Valoria revisa el mercado con datos reales y muestra senales cuando hay cobertura suficiente."}
-        </p>
-
-        <div className="mt-5 space-y-4 border-t border-line pt-4">
-          <BriefingStep label="Que cambio" value={changedText} />
-          <BriefingStep label="Mira hoy" value={todayText} />
-          <BriefingStep
-            label="Cobertura"
-            value={
-              coverage
-                ? `${formatNumber(coverage.active_listings)} publicaciones activas en ${formatNumber(coverage.communes_with_minimum_sample)} comunas con muestra.`
-                : "Cobertura pendiente de consolidar."
-            }
-          />
-        </div>
-
-        <div className="mt-5 divide-y divide-line rounded-lg border border-line bg-black/20">
-          <MobileBriefingRow
-            description={radarSummary.loading ? "Revisando oportunidades" : radarSummary.error || "Feed de oportunidades bajo demanda"}
-            href="/app/radar"
-            icon={<Search className="h-5 w-5" aria-hidden />}
-            label="Radar"
-            value={radarValue}
-          />
-          <MobileBriefingRow
-            description={watchlist.loading ? "Cargando propiedades" : "Lo que estas vigilando"}
-            href="/app/portfolio"
-            icon={<Building2 className="h-5 w-5" aria-hidden />}
-            label="Portfolio"
-            value={watchlist.loading ? "..." : `${watchlistItems.length}`}
-          />
-          <MobileBriefingRow
-            description={alerts.loading ? "Cargando eventos" : "Cronologia de cambios"}
-            href="/app/alerts"
-            icon={<AlertTriangle className="h-5 w-5" aria-hidden />}
-            label="Alertas"
-            value={alerts.loading ? "..." : `${unreadAlerts}`}
-          />
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function BriefingStep({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[7px_minmax(0,1fr)] gap-3">
-      <span className="mt-2 h-1.5 w-1.5 rounded-full bg-brand-500 shadow-glow" aria-hidden />
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">{label}</p>
-        <p className="mt-1 text-sm leading-6 text-ink">{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function MobileBriefingRow({
-  description,
-  href,
-  icon,
-  label,
-  value,
-}: {
-  description: string;
-  href: string;
-  icon: ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <Link className="flex min-h-[4.75rem] items-center gap-3 px-3 py-3 active:bg-white/[0.06]" href={href}>
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-500">
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-ink">{label}</span>
-        <span className="mt-1 block truncate text-xs text-muted">{description}</span>
-      </span>
-      <span className="shrink-0 text-right text-sm font-semibold text-ink">{value}</span>
-    </Link>
-  );
-}
-
-function MarketBriefing({
-  pulse,
-  userName,
-}: {
-  pulse: LoadState<MarketPulse>;
-  userName: string;
-}) {
-  const data = pulse.data;
-  const balance = data?.market_balance;
-  const components = balance?.components ?? [];
-  return (
-    <Card className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_82%_20%,rgba(61,220,151,0.12),transparent_28rem),linear-gradient(135deg,rgba(255,255,255,0.075),rgba(255,255,255,0.035))] p-0">
-      <div className="grid min-w-0 gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(210px,240px)]">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-orange-200">
-            <Sparkles className="h-4 w-4" aria-hidden />
-            <span>Briefing del mercado</span>
-            <span className="rounded border border-line bg-black/20 px-2 py-1 normal-case tracking-normal text-muted">
-              {updatedLabel(data?.updated_at)}
-            </span>
-          </div>
-          <h1 className="mt-5 max-w-2xl text-3xl font-semibold tracking-normal text-ink md:text-4xl">
-            {balance?.headline ?? (pulse.error || "Señales de mercado no disponibles temporalmente")}
-          </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
-            Hola, {userName}. {balance?.summary ?? "Estamos preparando las señales principales del mercado para este panel."}
-          </p>
-          <div className="mt-4 flex min-w-0 items-start gap-3 rounded-lg border border-blue-400/20 bg-blue-400/10 p-3">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-blue-100" aria-hidden />
-            <p className="text-sm leading-6 text-blue-50/90">
-              {pulse.error || data?.insight.text || "Aún no hay suficiente actividad reciente para mostrar un insight confiable."}
-            </p>
-          </div>
-
-          <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 min-[1500px]:grid-cols-4">
-            {balanceComponentSlots(components).map((component) => (
-              <BriefingSignal
-                icon={balanceComponentIcon(component.key)}
-                key={component.key}
-                label={component.label}
-                status={toMetricStatus(component.status, pulse)}
-                value={balanceComponentValue(component, data)}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="flex min-w-0 flex-col items-center justify-center rounded-lg border border-line bg-black/20 p-4">
-          <MarketBalanceGauge value={balance?.score ?? null} />
-          <p className="mt-3 text-sm font-semibold text-ink">Balance del mercado</p>
-          <p className="mt-1 text-center text-xs leading-5 text-muted">
-            {balance?.label ?? "Sin señal disponible"} · Confianza {formatSignalConfidence(balance?.confidence).toLowerCase()}
-          </p>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function FeaturedValuation({
-  activity,
-  latestValuation,
-}: {
-  activity: LoadState<RecentTasarActivity>;
-  latestValuation: RecentTasarActivity["events"][number] | null;
-}) {
-  if (activity.loading) {
-    return (
-      <Card className="p-5">
-        <LoadingLine label="Cargando tasaciones recientes..." />
-      </Card>
-    );
-  }
-
-  if (activity.error || !latestValuation) {
-    return (
-      <Card className="p-5">
-        <PanelHeader
-          action={activity.error ? <StatusPill status="error" /> : null}
-          kicker="Tasación destacada"
-          title="Aún no tienes tasaciones recientes"
-        />
-        <p className="mt-4 text-sm leading-6 text-muted">
-          Realiza una tasación para ver aquí el valor estimado, el rango de confianza y su evolución.
-        </p>
-        <div className="mt-4">
-          <ButtonLink href="/app/tasar">
-            Tasar propiedad
-            <ArrowRight className="h-4 w-4" aria-hidden />
-          </ButtonLink>
-        </div>
-      </Card>
-    );
+  function chooseCommune(value: string) {
+    setSelectedCommune(value);
+    void loadMarket(value);
   }
 
   return (
-    <Card className="min-h-[340px] p-5">
-      <PanelHeader
-        action={<StatusPill status="available" />}
-        kicker="Tasación destacada"
-        title={formatText(latestValuation.title, "Tasación reciente")}
-      />
-      <p className="mt-1 text-sm text-muted">
-        {formatCommuneName(latestValuation.comuna)} · {formatPropertyType(latestValuation.property_type)}
-      </p>
-      <div className="mt-7 grid grid-cols-[1fr_auto] gap-4">
+    <div className="mx-auto max-w-[1320px] space-y-2 pb-2">
+      <header className="flex flex-col gap-4 pb-3 pt-1 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-            Valor estimado
-          </p>
-          <p className="mt-2 text-4xl font-semibold tracking-normal text-ink">
-            {formatUf(latestValuation.estimated_value_uf)}
-          </p>
+          <h1 className="text-2xl font-semibold text-ink sm:text-3xl">Buenos dias, {displayName(user.data)}</h1>
+          <p className="mt-1 text-sm text-muted">Asi se esta moviendo el mercado inmobiliario hoy.</p>
         </div>
-        <div className="rounded-lg border border-line bg-black/20 px-4 py-3 text-right">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-            Confianza
-          </p>
-          <p className="mt-2 text-xl font-semibold text-emerald-200">
-            {formatConfidence(latestValuation.confidence)}
-          </p>
+        <DashboardFilters communes={communes} commune={commune} loading={market.loading} onCommuneChange={changeCommune} onPeriodChange={setPeriodDays} periodDays={periodDays} />
+      </header>
+
+      {market.error ? <InlineError message={market.error} /> : null}
+
+      <section className="grid min-w-0 gap-2 xl:grid-cols-[minmax(0,2.35fr)_minmax(170px,0.85fr)_minmax(170px,0.85fr)_minmax(170px,0.85fr)]">
+        <MarketStatusCard data={marketData} loading={market.loading} />
+        <MetricCard accent="blue" icon={<Building2 />} label="Nuevas publicaciones" loading={market.loading} subtitle={`Ultimos ${periodDays} dias`} value={marketData?.overview.new_listings} />
+        <MetricCard accent="orange" icon={<TrendingDown />} label="Retiradas del mercado" loading={market.loading} subtitle={`Ultimos ${periodDays} dias`} value={marketData?.overview.removed_or_inactive} />
+        <MetricCard accent="green" icon={<TrendingUp />} label="Propiedades con rebaja" loading={market.loading} subtitle={`Ultimos ${periodDays} dias`} value={marketData?.overview.listings_with_price_drop} />
+      </section>
+
+      <Card className="min-w-0 p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><CardTitle>Pulso del mercado</CardTitle><p className="text-sm text-muted">Movimiento diario de publicaciones</p></div>
+          <PeriodTabs onChange={setPeriodDays} periodDays={periodDays} />
         </div>
-      </div>
-      <div className="mt-7">
-        <RangeBar
-          current={latestValuation.estimated_value_uf ?? null}
-          max={latestValuation.range_high_uf ?? null}
-          min={latestValuation.range_low_uf ?? null}
-        />
-      </div>
-      <div className="mt-6">
-        <ButtonLink href="/app/tasar" variant="secondary">
-          Ver tasación completa
-          <ArrowRight className="h-4 w-4" aria-hidden />
-        </ButtonLink>
-      </div>
-    </Card>
-  );
-}
+        {market.loading && !marketData ? <ChartSkeleton /> : <MarketPulseChart data={marketData?.daily_pulse ?? []} />}
+        <p className="mt-2 border-t border-line pt-3 text-sm text-muted">{pulseInsight(marketData)}</p>
+      </Card>
 
-function MetricCard({
-  description,
-  icon,
-  label,
-  status,
-  title,
-  visual,
-}: {
-  description: string;
-  icon: ReactNode;
-  label: string;
-  status: MetricStatus;
-  title: string;
-  visual: ReactNode;
-}) {
-  return (
-    <Card className="min-h-[128px] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line bg-white/[0.06] text-ink">
-            {icon}
-          </span>
-          <div className="min-w-0">
-            <p className="break-words text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              {label}
-            </p>
-            <p className="mt-1 text-lg font-semibold leading-6 text-ink">{title}</p>
-          </div>
-        </div>
-        <StatusPill status={status} />
-      </div>
-      <div className="mt-4 flex min-w-0 items-end justify-between gap-4">
-        <p className="min-w-0 text-sm leading-5 text-muted">{description}</p>
-        <div className="shrink-0">{visual}</div>
-      </div>
-    </Card>
-  );
-}
+      <section className="grid min-w-0 gap-2 xl:grid-cols-[minmax(0,1.03fr)_minmax(0,0.97fr)]">
+        <CommunesCard communes={marketData?.communes ?? []} loading={market.loading} onSelect={chooseCommune} selected={selected?.comuna ?? null} detail={selected} />
+        <BedroomsCard data={marketData?.bedrooms_supply ?? []} loading={market.loading} />
+      </section>
 
-function RecentActivityCard({ state }: { state: LoadState<MarketPulse> }) {
-  const activity = state.data?.recent_activity;
-  return (
-    <MetricCard
-      description={
-        state.error ||
-        (activity
-          ? `${formatNumber(activity.removed_7d)} retiradas en 7 días · ${formatNumber(activity.price_drops_7d)} ${pluralizeEs(activity.price_drops_7d, "rebaja", "rebajas")}`
-          : "Cargando movimiento del mercado.")
-      }
-      icon={<Compass className="h-5 w-5" aria-hidden />}
-      label="Movimiento reciente"
-      status={toMetricStatus(activity?.status, state)}
-      title={activity ? `${formatNumber(activity.new_24h)} nuevas hoy` : "Cargando"}
-      visual={<MarketDeltaBadge value={activity?.net_flow_7d ?? null} />}
-    />
-  );
-}
+      <section className="grid min-w-0 gap-2 xl:grid-cols-2">
+        <RadarCard state={radar} />
+        <ValuationCard valuation={latestValuation} state={activity} />
+      </section>
 
-function ObservedTimeCard({ state }: { state: LoadState<MarketPulse> }) {
-  const observed = state.data?.observed_publication_time;
-  const hasMedian = observed?.median_days != null;
-  return (
-    <MetricCard
-      description={
-        state.error ||
-        (observed
-          ? `Basado en ${formatNumber(observed.sample_size)} publicaciones activas`
-          : "Cargando tiempo observado.")
-      }
-      icon={<Clock3 className="h-5 w-5" aria-hidden />}
-      label="Tiempo publicado"
-      status={toMetricStatus(observed?.status, state)}
-      title={hasMedian ? `${observed.median_days} días` : "Sin historial"}
-      visual={<StatusPill status={hasMedian ? "available" : toMetricStatus(observed?.status, state)} />}
-    />
-  );
-}
-
-function FeaturedCommuneCard({ state }: { state: LoadState<MarketPulse> }) {
-  const featured = state.data?.featured_commune;
-  const available = featured?.status === "available" && featured.comuna;
-  return (
-    <MetricCard
-      description={
-        state.error ||
-        (available
-          ? `${formatNumber(featured.new_7d)} nuevas publicaciones esta semana · ${formatNumber(featured.active_listings)} activas`
-          : "Aún sin comuna destacada.")
-      }
-      icon={<MapPinned className="h-5 w-5" aria-hidden />}
-      label="Comuna destacada"
-      status={toMetricStatus(featured?.status, state)}
-      title={available ? (featured.comuna ?? "Sin señal") : "Sin señal"}
-      visual={<span className="max-w-24 text-right text-xs font-semibold leading-5 text-emerald-100">{featured?.headline ?? ""}</span>}
-    />
-  );
-}
-
-function MarketDeltaBadge({ value }: { value: number | null }) {
-  if (value == null) return <span className="text-xs text-muted">--</span>;
-  const positive = value >= 0;
-  const Icon = positive ? ArrowUpRight : ArrowDownRight;
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-semibold ${positive ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-orange-400/25 bg-orange-400/10 text-orange-100"}`}>
-      <Icon className="h-3.5 w-3.5" aria-hidden />
-      {positive ? "+" : ""}
-      {formatNumber(value)} 7d
-    </span>
-  );
-}
-
-function QuickActions() {
-  return (
-    <Card className="p-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-        Acciones rápidas
-      </p>
-      <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
-        {quickActions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <Link
-              className="group flex min-h-16 items-center justify-between gap-4 rounded-lg border border-line bg-black/20 p-3 transition hover:border-emerald-400/35 hover:bg-emerald-400/10"
-              href={action.href}
-              key={action.href}
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg border ${toneClasses(action.tone)}`}>
-                  <Icon className="h-5 w-5" aria-hidden />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-ink">{action.title}</span>
-                  <span className="mt-1 block text-xs leading-5 text-muted">{compactActionDescription(action.title)}</span>
-                </span>
-              </div>
-              <ArrowRight className="h-4 w-4 shrink-0 text-muted transition group-hover:translate-x-1 group-hover:text-ink" />
-            </Link>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
-function RadarPanel({ state }: { state: LoadState<RadarSummary> }) {
-  const data = state.data;
-  const activeScopeCount = data?.active_scope_count;
-  const freshCandidatesCount = data?.fresh_candidates_count;
-  const readyForRadarCount = data?.ready_for_radar_count;
-  const hasSummary = !state.error && activeScopeCount != null;
-  const formatRadarCount = (value: number) => new Intl.NumberFormat("es-CL").format(value);
-  const readyText =
-    readyForRadarCount != null && readyForRadarCount > 0
-      ? `${formatRadarCount(readyForRadarCount)} ${readyForRadarCount === 1 ? "candidata" : "candidatas"} para análisis avanzado`
-      : readyForRadarCount === 0
-        ? "Ninguna cumple hoy todos los filtros avanzados"
-        : null;
-  const freshText =
-    freshCandidatesCount != null
-      ? `${formatRadarCount(freshCandidatesCount)} ${freshCandidatesCount === 1 ? "confirmada" : "confirmadas"} recientemente`
-      : null;
-  return (
-    <Card className="p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <CardTitle>Radar</CardTitle>
-        <span className="inline-flex min-h-7 shrink-0 items-center whitespace-nowrap rounded-lg border border-blue-400/30 bg-blue-400/10 px-3 text-xs font-semibold text-blue-100">
-          Bajo demanda
-        </span>
-      </div>
-      <div className="mt-4">
-        <p className="text-3xl font-semibold text-ink">
-          {hasSummary ? formatRadarCount(activeScopeCount) : state.loading ? "Cargando" : "Resumen no disponible"}
-        </p>
-        {hasSummary ? (
-          <>
-            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-              publicaciones monitoreadas por Radar
-            </p>
-            <div className="mt-4 rounded-lg border border-line bg-black/20 p-3">
-              {readyText ? (
-                <p className="text-sm font-semibold leading-5 text-ink">{readyText}</p>
-              ) : null}
-              {freshText ? (
-                <p className="mt-1 text-xs leading-5 text-muted">{freshText}</p>
-              ) : null}
-            </div>
-          </>
-        ) : null}
-        <p className="mt-3 text-sm leading-6 text-muted">
-          {hasSummary
-            ? "Radar aplica filtros de vigencia, precio y calidad de datos antes de buscar oportunidades."
-            : state.loading
-              ? "Cargando resumen Radar."
-              : "Resumen no disponible"}
-        </p>
-        <div className="mt-4">
-          <ButtonLink href={data?.cta_path ?? "/app/radar"} variant="secondary">
-            Ver Radar completo
-            <ArrowRight className="h-4 w-4" aria-hidden />
-          </ButtonLink>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function CommunesPanel({ state }: { state: LoadState<CommunesSummary> }) {
-  const rows = ["Comuna", "UF/m²", "Tiempo", "Actividad"];
-  const data = state.data;
-  return (
-    <Card className="p-4">
-      <PanelHeader
-        action={<StatusPill status={toMetricStatus(data?.status, state)} />}
-        kicker="Mercado por comuna"
-        title={data?.items.length ? "Precios y movimiento por comuna" : "Sin muestra suficiente"}
-      />
-      <div className="mt-4 min-w-0 overflow-x-auto rounded-lg border border-line bg-black/20">
-        <div className="min-w-[560px]">
-          <div className="grid grid-cols-[minmax(150px,1.2fr)_80px_92px_minmax(132px,0.9fr)] gap-2 border-b border-line px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-            {rows.map((row) => (
-              <span key={row}>{row}</span>
-            ))}
-          </div>
-          <div className="p-3">
-          {data?.items.length ? (
-            <div className="space-y-2">
-              {data.items.slice(0, 6).map((item) => (
-                <div className="grid grid-cols-[minmax(150px,1.2fr)_80px_92px_minmax(132px,0.9fr)] gap-2 rounded-lg px-1 py-1.5 text-sm text-ink" key={item.comuna}>
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold">{formatCommuneName(item.comuna)}</span>
-                    <span className="block truncate text-xs text-muted">
-                      {formatNumber(item.active_listings)} activas
-                    </span>
-                  </span>
-                  <span>{item.median_price_m2_uf == null ? "Sin dato" : formatNumber(item.median_price_m2_uf)}</span>
-                  <span>{item.median_observed_days == null ? "Sin dato" : `${item.median_observed_days} días`}</span>
-                  <span className="text-xs leading-5 text-muted">
-                    {formatNumber(item.new_7d)} nuevas · {formatNumber(item.price_drops_30d)} {pluralizeEs(item.price_drops_30d, "rebaja", "rebajas")}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-line bg-white/[0.03] p-4">
-              <p className="text-sm font-semibold text-ink">Mercado por comuna no disponible temporalmente</p>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                {state.error || "Aún no hay comunas con muestra suficiente para comparar."}
-              </p>
-            </div>
-          )}
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function DynamismPanel({ state }: { state: LoadState<DynamismSummary> }) {
-  const data = state.data;
-  const metrics = data?.raw_metrics;
-  return (
-    <Card className="p-4">
-      <PanelHeader
-        action={<StatusPill status={toMetricStatus(data?.status, state)} />}
-        kicker="Dinamismo del mercado"
-        title={data?.label ?? "Actividad no disponible temporalmente"}
-      />
-      <div className="mt-4">
-        <div className="flex items-end justify-between gap-4">
-          <p className="text-3xl font-semibold text-ink">
-            {data?.score == null ? "Sin dato" : `${data.score}/${data.max}`}
-          </p>
-          <p className="text-right text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-            {formatSignalConfidence(data?.confidence)}
-          </p>
-        </div>
-        <div className="mt-3 h-2 rounded-full bg-white/[0.08]">
-          <div className="h-2 rounded-full bg-emerald-300/70" style={{ width: `${Math.max(0, Math.min(100, data?.score ?? 0))}%` }} />
-        </div>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          {state.error || dynamismSummaryText(data)}
-        </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <MiniStat label="Nuevas 7d" value={formatNumber(metrics?.new_7d)} />
-          <MiniStat label="Retiradas 7d" value={formatNumber(metrics?.removed_7d)} />
-          <MiniStat label="Rebajas 30d" value={formatNumber(metrics?.price_drops_30d)} />
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function SignalConfidenceCard({ state }: { state: LoadState<MarketPulse> }) {
-  const balance = state.data?.market_balance;
-  const coverage = state.data?.coverage;
-  return (
-    <Card className="p-4">
-      <PanelHeader
-        action={<StatusPill status={toMetricStatus(balance?.status, state)} />}
-        kicker="Confianza de la señal"
-        title={formatSignalConfidence(balance?.confidence)}
-      />
-      <p className="mt-3 text-sm leading-6 text-muted">
-        {state.error ||
-          (coverage
-            ? `Basada en ${formatNumber(coverage.active_listings)} publicaciones activas y cobertura en ${formatNumber(coverage.communes_with_minimum_sample)} comunas.`
-            : "La confianza se calcula cuando existe cobertura suficiente.")}
-      </p>
-    </Card>
-  );
-}
-
-function WatchlistPanel({
-  items,
-  state,
-}: {
-  items: WatchlistItem[];
-  state: LoadState<WatchlistItem[]>;
-}) {
-  const visibleItems = items.slice(0, 5);
-  return (
-    <Card className="p-4">
-      <PanelHeader
-        action={<Link className="text-sm font-semibold text-blue-200 hover:text-ink" href="/app/portfolio">Ver todas</Link>}
-        kicker="Watchlist"
-        title={state.loading ? "Cargando propiedades" : `${items.length} propiedades guardadas`}
-      />
-      {!state.loading && items.length > visibleItems.length ? (
-        <p className="mt-2 text-xs text-muted">Mostrando {visibleItems.length} de {items.length}</p>
-      ) : null}
-      <div className="mt-3 space-y-2">
-        {state.loading ? (
-          <LoadingLine label="Cargando watchlist..." />
-        ) : state.error ? (
-          <EmptyState message={state.error} tone="error" />
-        ) : items.length ? (
-          visibleItems.map((item) => <WatchlistRow item={item} key={item.id} />)
-        ) : (
-          <EmptyState message="Aún no hay propiedades guardadas." tone="neutral" />
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function AlertsPanel({
-  alerts,
-  state,
-  unreadCount,
-}: {
-  alerts: AlertItem[];
-  state: LoadState<AlertItem[]>;
-  unreadCount: number;
-}) {
-  const visibleAlerts = alerts.slice(0, 3);
-  return (
-    <Card className="p-4">
-      <PanelHeader
-        action={alerts.length ? <Link className="text-sm font-semibold text-blue-200 hover:text-ink" href="/app/alerts">Ver todas</Link> : null}
-        kicker="Alertas recientes"
-        title={state.loading ? "Cargando alertas" : `${unreadCount} pendientes`}
-      />
-      <div className="mt-3 space-y-2">
-        {state.loading ? (
-          <LoadingLine label="Cargando alertas..." />
-        ) : state.error ? (
-          <EmptyState message={state.error} tone="error" />
-        ) : alerts.length ? (
-          visibleAlerts.map((alert) => <AlertRow alert={alert} key={alert.id} />)
-        ) : (
-          <EmptyState message="Sin alertas recientes." tone="neutral" />
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function DataStatusCard({
-  description,
-  icon,
-  label,
-  status,
-  value,
-}: {
-  description: string;
-  icon: ReactNode;
-  label: string;
-  status: MetricStatus;
-  value: string;
-}) {
-  return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-3">
-        <span className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-white/[0.05] text-ink">
-          {icon}
-        </span>
-        <StatusPill status={status} />
-      </div>
-      <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-ink">{value}</p>
-      <p className="mt-2 text-sm leading-5 text-muted">{description}</p>
-    </Card>
-  );
-}
-
-function BriefingSignal({
-  icon,
-  label,
-  status,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  status: MetricStatus;
-  value: string;
-}) {
-  return (
-    <div className="rounded-lg border border-line bg-black/20 p-3">
-      <div className="flex items-center gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-emerald-400/20 bg-emerald-400/10 text-emerald-200">
-          {icon}
-        </span>
-        <div className="min-w-0">
-          <p className="text-xs text-muted">{label}</p>
-          <p className="mt-1 text-sm font-semibold text-ink">{value}</p>
-        </div>
-      </div>
-      {status === "available" ? null : (
-      <div className="mt-2">
-        <StatusPill status={status} />
-      </div>
-      )}
+      <section className="grid min-w-0 gap-2 xl:grid-cols-2">
+        <PatrimonyCard properties={properties} />
+        <FollowUpCard alerts={unreadAlerts} watchlist={watchlist} />
+      </section>
     </div>
   );
 }
 
-function PanelHeader({
-  action,
-  kicker,
-  title,
-}: {
-  action?: ReactNode;
-  kicker: string;
-  title: string;
-}) {
+function MarketStatusCard({ data, loading }: { data: MarketDashboard | null; loading: boolean }) {
+  const balance = data?.overview.market_balance;
+  const score = Math.max(0, Math.min(100, balance?.score ?? 50));
+  const netFlow = (data?.overview.new_listings ?? 0) - (data?.overview.removed_or_inactive ?? 0);
+  const activeListings = data?.coverage.active_listings;
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-[220px] flex-1">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">{kicker}</p>
-        <CardTitle>{title}</CardTitle>
+    <Card className="min-w-0 p-4 sm:p-5">
+      <CardTitle>Balance del mercado</CardTitle>
+      <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="text-lg font-semibold text-ink">{balance?.label ?? "Sin datos suficientes"}</p>
+        <p className="text-sm font-semibold text-muted">{loading && !data ? "..." : balance?.score ?? "-"} <span className="font-medium">/ 100</span></p>
       </div>
-      <div className="shrink-0">{action}</div>
-    </div>
-  );
-}
 
-function WatchlistRow({ item }: { item: WatchlistItem }) {
-  return (
-    <div className="grid grid-cols-[40px_minmax(0,1fr)_104px] items-center gap-3 rounded-lg border border-line bg-black/20 p-2.5">
-      <PropertyThumb />
-      <div className="min-w-0">
-        <p className="line-clamp-1 text-sm font-semibold text-ink">
-          {formatWatchlistTitle({
-            comuna: item.comuna,
-            fallbackTitle: item.title,
-            propertyType: item.property_type,
-          })}
-        </p>
-        <p className="mt-1 truncate text-xs text-muted">
-          {formatCommuneName(item.comuna)} · {formatPropertyType(item.property_type)}
-        </p>
+      <div className="mt-5 min-w-0">
+        <div className="relative h-3 rounded-full bg-gradient-to-r from-orange-400/70 via-white/20 to-accent-500/70">
+          <span className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#09101a] bg-ink shadow-[0_0_0_2px_rgba(124,92,255,0.8)]" style={{ left: `${score}%` }} />
+        </div>
+        <div className="mt-2 grid grid-cols-3 text-xs font-medium text-muted">
+          <span>Vendedor</span><span className="text-center">Equilibrado</span><span className="text-right">Comprador</span>
+        </div>
       </div>
-      <div className="min-w-0 text-right">
-        <p className="text-sm font-semibold text-ink">
-          {formatUf(item.price_uf_display ?? item.price_uf ?? item.saved_price_uf)}
-        </p>
-        <p className="mt-1 text-xs text-muted">{formatM2(item.m2)}</p>
-        <p className="mt-1 truncate text-xs text-muted">{formatListingStatus(item.listing_status || item.status)}</p>
+
+      <div className="mt-5 grid min-w-0 gap-3 sm:grid-cols-3">
+        <BalanceFactor label="Oferta neta" value={loading && !data ? "..." : signedNumber(netFlow)} />
+        <BalanceFactor label="Rebajas" value={loading && !data ? "..." : formatNumber(data?.overview.listings_with_price_drop, 0)} />
+        <BalanceFactor label="Tiempo publicado" value={data?.overview.median_observed_days == null ? "Sin dato" : `${formatNumber(data.overview.median_observed_days, 0)} dias`} />
       </div>
-    </div>
+
+      <p className="mt-4 max-w-3xl text-sm leading-6 text-muted">{balance?.summary ?? "Aun no hay suficientes publicaciones para interpretar el balance del periodo seleccionado."}</p>
+      <p className="mt-3 text-xs text-muted">Confianza {confidenceLabel(data?.overview.confidence)}{activeListings != null ? ` · Basado en ${formatNumber(activeListings, 0)} publicaciones` : ""}</p>
+    </Card>
   );
 }
 
-function AlertRow({ alert }: { alert: AlertItem }) {
-  const isDrop = alert.alert_type.toLowerCase().includes("drop") || Number(alert.payload.drop_pct ?? 0) > 0;
-  return (
-    <div className="grid grid-cols-[40px_1fr_auto] items-center gap-3 rounded-lg border border-line bg-black/20 p-2.5">
-      <span className={`grid h-10 w-10 place-items-center rounded-lg border ${isDrop ? "border-orange-400/25 bg-orange-400/10 text-orange-200" : "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"}`}>
-        {isDrop ? <ArrowDownRight className="h-4 w-4" aria-hidden /> : <ArrowUpRight className="h-4 w-4" aria-hidden />}
-      </span>
-      <div className="min-w-0">
-        <p className="line-clamp-1 text-sm font-semibold text-ink">
-          {formatText(alert.message, "Alerta disponible")}
-        </p>
-        <p className="mt-1 truncate text-xs text-muted">
-          {formatText(alert.title)} · {formatCommuneName(alert.comuna)}
-        </p>
-      </div>
-      <p className="text-right text-xs text-muted">{relativeTime(alert.created_at)}</p>
-    </div>
-  );
+function BalanceFactor({ label, value }: { label: string; value: string }) { return <div className="min-w-0 border-l border-line pl-3 first:border-l-0 first:pl-0"><p className="text-xs text-muted">{label}</p><p className="mt-1 break-words text-sm font-semibold text-ink">{value}</p></div>; }
+function signedNumber(value: number) { return `${value > 0 ? "+" : value < 0 ? "-" : ""}${formatNumber(Math.abs(value), 0)}`; }
+
+function MetricCard({ accent, icon, label, loading, subtitle, value }: { accent: "blue" | "orange" | "green"; icon: React.ReactNode; label: string; loading: boolean; subtitle: string; value: number | undefined }) {
+  const tones = { blue: "text-brand-500", orange: "text-orange-300", green: "text-accent-500" };
+  return <Card className="min-h-[150px] p-4"><span className={tones[accent]}>{icon}</span><p className="mt-3 text-2xl font-semibold text-ink">{loading && value == null ? "..." : formatNumber(value, 0)}</p><p className="mt-1 text-sm font-medium text-ink">{label}</p><p className="mt-1 text-xs text-muted">{subtitle}</p></Card>;
 }
 
-function EmptyState({ message, tone }: { message: string; tone: "error" | "neutral" }) {
-  const Icon = tone === "error" ? AlertTriangle : MapPinned;
-  return (
-    <div className="rounded-lg border border-dashed border-line bg-black/20 p-4">
-      <div className="flex items-center gap-3">
-        <Icon className={tone === "error" ? "h-4 w-4 text-orange-200" : "h-4 w-4 text-muted"} aria-hidden />
-        <p className="text-sm leading-6 text-muted">{message}</p>
-      </div>
-    </div>
-  );
+function PeriodTabs({ onChange, periodDays }: { onChange: (value: 7 | 30 | 90) => void; periodDays: 7 | 30 | 90 }) { return <div className="flex rounded-lg border border-line bg-black/20 p-1">{([7, 30, 90] as const).map((value) => <button className={`min-h-7 rounded-md px-3 text-xs font-semibold ${periodDays === value ? "bg-brand-600 text-white" : "text-muted hover:text-ink"}`} key={value} onClick={() => onChange(value)} type="button">{value}D</button>)}</div>; }
+
+function CommunesCard({ communes, detail, loading, onSelect, selected }: { communes: MarketDashboardCommune[]; detail: MarketDashboardCommune | null; loading: boolean; onSelect: (value: string) => void; selected: string | null }) {
+  const chartData = communes.slice(0, 6).map((item) => ({ ...item, label: formatCommuneName(item.comuna), score: item.dynamism.score ?? 0 }));
+  return <Card className="min-w-0 p-4 sm:p-5"><CardTitle>Comunas en movimiento</CardTitle><div className="mt-3 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(190px,0.85fr)]"><div className="h-[190px] min-w-0">{loading && !communes.length ? <ChartSkeleton /> : <ResponsiveContainer height="100%" width="100%"><BarChart data={chartData} layout="vertical" margin={{ left: -8, right: 24 }}><XAxis hide type="number" /><YAxis axisLine={false} dataKey="label" tick={{ fill: "#d7dde8", fontSize: 12 }} tickLine={false} type="category" width={84} /><Tooltip cursor={{ fill: "rgba(255,255,255,0.05)" }} contentStyle={{ background: "#0a101a", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 8 }} formatter={(value) => [formatNumber(Number(value), 0), "Dinamismo"]} /><Bar dataKey="score" onClick={(item) => onSelect(item.comuna)} radius={[0, 3, 3, 0]}>{chartData.map((item) => <Cell cursor="pointer" fill={item.comuna === selected ? "#7891ff" : "#4a61c8"} key={item.comuna} />)}</Bar></BarChart></ResponsiveContainer>}</div><CommuneDetail detail={detail} /></div></Card>;
 }
 
-function MarketBalanceGauge({ value, compact = false }: { value: number | null; compact?: boolean }) {
-  const normalized = value === null ? 0 : Math.max(0, Math.min(100, value));
-  const dash = 198;
-  const visible = (dash * normalized) / 100;
-  return (
-    <div className={`relative ${compact ? "h-28 w-40" : "h-36 w-52"}`}>
-      <svg className="h-full w-full" viewBox="0 0 220 150" role="img" aria-label="Balance del mercado">
-        <path
-          d="M35 120a75 75 0 0 1 150 0"
-          fill="none"
-          stroke="rgba(148,163,184,0.18)"
-          strokeLinecap="round"
-          strokeWidth="10"
-        />
-        <path
-          d="M35 120a75 75 0 0 1 150 0"
-          fill="none"
-          stroke={value === null ? "rgba(148,163,184,0.28)" : "url(#gaugeGradient)"}
-          strokeDasharray={`${visible} ${dash}`}
-          strokeLinecap="round"
-          strokeWidth="10"
-        />
-        <defs>
-          <linearGradient id="gaugeGradient" x1="30" x2="190" y1="120" y2="45">
-            <stop stopColor="#3ddc97" />
-            <stop offset="1" stopColor="#86efac" />
-          </linearGradient>
-        </defs>
-      </svg>
-      <div className="absolute inset-x-0 bottom-2 text-center">
-        <p className={`${compact ? "text-3xl" : "text-4xl"} font-semibold text-ink`}>{value === null ? "--" : normalized}</p>
-        <p className="text-sm text-muted">/100</p>
-      </div>
-    </div>
-  );
-}
+function CommuneDetail({ detail }: { detail: MarketDashboardCommune | null }) { if (!detail) return <div className="border-l border-line pl-4 text-sm text-muted">Selecciona una comuna para ver su detalle.</div>; return <div className="border-l border-line pl-4"><p className="text-lg font-semibold text-ink">{formatCommuneName(detail.comuna)}</p><ul className="mt-2 space-y-1 text-sm text-muted"><li>{formatNumber(detail.median_price_m2_uf, 1)} UF/m²</li><li>{detail.median_observed_days == null ? "Tiempo observado no disponible" : `${detail.median_observed_days} dias publicados`}</li><li>{formatNumber(detail.new_listings, 0)} nuevas en el periodo</li><li>{formatNumber(detail.listings_with_price_drop, 0)} rebajas</li><li>{detail.market_balance.label}</li></ul><ButtonLink className="mt-3 min-h-9 px-3" href="/app/radar" variant="secondary">Ver mercado <ChevronRight className="h-4 w-4" /></ButtonLink></div>; }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-line bg-black/20 p-2.5">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">{label}</p>
-      <p className="mt-1 text-base font-semibold text-ink">{value}</p>
-    </div>
-  );
-}
+function BedroomsCard({ data, loading }: { data: MarketDashboard["bedrooms_supply"]; loading: boolean }) { const labels: Record<string, string> = { "1": "1 dormitorio", "2": "2 dormitorios", "3": "3 dormitorios", "4_plus": "4+ dormitorios" }; const chartData = data.map((item) => ({ ...item, label: labels[item.bucket] })); return <Card className="min-w-0 p-4 sm:p-5"><CardTitle>Oferta disponible</CardTitle><p className="text-sm text-muted">Distribucion por dormitorios</p><div className="mt-4 h-[190px] min-w-0">{loading && !data.length ? <ChartSkeleton /> : <ResponsiveContainer height="100%" width="100%"><BarChart data={chartData} layout="vertical" margin={{ left: 12, right: 20 }}><XAxis hide type="number" /><YAxis axisLine={false} dataKey="label" tick={{ fill: "#d7dde8", fontSize: 12 }} tickLine={false} type="category" width={105} /><Tooltip cursor={{ fill: "rgba(255,255,255,0.05)" }} contentStyle={{ background: "#0a101a", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 8 }} formatter={(value) => [formatNumber(Number(value), 0), "Publicaciones activas"]} /><Bar dataKey="active_listings" fill="#5f75dc" radius={[0, 3, 3, 0]} /></BarChart></ResponsiveContainer>}</div></Card>; }
 
-function RangeBar({
-  current,
-  max,
-  min,
-}: {
-  current: number | null;
-  max: number | null;
-  min: number | null;
-}) {
-  if (current == null || min == null || max == null) {
-    return (
-      <p className="rounded-lg border border-line bg-black/20 p-3 text-sm leading-6 text-muted">
-        Rango de confianza pendiente para esta tasación.
-      </p>
-    );
-  }
-  const pct = max > min ? Math.max(0, Math.min(100, ((current - min) / (max - min)) * 100)) : 50;
-  return (
-    <div>
-      <div className="flex items-center justify-between text-xs text-muted">
-        <span>{formatUf(min)}</span>
-        <span>{formatUf(max)}</span>
-      </div>
-      <div className="mt-3 h-2 rounded-full bg-white/[0.08]">
-        <div className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-200 opacity-60" style={{ width: `${pct}%` }} />
-      </div>
-      <p className="mt-2 text-xs text-muted">
-        Centro actual: {formatUf(current)}
-      </p>
-    </div>
-  );
-}
+function RadarCard({ state }: { state: Loadable<RadarSummary> }) { const data = state.data; return <Card className="flex min-w-0 flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center"><div className="flex min-w-0 gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-brand-500/35 text-brand-500"><Radar className="h-5 w-5" /></span><div><CardTitle>Radar</CardTitle><p className="mt-1 text-sm text-ink">{state.loading ? "Actualizando resumen..." : `${formatNumber(data?.active_scope_count, 0)} publicaciones monitoreadas.`}</p><p className="text-sm text-muted">{data?.summary ?? state.error ?? "Oportunidades bajo demanda."}</p></div></div><ButtonLink className="shrink-0" href="/app/radar" variant="secondary"><Compass className="h-4 w-4" />Abrir Radar</ButtonLink></Card>; }
 
-function PropertyThumb() {
-  return (
-    <span className="grid h-10 w-10 place-items-center rounded-lg border border-line bg-[radial-gradient(circle_at_30%_25%,rgba(61,220,151,0.25),transparent_1.5rem),rgba(255,255,255,0.05)] text-muted">
-      <Building2 className="h-5 w-5" aria-hidden />
-    </span>
-  );
-}
+function ValuationCard({ state, valuation }: { state: Loadable<RecentTasarActivity>; valuation: RecentTasarActivity["events"][number] | null }) { return <Card className="flex min-w-0 flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center"><div className="flex min-w-0 gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-brand-500/35 text-brand-500"><CircleDollarSign className="h-5 w-5" /></span><div><CardTitle>Ultima tasacion</CardTitle>{valuation ? <><p className="mt-1 text-sm text-muted">{formatPropertyType(valuation.property_type)} · {formatCommuneName(valuation.comuna)}</p><p className="text-2xl font-semibold text-ink">{formatUf(valuation.estimated_value_uf)}</p><p className="text-xs text-muted">{valuation.range_low_uf && valuation.range_high_uf ? `${formatUf(valuation.range_low_uf)} - ${formatUf(valuation.range_high_uf)}` : valuation.confidence ? `Confianza: ${formatConfidence(valuation.confidence)}` : ""}</p></> : <p className="mt-1 text-sm text-muted">{state.loading ? "Cargando tasacion..." : state.error ?? "Aun no hay tasaciones guardadas."}</p>}</div></div><ButtonLink className="shrink-0" href="/app/tasar" variant="secondary">{valuation ? "Ver tasacion" : "Tasar propiedad"}</ButtonLink></Card>; }
 
-function StatusPill({ status }: { status: MetricStatus }) {
-  if (status === "available") return null;
-  const labels: Record<MetricStatus, string> = {
-    available: "Actualizado",
-    partial: "Parcial",
-    coming_soon: "En preparacion",
-    empty: "Sin datos",
-    unavailable: "Sin historial",
-    error: "No disponible",
-    manual: "Bajo demanda",
-  };
-  const classes: Record<MetricStatus, string> = {
-    available: "border-emerald-400/25 bg-emerald-400/10 text-emerald-100",
-    partial: "border-amber-300/25 bg-amber-300/10 text-amber-100",
-    coming_soon: "border-white/10 bg-white/[0.05] text-muted",
-    empty: "border-white/10 bg-black/20 text-muted",
-    unavailable: "border-white/10 bg-black/20 text-muted",
-    error: "border-orange-400/30 bg-orange-400/10 text-orange-100",
-    manual: "border-blue-400/30 bg-blue-400/10 text-blue-100",
-  };
-  return (
-    <span className={`inline-flex min-h-7 shrink-0 items-center whitespace-nowrap rounded-lg border px-3 text-xs font-semibold ${classes[status]}`}>
-      {labels[status]}
-    </span>
-  );
-}
+function PatrimonyCard({ properties }: { properties: Loadable<PropertyAsset[]> }) { const property = properties.data?.[0]; return <Card className="flex min-w-0 flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center"><div className="flex gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-accent-500/35 text-accent-500"><Home className="h-5 w-5" /></span><div><CardTitle>Mi patrimonio</CardTitle><p className="mt-1 text-sm text-ink">{properties.loading ? "Cargando propiedad..." : property?.name ?? "Aun no tienes propiedades guardadas."}</p><p className="text-sm text-muted">{property ? "Tu propiedad esta guardada y lista para seguimiento." : "Guarda una tasacion para comenzar."}</p></div></div><ButtonLink className="shrink-0" href="/app/patrimonio" variant="secondary">Abrir Mi patrimonio</ButtonLink></Card>; }
 
-function LoadingLine({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-2 text-sm text-muted">
-      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-      {label}
-    </div>
-  );
-}
+function FollowUpCard({ alerts, watchlist }: { alerts: AlertItem[]; watchlist: Loadable<WatchlistItem[]> }) { return <Card className="flex min-w-0 flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center"><div className="flex gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-orange-400/35 text-orange-300"><WalletCards className="h-5 w-5" /></span><div><CardTitle>En seguimiento</CardTitle><p className="mt-1 text-sm text-ink">{watchlist.loading ? "Cargando publicaciones..." : `${formatNumber(watchlist.data?.length, 0)} ${pluralizeEs(watchlist.data?.length, "propiedad guardada", "propiedades guardadas")}.`}</p><p className="text-sm text-muted">{alerts.length ? `${alerts.length} ${pluralizeEs(alerts.length, "alerta reciente", "alertas recientes")}.` : "Sin alertas recientes."}</p></div></div><ButtonLink className="shrink-0" href="/app/portfolio" variant="secondary"><Bell className="h-4 w-4" />Ver Watchlist</ButtonLink></Card>; }
 
-function toneClasses(tone: Tone): string {
-  const classes: Record<Tone, string> = {
-    blue: "border-blue-400/25 bg-blue-400/10 text-blue-100",
-    green: "border-emerald-400/25 bg-emerald-400/10 text-emerald-100",
-    neutral: "border-line bg-white/[0.05] text-muted",
-    orange: "border-orange-400/25 bg-orange-400/10 text-orange-100",
-  };
-  return classes[tone];
-}
-
-function toMetricStatus(status: string | null | undefined, state?: LoadState<unknown>): MetricStatus {
-  if (state?.error) return "error";
-  if (state?.loading) return "empty";
-  if (status === "available") return "available";
-  if (status === "partial") return "partial";
-  if (status === "manual") return "manual";
-  if (status === "empty") return "empty";
-  if (status === "unavailable") return "unavailable";
-  if (status === "error") return "error";
-  return "coming_soon";
-}
-
-function balanceComponentSlots(components: MarketBalanceComponent[]): MarketBalanceComponent[] {
-  const fallback: MarketBalanceComponent[] = [
-    emptyBalanceComponent("supply_flow", "Saldo de oferta"),
-    emptyBalanceComponent("price_reductions", "Rebajas"),
-    emptyBalanceComponent("observed_time", "Tiempo publicado"),
-    emptyBalanceComponent("price_trend", "Tendencia"),
-  ];
-  return fallback.map((slot) => {
-    const component = components.find((item) => item.key === slot.key) ?? slot;
-    if (component.key === "supply_flow") return { ...component, label: "Saldo de oferta" };
-    if (component.key === "price_trend") return { ...component, label: "Precio UF/m²" };
-    return component;
-  });
-}
-
-function emptyBalanceComponent(key: string, label: string): MarketBalanceComponent {
-  return {
-    key,
-    label,
-    score: 0,
-    weight: 0,
-    status: "unavailable",
-    confidence: "low",
-    raw_value: null,
-    description: "",
-    direction: "unknown",
-  };
-}
-
-function balanceComponentIcon(key: string): ReactNode {
-  if (key === "supply_flow") return <Building2 className="h-5 w-5" aria-hidden />;
-  if (key === "price_reductions") return <ArrowDownRight className="h-5 w-5" aria-hidden />;
-  if (key === "observed_time") return <Clock3 className="h-5 w-5" aria-hidden />;
-  return <LineChart className="h-5 w-5" aria-hidden />;
-}
-
-function balanceComponentValue(component: MarketBalanceComponent, pulse: MarketPulse | null): string {
-  if (component.status === "unavailable") return "Aún sin historial suficiente";
-  if (component.key === "supply_flow") {
-    const flow = pulse?.recent_activity.net_flow_7d;
-    if (flow == null) return "Oferta estable";
-    if (flow > 0) return `+${formatNumber(flow)} publicaciones en 7 días`;
-    if (flow < 0) return `-${formatNumber(Math.abs(flow))} publicaciones en 7 días`;
-    return "Oferta estable";
-  }
-  if (component.key === "price_reductions") {
-    const drops = pulse?.recent_activity.price_drops_7d;
-    if (!drops) return "Sin rebajas esta semana";
-    return `${formatNumber(drops)} rebajas esta semana`;
-  }
-  if (component.key === "observed_time") {
-    const medianDays = pulse?.observed_publication_time.median_days;
-    if (medianDays == null) return "Sin historial suficiente";
-    return `${medianDays} días · Mediana observada`;
-  }
-  return "Aún sin historial suficiente";
-}
-
-function formatSignalConfidence(value: string | null | undefined): string {
-  if (value === "high") return "Alta";
-  if (value === "medium") return "Media";
-  if (value === "low") return "Baja";
-  return "Sin dato";
-}
-
-function formatNumber(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "--";
-  return new Intl.NumberFormat("es-CL").format(value);
-}
-
-function updatedLabel(value: string | null | undefined): string {
-  if (!value) return "Actualizado hoy";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Actualizado hoy";
-  if (isToday(value)) {
-    return `Actualizado hoy, ${date.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}`;
-  }
-  return `Actualizado ${formatDate(value)}`;
-}
-
-function dynamismSummaryText(data: DynamismSummary | null): string {
-  if (!data) return "Actividad no disponible temporalmente";
-  const metrics = data.raw_metrics;
-  return `${data.label}. En siete días ingresaron ${formatNumber(metrics.new_7d)} publicaciones y se retiraron ${formatNumber(metrics.removed_7d)}; ${formatNumber(metrics.price_drops_30d)} ${pluralizeEs(metrics.price_drops_30d, "publicación registró rebaja", "publicaciones registraron rebajas")} en 30 días.`;
-}
-
-function compactActionDescription(title: string): string {
-  if (title === "Tasar propiedad") return "Calcula valor estimado.";
-  if (title === "Analizar publicación") return "Revisa un aviso.";
-  if (title === "Explorar oportunidades") return "Abre Radar manual.";
-  return "";
-}
-
-function displayName(user: User): string {
-  const local = user.email.split("@")[0] ?? "";
-  const clean = local.replace(/[._-]+/g, " ").trim();
-  if (!clean) return user.email;
-  return clean
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function ufStatus(state: LoadState<UFRate>): MetricStatus {
-  if (state.error) return "error";
-  if (state.loading || !state.data) return "empty";
-  return "available";
-}
-
-function ufDescription(state: LoadState<UFRate>): string {
-  if (state.loading) return "Consultando UF.";
-  if (state.error || !state.data) return state.error || "UF no disponible.";
-  const date = state.data.rate_date ? formatDate(state.data.rate_date) : formatDateTime(state.data.observed_at);
-  const today = state.data.rate_date ? isToday(state.data.rate_date) : isToday(state.data.observed_at);
-  return `Fuente: ${friendlyUfSource()} · ${today ? "Actualizada hoy" : `Actualizada ${date}`}`;
-}
-
-function friendlyUfSource(): string {
-  return "mindicador.cl";
-}
-
-function isToday(value: string): boolean {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
-}
-function relativeTime(value: string): string {
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return "Fecha no disponible";
-  const diffMinutes = Math.max(0, Math.round((Date.now() - time) / 60000));
-  if (diffMinutes < 60) return `Hace ${diffMinutes || 1} min`;
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `Hace ${diffHours} h`;
-  return formatDate(value);
-}
+function ChartSkeleton() { return <div className="grid h-full place-items-center text-sm text-muted"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Actualizando datos...</div>; }
+function InlineError({ message }: { message: string }) { return <div className="flex items-center gap-2 rounded-lg border border-orange-400/30 bg-orange-400/10 px-3 py-2 text-sm text-orange-100"><AlertTriangle className="h-4 w-4" />{message}</div>; }
+function displayName(user: User | null) { return user?.email?.split("@")[0] || ""; }
+function confidenceLabel(value: string | undefined) { return value === "high" ? "alta" : value === "low" ? "baja" : "media"; }
+function pulseInsight(data: MarketDashboard | null) { if (!data) return "Aun no hay suficiente actividad para interpretar el pulso del mercado."; const net = data.overview.new_listings - data.overview.removed_or_inactive; return net > 0 ? `Durante los ultimos ${data.scope.period_days} dias ingresaron mas publicaciones de las que salieron. La oferta disponible esta aumentando.` : net < 0 ? `Durante los ultimos ${data.scope.period_days} dias salieron mas publicaciones de las que ingresaron.` : `Durante los ultimos ${data.scope.period_days} dias, entradas y salidas se mantuvieron equilibradas.`; }
