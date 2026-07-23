@@ -3,58 +3,18 @@ import { ExternalLink } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import type { Comparable } from "@/types/valuation";
 
-import { formatClp, formatM2, formatNumber, formatUf } from "./formatters";
+import { formatClp, formatM2, formatUf } from "./formatters";
 
 export function ComparableCard({ comparable }: { comparable: Comparable }) {
   const bedrooms = comparable.dormitorios ?? comparable.bedrooms;
   const bathrooms = comparable.banos ?? comparable.bathrooms;
-  const program = [roomsLabel(bedrooms, "D"), roomsLabel(bathrooms, "B")].filter(Boolean).join(" / ");
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h4 className="text-sm font-semibold leading-5 text-ink">
-            {comparable.title || "Comparable"}
-          </h4>
-          <p className="mt-1 text-xs text-muted">{comparable.comuna || "Comuna no disponible"}</p>
-        </div>
-        {comparable.url ? (
-          <a
-            className="rounded-lg border border-line p-2 text-muted transition hover:border-brand-500/40 hover:bg-brand-500/10 hover:text-brand-500"
-            href={comparable.url}
-            rel="noreferrer"
-            target="_blank"
-            title="Abrir publicacion"
-          >
-            <ExternalLink className="h-4 w-4" aria-hidden />
-          </a>
-        ) : null}
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <ComparableFact label="Precio UF" value={formatUf(comparable.price_uf)} />
-        <ComparableFact label="Precio CLP" value={formatClp(comparable.price_clp)} />
-        <ComparableFact label="Superficie" value={formatM2(comparable.m2)} />
-        <ComparableFact label="Programa" value={program || "No disponible"} />
-        <ComparableFact label="Similitud" value={formatNumber(comparable.similarity, 2)} />
-        <ComparableFact label="Fuente" value={comparable.listing_id ? `#${comparable.listing_id}` : "No disponible"} />
-      </div>
-    </Card>
-  );
+  const facts = [comparable.m2 ? formatM2(comparable.m2) : null, roomFact(bedrooms, "D"), roomFact(bathrooms, "B")].filter(Boolean);
+  return <Card className="p-4">
+    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="truncate text-sm font-semibold text-ink">{comparable.title || "Propiedad comparable"}</h4>{comparable.comuna ? <p className="mt-1 text-xs text-muted">{comparable.comuna}</p> : null}</div>{comparable.url ? <a className="shrink-0 text-muted hover:text-brand-500" href={comparable.url} rel="noreferrer" target="_blank" title="Ver publicación"><ExternalLink className="h-4 w-4" /></a> : null}</div>
+    <p className="mt-4 text-xl font-semibold text-ink">{formatUf(comparable.price_uf)}</p>
+    {comparable.price_clp ? <p className="mt-1 whitespace-nowrap text-sm text-muted">{formatClp(comparable.price_clp)}</p> : null}
+    <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted">{comparable.price_uf && comparable.m2 ? <span>{formatUf(comparable.price_uf / comparable.m2)}/m²</span> : null}{facts.map((fact) => <span key={fact}>• {fact}</span>)}{comparable.similarity > 0 ? <span>• Similitud {Math.round(comparable.similarity * 100)}%</span> : null}</div>
+  </Card>;
 }
 
-function ComparableFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs text-muted">{label}</p>
-      <p className="mt-1 font-semibold text-ink">{value}</p>
-    </div>
-  );
-}
-
-function roomsLabel(value: number | null | undefined, suffix: string): string | null {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? `${value}${suffix}`
-    : null;
-}
+function roomFact(value: number | null | undefined, suffix: string) { return typeof value === "number" && value > 0 ? `${value}${suffix}` : null; }

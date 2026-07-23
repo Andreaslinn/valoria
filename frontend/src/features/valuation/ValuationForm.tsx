@@ -1,6 +1,6 @@
 "use client";
 
-import { Calculator, Loader2 } from "lucide-react";
+import { Calculator, ChevronDown, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,81 +11,41 @@ import type { PropertyType, ValuationRequest } from "@/types/valuation";
 
 import type { ValuationFormPrefill } from "./prefill";
 
-type FormValues = {
-  propertyType: PropertyType;
-  comuna: string;
-  reference: string;
-  builtAreaM2: string;
-  landAreaM2: string;
-  dormitorios: string;
-  banos: string;
-  estacionamientos: string;
-  publishedPriceUf: string;
-  publishedPriceClp: string;
-};
+type FormValues = { propertyType: PropertyType; comuna: string; builtAreaM2: string; landAreaM2: string; dormitorios: string; banos: string; estacionamientos: string; publishedPriceUf: string; publishedPriceClp: string };
+type Props = { importedPrefill?: ValuationFormPrefill | null; isSubmitting: boolean; onSubmit: (payload: ValuationRequest) => Promise<void> };
 
-type Props = {
-  importedPrefill?: ValuationFormPrefill | null;
-  isSubmitting: boolean;
-  onSubmit: (payload: ValuationRequest) => Promise<void>;
-};
-
-const initialValues: FormValues = {
-  propertyType: "apartment",
-  comuna: "",
-  reference: "",
-  builtAreaM2: "",
-  landAreaM2: "",
-  dormitorios: "",
-  banos: "",
-  estacionamientos: "",
-  publishedPriceUf: "",
-  publishedPriceClp: "",
-};
-
-const propertyTypes: Array<{ label: string; value: PropertyType }> = [
-  { label: "Departamento", value: "apartment" },
-  { label: "Casa", value: "house" },
-  { label: "Oficina", value: "office" },
-];
-
-const betaComunas: Array<{ label: string; value: string }> = [
+const initialValues: FormValues = { propertyType: "apartment", comuna: "", builtAreaM2: "", landAreaM2: "", dormitorios: "", banos: "", estacionamientos: "", publishedPriceUf: "", publishedPriceClp: "" };
+const propertyTypes: Array<{ label: string; value: PropertyType }> = [{ label: "Departamento", value: "apartment" }, { label: "Casa", value: "house" }, { label: "Oficina", value: "office" }];
+const betaComunas = [
   { label: "Santiago", value: "santiago" },
   { label: "Providencia", value: "providencia" },
-  { label: "Nunoa", value: "nunoa" },
+  { label: "Ñuñoa", value: "nunoa" },
   { label: "Las Condes", value: "las_condes" },
   { label: "Vitacura", value: "vitacura" },
   { label: "Lo Barnechea", value: "lo_barnechea" },
   { label: "La Reina", value: "la_reina" },
   { label: "Macul", value: "macul" },
   { label: "San Miguel", value: "san_miguel" },
-  { label: "Estacion Central", value: "estacion_central" },
+  { label: "Estación Central", value: "estacion_central" },
   { label: "Independencia", value: "independencia" },
   { label: "Recoleta", value: "recoleta" },
-  { label: "San Joaquin", value: "san_joaquin" },
+  { label: "San Joaquín", value: "san_joaquin" },
   { label: "La Florida", value: "la_florida" },
 ];
-
-const selectClassName =
-  "min-h-11 w-full min-w-0 rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-ink outline-none transition disabled:cursor-not-allowed disabled:opacity-50 focus:border-brand-500/70 focus:ring-4 focus:ring-brand-100";
+const selectClassName = "min-h-11 w-full rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-ink outline-none transition focus:border-brand-500/70 focus:ring-4 focus:ring-brand-100";
 
 export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props) {
   const [values, setValues] = useState<FormValues>(initialValues);
   const [formError, setFormError] = useState<string | null>(null);
-
+  const [priceOpen, setPriceOpen] = useState(false);
   const isHouse = values.propertyType === "house";
-  const comunaOptions = comunaOptionsFor(values.comuna);
 
   useEffect(() => {
-    if (!importedPrefill) {
-      return;
-    }
-
+    if (!importedPrefill) return;
     setValues((current) => ({
       ...current,
       propertyType: importedPrefill.propertyType ?? current.propertyType,
       comuna: comunaValue(importedPrefill.comuna) ?? current.comuna,
-      reference: importedPrefill.reference ?? importedPrefill.sourceUrl ?? current.reference,
       builtAreaM2: textNumber(importedPrefill.builtAreaM2 ?? importedPrefill.usableAreaM2) ?? current.builtAreaM2,
       landAreaM2: textNumber(importedPrefill.landAreaM2) ?? current.landAreaM2,
       dormitorios: textNumber(importedPrefill.dormitorios) ?? current.dormitorios,
@@ -99,303 +59,54 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
-
     const builtArea = numberFrom(values.builtAreaM2);
     const landArea = numberFrom(values.landAreaM2);
-
-    if (!values.comuna.trim()) {
-      setFormError("Ingresa la comuna de la propiedad.");
-      return;
-    }
-    if (!builtArea || builtArea <= 0) {
-      setFormError("Ingresa una superficie util o construida mayor a 0.");
-      return;
-    }
-    if (isHouse && (!landArea || landArea <= 0)) {
-      setFormError("Para casas, ingresa la superficie de terreno.");
-      return;
-    }
-
-    const payload: ValuationRequest = {
-      comuna: values.comuna.trim(),
-      property_type: values.propertyType,
-      m2: builtArea,
-      built_area_m2: builtArea,
-      land_area_m2: isHouse ? landArea : null,
-      usable_area_m2: values.propertyType === "apartment" ? builtArea : null,
-      dormitorios: integerOrNull(values.dormitorios),
-      banos: integerOrNull(values.banos),
-      estacionamientos: integerOrNull(values.estacionamientos),
-      precio_publicado_uf: numberOrNull(values.publishedPriceUf),
-      precio_publicado_clp: integerOrNull(values.publishedPriceClp),
-    };
-
-    await onSubmit(payload);
+    if (!values.comuna.trim()) return setFormError("Ingresa la comuna de la propiedad.");
+    if (!builtArea || builtArea <= 0) return setFormError("Ingresa una superficie útil o construida mayor a 0.");
+    if (isHouse && (!landArea || landArea <= 0)) return setFormError("Para casas, ingresa la superficie de terreno.");
+    await onSubmit({ comuna: values.comuna, property_type: values.propertyType, m2: builtArea, built_area_m2: builtArea, land_area_m2: isHouse ? landArea : null, usable_area_m2: values.propertyType === "apartment" ? builtArea : null, dormitorios: integerOrNull(values.dormitorios), banos: integerOrNull(values.banos), estacionamientos: integerOrNull(values.estacionamientos), precio_publicado_uf: numberOrNull(values.publishedPriceUf), precio_publicado_clp: integerOrNull(values.publishedPriceClp) });
   }
 
-  return (
-    <Card className="h-fit">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <CardTitle>Datos de la propiedad</CardTitle>
-          <CardDescription>
-            Usa los atributos principales para ejecutar la tasacion real del backend.
-          </CardDescription>
-        </div>
-        <div className="rounded-lg border border-brand-500/25 bg-brand-500/10 p-2 text-brand-500">
-          <Calculator className="h-5 w-5" aria-hidden />
-        </div>
+  return <Card className="h-fit p-5 sm:p-6">
+    <CardTitle>Datos de la propiedad</CardTitle>
+    <CardDescription>Ingresa las principales características del inmueble.</CardDescription>
+    <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
+      {importedPrefill ? <StatusNote>Datos importados desde una publicación. Revísalos antes de tasar.</StatusNote> : null}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <SelectField label="Tipo de propiedad" value={values.propertyType} onChange={(value) => setValues((current) => ({ ...current, propertyType: value as PropertyType }))}>{propertyTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</SelectField>
+        <SelectField label="Comuna" value={values.comuna} onChange={(value) => setValues((current) => ({ ...current, comuna: value }))} required><option value="">Selecciona una comuna</option>{comunaOptionsFor(values.comuna).map((comuna) => <option key={comuna.value} value={comuna.value}>{comuna.label}</option>)}</SelectField>
       </div>
-
-      <form className="mt-6 grid gap-5" onSubmit={handleSubmit}>
-        {importedPrefill ? (
-          <StatusNote>
-            Datos importados desde una publicacion. Revisalos y edita lo necesario antes de tasar.
-          </StatusNote>
-        ) : null}
-
-        <div className="grid gap-5 rounded-lg border border-line bg-black/20 p-4 lg:contents lg:border-0 lg:bg-transparent lg:p-0">
-          <div className="lg:hidden">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
-              Que es
-            </p>
-            <p className="mt-1 text-sm leading-6 text-muted">Tipo, comuna y una referencia para ubicar la propiedad.</p>
-          </div>
-
-          <label className="grid min-w-0 gap-2 text-sm font-medium text-ink" htmlFor="propertyType">
-            Tipo de propiedad
-            <select
-              id="propertyType"
-              className={selectClassName}
-              value={values.propertyType}
-              onChange={(event) =>
-                setValues((current) => ({
-                  ...current,
-                  propertyType: event.target.value as PropertyType,
-                }))
-              }
-            >
-              {propertyTypes.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid min-w-0 gap-2 text-sm font-medium text-ink" htmlFor="comuna">
-            Comuna
-            <select
-              id="comuna"
-              className={selectClassName}
-              name="comuna"
-              value={values.comuna}
-              onChange={(event) => setValues((current) => ({ ...current, comuna: event.target.value }))}
-              required
-            >
-              <option value="">Selecciona una comuna</option>
-              {comunaOptions.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <Input
-            label="Referencia visual local"
-            name="reference"
-            placeholder="Ej: Metro Chile Espana, sector plaza"
-            value={values.reference}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, reference: event.target.value }))
-            }
-          />
-          <p className="-mt-3 text-xs leading-5 text-muted">
-            Esta referencia ayuda a ordenar tu lectura, pero el modelo actual no la recibe ni la usa
-            para calcular la tasacion.
-          </p>
-        </div>
-
-        <div className="grid gap-5 rounded-lg border border-line bg-black/20 p-4 lg:contents lg:border-0 lg:bg-transparent lg:p-0">
-          <div className="lg:hidden">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
-              Cuanto mide
-            </p>
-            <p className="mt-1 text-sm leading-6 text-muted">Superficie principal y terreno cuando corresponde.</p>
-          </div>
-
-          <div className="grid min-w-0 gap-4 md:grid-cols-2">
-            <Input
-              label="Superficie util/construida"
-              min="1"
-              name="builtAreaM2"
-              placeholder="75"
-              type="number"
-              value={values.builtAreaM2}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, builtAreaM2: event.target.value }))
-              }
-              required
-            />
-            <Input
-              disabled={!isHouse}
-              label="Superficie total/terreno"
-              min="1"
-              name="landAreaM2"
-              placeholder={isHouse ? "300" : "No aplica"}
-              type="number"
-              value={values.landAreaM2}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, landAreaM2: event.target.value }))
-              }
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-5 rounded-lg border border-line bg-black/20 p-4 lg:contents lg:border-0 lg:bg-transparent lg:p-0">
-          <div className="lg:hidden">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-500">
-              Detalle
-            </p>
-            <p className="mt-1 text-sm leading-6 text-muted">Programa y precio publicado si quieres comparar.</p>
-          </div>
-
-          <div className="grid min-w-0 gap-4 lg:grid-cols-3">
-            <Input
-              label="Dormitorios"
-              min="0"
-              name="dormitorios"
-              type="number"
-              value={values.dormitorios}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, dormitorios: event.target.value }))
-              }
-            />
-            <Input
-              label="Banos"
-              min="0"
-              name="banos"
-              type="number"
-              value={values.banos}
-              onChange={(event) => setValues((current) => ({ ...current, banos: event.target.value }))}
-            />
-            <Input
-              label="Estacionamientos"
-              min="0"
-              name="estacionamientos"
-              type="number"
-              value={values.estacionamientos}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, estacionamientos: event.target.value }))
-              }
-            />
-          </div>
-
-          <div className="grid min-w-0 gap-4 md:grid-cols-2">
-            <Input
-              label="Precio publicado UF"
-              min="0"
-              name="publishedPriceUf"
-              placeholder="Opcional"
-              type="number"
-              value={values.publishedPriceUf}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, publishedPriceUf: event.target.value }))
-              }
-            />
-            <Input
-              label="Precio publicado CLP"
-              min="0"
-              name="publishedPriceClp"
-              placeholder="Opcional"
-              type="number"
-              value={values.publishedPriceClp}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, publishedPriceClp: event.target.value }))
-              }
-            />
-          </div>
-
-          {formError ? <StatusNote tone="warning">{formError}</StatusNote> : null}
-
-          <Button
-            className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-20 w-full shadow-[0_18px_52px_rgba(0,0,0,0.45)] lg:static lg:shadow-none"
-            disabled={isSubmitting}
-            type="submit"
-          >
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-            {isSubmitting ? (
-              "Tasando..."
-            ) : (
-              <>
-                <span className="lg:hidden">Tasar ahora</span>
-                <span className="hidden lg:inline">Tasar propiedad</span>
-              </>
-            )}
-          </Button>
-        </div>
-      </form>
-    </Card>
-  );
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Input label="Superficie útil" min="1" name="builtAreaM2" onChange={(event) => setValues((current) => ({ ...current, builtAreaM2: event.target.value }))} required type="number" value={values.builtAreaM2} />
+        <Input disabled={!isHouse} label={isHouse ? "Superficie total / terreno" : "Superficie total"} min="1" name="landAreaM2" onChange={(event) => setValues((current) => ({ ...current, landAreaM2: event.target.value }))} placeholder={isHouse ? "300" : "No aplica"} type="number" value={values.landAreaM2} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Input label="Dormitorios" min="0" name="dormitorios" onChange={(event) => setValues((current) => ({ ...current, dormitorios: event.target.value }))} type="number" value={values.dormitorios} />
+        <Input label="Baños" min="0" name="banos" onChange={(event) => setValues((current) => ({ ...current, banos: event.target.value }))} type="number" value={values.banos} />
+        <Input label="Estacionamientos" min="0" name="estacionamientos" onChange={(event) => setValues((current) => ({ ...current, estacionamientos: event.target.value }))} type="number" value={values.estacionamientos} />
+      </div>
+      <div className="overflow-hidden rounded-lg border border-line bg-black/15">
+        <button aria-expanded={priceOpen} className="flex min-h-12 w-full items-center justify-between px-3 text-left text-sm font-semibold text-ink" onClick={() => setPriceOpen((current) => !current)} type="button">Comparar con un precio publicado<ChevronDown className={`h-4 w-4 text-muted transition ${priceOpen ? "rotate-180" : ""}`} /></button>
+        {priceOpen ? <div className="grid gap-3 border-t border-line p-3 sm:grid-cols-2"><Input label="Precio publicado UF" min="0" name="publishedPriceUf" onChange={(event) => setValues((current) => ({ ...current, publishedPriceUf: event.target.value }))} placeholder="Ej. 14.500" type="number" value={values.publishedPriceUf} /><Input label="Precio publicado CLP" min="0" name="publishedPriceClp" onChange={(event) => setValues((current) => ({ ...current, publishedPriceClp: event.target.value }))} placeholder="Ej. 560.000.000" type="number" value={values.publishedPriceClp} /></div> : null}
+      </div>
+      {formError ? <StatusNote tone="warning">{formError}</StatusNote> : null}
+      <Button className="mt-1 w-full" disabled={isSubmitting} type="submit">{isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}{isSubmitting ? "Tasando..." : "Tasar propiedad"}</Button>
+    </form>
+  </Card>;
 }
 
-function numberFrom(value: string): number | null {
-  if (!value.trim()) {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function numberOrNull(value: string): number | null {
-  const parsed = numberFrom(value);
-  return parsed && parsed > 0 ? parsed : null;
-}
-
-function integerOrNull(value: string): number | null {
-  const parsed = numberFrom(value);
-  return parsed === null ? null : Math.max(0, Math.trunc(parsed));
-}
-
-function textNumber(value: number | undefined): string | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? String(value) : undefined;
-}
-
-function comunaOptionsFor(value: string): Array<{ label: string; value: string }> {
-  const clean = value.trim();
-  if (!clean || betaComunas.some((item) => item.value === clean)) {
-    return betaComunas;
-  }
-
-  return [
-    ...betaComunas,
-    {
-      label: `${labelFromComunaValue(clean)} (importada)`,
-      value: clean,
-    },
-  ];
-}
-
-function labelFromComunaValue(value: string): string {
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
+function SelectField({ children, label, onChange, required, value }: { children: React.ReactNode; label: string; onChange: (value: string) => void; required?: boolean; value: string }) { return <label className="grid gap-2 text-sm font-medium text-ink">{label}<select className={selectClassName} onChange={(event) => onChange(event.target.value)} required={required} value={value}>{children}</select></label>; }
+function numberFrom(value: string): number | null { const parsed = Number(value); return value.trim() && Number.isFinite(parsed) ? parsed : null; }
+function numberOrNull(value: string): number | null { const parsed = numberFrom(value); return parsed && parsed > 0 ? parsed : null; }
+function integerOrNull(value: string): number | null { const parsed = numberFrom(value); return parsed === null ? null : Math.max(0, Math.trunc(parsed)); }
+function textNumber(value: number | undefined): string | undefined { return typeof value === "number" && Number.isFinite(value) ? String(value) : undefined; }
 function comunaValue(value: string | undefined): string | undefined {
-  const clean = value?.trim();
-  if (!clean) {
-    return undefined;
-  }
-
-  const slug = clean
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-
-  return betaComunas.some((item) => item.value === slug) ? slug : clean;
+  const cleanValue = value?.trim();
+  if (!cleanValue) return undefined;
+  const normalized = cleanValue.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return betaComunas.some((comuna) => comuna.value === normalized) ? normalized : cleanValue;
+}
+function comunaOptionsFor(selectedValue: string) {
+  if (!selectedValue || betaComunas.some((comuna) => comuna.value === selectedValue)) return betaComunas;
+  return [...betaComunas, { label: selectedValue, value: selectedValue }];
 }

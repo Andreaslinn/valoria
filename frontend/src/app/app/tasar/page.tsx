@@ -1,17 +1,15 @@
-import { InternalBackLink } from "@/components/layout/placeholder-panel";
-import { PageHeading } from "@/components/layout/page-heading";
 import { ValuationWorkspace } from "@/features/valuation/ValuationWorkspace";
 
 export default function TasarPage() {
   return (
-    <>
-      <InternalBackLink />
-      <PageHeading
-        eyebrow="Tasacion conectada"
-        title="Tasar propiedad"
-        description="Ejecuta una valoracion real contra FastAPI y revisa estimacion, rango, confianza, warnings y comparables cuando esten disponibles."
-      />
+    <div className="mx-auto max-w-[1180px]">
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold text-ink sm:text-3xl">Tasar propiedad</h1>
+        <p className="mt-2 text-sm text-muted">
+          Obtén una estimación de mercado, su rango de confianza y la evidencia utilizada.
+        </p>
+      </header>
       <ValuationWorkspace />
-    </>
+    </div>
   );
 }

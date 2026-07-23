@@ -125,6 +125,9 @@ export type ValuationResponse = {
   selected_engine_names: string[];
   consensus_method?: string | null;
   valuation_verdict?: ValuationVerdict | null;
+  valuation_strategy?: string | null;
+  consensus_used?: boolean;
+  fallback_engine_used?: string | null;
   engine_breakdown: ValuationEngineBreakdown[];
   consensus_audit?: ValuationConsensusAudit | null;
   weight_audit: Record<string, unknown>[];
