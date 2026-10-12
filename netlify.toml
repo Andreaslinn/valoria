@@ -1,0 +1,21 @@
+# Preserve the legacy app. Only its public entry URLs move to V2.
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22.14.0"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+[[redirects]]
+  from = "/"
+  to = "https://valoria-v2.netlify.app/"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/login"
+  to = "https://valoria-v2.netlify.app/login"
+  status = 302
+  force = true
