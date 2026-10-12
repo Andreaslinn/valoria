@@ -74,7 +74,7 @@
 .radar-results-heading { display:flex; justify-content:space-between; align-items:center; gap:18px; }
 .radar-results-heading h2 { font-size:25px; letter-spacing:-.5px; }
 .radar-results-heading .tabs button { width:110px; }
-.radar-table-scroll { overflow-x:auto; }
+.radar-table-scroll { position:relative; overflow-x:auto; }
 .radar-results table { border-collapse:collapse; width:100%; margin-top:8px; text-align:left; font-size:12px; }
 .radar-results th { font-size:8px; letter-spacing:1.2px; color:#b9c8d3; font-weight:500; padding:10px 10px; border-top:var(--border); }
 .radar-results td { padding:7px 10px; border-top:var(--border); white-space:nowrap; }
@@ -97,3 +97,12 @@
 @media(max-width:900px){.radar-workspace{grid-template-columns:1fr}.radar-heading{padding-left:10px}.radar-heading .badge{display:none}.radar-map-panel{min-height:450px}.radar-focus{min-height:0}.radar-photo{height:260px}.radar-ticker{margin-left:10px}.radar-results-heading{flex-wrap:wrap}}
 
 .radar-map-panel .maplibregl-canvas { filter: brightness(1.8) saturate(.75); }
+@media(max-width:650px){
+ .radar-ticker{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 0;margin-right:10px}
+ .radar-ticker > span{min-width:0;flex-wrap:wrap;justify-content:flex-start;gap:5px;padding:0 8px}
+ .radar-ticker > span:nth-child(2){border-right:0}
+ .radar-filters{flex-wrap:wrap;gap:10px}
+ .radar-filters > span{flex-basis:100%;border:0}
+ .radar-filters select{flex:1;width:auto}
+ .radar-focus-actions{flex-wrap:wrap}
+}
