@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 3002",
     "build": "next build",
-    "start": "next start --hostname 127.0.0.1 --port 3002"
+    "start": "next start --hostname 127.0.0.1 --port 3002",
+    "prebuild": "tailwindcss -c public-auth-tailwind.config.cjs -i public-auth-input.css -o src/app/login/login.css --minify"
   },
   "dependencies": {
     "clsx": "^2.1.1",

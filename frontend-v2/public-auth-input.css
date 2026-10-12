@@ -1,0 +1,4 @@
+@tailwind utilities;
+.public-login {font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #f8fafc;}
+.public-login h1, .public-login h2 {font-family: inherit;}
+.public-login input {box-sizing:border-box;}
