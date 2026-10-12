@@ -1,0 +1,5 @@
+.property-photo{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;overflow:hidden;background:var(--color-surface,#142025);color:var(--color-muted);border-radius:6px;flex-shrink:0}
+.property-photo>img{display:block;width:100%;height:100%;object-fit:cover}
+.property-photo>span{font-size:11px}
+.property-photo.property-photo-row{width:64px;height:48px}
+.property-photo.property-photo-detail{width:100%;height:198px;margin:16px 0}

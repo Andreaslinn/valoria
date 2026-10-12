@@ -1,0 +1,338 @@
+{
+  "beta_scope_exploratory": {
+    "category": "beta",
+    "description": "El segmento existe en beta, pero la muestra todavia es limitada.",
+    "label": "Alcance beta exploratorio",
+    "severity": "warning"
+  },
+  "beta_scope_no_data": {
+    "category": "beta",
+    "description": "No hay suficiente muestra para respaldar este segmento con fuerza.",
+    "label": "Sin datos suficientes de beta",
+    "severity": "risk"
+  },
+  "beta_scope_weak_data": {
+    "category": "beta",
+    "description": "La cobertura beta para este caso es debil y debe leerse con cautela.",
+    "label": "Cobertura beta debil",
+    "severity": "warning"
+  },
+  "high_dispersion": {
+    "category": "precio",
+    "description": "Los precios comparables muestran dispersion relevante.",
+    "label": "Alta dispersion de valor",
+    "severity": "warning"
+  },
+  "high_price_m2_dispersion": {
+    "category": "precio",
+    "description": "Los precios por metro cuadrado varian mas de lo normal en la muestra.",
+    "label": "Precios comparables dispersos",
+    "severity": "warning"
+  },
+  "house_land_area_weak": {
+    "category": "superficie",
+    "description": "Para casas, la evidencia de terreno no es suficientemente fuerte.",
+    "label": "Terreno con evidencia limitada",
+    "severity": "warning"
+  },
+  "low_comparable_count": {
+    "category": "comparables",
+    "description": "La estimacion usa pocos comparables utiles para la propiedad consultada.",
+    "label": "Pocos comparables disponibles",
+    "severity": "warning"
+  },
+  "low_data": {
+    "category": "datos",
+    "description": "La base disponible para esta consulta es acotada.",
+    "label": "Muestra de datos limitada",
+    "severity": "warning"
+  },
+  "low_data_mode": {
+    "category": "datos",
+    "description": "La estimacion opera con una base de comparables limitada para este segmento.",
+    "label": "Muestra de datos limitada",
+    "severity": "warning"
+  },
+  "near_duplicate_comparables": {
+    "category": "comparables",
+    "description": "Parte de la muestra parece repetida o demasiado similar.",
+    "label": "Comparables poco diversos",
+    "severity": "info"
+  },
+  "poor_geocoding_comparables": {
+    "category": "ubicacion",
+    "description": "Algunos comparables usados no tienen ubicacion suficientemente precisa.",
+    "label": "Comparables con ubicacion debil",
+    "severity": "warning"
+  },
+  "price_surface_high_dispersion": {
+    "category": "precio",
+    "description": "La superficie de precios presenta dispersion alta para este caso.",
+    "label": "Superficie de precio dispersa",
+    "severity": "warning"
+  },
+  "price_surface_low_confidence": {
+    "category": "precio",
+    "description": "La referencia de precio por superficie tiene confianza limitada.",
+    "label": "Precio por superficie con baja confianza",
+    "severity": "warning"
+  },
+  "single_source_comparables": {
+    "category": "comparables",
+    "description": "La estimacion usa principalmente datos provenientes de una fuente.",
+    "label": "Comparables de una sola fuente",
+    "severity": "warning"
+  },
+  "surface_adjustment_high_dispersion": {
+    "category": "superficie",
+    "description": "El ajuste por superficie se mantiene cauteloso por dispersion alta.",
+    "label": "Ajuste por superficie cauteloso",
+    "severity": "warning"
+  },
+  "surface_adjustment_risk_comuna": {
+    "category": "superficie",
+    "description": "La referencia de superficie usa soporte comunal y debe revisarse con cautela.",
+    "label": "Ajuste por superficie con soporte comunal",
+    "severity": "warning"
+  },
+  "surface_adjustment_unavailable": {
+    "category": "superficie",
+    "description": "No hubo suficiente soporte para aplicar un ajuste adicional por superficie.",
+    "label": "Ajuste por superficie no disponible",
+    "severity": "info"
+  },
+  "unknown_property_type": {
+    "category": "datos",
+    "description": "El tipo de propiedad no quedo completamente normalizado para el modelo.",
+    "label": "Tipo de propiedad no clasificado",
+    "severity": "warning"
+  },
+  "weak_geolocation": {
+    "category": "ubicacion",
+    "description": "La ubicacion disponible no permite una lectura geografica completamente precisa.",
+    "label": "Ubicacion con precision limitada",
+    "severity": "warning"
+  },
+  "weak_microzone": {
+    "category": "ubicacion",
+    "description": "No hay suficiente profundidad de datos a nivel microzona.",
+    "label": "Microzona limitada",
+    "severity": "warning"
+  },
+  "property_type_not_allowed": {
+    "category": "datos",
+    "label": "Tipo fuera del modelo complementario",
+    "description": "El modelo complementario no admite este tipo de propiedad. Se conserva el método disponible; revisa su cobertura.",
+    "severity": "warning"
+  },
+  "delta_vs_baseline_too_high": {
+    "category": "precio",
+    "label": "Diferencia entre modelos",
+    "description": "El modelo complementario difiere demasiado de la referencia y no se utiliza. La discrepancia requiere revisión.",
+    "severity": "warning"
+  },
+  "published_price_not_provided": {
+    "category": "precio",
+    "label": "Sin precio de comparación",
+    "description": "Puedes estimar el valor, pero falta el precio publicado para evaluar descuento o sobreprecio.",
+    "severity": "info"
+  },
+  "blocked_comuna": {
+    "category": "ubicacion",
+    "label": "Modelo restringido en esta comuna",
+    "description": "El modelo complementario está restringido por fiabilidad en esta comuna; se utiliza la referencia disponible.",
+    "severity": "warning"
+  },
+  "insufficient_valid_comparables": {
+    "category": "comparables",
+    "label": "Comparables insuficientes",
+    "description": "No hay suficientes comparables válidos para este modelo. Su resultado no respalda la estimación.",
+    "severity": "risk"
+  },
+  "pool_dispersion_too_high": {
+    "category": "comparables",
+    "label": "Muestra demasiado dispersa",
+    "description": "Los precios varían demasiado para utilizar este modelo con fiabilidad. Se conserva la referencia disponible.",
+    "severity": "warning"
+  },
+  "robust_estimate_unavailable": {
+    "category": "datos",
+    "label": "Modelo robusto no disponible",
+    "description": "Los datos no permiten calcular la estimación robusta. Revisa la referencia y la cobertura.",
+    "severity": "warning"
+  },
+  "quality_v2_p90_risk_comuna": {
+    "category": "ubicacion",
+    "label": "Fiabilidad limitada en la comuna",
+    "description": "La validación del modelo detectó mayor error en esta comuna. Usa el resultado con cautela.",
+    "severity": "warning"
+  },
+  "mode_off": {
+    "category": "beta",
+    "label": "Modelo complementario desactivado",
+    "description": "El modelo complementario está desactivado y no interviene en el resultado.",
+    "severity": "info"
+  },
+  "unsupported_property_type": {
+    "category": "datos",
+    "label": "Tipo no admitido por este modelo",
+    "description": "Este modelo no admite el tipo de propiedad y se abstiene de estimar. No implica cobertura de otros modelos.",
+    "severity": "warning"
+  },
+  "insufficient_target_data": {
+    "category": "datos",
+    "label": "Ficha insuficiente",
+    "description": "Faltan atributos del inmueble necesarios para este modelo. Completa la ficha antes de usar su resultado.",
+    "severity": "risk"
+  },
+  "insufficient_training_data": {
+    "category": "datos",
+    "label": "Cobertura de entrenamiento insuficiente",
+    "description": "La muestra de entrenamiento no permite respaldar este modelo en el segmento consultado.",
+    "severity": "warning"
+  },
+  "missing_land_area": {
+    "category": "superficie",
+    "label": "Terreno no informado",
+    "description": "Falta la superficie de terreno necesaria para separar suelo y construcción.",
+    "severity": "warning"
+  },
+  "insufficient_trend_data": {
+    "category": "datos",
+    "label": "Historia insuficiente",
+    "description": "La historia disponible no permite estimar una tendencia fiable.",
+    "severity": "warning"
+  },
+  "comuna_level_fallback": {
+    "category": "datos",
+    "label": "No hay evidencia suficiente de microzona; se utiliza una referencia comunal menos específica",
+    "description": "No hay evidencia suficiente de microzona; se utiliza una referencia comunal menos específica.",
+    "severity": "warning"
+  },
+  "consensus_extreme_disagreement": {
+    "category": "datos",
+    "label": "Los modelos discrepan de forma extrema. El consenso no ofrece respaldo suficiente para una decisión automática",
+    "description": "Los modelos discrepan de forma extrema. El consenso no ofrece respaldo suficiente para una decisión automática.",
+    "severity": "risk"
+  },
+  "consensus_missing_calibrated_weights": {
+    "category": "datos",
+    "label": "No hay ponderaciones calibradas disponibles para este consenso; revisa el método de respaldo utilizado",
+    "description": "No hay ponderaciones calibradas disponibles para este consenso; revisa el método de respaldo utilizado.",
+    "severity": "warning"
+  },
+  "engine_not_registered": {
+    "category": "datos",
+    "label": "Un modelo no está disponible en esta instalación y no interviene en la estimación",
+    "description": "Un modelo no está disponible en esta instalación y no interviene en la estimación.",
+    "severity": "warning"
+  },
+  "estimate_differs_from_price_surface": {
+    "category": "datos",
+    "label": "La estimación difiere de la referencia territorial de precios. Revisa ubicación, superficie y comparables",
+    "description": "La estimación difiere de la referencia territorial de precios. Revisa ubicación, superficie y comparables.",
+    "severity": "warning"
+  },
+  "extreme_price_m2_dispersion": {
+    "category": "datos",
+    "label": "La dispersión de precios por metro cuadrado es extrema y reduce la fiabilidad de la estimación",
+    "description": "La dispersión de precios por metro cuadrado es extrema y reduce la fiabilidad de la estimación.",
+    "severity": "risk"
+  },
+  "fallback_used": {
+    "category": "datos",
+    "label": "Se utilizó un método de respaldo. Revisa qué modelo produjo la estimación y sus limitaciones",
+    "description": "Se utilizó un método de respaldo. Revisa qué modelo produjo la estimación y sus limitaciones.",
+    "severity": "warning"
+  },
+  "high_attribute_dispersion": {
+    "category": "datos",
+    "label": "Los comparables tienen atributos físicos diversos. La estimación requiere mayor cautela",
+    "description": "Los comparables tienen atributos físicos diversos. La estimación requiere mayor cautela.",
+    "severity": "warning"
+  },
+  "high_land_building_dispersion": {
+    "category": "datos",
+    "label": "La evidencia de suelo y construcción presenta mucha variación. Revisa por separado sus superficies",
+    "description": "La evidencia de suelo y construcción presenta mucha variación. Revisa por separado sus superficies.",
+    "severity": "warning"
+  },
+  "high_microzone_dispersion": {
+    "category": "datos",
+    "label": "Los precios de la microzona son dispersos. La ubicación por sí sola ofrece soporte limitado",
+    "description": "Los precios de la microzona son dispersos. La ubicación por sí sola ofrece soporte limitado.",
+    "severity": "warning"
+  },
+  "high_trend_volatility": {
+    "category": "datos",
+    "label": "La tendencia de precios es volátil y no respalda una extrapolación estable",
+    "description": "La tendencia de precios es volátil y no respalda una extrapolación estable.",
+    "severity": "warning"
+  },
+  "insufficient_microzone_depth": {
+    "category": "datos",
+    "label": "Hay pocos comparables en la microzona. La estimación depende de una cobertura geográfica más amplia",
+    "description": "Hay pocos comparables en la microzona. La estimación depende de una cobertura geográfica más amplia.",
+    "severity": "warning"
+  },
+  "outlier_land_ratio": {
+    "category": "datos",
+    "label": "La relación entre terreno y construcción es atípica. Revisa las superficies antes de usar el resultado",
+    "description": "La relación entre terreno y construcción es atípica. Revisa las superficies antes de usar el resultado.",
+    "severity": "warning"
+  },
+  "price_surface_insufficient_data": {
+    "category": "datos",
+    "label": "No hay datos suficientes para construir una referencia territorial de precios",
+    "description": "No hay datos suficientes para construir una referencia territorial de precios.",
+    "severity": "warning"
+  },
+  "stale_market_data": {
+    "category": "datos",
+    "label": "Los datos de mercado tienen antigüedad relevante. La estimación puede no reflejar las condiciones actuales",
+    "description": "Los datos de mercado tienen antigüedad relevante. La estimación puede no reflejar las condiciones actuales.",
+    "severity": "warning"
+  },
+  "surface_adjustment_historical_win_rate_not_strong": {
+    "category": "datos",
+    "label": "La validación histórica no respalda con fuerza el ajuste por superficie. Interpreta el ajuste con cautela",
+    "description": "La validación histórica no respalda con fuerza el ajuste por superficie. Interpreta el ajuste con cautela.",
+    "severity": "warning"
+  },
+  "unexpected_engine_exception": {
+    "category": "datos",
+    "label": "Un modelo no pudo completar el cálculo. Revisa el método de respaldo y no supongas un consenso completo",
+    "description": "Un modelo no pudo completar el cálculo. Revisa el método de respaldo y no supongas un consenso completo.",
+    "severity": "warning"
+  },
+  "unexpected_error": {
+    "category": "datos",
+    "label": "El cálculo encontró un error y su cobertura puede estar incompleta. Reintenta o revisa los datos",
+    "description": "El cálculo encontró un error y su cobertura puede estar incompleta. Reintenta o revisa los datos.",
+    "severity": "warning"
+  },
+  "weak_geocoding": {
+    "category": "datos",
+    "label": "La ubicación tiene precisión limitada y reduce el respaldo territorial de la estimación",
+    "description": "La ubicación tiene precisión limitada y reduce el respaldo territorial de la estimación.",
+    "severity": "warning"
+  },
+  "weak_price_provenance": {
+    "category": "datos",
+    "label": "El origen del precio no tiene suficiente respaldo. Verifica la moneda y la fuente del dato",
+    "description": "El origen del precio no tiene suficiente respaldo. Verifica la moneda y la fuente del dato.",
+    "severity": "warning"
+  },
+  "weak_structural_signal": {
+    "category": "datos",
+    "label": "La relación entre atributos físicos y precios ofrece una señal débil para este inmueble",
+    "description": "La relación entre atributos físicos y precios ofrece una señal débil para este inmueble.",
+    "severity": "warning"
+  },
+  "publication_history_missing": {
+    "category": "datos",
+    "label": "No hay historia suficiente de la publicación para evaluar sus cambios en el tiempo",
+    "description": "No hay historia suficiente de la publicación para evaluar sus cambios en el tiempo.",
+    "severity": "warning"
+  }
+}

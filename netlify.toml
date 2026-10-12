@@ -1,0 +1,13 @@
+# Valoria V2. Keep the existing Oracle backend and the legacy frontend intact.
+[build]
+  base = "frontend-v2"
+  command = "npm ci --no-audit --no-fund && node ../tests/frontend/remediation.test.cjs && npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22.14.0"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# The modern Netlify OpenNext adapter is detected automatically.
+# Set NEXT_PUBLIC_API_BASE_URL in Netlify to the validated HTTPS Oracle origin.
+# Do not add static-export settings or a catch-all SPA redirect.

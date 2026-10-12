@@ -1,0 +1,31 @@
+import {formatNumber} from "@/lib/formatters";
+import type { ListingFreshnessMetadata, ListingLookupData } from "@/types/listing";
+import type { ValuationFormPrefill } from "@/features/valuation/prefill";
+export const finite=(v: unknown): v is number=>typeof v==="number"&&Number.isFinite(v);
+export function freshnessText(value: ListingFreshnessMetadata): string {
+  if(["removed","inactive","withdrawn","unavailable"].includes(value.listing_status??""))return "Publicación retirada o histórica. Los datos no confirman disponibilidad actual.";
+  switch(value.freshness_status) {
+    case "already_fresh": return "Publicación confirmada recientemente.";
+    case "fresh_confirmed": return "Valoria confirmó la vigencia en el portal.";
+    case "removed": case "inactive": case "skipped_removed": return "El portal indica que la publicación ya no está disponible.";
+    case "blocked_or_captcha": case "skipped_recent_block": return "El portal bloqueó la verificación. La vigencia no está confirmada.";
+    case "refresh_failed": return "No se pudo confirmar vigencia. Se muestran los datos disponibles.";
+    case "skipped_recent_attempt": return "Hubo un intento reciente de verificación. Revisa la fecha de los datos.";
+    default: return "La vigencia de la publicación no está confirmada.";
+  }
+}
+export function toTasarPrefill(data: ListingLookupData, url: string): ValuationFormPrefill {
+  const number=(v: unknown)=>finite(v)?v:undefined;
+  return {targetListingId:number(data.listing_id), comuna:data.comuna??undefined,
+    propertyType: data.property_type==="apartment"||data.property_type==="house"||data.property_type==="office"?data.property_type:undefined,
+    reference:data.title??undefined, builtAreaM2:number(data.built_area_m2??data.m2),usableAreaM2:number(data.usable_area_m2),landAreaM2:number(data.land_area_m2),
+    dormitorios:number(data.dormitorios),banos:number(data.banos),estacionamientos:number(data.estacionamientos),
+    publishedPriceUf:number(data.precio_publicado_uf),publishedPriceClp:number(data.precio_publicado_clp),sourceUrl:url,importedFrom:"listing-url"};
+}
+
+// API difference = (estimated - published) / estimated, not a price increase.
+export function priceComparisonLabel(difference: number | null | undefined): string {
+  if(!finite(difference))return "No disponible";
+  if(difference===0)return "Sin diferencia";
+  return `${formatNumber(Math.abs(difference),1)}% ${difference<0?"sobre":"bajo"}`;
+}

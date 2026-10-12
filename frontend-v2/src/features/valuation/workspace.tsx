@@ -1,0 +1,28 @@
+"use client";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowUpRight, X } from "lucide-react";
+import { AppShell } from "@/components/layout/app-shell";
+import { Badge, Button } from "@/components/ui/primitives";
+import { legacyRoute } from "@/lib/navigation";
+import { PropertyForm } from "./property-form";
+import { ValuationResult } from "./result";
+import { useValuation, valuationError } from "./use-valuation";
+import "./valuation.css";
+
+export function ValuationWorkspace() {
+  const model=useValuation();
+  const [dirty,setDirty]=useState(false),[dialog,setDialog]=useState<{title:string;text:string;login?:boolean}|null>(null),[loginError,setLoginError]=useState(""),[signingIn,setSigningIn]=useState(false);
+  const modal=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{if(dialog)modal.current?.showModal();else modal.current?.close();},[dialog]);
+  function navigate(label:string) {if(label==="Workspace personal"){setLoginError("");setDialog({title:model.auth?"Tu espacio de análisis":"Sesión de Valoria",text:model.auth?"Inicia sesión para calcular con los datos reales de Valoria.":`Sesión activa: ${model.user}`,login:model.auth});return;}const route=legacyRoute(label);if(route)location.assign(route);}
+  async function login(event:FormEvent<HTMLFormElement>) {event.preventDefault();setSigningIn(true);setLoginError("");const data=new FormData(event.currentTarget);try{await model.login(String(data.get("email")),String(data.get("password")));setDialog(null);}catch(e){setLoginError(valuationError(e));}finally{setSigningIn(false);}}
+  return <AppShell data={{user:model.user,alertCount:"—",searchItems:[],searchStatus:"Abre Mi cartera para buscar entre tus propiedades guardadas.",locationNote:"Tasar utiliza la comuna y los atributos de la propiedad. La cobertura depende de los comparables disponibles."}} onNavigate={navigate} showDetail={(title,text)=>setDialog({title,text})}>
+    <div className="tasar-workspace"><header className="tasar-heading"><div><span className="tasar-eyebrow">ANÁLISIS DE VALOR</span><h1>Una propiedad. Una perspectiva clara.</h1><p>Entiende su valor, contrástalo con el mercado y decide con evidencia.</p></div><Badge subtle>Tasar · Datos Valoria</Badge></header>
+      <div className="tasar-context"><span><i/> De la propiedad a la decisión</span><a href={legacyRoute("Analizar URL")??"#tasar"}>¿Tienes una publicación? Analizar URL <ArrowUpRight size={14}/></a></div>
+      {model.auth&&<div className="tasar-auth-note"><p>Puedes preparar la ficha. Inicia sesión para obtener la estimación.</p><Button onClick={()=>navigate("Workspace personal")}>Iniciar sesión</Button></div>}
+      {model.error&&<p className="tasar-notice" role="alert">{model.error}</p>}
+      <div className="tasar-columns"><PropertyForm busy={model.busy} hasResult={!!model.result} onChange={()=>setDirty(true)} onSubmit={async input=>{setDirty(false);await model.submit(input);}}/><ValuationResult result={model.result} payload={model.payload} busy={model.busy} dirty={dirty} download={()=>void model.download()} downloading={model.downloading} reportError={model.reportError}/></div>
+    </div>
+    <dialog ref={modal} className="detail-dialog" onCancel={()=>setDialog(null)}><button className="dialog-close" aria-label="Cerrar" onClick={()=>setDialog(null)}><X size={20}/></button><h2>{dialog?.title}</h2><p>{dialog?.text}</p>{dialog?.login&&<form onSubmit={login}><label>Email<input name="email" type="email" autoComplete="username" required/></label><label>Contraseña<input name="password" type="password" autoComplete="current-password" required/></label><Button type="submit" disabled={signingIn}>{signingIn?"Conectando…":"Iniciar sesión"}</Button></form>}{loginError&&<p role="alert">{loginError}</p>}</dialog>
+  </AppShell>;
+}

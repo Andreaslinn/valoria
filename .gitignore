@@ -86,3 +86,17 @@ reports/**/*_latest.json
 
 # Local backup / dump artifacts
 *.dump
+
+# Local frontend/deployment/runtime material
+**/node_modules/
+**/.next/
+**/.next-dev/
+**/.netlify/
+*.tsbuildinfo
+*.dump
+*.pem
+*.key
+*.pfx
+*storage_state*.json
+*cookie*.json
+private/

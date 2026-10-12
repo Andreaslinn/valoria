@@ -1,0 +1,49 @@
+"use client";
+import {useEffect,useRef,useState} from "react";
+import {ApiError} from "@/lib/api/client";
+import {summaryApi} from "@/lib/api/summary";
+import {listingUrlApi} from "@/lib/api/listing-url";
+import {getAccessToken,setAccessToken} from "@/lib/auth/token";
+import type {ListingLookupResponse,ListingAnalysisResponse} from "@/types/listing";
+import {freshnessText} from "./view-model";
+import {consumeAnalyzerPrefill} from "./prefill";
+
+export function analysisError(error: unknown): string {
+  if(!(error instanceof ApiError))return "No pudimos completar la consulta. Intenta nuevamente.";
+  const detail=(error.payload as {detail?:{code?:string}}|null)?.detail;
+  if(typeof detail?.code==="string"&&detail.code.startsWith("portal_"))return error.message;
+  if(error.status===401||error.status===403)return "Inicia sesión con una cuenta autorizada para continuar.";
+  if(error.status===429)return "Alcanzaste el límite de consultas. Espera antes de volver a intentar.";
+  if(error.status===502)return "No pudimos leer esta publicación. Puede estar bloqueada o haber cambiado. Puedes ingresar los datos en Tasar.";
+  if(error.status===503)return "La tasa UF real no está disponible. Conservamos la ficha; intenta el análisis más tarde.";
+  return error.message;
+}
+export function useListingUrl() {
+  const [url,setUrl]=useState(""),[result,setResult]=useState<ListingLookupResponse|null>(null),[analysis,setAnalysis]=useState<ListingAnalysisResponse|null>(null);
+  const [busy,setBusy]=useState<"lookup"|"analysis"|"save"|"report"|null>(null),[error,setError]=useState(""),[message,setMessage]=useState("");
+  const [auth,setAuth]=useState(false),[user,setUser]=useState("tu espacio"),[saved,setSaved]=useState(false);
+  const [savedReady,setSavedReady]=useState(false);
+  const lock=useRef(false),controller=useRef<AbortController|null>(null);
+  useEffect(()=>{try{const prefill=consumeAnalyzerPrefill();if(prefill)setUrl(prefill);}catch{setError("No se pudo recuperar la URL seleccionada. Pégala para continuar.");}},[]);
+  useEffect(()=>{const abort=new AbortController();setAuth(!getAccessToken());if(getAccessToken())void summaryApi.user({signal:abort.signal}).then(u=>setUser(u.email.split("@")[0])).catch(e=>{if(!abort.signal.aborted&&e instanceof ApiError&&e.status===401)setAuth(true);});return()=>{abort.abort();controller.current?.abort();};},[]);
+  useEffect(()=>{const abort=new AbortController();const id=result?.listing_data.listing_id;
+    const refresh=()=>{if(!id||!getAccessToken())return;setSavedReady(false);void listingUrlApi.savedStatus(id,abort.signal).then(value=>{if(!abort.signal.aborted){setSaved(value.saved);setSavedReady(true);}}).catch(e=>{if(!abort.signal.aborted)setError(analysisError(e));});};
+    const sessionChanged=()=>{controller.current?.abort();setResult(null);setAnalysis(null);setSaved(false);setSavedReady(false);setAuth(!getAccessToken());};
+    window.addEventListener("focus",refresh);window.addEventListener("storage",sessionChanged);
+    return()=>{abort.abort();window.removeEventListener("focus",refresh);window.removeEventListener("storage",sessionChanged);};
+  },[result]);
+  async function run(kind:NonNullable<typeof busy>,task:(signal:AbortSignal)=>Promise<void>) {
+    if(lock.current)return;
+    if(!getAccessToken()){setAuth(true);setError("Inicia sesión para consultar una publicación.");return;}
+    lock.current=true;setBusy(kind);setError("");setMessage("");const abort=new AbortController();controller.current=abort;
+    try{await task(abort.signal);}catch(e){if(!abort.signal.aborted){setError(analysisError(e));if(e instanceof ApiError&&(e.status===401||e.status===403))setAuth(true);}}
+    finally{lock.current=false;if(!abort.signal.aborted)setBusy(null);}
+  }
+  async function lookup(){const clean=url.trim();try{const parsed=new URL(clean);if(!["http:","https:"].includes(parsed.protocol))throw new Error();}catch{setError("Ingresa una URL completa que comience por https://.");return;}
+    await run("lookup",async signal=>{setResult(null);setAnalysis(null);setSaved(false);setSavedReady(false);const value=await listingUrlApi.lookup(clean,signal);if(signal.aborted)return;setResult(value);const id=value.listing_data.listing_id;if(id){const status=await listingUrlApi.savedStatus(id,signal);if(!signal.aborted){setSaved(status.saved);setSavedReady(true);}}});}
+  async function analyze(){if(!result)return;await run("analysis",async signal=>{const value=await listingUrlApi.analyze(result.url,signal);if(!signal.aborted)setAnalysis(value);});}
+  async function save(){const id=result?.listing_data?.listing_id;if(!id||saved||!savedReady)return;await run("save",async signal=>{const value=await listingUrlApi.save(id,signal);if(!signal.aborted){setSaved(true);setMessage(`Guardada en tu watchlist. ${freshnessText(value)}`);}});}
+  async function report(){if(!analysis)return;await run("report",async()=>{await listingUrlApi.report(analysis);setMessage("Informe preparado. La descarga se ha iniciado.");});}
+  async function login(email:string,password:string){const value=await summaryApi.login(email,password);setAccessToken(value.access_token);setAuth(false);setUser(email.split("@")[0]);setError("");}
+  return {url,setUrl,result,analysis,busy,error,message,auth,user,saved,savedReady,lookup,analyze,save,report,login};
+}
