@@ -1,1 +1,3 @@
-export { default } from "../page";
+import { Summary } from "@/features/summary/summary";
+
+export default function ResumenPage() { return <Summary />; }
