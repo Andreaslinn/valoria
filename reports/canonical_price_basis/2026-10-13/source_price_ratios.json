@@ -1,0 +1,31 @@
+{
+  "snapshot_utc": "2026-10-13T15:38:44.252221+00:00",
+  "read_only": true,
+  "uf_rate": "41152.13",
+  "uf_date": "2026-10-13",
+  "uf_source": "explicit_dated_rate",
+  "ratio": "price_clp / (price_uf * current_uf_rate)",
+  "percentile_method": "linear interpolation at (n-1)*p",
+  "sources": {
+    "yapo": {
+      "active_n": 4695,
+      "n": 1802,
+      "excluded_missing_or_nonpositive_n": 2893,
+      "p5": 0.990137813036652,
+      "median": 0.9994850753532092,
+      "p95": 1.0,
+      "outside_0_97_to_1_03_n": 0,
+      "outside_0_97_to_1_03_pct": 0.0
+    },
+    "portalinmobiliario": {
+      "active_n": 1184,
+      "n": 1078,
+      "excluded_missing_or_nonpositive_n": 106,
+      "p5": 0.9925316134036487,
+      "median": 0.9959042217255826,
+      "p95": 1.0,
+      "outside_0_97_to_1_03_n": 0,
+      "outside_0_97_to_1_03_pct": 0.0
+    }
+  }
+}
