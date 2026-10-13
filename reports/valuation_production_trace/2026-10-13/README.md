@@ -114,7 +114,7 @@ Debido a la divergencia de código, se incluye un **overlay opcional exclusivame
 - **66 pruebas enfocadas aprobadas**: servicio de tasación, orquestador, canónico, legacy, informes, trazabilidad de IDs, ausencia de commit, muestras múltiples y escape seguro del JSON descargable.
 - **Dos casos de la ruta real de producción probados con el overlay** en un proceso separado y sin acceso a DB, sobre la instantánea: todos los campos anteriores de cada respuesta permanecen exactamente iguales; metadata y bloque del informe presentes.
 - Captura del formulario Next.js publicado: dos fichas exactas y un caso de campos vacíos. Todos los transportes backend interceptados en contexto desechable; sin credenciales reales.
-- `git apply --check` del overlay contra los tres archivos originales descargados: aprobado. Ruff y `git diff --check`: aprobados.
+- `git apply --check --unidiff-zero` del overlay contra los tres archivos originales descargados: aprobado. Ruff y `git diff --check`: aprobados.
 - Ningún archivo de `domain/valuation` ni frontend cambia en el PR. Ningún peso, microzona, surface, motor, dato, usuario, alerta o guardado fue modificado. No hubo despliegue, migración ni cambio de banderas.
 
 La limitación previa de la rama para recoger toda la suite de API por `api.rate_limit` faltante sigue fuera de alcance, como en PR #1. La validación de la respuesta serializada de la API y del informe de la imagen activa se hizo con el overlay aislado descrito, sin ocultar esa limitación.
