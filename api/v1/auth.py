@@ -4,11 +4,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
-from api.deps import AppSettings, CurrentUser, UserServiceDep
+from api.deps import CurrentUser, RateLimiterDep, UserServiceDep
+from api.rate_limit import (
+    RateLimitRule,
+    client_ip_identifier,
+    enforce_rate_limit,
+    normalized_account_identifier,
+)
+from config import Settings, get_settings
 from api.security import create_access_token
 from core.exceptions import ValidationError
 from services.users import PUBLIC_AUTH_ERROR, validate_email, validate_password
@@ -38,11 +45,32 @@ class RegisterIn(BaseModel):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
+    request: Request,
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
+    limiter: RateLimiterDep,
     user_service: UserServiceDep = None,  # type: ignore[assignment]
-    settings: AppSettings = None,  # type: ignore[assignment]
+    settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
     # OAuth2PasswordRequestForm names the field "username"; for AVM it is the email.
+    client_ip = client_ip_identifier(request)
+    await enforce_rate_limit(
+        limiter,
+        RateLimitRule(
+            namespace="auth:login:ip",
+            max_requests=settings.rate_limit_login_ip_max,
+            window_seconds=settings.rate_limit_login_ip_window_seconds,
+        ),
+        client_ip,
+    )
+    await enforce_rate_limit(
+        limiter,
+        RateLimitRule(
+            namespace="auth:login:account",
+            max_requests=settings.rate_limit_login_account_max,
+            window_seconds=settings.rate_limit_login_account_window_seconds,
+        ),
+        f"{client_ip}:{normalized_account_identifier(form.username)}",
+    )
     user = await user_service.authenticate_user(form.username, form.password)
     if user is None:
         raise HTTPException(
@@ -64,10 +92,21 @@ async def login(
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(
+    request: Request,
     payload: RegisterIn,
+    limiter: RateLimiterDep,
     user_service: UserServiceDep = None,  # type: ignore[assignment]
-    settings: AppSettings = None,  # type: ignore[assignment]
+    settings: Settings = Depends(get_settings),
 ) -> UserOut:
+    await enforce_rate_limit(
+        limiter,
+        RateLimitRule(
+            namespace="auth:register:ip",
+            max_requests=settings.rate_limit_register_ip_max,
+            window_seconds=settings.rate_limit_register_ip_window_seconds,
+        ),
+        client_ip_identifier(request),
+    )
     if not settings.beta_signup_enabled:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Registro beta deshabilitado")
 

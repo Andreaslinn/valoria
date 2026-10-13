@@ -23,7 +23,11 @@ from services.radar import (
     calculate_discount_pct,
     enrich_listing_with_avm,
 )
-from tests.unit.factories import make_listing
+from tests.unit.factories import make_listing as _make_listing
+
+def make_listing(**kwargs):
+    kwargs.setdefault("price_currency", "CLP")
+    return _make_listing(**kwargs)
 
 UF = Decimal("39000")
 MARKET_PRICE = 180_000_000
@@ -190,10 +194,10 @@ async def test_radar_service_opportunity_includes_avm_enrichment() -> None:
     assert opportunity.beta_scope_message
     assert opportunity.radar_verdict in {"revisar", "senal_beta", "senal_fuerte"}
     assert isinstance(opportunity.risk_flags, list)
-    assert opportunity.price_currency is None
+    assert opportunity.price_currency == "CLP"
     assert opportunity.price_clp_snapshot == int(MARKET_PRICE * 0.86)
-    assert opportunity.price_basis_used == "clp_legacy"
-    assert opportunity.price_data_quality == "legacy_unknown_currency"
+    assert opportunity.price_basis_used == "clp"
+    assert opportunity.price_data_quality == "canonical_clp"
     assert opportunity.bedrooms == cheap.bedrooms
     assert opportunity.bathrooms == cheap.bathrooms
     assert opportunity.parking == cheap.parking

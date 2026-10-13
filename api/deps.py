@@ -168,7 +168,7 @@ def get_valuation_service(
     listing_repo: ListingRepoDep,
     uf_service: UFServiceDep,
 ) -> ValuationService:
-    return ValuationService(listing_repo=listing_repo, uf_service=uf_service)
+    return ValuationService(listing_repo=listing_repo, uf_service=uf_service, final_price_policy="canonical_only")
 
 
 ValuationServiceDep = Annotated[ValuationService, Depends(get_valuation_service)]

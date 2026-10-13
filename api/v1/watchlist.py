@@ -18,12 +18,14 @@ from infrastructure.db.models import ListingORM, SavedListingORM
 from services.listing_freshness import ListingFreshnessResult, ensure_listing_fresh
 from services.price_display import clp_to_uf_display, uf_to_clp_display
 from services.uf_rate import require_real_uf_rate
+from services.thumbnails import ThumbnailRef, resolve as resolve_thumbnails
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 _log = logging.getLogger(__name__)
 
 
 class WatchlistItemOut(BaseModel):
+    thumbnail: ThumbnailRef | None = None
     id: int
     listing_id: int
     saved_at: datetime
@@ -91,7 +93,8 @@ async def list_watchlist(
     )
     items = (await session.execute(stmt)).scalars().all()
     uf_info = await _require_api_uf_info(uf_service)
-    return [_watchlist_out(item, uf_info=uf_info) for item in items]
+    refs = await resolve_thumbnails(session, [item.listing_id for item in items], owner=current_user.id, surface="watchlist", listings=[item.listing for item in items])
+    return [_watchlist_out(item, uf_info=uf_info).model_copy(update={"thumbnail": refs.get(item.listing_id)}) for item in items]
 
 
 @router.post("/{listing_id}", response_model=WatchlistItemOut, status_code=status.HTTP_201_CREATED)
@@ -290,9 +293,9 @@ def _watchlist_out(
         listing_status=listing.status,
         captured_at=listing.scraped_at,
         freshness_status=freshness.status if freshness is not None else None,
-        last_seen_at=freshness.last_seen_at if freshness is not None else None,
+        last_seen_at=freshness.last_seen_at if freshness is not None else listing.last_seen_at,
         last_refreshed_at=freshness.last_refreshed_at if freshness is not None else None,
-        last_refresh_status=freshness.last_refresh_status if freshness is not None else None,
+        last_refresh_status=freshness.last_refresh_status if freshness is not None else listing.last_refresh_status,
         freshness_note=freshness.freshness_note if freshness is not None else None,
         refresh_attempted=freshness.refresh_attempted if freshness is not None else False,
         refresh_result=freshness.to_dict() if freshness is not None else None,

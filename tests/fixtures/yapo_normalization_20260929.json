@@ -1,0 +1,776 @@
+{
+  "timestamp": "2026-09-29T07:53:33.301791+00:00",
+  "rows": [
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "31911818",
+        "title": "DEPARTAMENTO Avenida Cristóbal Colón / Américo Vespucio",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-avenida-cristobal-colon-americo-vespucio/31911818",
+        "comuna": "Región Metropolitana, Las Condes",
+        "property_type": "apartment",
+        "m2": 105.0,
+        "built_area_m2": 105.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 0,
+        "price_clp": 0,
+        "price_uf": 9950.0,
+        "lat": -33.417725,
+        "lon": -70.570045,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, Las Condes",
+          "location": "Región Metropolitana, Las Condes",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/31/91/18/18/31911818_0090a2",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": null,
+          "location_source": "yapo_search_payload",
+          "price_uf": 9950.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32187591",
+        "title": "Dúplex con luminoso en Isla Teja, 4D, 2B y bodega, Valdivia",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/duplex-con-luminoso-en-isla-teja-4d-2b-y-bodega-valdivia/32187591",
+        "comuna": "Los Ríos, Valdivia",
+        "property_type": "apartment",
+        "m2": 95.0,
+        "built_area_m2": 95.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 4,
+        "bathrooms": 2,
+        "parking": 2,
+        "price_clp": 0,
+        "price_uf": 6500.0,
+        "lat": -39.807396,
+        "lon": -73.26639,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Los Ríos, Valdivia",
+          "location": "Los Ríos, Valdivia",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/18/75/91/32187591_c0511c",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 95.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 6500.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32401826",
+        "title": "VENTA DEPTO. CONDOMINIO PORTADA NORTE V",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/venta-depto-condominio-portada-norte-v/32401826",
+        "comuna": "Antofagasta, Antofagasta",
+        "property_type": "apartment",
+        "m2": 62.0,
+        "built_area_m2": 62.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 3,
+        "bathrooms": 1,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 2500.0,
+        "lat": -23.548935,
+        "lon": -70.39532,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Antofagasta, Antofagasta",
+          "location": "Antofagasta, Antofagasta",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/40/18/26/32401826_5c20117f2c185450b8cd4b90bf020ca5-8f25174",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": null,
+          "location_source": "yapo_search_payload",
+          "price_uf": 2500.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32970621",
+        "title": "Dpto 3d 2b - 75m2 - 1 estac - 1 bodega - Condominio Arcadia",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/dpto-3d-2b-75m2-1-estac-1-bodega-condominio-arcadia/32970621",
+        "comuna": "Región Metropolitana, Estación Central",
+        "property_type": "apartment",
+        "m2": 75.0,
+        "built_area_m2": 75.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 3,
+        "bathrooms": 2,
+        "parking": 1,
+        "price_clp": 153000000,
+        "price_uf": null,
+        "lat": -33.46676,
+        "lon": -70.721886,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "CLP",
+          "location_text": "Región Metropolitana, Estación Central",
+          "location": "Región Metropolitana, Estación Central",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/97/06/21/32970621_fdfe3d",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 75.0,
+          "location_source": "yapo_search_payload"
+        }
+      },
+      "error": null
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32973768",
+        "title": "Dpto 3d 1b - 48m2 - 1 estacionamiento - Vista Costanera",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/dpto-3d-1b-48m2-1-estacionamiento-vista-costanera/32973768",
+        "comuna": "Región Metropolitana, Renca",
+        "property_type": "apartment",
+        "m2": 48.0,
+        "built_area_m2": 48.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 3,
+        "bathrooms": 1,
+        "parking": 1,
+        "price_clp": 108000000,
+        "price_uf": null,
+        "lat": -33.422054,
+        "lon": -70.677055,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "CLP",
+          "location_text": "Región Metropolitana, Renca",
+          "location": "Región Metropolitana, Renca",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/97/37/68/32973768_7b034d",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 48.0,
+          "location_source": "yapo_search_payload"
+        }
+      },
+      "error": null
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32919337",
+        "title": "Departamento Venta 3D 1B San Pablo Metro Gruta de Lourdes",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-venta-3d-1b-san-pablo-metro-gruta-de-lourdes/32919337",
+        "comuna": "Región Metropolitana, Quinta Normal",
+        "property_type": "apartment",
+        "m2": 46.0,
+        "built_area_m2": 46.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 3,
+        "bathrooms": 1,
+        "parking": 0,
+        "price_clp": 62000000,
+        "price_uf": null,
+        "lat": null,
+        "lon": null,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "CLP",
+          "location_text": "Región Metropolitana, Quinta Normal",
+          "location": "Región Metropolitana, Quinta Normal",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/91/93/37/32919337_6542894f5aa3b27a6bf6530f57c406a8-2160076",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 48.0
+        }
+      },
+      "error": null
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32982641",
+        "title": "Venta, Dpto. 3D - 1B en Ñuñoa",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/venta-dpto-3d-1b-en-nunoa/32982641",
+        "comuna": "Región Metropolitana, Ñuñoa",
+        "property_type": "apartment",
+        "m2": 54.0,
+        "built_area_m2": 54.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 3,
+        "bathrooms": 1,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 4250.0,
+        "lat": -33.468994,
+        "lon": -70.59876,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, Ñuñoa",
+          "location": "Región Metropolitana, Ñuñoa",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/98/26/41/32982641_53c9ca",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 54.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 4250.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32483331",
+        "title": "DPTO N° 1406, 1D+1B+EST, CALLE BERLIN, METRO SAN M",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/dpto-n-1406-1d-1b-est-calle-berlin-metro-san-m/32483331",
+        "comuna": "Región Metropolitana, San Miguel",
+        "property_type": "apartment",
+        "m2": 34.0,
+        "built_area_m2": 34.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 1,
+        "bathrooms": 1,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 2500.0,
+        "lat": -33.493633,
+        "lon": -70.649155,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, San Miguel",
+          "location": "Región Metropolitana, San Miguel",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/48/33/31/32483331_3c1d5c",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 36.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 2500.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32483347",
+        "title": "DPTO N° 1901, 1D+1B+EST, CALLE BERLIN, METRO SAN M",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/dpto-n-1901-1d-1b-est-calle-berlin-metro-san-m/32483347",
+        "comuna": "Región Metropolitana, San Miguel",
+        "property_type": "apartment",
+        "m2": 32.0,
+        "built_area_m2": 32.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 1,
+        "bathrooms": 1,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 2185.0,
+        "lat": -33.493633,
+        "lon": -70.649155,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, San Miguel",
+          "location": "Región Metropolitana, San Miguel",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/48/33/47/32483347_ba70c4",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 35.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 2185.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32483391",
+        "title": "DPTO N° 2304, 1D+1B+BOD, ESCANILLA, INDEPENDENCIA",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/dpto-n-2304-1d-1b-bod-escanilla-independencia/32483391",
+        "comuna": "Región Metropolitana, Independencia",
+        "property_type": "apartment",
+        "m2": 28.0,
+        "built_area_m2": 28.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 1,
+        "bathrooms": 1,
+        "parking": 0,
+        "price_clp": 0,
+        "price_uf": 1640.0,
+        "lat": -33.429222,
+        "lon": -70.65791,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, Independencia",
+          "location": "Región Metropolitana, Independencia",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/48/33/91/32483391_699ab7",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 28.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 1640.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32986232",
+        "title": "Depto nuevo 2d entrega inmediata independencia",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/depto-nuevo-2d-entrega-inmediata-independencia/32986232",
+        "comuna": "Región Metropolitana, Independencia",
+        "property_type": "apartment",
+        "m2": 47.7,
+        "built_area_m2": 47.7,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 1,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 3355.0,
+        "lat": -33.415874,
+        "lon": -70.66536,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, Independencia",
+          "location": "Región Metropolitana, Independencia",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/98/62/32/32986232_a235e7",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 47.7,
+          "location_source": "yapo_search_payload",
+          "price_uf": 3355.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32986263",
+        "title": "Venta en verde: deptos frente al mar av costanera",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/venta-en-verde-deptos-frente-al-mar-av-costanera/32986263",
+        "comuna": "Coquimbo",
+        "property_type": "apartment",
+        "m2": 64.61,
+        "built_area_m2": 64.61,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 5260.0,
+        "lat": -29.95818,
+        "lon": -71.31079,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Coquimbo",
+          "location": "Coquimbo",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/98/62/63/32986263_9f4f6d",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 64.61,
+          "location_source": "yapo_search_payload",
+          "price_uf": 5260.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32887007",
+        "title": "Departamento en Venta de 2 Dorm. 2 Baños, en Macul",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-2-dorm-2-banos-en-macul/32887007",
+        "comuna": "Región Metropolitana, Macul",
+        "property_type": "apartment",
+        "m2": 48.0,
+        "built_area_m2": 48.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 2700.0,
+        "lat": -33.508003,
+        "lon": -70.59204,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, Macul",
+          "location": "Región Metropolitana, Macul",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/88/70/07/32887007_603354",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 48.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 2700.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32388194",
+        "title": "Departamento en Venta de 2D 2B 1E 1B Centro Talca",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-2d-2b-1e-1b-centro-talca/32388194",
+        "comuna": "Maule, Talca",
+        "property_type": "apartment",
+        "m2": 50.0,
+        "built_area_m2": 50.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 2049.0,
+        "lat": -35.4286,
+        "lon": -71.658875,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Maule, Talca",
+          "location": "Maule, Talca",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/38/81/94/32388194_01784e",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 50.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 2049.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32988783",
+        "title": "Venta Departamento Condominio PORTAL DEL NORTE",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/venta-departamento-condominio-portal-del-norte/32988783",
+        "comuna": "Arica & Parinacota, Arica",
+        "property_type": "apartment",
+        "m2": 68.0,
+        "built_area_m2": 68.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 3,
+        "bathrooms": 1,
+        "parking": 1,
+        "price_clp": 90500000,
+        "price_uf": null,
+        "lat": null,
+        "lon": null,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "CLP",
+          "location_text": "Arica & Parinacota, Arica",
+          "location": "Arica & Parinacota, Arica",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/98/87/83/32988783_906a9220176e4e42f65ee41c5604e95c-29c9bda",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 68.0
+        }
+      },
+      "error": null
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32789918",
+        "title": "Venta Departamento 2D/2B - Las Antillas III, Sector Sur",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/venta-departamento-2d-2b-las-antillas-iii-sector-sur/32789918",
+        "comuna": "Antofagasta, Antofagasta",
+        "property_type": "apartment",
+        "m2": 69.0,
+        "built_area_m2": 69.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 4495.0,
+        "lat": -23.694761,
+        "lon": -70.41928,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Antofagasta, Antofagasta",
+          "location": "Antofagasta, Antofagasta",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/78/99/18/32789918_4d2605cee604717b9285b9954a82ba9d-5108905",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": null,
+          "location_source": "yapo_search_payload",
+          "price_uf": 4495.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32592700",
+        "title": "VENDO depto en Maipú 763, Santiago",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/vendo-depto-en-maipu-763-santiago/32592700",
+        "comuna": "Región Metropolitana, Santiago",
+        "property_type": "apartment",
+        "m2": 44.0,
+        "built_area_m2": 44.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 1,
+        "parking": 1,
+        "price_clp": 80000000,
+        "price_uf": null,
+        "lat": null,
+        "lon": null,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "CLP",
+          "location_text": "Región Metropolitana, Santiago",
+          "location": "Región Metropolitana, Santiago",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/59/27/00/32592700_1821f9d2d4cfecfd28a9fd066f45fd54-cb8e6f5",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 44.0
+        }
+      },
+      "error": null
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32793131",
+        "title": "Departamento en  Edificio ICONO de Providencia con Uso Habitacional y/o  Comercial en Providencia",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-edificio-icono-de-providencia-con-uso-habitacional-y-o-comercial-en-providencia/32793131",
+        "comuna": "Región Metropolitana, Providencia",
+        "property_type": "apartment",
+        "m2": 110.0,
+        "built_area_m2": 110.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 3,
+        "bathrooms": 2,
+        "parking": 0,
+        "price_clp": 0,
+        "price_uf": 6490.0,
+        "lat": null,
+        "lon": null,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, Providencia",
+          "location": "Región Metropolitana, Providencia",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/79/31/31/32793131_9364c02d4ef0b47425e14f35231578fa-7aea36d",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": null,
+          "price_uf": 6490.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "32194994",
+        "title": "Departamento en venta en San Joaquín",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-en-san-joaquin/32194994",
+        "comuna": "Región Metropolitana, San Joaquín",
+        "property_type": "apartment",
+        "m2": 57.57,
+        "built_area_m2": 57.57,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 0,
+        "price_clp": 0,
+        "price_uf": 3880.0,
+        "lat": -33.47869,
+        "lon": -70.62985,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, San Joaquín",
+          "location": "Región Metropolitana, San Joaquín",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/32/19/49/94/32194994_37bc2d",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 53.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 3880.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    },
+    {
+      "raw": {
+        "source": "yapo",
+        "external_id": "33000977",
+        "title": "2d+estar, terraza y estacionamiento en providencia",
+        "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/2d-estar-terraza-y-estacionamiento-en-providencia/33000977",
+        "comuna": "Región Metropolitana, Providencia",
+        "property_type": "apartment",
+        "m2": 109.0,
+        "built_area_m2": 109.0,
+        "usable_area_m2": null,
+        "land_area_m2": null,
+        "bedrooms": 2,
+        "bathrooms": 3,
+        "parking": 1,
+        "price_clp": 0,
+        "price_uf": 8700.0,
+        "lat": -33.439117,
+        "lon": -70.60366,
+        "scraped_at": "2026-09-29 07:53:33.498185+00:00",
+        "raw_metadata": {
+          "currency_original": "UF",
+          "location_text": "Región Metropolitana, Providencia",
+          "location": "Región Metropolitana, Providencia",
+          "property_subtype": "Apartamento",
+          "main_image_url": "https://photos.encuentra24.com/t_or_fh_m/f_auto/v1/cl/33/00/09/77/33000977_3d144a",
+          "parser_source": "yapo_search_payload",
+          "category": "departamentos",
+          "area_source": "yapo_payload.square",
+          "source_total_area_m2": 120.0,
+          "location_source": "yapo_search_payload",
+          "price_uf": 8700.0,
+          "price_clp_missing_reason": "missing_uf_rate"
+        }
+      },
+      "error": {
+        "type": "ValidationError",
+        "message": "price_clp 0 bajo el minimo (10000000)"
+      }
+    }
+  ]
+}

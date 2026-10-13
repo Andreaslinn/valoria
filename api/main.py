@@ -9,8 +9,10 @@ En producción:
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,10 +24,12 @@ from api.v1 import future_features as future_features_router
 from api.v1 import health as health_router
 from api.v1 import listings as listings_router
 from api.v1 import market as market_router
+from api.v1 import patrimony as patrimony_router
 from api.v1 import portfolio as portfolio_router
 from api.v1 import radar as radar_router
 from api.v1 import reports as reports_router
 from api.v1 import tasar as tasar_router
+from api.v1 import thumbnails as thumbnails_router
 from api.v1 import usage as usage_router
 from api.v1 import users as users_router
 from api.v1 import valuations as valuations_router
@@ -34,6 +38,7 @@ from config import get_settings
 from core.exceptions import ValidationError
 from infrastructure.db.database import get_session_factory
 from infrastructure.db.repositories import SqlAlchemyUserRepository
+from services.thumbnails import close_store
 from services.users import UserService
 
 _log = logging.getLogger(__name__)
@@ -41,12 +46,16 @@ _log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    if os.getenv("VALORIA_ENFORCE_RELEASE_MANIFEST") == "1":
+        from services.release_guard import verify_release_tree
+        verify_release_tree(Path(__file__).resolve().parents[1])
     settings = get_settings()
     _log.info("AVM API iniciada en entorno=%s", settings.environment)
     await _bootstrap_initial_admin()
     try:
         yield
     finally:
+        await close_store()
         await close_external_clients()
         _log.info("AVM API apagada")
 
@@ -73,12 +82,14 @@ def create_app() -> FastAPI:
     app.include_router(radar_router.router, prefix="/api/v1")
     app.include_router(reports_router.router, prefix="/api/v1")
     app.include_router(tasar_router.router, prefix="/api/v1")
+    app.include_router(patrimony_router.router, prefix="/api/v1")
     app.include_router(portfolio_router.router, prefix="/api/v1")
     app.include_router(watchlist_router.router, prefix="/api/v1")
     app.include_router(alerts_router.router, prefix="/api/v1")
     app.include_router(usage_router.router, prefix="/api/v1")
     app.include_router(users_router.router, prefix="/api/v1")
     app.include_router(future_features_router.router, prefix="/api/v1")
+    app.include_router(thumbnails_router.router, prefix="/api/v1")
 
     # Healthcheck simple — no autenticado
     @app.get("/health", tags=["meta"])

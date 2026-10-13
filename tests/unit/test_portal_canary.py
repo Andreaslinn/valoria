@@ -210,3 +210,21 @@ async def test_apply_preflight_stops_before_http_when_database_is_unavailable():
     assert available is False
     assert endpoint == {"host": "localhost", "port": 5432, "database": "avm"}
     assert error == "ConnectionRefusedError: database connection unavailable"
+
+
+async def test_source_coordinate_pair_survives_adapter_cleaning_and_orm(session):
+    from infrastructure.db.models import ListingORM
+    from sqlalchemy import select
+    detail = _detail()
+    detail["raw_metadata"] = {"lat": -33.4499735, "lon": -70.6984692,
+                              "location_source": "portal:location_and_points.map_info.location"}
+    raw = portal_detail_to_raw(detail, _target(), uf_info=_uf_info())
+    cleaned = clean_listing(raw)
+    await process_listing(raw, listing_repo=SqlAlchemyListingRepository(session),
+                          property_repo=SqlAlchemyPropertyRepository(session),
+                          price_history_repo=SqlAlchemyPriceHistoryRepository(session))
+    await session.commit()
+    orm = (await session.execute(select(ListingORM))).scalar_one()
+    assert (orm.lat, orm.lon) == (-33.4499735, -70.6984692)
+    assert orm.raw_metadata["location_source"] == detail["raw_metadata"]["location_source"]
+    assert cleaned.price.clp == Decimal("123000000")

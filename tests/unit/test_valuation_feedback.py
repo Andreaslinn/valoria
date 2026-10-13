@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.v1.valuations import router as valuations_router
+from config import get_settings
 from scripts.summarize_valuation_feedback import summarize_feedback, write_feedback_summary
 from services.valuation_feedback import build_valuation_feedback_record, record_valuation_feedback
 from ui.valuation.result import submit_valuation_feedback_via_api
@@ -88,6 +89,9 @@ def test_valuation_feedback_endpoint_persists_jsonl(monkeypatch) -> None:
     try:
         monkeypatch.setenv("VALUATION_FEEDBACK_DIR", str(output_dir))
         app = FastAPI()
+        app.dependency_overrides[get_settings] = lambda: get_settings().model_copy(
+            update={"valuation_feedback_enabled": True, "environment": "development"}
+        )
         app.include_router(valuations_router, prefix="/api/v1")
         client = TestClient(app)
 
@@ -131,6 +135,9 @@ def test_valuation_feedback_endpoint_rejects_unknown_feedback(monkeypatch) -> No
     try:
         monkeypatch.setenv("VALUATION_FEEDBACK_DIR", str(output_dir))
         app = FastAPI()
+        app.dependency_overrides[get_settings] = lambda: get_settings().model_copy(
+            update={"valuation_feedback_enabled": True, "environment": "development"}
+        )
         app.include_router(valuations_router, prefix="/api/v1")
         client = TestClient(app)
 

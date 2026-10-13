@@ -379,6 +379,16 @@ def _build_valuation_report_data(
         if investment_from_listing
         else "Origen del contexto."
     )
+    consensus_card = (
+        _card(
+            "Consenso Valoria",
+            "Activo",
+            "Estimacion calculada mediante Consenso Valoria",
+            "favorable",
+        )
+        if valuation_result.get("consensus_used") is True
+        else None
+    )
 
     market_cards = [
         _card("Comparables", none_dash(comparables), "Muestras usadas por la tasacion.", "favorable" if _to_int(comparables) else "caution"),
@@ -432,9 +442,10 @@ def _build_valuation_report_data(
                 "title": "Valuation Analysis",
                 "accent": "green",
                 "cards": [
-                    _card("Precio publicado", published_label, "Precio observado o ingresado por el usuario." if is_listing_analysis else "No requerido para tasacion manual.", published_status),
+                    _card("Precio publicado", published_label, "Precio observado o ingresado por el usuario." if is_listing_analysis or published_uf or published_clp else "No requerido para tasacion manual.", published_status),
                     _card("Valor estimado", _format_clp(estimated_clp), "Estimacion central del modelo AVM.", "favorable" if estimated_clp else "caution"),
-                    _card("Descuento", discount_label, "Brecha contra valor estimado." if is_listing_analysis else "No aplica sin precio publicado.", discount_status),
+                    *([consensus_card] if consensus_card is not None else []),
+                    _card("Descuento", discount_label, "Brecha contra valor estimado." if is_listing_analysis or published_uf or published_clp else "No aplica sin precio publicado.", discount_status),
                     _card("Precio/m2", _format_uf(valuation_result.get("price_m2_uf")), "UF por metro cuadrado estimado.", "neutral"),
                     _card("Rango bajo", _format_uf(valuation_result.get("price_range_low_uf")), "Banda inferior de incertidumbre.", "neutral"),
                     _card("Rango alto", _format_uf(valuation_result.get("price_range_high_uf")), "Banda superior de incertidumbre.", "neutral"),

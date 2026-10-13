@@ -1,14 +1,19 @@
 """Downloadable user report generation."""
 from __future__ import annotations
 
+from services.valuation_debug import embed_valuation_debug
+
+import math
 import re
 from datetime import UTC, datetime
 from typing import Any
+from html import escape
+from core.assessment.warnings import warning_detail
 
-from services.valuation_debug import embed_valuation_debug
 from ui.components.risk_report_html import (
     build_investment_intelligence_report_data,
     build_listing_risk_report_data,
+    build_valuation_risk_report_data,
     build_risk_report_html,
 )
 
@@ -25,12 +30,12 @@ def build_property_valuation_report_html(
     valuation_payload: dict[str, Any],
 ) -> str:
     _require_estimate(valuation_result)
-    report_data = build_investment_intelligence_report_data(
+    report_data = build_valuation_risk_report_data(
         valuation_result=valuation_result,
         valuation_payload=valuation_payload,
         lookup_result={},
     )
-    return embed_valuation_debug(build_risk_report_html(report_data), valuation_result.get("valuation_debug"))
+    return embed_valuation_debug(_include_analysis_evidence(_include_model_warnings(build_risk_report_html(report_data), valuation_result), valuation_result, valuation_payload), valuation_result.get("valuation_debug"))
 
 
 def build_listing_analysis_report_html(*, analysis: dict[str, Any]) -> str:
@@ -50,6 +55,10 @@ def build_listing_analysis_report_html(*, analysis: dict[str, Any]) -> str:
         "comparable_count": valuation.get("comparables_used"),
         "warnings": valuation.get("warnings") or [],
         "comparables": valuation.get("comparables") or [],
+        "valuation_strategy": valuation.get("valuation_strategy"),
+        "consensus_used": valuation.get("consensus_used"),
+        "consensus_unavailable_reason": valuation.get("consensus_unavailable_reason"),
+        "fallback_engine_used": valuation.get("fallback_engine_used"),
     }
     valuation_payload = {
         "comuna": listing.get("comuna"),
@@ -85,7 +94,47 @@ def build_listing_analysis_report_html(*, analysis: dict[str, Any]) -> str:
         valuation_payload=valuation_payload,
         lookup_result=lookup_result,
     )
-    return build_risk_report_html(report_data)
+    html = _include_analysis_evidence(_include_model_warnings(build_risk_report_html(report_data), valuation_result), valuation_result, valuation_payload)
+    status = listing.get("status")
+    label = "Retirada / Histórica" if status in {"removed", "inactive", "unavailable"} else "Activa según la última observación" if status == "active" else "Vigencia no confirmada"
+    observed = listing.get("last_seen_at") or analysis.get("last_seen_at") or "No informada"
+    note = f'<section class="section-card card"><h2 class="section-title">{escape(label)}</h2><p>Última observación: {escape(str(observed))}. El informe no confirma disponibilidad actual.</p></section>'
+    return html.replace("<main>", "<main>" + note, 1)
+
+
+def _include_analysis_evidence(html: str, result: dict, payload: dict) -> str:
+    from urllib.parse import urlsplit
+    rows = []
+    for label, key in [("Precio de comparación ingresado (UF)", "precio_publicado_uf"),
+                       ("Precio de comparación ingresado (CLP)", "precio_publicado_clp")]:
+        if payload.get(key) is not None:
+            rows.append(f'<p>{label}: <strong>{escape(str(payload[key]))}</strong></p>')
+    for item in result.get("comparables", []) or []:
+        title = escape(str(item.get("title") or "Comparable sin título"))
+        url = item.get("url")
+        try:
+            parsed = urlsplit(url) if isinstance(url, str) else None
+            valid = parsed and parsed.scheme in {"http", "https"} and parsed.hostname and not parsed.username and not parsed.password
+        except ValueError:
+            valid = False
+        link = f'<a href="{escape(url, quote=True)}" rel="noopener noreferrer">{title}</a>' if valid else title
+        identities = ' · '.join(escape(str(item[key])) for key in ("listing_id", "source", "external_id") if item.get(key) is not None)
+        rows.append(f'<ul><li>{link} — {identities}</li></ul>')
+    if not rows:
+        return html
+    return html.replace("</main>", '<section class="section-card card"><h2 class="section-title">Datos de comparación y comparables</h2>' + ''.join(rows) + '</section></main>')
+
+
+def _include_model_warnings(html: str, result: dict) -> str:
+    codes = list(dict.fromkeys(str(code) for code in result.get("warnings", []) if code))
+    if not codes:
+        return html
+    items = []
+    for code in codes:
+        detail = warning_detail(code)
+        items.append(f'<li><strong>{escape(detail["label"])}</strong>: {escape(detail["description"])} '
+                     f'({escape(code)}; {escape(detail["severity"])})</li>')
+    return html.replace("</main>", '<section class="section-card card"><h2 class="section-title">Advertencias del modelo</h2><ul>' + ''.join(items) + '</ul></section></main>')
 
 
 def property_valuation_filename(valuation_payload: dict[str, Any]) -> str:
@@ -108,6 +157,16 @@ def _require_estimate(
 ) -> None:
     if payload.get(uf_key) is None and payload.get(clp_key) is None:
         raise ReportGenerationError("La estimacion Valoria es requerida para generar el informe.")
+    for key in (uf_key, clp_key):
+        value = payload.get(key)
+        if value is None:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            raise ReportGenerationError("La estimacion Valoria debe ser un numero finito y positivo.") from None
+        if isinstance(value, bool) or not math.isfinite(number) or number <= 0:
+            raise ReportGenerationError("La estimacion Valoria debe ser un numero finito y positivo.")
 
 
 def _dict(value: Any) -> dict[str, Any]:

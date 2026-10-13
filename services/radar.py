@@ -231,7 +231,7 @@ class RadarService:
     ) -> None:
         self._listing_repo = listing_repo
         self._uf_service = uf_service
-        self._valuation_service = valuation_service or ValuationService(listing_repo=listing_repo, uf_service=uf_service)
+        self._valuation_service = valuation_service or ValuationService(listing_repo=listing_repo, uf_service=uf_service, final_price_policy="canonical_only")
         settings = get_settings()
         configured_types = (
             allowed_property_types

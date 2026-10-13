@@ -742,7 +742,7 @@ async def test_refresh_does_not_duplicate_existing_listing_with_real_pipeline(se
       </head>
       <body>
         <h1>Departamento 3 dormitorios en Nunoa</h1>
-        <p>$180.000.000</p>
+        <p class="price">$180.000.000</p>
         <p>75 m2 3 dormitorios 2 banos 1 estacionamiento</p>
       </body>
     </html>

@@ -15,6 +15,7 @@ from services.market_dashboard import (
     build_market_briefing,
     build_microzones_summary,
 )
+from services.market_dashboard_overview import build_market_dashboard_overview
 from services.market_intelligence import (
     MarketIntelligenceConfig,
     build_communes_summary,
@@ -141,6 +142,19 @@ class MarketIntelligenceOut(BaseModel):
     model_config = {"extra": "allow"}
 
 
+class MarketDashboardOverviewOut(BaseModel):
+    status: str
+    scope: dict[str, Any]
+    cutoff_at: datetime
+    overview: dict[str, Any]
+    daily_pulse: list[dict[str, Any]] = Field(default_factory=list)
+    communes: list[dict[str, Any]] = Field(default_factory=list)
+    selected_commune: dict[str, Any] | None = None
+    bedrooms_supply: list[dict[str, Any]] = Field(default_factory=list)
+    coverage: dict[str, int]
+    methodology: str
+
+
 @router.get("/uf", response_model=UFRateOut)
 async def get_current_uf(uf_service: UFServiceDep, settings: AppSettings) -> UFRateOut:
     try:
@@ -192,6 +206,30 @@ async def get_market_dynamism_summary(
     _user: CurrentUser,
 ) -> MarketIntelligenceOut:
     return MarketIntelligenceOut(**await build_dynamism_summary(session))
+
+
+@router.get("/dashboard", response_model=MarketDashboardOverviewOut)
+async def get_market_dashboard_overview(
+    session: DbSession,
+    settings: AppSettings,
+    _user: CurrentUser,
+    period_days: int = Query(default=30),
+    commune: str | None = Query(default=None, min_length=1),
+    property_type: str | None = Query(default=None, min_length=1),
+    selected_commune: str | None = Query(default=None, min_length=1),
+) -> MarketDashboardOverviewOut:
+    try:
+        overview = await build_market_dashboard_overview(
+            session,
+            period_days=period_days,
+            commune=commune,
+            property_type=property_type,
+            selected_commune=selected_commune,
+            config=_market_intelligence_config(settings),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+    return MarketDashboardOverviewOut(**overview)
 
 
 @router.get("/briefing", response_model=MarketBriefingOut)

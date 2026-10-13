@@ -107,6 +107,25 @@ class TestInvalidListingIsolation:
 
 
 class TestLowDataMode:
+    def test_fresh_targets_use_the_supplied_canonical_comparable_universe(self):
+        cheap_target = make_listing(
+            fingerprint="fresh-cheap",
+            price_clp=int(_MARKET_PRICE * 0.85),
+        )
+        another_target = make_listing(fingerprint="fresh-market", price_clp=_MARKET_PRICE)
+        canonical_market = _market_listings(50, fp_prefix="canonical-")
+
+        result = detect_opportunities(
+            [cheap_target, another_target],
+            UF,
+            comparable_universe=[*canonical_market, cheap_target, another_target],
+        )
+
+        assert result.total_listings_analyzed == 2
+        assert result.processed_candidates == 2
+        assert result.low_data_by_property_type == {"apartment": False}
+        assert {item.listing.fingerprint for item in result.opportunities} == {"fresh-cheap"}
+
     def test_10_to_49_triggers_low_data_mode(self):
         result = detect_opportunities(_market_listings(15), UF)
         assert result.low_data_mode is True
@@ -472,3 +491,32 @@ class TestUFRatePassthrough:
         fps1 = {o.listing.fingerprint for o in r1.opportunities}
         fps2 = {o.listing.fingerprint for o in r2.opportunities}
         assert fps1 == fps2
+
+
+def test_request_fact_snapshot_preserves_uncached_valuation(monkeypatch):
+    from domain.radar import detector
+    rows = [make_listing(fingerprint="cheap-parity", price_clp=140_000_000), *_market_listings(25)]
+    cached = detector.detect_opportunities(rows, UF)
+    original = detector._evaluate_listing
+    def uncached(target, universe, rate, threshold, **kwargs):
+        return original(target, universe, rate, threshold)
+    monkeypatch.setattr(detector, "_evaluate_listing", uncached)
+    reference = detector.detect_opportunities(rows, UF)
+    assert cached == reference
+
+
+def test_publication_facts_refresh_between_detection_requests(monkeypatch):
+    from domain.radar import detector
+    rows = [make_listing(fingerprint="cheap-refresh", price_clp=140_000_000), *_market_listings(25)]
+    original = detector.publication_keys
+    seen = []
+    def observed(row):
+        seen.append(row.fingerprint)
+        return original(row)
+    monkeypatch.setattr(detector, "publication_keys", observed)
+    detector.detect_opportunities(rows, UF)
+    seen.clear()
+    rows[0].fingerprint = "changed-publication"
+    detector.detect_opportunities(rows, UF)
+    assert "changed-publication" in seen
+    assert "cheap-refresh" not in seen

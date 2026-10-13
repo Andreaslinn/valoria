@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from infrastructure.db.models import ListingORM, PriceHistoryORM
+from services.market_dashboard_overview import build_market_dashboard_overview
 from services.market_intelligence import (
     MarketIntelligenceConfig,
     build_communes_summary,
@@ -211,6 +212,84 @@ async def test_dynamism_is_activity_not_liquidity_and_insight_is_product_safe(
     assert all(word not in insight for word in forbidden)
 
 
+@pytest.mark.asyncio
+async def test_dashboard_overview_filters_commune_and_groups_bedrooms(engine: AsyncEngine) -> None:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        session.add_all(
+            [
+                _listing(1, comuna="vitacura", bedrooms=1, created_at=now - timedelta(days=1)),
+                _listing(2, comuna="vitacura", bedrooms=2, created_at=now - timedelta(days=2)),
+                _listing(3, comuna="vitacura", bedrooms=3, created_at=now - timedelta(days=3)),
+                _listing(4, comuna="vitacura", bedrooms=4, created_at=now - timedelta(days=4)),
+                _listing(5, comuna="nunoa", bedrooms=2, created_at=now - timedelta(days=1)),
+            ]
+        )
+        await session.commit()
+        overview = await build_market_dashboard_overview(
+            session,
+            period_days=7,
+            commune="Vitacura",
+            property_type="apartment",
+            selected_commune="vitacura",
+        )
+
+    assert overview["scope"]["commune"] == "vitacura"
+    assert overview["overview"]["new_listings"] == 4
+    assert overview["selected_commune"]["status"] == "available"
+    assert overview["selected_commune"]["active_listings"] == 4
+    assert overview["bedrooms_supply"] == [
+        {"bucket": "1", "active_listings": 1},
+        {"bucket": "2", "active_listings": 1},
+        {"bucket": "3", "active_listings": 1},
+        {"bucket": "4_plus", "active_listings": 1},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_overview_daily_pulse_fills_zeroes_and_excludes_artifacts(engine: AsyncEngine) -> None:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        session.add_all([_listing(1, created_at=now - timedelta(days=1)), _listing(2)])
+        session.add_all(
+            [
+                _history(1, now - timedelta(days=3), Decimal("5000")),
+                _history(1, now - timedelta(days=1), Decimal("4800")),
+                _history(2, now - timedelta(days=3), Decimal("5000"), is_artifact=True),
+                _history(2, now - timedelta(days=1), Decimal("4500"), is_artifact=True),
+            ]
+        )
+        await session.commit()
+        overview = await build_market_dashboard_overview(session, period_days=7)
+
+    assert len(overview["daily_pulse"]) == 7
+    assert overview["overview"]["listings_with_price_drop"] == 1
+    assert overview["overview"]["price_drop_events"] == 1
+    assert any(point["new_listings"] == 0 and point["price_drop_events"] == 0 for point in overview["daily_pulse"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("period_days", [7, 30, 90])
+async def test_dashboard_overview_supports_requested_periods_and_empty_state(engine: AsyncEngine, period_days: int) -> None:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        overview = await build_market_dashboard_overview(session, period_days=period_days)
+
+    assert overview["status"] == "empty"
+    assert len(overview["daily_pulse"]) == period_days
+    assert all(point["new_listings"] == 0 for point in overview["daily_pulse"])
+
+
+@pytest.mark.asyncio
+async def test_dashboard_overview_rejects_incompatible_property_type(engine: AsyncEngine) -> None:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        with pytest.raises(ValueError, match="soporta solo apartment"):
+            await build_market_dashboard_overview(session, property_type="house")
+
+
 def _listing(
     listing_id: int,
     *,
@@ -223,6 +302,7 @@ def _listing(
     last_refresh_attempted_at: datetime | None = None,
     price_uf: Decimal | None = Decimal("5000"),
     usable_area_m2: float | None = 50,
+    bedrooms: int = 2,
 ) -> ListingORM:
     now = datetime.now(UTC)
     first_seen = created_at or now - timedelta(days=20)
@@ -238,7 +318,7 @@ def _listing(
         built_area_m2=usable_area_m2,
         usable_area_m2=usable_area_m2,
         land_area_m2=None,
-        bedrooms=2,
+        bedrooms=bedrooms,
         bathrooms=2,
         parking=1,
         lat=-33.4,

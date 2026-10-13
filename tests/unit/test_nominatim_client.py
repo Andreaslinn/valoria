@@ -149,7 +149,8 @@ def test_address_metadata_wins() -> None:
         comuna="Nunoa",
         raw_metadata={"address_label": "Av Grecia 100"},
     )
-    assert build_geocoding_query(listing) == ("Av Grecia 100, Nunoa, Chile", "street_address")
+    # The shared hint extractor expands avenue abbreviations before geocoding.
+    assert build_geocoding_query(listing) == ("Avenida Grecia 100, Nunoa, Chile", "street_address")
 
 
 def test_address_fallback_selection() -> None:
@@ -159,7 +160,7 @@ def test_address_fallback_selection() -> None:
             comuna="Nunoa",
             raw_metadata={"address_label": "Av Grecia 100"},
         )
-        == ("Av Grecia 100", "street_address")
+        == ("Avenida Grecia 100", "street_address")
     )
     assert select_location_text(title="Depto luminoso", comuna="Nunoa", raw_metadata={}) == (None, "unknown")
 

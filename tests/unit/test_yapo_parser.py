@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from config.constants import YAPO_HOUSE_SEARCH_BASE_URL, YAPO_TARGETS
+from infrastructure.scrapers.yapo_modern import YapoStructureError
 from infrastructure.scrapers.base import RateLimiter
 from infrastructure.scrapers.yapo import (
     YapoScraper,
@@ -131,11 +132,13 @@ class TestYapoParser:
         results = YapoScraper.parse_listings(_load(), uf_to_clp=_UF)
         assert all(r["url"].startswith("https://www.yapo.cl") for r in results)
 
-    def test_empty_html_returns_empty(self):
-        assert YapoScraper.parse_listings("<html></html>", uf_to_clp=_UF) == []
+    def test_empty_html_is_unknown(self):
+        with pytest.raises(YapoStructureError):
+            YapoScraper.parse_listings("<html></html>", uf_to_clp=_UF)
 
-    def test_corrupt_html_does_not_raise(self):
-        YapoScraper.parse_listings("<<not html>>", uf_to_clp=_UF)
+    def test_corrupt_html_is_unknown(self):
+        with pytest.raises(YapoStructureError):
+            YapoScraper.parse_listings("<<not html>>", uf_to_clp=_UF)
 
     def test_detail_url_prioritizes_known_comuna_from_url(self):
         html = """
@@ -368,7 +371,7 @@ class TestYapoParser:
               <dt class="d3-property-insight__attribute-title">Ãrea construida (mÂ²)</dt>
               <dd class="d3-property-insight__attribute-value">590</dd>
             </div>
-            <p>Terreno de 5.432 m2 con gran parque.</p>
+            <meta name="description" content="Terreno de 5.432 m2 con gran parque.">
           </body>
         </html>
         """
@@ -476,7 +479,7 @@ class TestYapoPagination:
             "max_pages": 3,
         })
         assert url == (
-            "https://www.yapo.cl/searchresult/bienes-raices-venta-de-propiedades-apartamentos"
+            "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos"
             "?q=keyword.departamentos+venta+Las+Condes"
         )
 
@@ -490,7 +493,7 @@ class TestYapoPagination:
             "search_base_url": YAPO_HOUSE_SEARCH_BASE_URL,
         })
         assert url == (
-            "https://www.yapo.cl/searchresult/bienes-raices-venta-de-propiedades-casas"
+            "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas"
             "?q=keyword.casa+venta+Las+Condes"
         )
 
@@ -509,7 +512,7 @@ class TestYapoPagination:
 
         async def handler(request: httpx.Request) -> httpx.Response:
             requests.append(str(request.url))
-            return httpx.Response(200, text="<html></html>")
+            return httpx.Response(200, text="<h1>No se encontraron resultados</h1>")
 
         async def run() -> None:
             async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -530,7 +533,7 @@ class TestYapoPagination:
         asyncio.run(run())
 
         assert requests == [
-            "https://www.yapo.cl/searchresult/bienes-raices-venta-de-propiedades-apartamentos"
+            "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos"
             "?q=keyword.departamentos+venta+nunoa"
         ]
 
@@ -584,7 +587,7 @@ class TestYapoPagination:
         async def handler(_: httpx.Request) -> httpx.Response:
             nonlocal requests
             requests += 1
-            return httpx.Response(200, text=_page_html(1) if requests == 1 else "<html></html>")
+            return httpx.Response(200, text=_page_html(1) if requests == 1 else "<h1>No se encontraron resultados</h1>")
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             scraper = YapoScraper(

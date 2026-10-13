@@ -499,7 +499,14 @@ async def _refresh_one(
         return
 
     stats.fetched += 1
-    if _looks_blocked_or_captcha(response.text):
+    if listing.source == "portalinmobiliario":
+        from infrastructure.scrapers.portalinmobiliario import classify_portal_detail_page_state
+        blocked_html = classify_portal_detail_page_state(response.text) in {
+            "blocked", "captcha_visible", "verification_visible", "login_page",
+        }
+    else:
+        blocked_html = _looks_blocked_or_captcha(response.text)
+    if blocked_html:
         stats.blocked_or_captcha += 1
         await _record_refresh_state(
             session_factory,
@@ -522,10 +529,18 @@ async def _refresh_one(
         _increment_reason(stats, "inactive_explicit")
         _log.warning("Refresh explicit inactive listing_id=%s url=%s", listing.id, listing.url)
         return
+    if listing.source == "portalinmobiliario":
+        # Geography is independent of monetary conversion/commercial completeness.
+        # Reuse the response already fetched; never acquire another URL here.
+        try:
+            await _capture_portal_refresh_geo(listing, response.text, session_factory=session_factory,
+                                               observed_at=attempted_at)
+        except Exception as exc:
+            _log.warning("Portal refresh geo capture failed listing_id=%s error_type=%s", listing.id, type(exc).__name__)
     raw = parser(listing, response.text)
     if raw is None:
         stats.parse_errors += 1
-        if _looks_blocked_or_captcha(response.text):
+        if blocked_html:
             stats.blocked_or_captcha += 1
             refresh_status = "blocked_or_captcha"
             _increment_reason(stats, refresh_status)
@@ -629,6 +644,22 @@ async def _refresh_one(
     _record_example(stats, listing, raw, example_limit=example_limit)
 
 
+async def _capture_portal_refresh_geo(listing, html, *, session_factory, observed_at):
+    from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal
+    from infrastructure.db.portal_geography import eligible, apply_geography, candidate_evidence
+    if listing.coordinates is not None and listing.geocode_precision not in {"comuna", "comuna_centroid"}:
+        return
+    detail = parse_listing_detail_portal(html, listing.url or "")
+    ev = candidate_evidence(detail)
+    if ev is None:
+        return
+    async with session_factory() as session:
+        row = await session.scalar(select(ListingORM).where(ListingORM.id == listing.id).with_for_update())
+        if row is not None and eligible(row):
+            await apply_geography(session, row, ev, recovered_at=observed_at, acquisition=detail)
+            await session.commit()
+
+
 def parse_refresh_listing_html(
     listing: Listing,
     html: str,
@@ -647,6 +678,23 @@ def parse_refresh_listing_html(
             raw["raw_metadata"] = metadata
         return raw
     if listing.source == "portalinmobiliario":
+        from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal
+        from domain.geocoding.source_quality import mlc
+        from scripts.portal_canary import portal_detail_to_raw, PortalCanaryReject
+        from types import SimpleNamespace
+        detail = parse_listing_detail_portal(html, listing.url or "")
+        if detail.get("state") == "detail" and detail.get("external_id"):
+            source_id = mlc(((detail.get("_source_evidence") or {}).get("raw") or {}).get("platform_id"))
+            if mlc(detail["external_id"]) != mlc(listing.external_id) or (source_id and source_id != mlc(listing.external_id)):
+                return None
+            target = {"operation": "venta", "property_type": listing.property_type, "label": "existing_refresh"}
+            info = SimpleNamespace(rate=uf_to_clp, source=uf_rate_source or "real",
+                cache_hit=False, is_stale=False) if uf_to_clp is not None else None
+            try:
+                return portal_detail_to_raw(detail, target, uf_info=info)
+            except PortalCanaryReject:
+                # Do not invent a conversion or update commerce from an unusable detail.
+                return None
         items = PortalInmobiliarioScraper.parse_listings(html)
         return items[0] if items else None
     _log.info("Refresh source unsupported listing_id=%s source=%s", listing.id, listing.source)
@@ -819,10 +867,16 @@ async def _set_refresh_state(
     row = await session.get(ListingORM, listing_id)
     if row is None:
         return
+    previous_status = row.status
     row.last_refresh_attempted_at = attempted_at
     row.last_refresh_status = refresh_status
     if status is not None:
         row.status = status
+    from config import get_settings
+    if get_settings().ingestion_observation_history_enabled and row.source in {"yapo", "portalinmobiliario"}:
+        from domain.ingestion.observations import status_observation
+        from infrastructure.db.observation_history import append_observation
+        await append_observation(session, status_observation(row, attempted_at, refresh_status, previous_status), enabled=True)
     await session.flush()
 
 

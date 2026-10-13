@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -15,7 +15,28 @@ from core.exceptions import UFServiceError
 from core.ports.uf_service import UFRateInfo
 from infrastructure.db.models import UFRateORM
 from infrastructure.external.uf_client import UF_CACHE_KEY, UFClient
+from infrastructure.external import uf_client
 from services.uf_rate import require_real_uf_rate, validate_real_uf_rate
+
+
+@pytest.fixture(autouse=True)
+def fixed_clock(monkeypatch):
+    # Keep freshness tests independent of wall-clock date and host timezone.
+    now = datetime(2026, 6, 19, 12, tzinfo=UTC)
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return now.date()
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz) if tz else now.replace(tzinfo=None)
+
+    monkeypatch.setattr(uf_client, "date", FixedDate)
+    monkeypatch.setattr(uf_client, "datetime", FixedDatetime)
+    monkeypatch.setitem(globals(), "datetime", FixedDatetime)
 
 
 def _mock_redis(*, cached: str | bytes | None = None) -> AsyncMock:
@@ -40,7 +61,7 @@ def _mock_httpx(*, payload: dict | None = None, raise_exc: Exception | None = No
 def _make_client(redis=None, http=None, api_url="https://mindicador.cl/api/uf") -> UFClient:
     return UFClient(
         api_url=api_url,
-        http_client=http or _mock_httpx(payload={"serie": [{"valor": 37453.21}]}),
+        http_client=http or _mock_httpx(payload={"serie": [{"valor": 37453.21, "fecha": "2026-06-19T04:00:00Z"}]}),
         redis=redis or _mock_redis(),
     )
 
@@ -64,7 +85,7 @@ def _cache_payload(
 class TestCacheHit:
     async def test_returns_cached_value_without_http(self) -> None:
         redis = _mock_redis(cached=_cache_payload("37500.00"))
-        http = _mock_httpx(payload={"serie": [{"valor": 99999}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 99999, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(redis=redis, http=http)
 
         rate = await client.get_current_rate()
@@ -74,7 +95,7 @@ class TestCacheHit:
 
     async def test_rate_info_marks_cache_hit(self) -> None:
         redis = _mock_redis(cached=_cache_payload("37500.00"))
-        http = _mock_httpx(payload={"serie": [{"valor": 99999}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 99999, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(redis=redis, http=http)
 
         info = await client.get_current_rate_info()
@@ -121,7 +142,7 @@ class TestCacheHit:
 
     async def test_corrupt_cache_triggers_refetch(self) -> None:
         redis = _mock_redis(cached="not-a-number")
-        http = _mock_httpx(payload={"serie": [{"valor": 37450}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 37450, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(redis=redis, http=http)
 
         rate = await client.get_current_rate()
@@ -133,7 +154,7 @@ class TestCacheHit:
 class TestCacheMiss:
     async def test_fetches_from_api_and_caches(self) -> None:
         redis = _mock_redis(cached=None)
-        http = _mock_httpx(payload={"serie": [{"valor": 37500.5}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 37500.5, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(redis=redis, http=http)
 
         rate = await client.get_current_rate()
@@ -149,7 +170,7 @@ class TestCacheMiss:
 
     async def test_rate_info_marks_remote_source(self) -> None:
         redis = _mock_redis(cached=None)
-        http = _mock_httpx(payload={"serie": [{"valor": 37500.5}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 37500.5, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(redis=redis, http=http)
 
         info = await client.get_current_rate_info()
@@ -162,7 +183,7 @@ class TestCacheMiss:
 
     async def test_fetch_logs_real_uf_value(self, caplog: pytest.LogCaptureFixture) -> None:
         redis = _mock_redis(cached=None)
-        http = _mock_httpx(payload={"serie": [{"valor": 39000.12}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 39000.12, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(redis=redis, http=http)
 
         with caplog.at_level(logging.INFO, logger="infrastructure.external.uf_client"):
@@ -186,7 +207,7 @@ class TestDailySnapshotDB:
             )
             await session.commit()
         redis = _mock_redis(cached=None)
-        http = _mock_httpx(payload={"serie": [{"valor": 99999}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 99999, "fecha": "2026-06-19T04:00:00Z"}]})
         client = UFClient(
             api_url="https://mindicador.cl/api/uf",
             http_client=http,
@@ -235,7 +256,7 @@ class TestDailySnapshotDB:
             )
             await session.commit()
         redis = _mock_redis(cached="40787.7")
-        http = _mock_httpx(payload={"serie": [{"valor": 99999}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 99999, "fecha": "2026-06-19T04:00:00Z"}]})
         client = UFClient(
             api_url="https://mindicador.cl/api/uf",
             http_client=http,
@@ -264,7 +285,7 @@ class TestDailySnapshotDB:
             )
             await session.commit()
         redis = _mock_redis(cached=None)
-        http = _mock_httpx(payload={"serie": [{"valor": 99999}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 99999, "fecha": "2026-06-19T04:00:00Z"}]})
         client = UFClient(
             api_url="https://mindicador.cl/api/uf",
             http_client=http,
@@ -279,7 +300,7 @@ class TestDailySnapshotDB:
 
     async def test_http_failure_uses_recent_latest_db_snapshot(self, engine: AsyncEngine) -> None:
         factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-        yesterday = (datetime.now(UTC) - timedelta(hours=12)).date()
+        yesterday = (datetime.now(UTC) - timedelta(days=1)).date()
         async with factory() as session:
             session.add(
                 UFRateORM(
@@ -445,7 +466,7 @@ class TestNoFallback:
             await client.get_current_rate()
 
     async def test_non_positive_remote_value_raises(self) -> None:
-        http = _mock_httpx(payload={"serie": [{"valor": 0}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 0, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(http=http)
 
         with pytest.raises(UFServiceError):
@@ -461,7 +482,7 @@ class TestNoFallback:
         redis.setex.assert_not_awaited()
 
     async def test_require_real_uf_rate_rejects_legacy_artifact_rate(self) -> None:
-        http = _mock_httpx(payload={"serie": [{"valor": 37000}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 37000, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(http=http)
 
         with pytest.raises(UFServiceError, match="37000"):
@@ -477,7 +498,7 @@ class TestResilience:
         redis = AsyncMock()
         redis.get = AsyncMock(side_effect=Exception("redis down"))
         redis.setex = AsyncMock(return_value=True)
-        http = _mock_httpx(payload={"serie": [{"valor": 39000}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 39000, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(redis=redis, http=http)
 
         rate = await client.get_current_rate()
@@ -488,7 +509,7 @@ class TestResilience:
         redis = AsyncMock()
         redis.get = AsyncMock(return_value=None)
         redis.setex = AsyncMock(side_effect=Exception("redis full"))
-        http = _mock_httpx(payload={"serie": [{"valor": 39000}]})
+        http = _mock_httpx(payload={"serie": [{"valor": 39000, "fecha": "2026-06-19T04:00:00Z"}]})
         client = _make_client(redis=redis, http=http)
 
         rate = await client.get_current_rate()

@@ -1,0 +1,362 @@
+{
+  "uf": "41152.13",
+  "uf_date": "2026-10-13",
+  "cases": [
+    {
+      "payload": {
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "m2": 70,
+        "built_area_m2": 70,
+        "usable_area_m2": 70,
+        "land_area_m2": null,
+        "dormitorios": 2,
+        "banos": 2,
+        "estacionamientos": 0,
+        "precio_publicado_uf": 2552,
+        "precio_publicado_clp": null
+      },
+      "canonical_uf": 3300.65,
+      "comparable_calculation": [
+        {
+          "listing_id": 2583,
+          "price_uf_used": 2430.01,
+          "area_m2_used": 67.0,
+          "normalized_weight": 0.055396,
+          "source_usable_area_m2": 67.0,
+          "source_built_area_m2": 67.0
+        },
+        {
+          "listing_id": 1291,
+          "price_uf_used": 3500.0,
+          "area_m2_used": 73.0,
+          "normalized_weight": 0.055396,
+          "source_usable_area_m2": 73.0,
+          "source_built_area_m2": 73.0
+        },
+        {
+          "listing_id": 5654,
+          "price_uf_used": 3200.0,
+          "area_m2_used": 71.0,
+          "normalized_weight": 0.052905,
+          "source_usable_area_m2": 71.0,
+          "source_built_area_m2": 71.0
+        },
+        {
+          "listing_id": 194,
+          "price_uf_used": 2187.01,
+          "area_m2_used": 60.0,
+          "normalized_weight": 0.052813,
+          "source_usable_area_m2": 60.0,
+          "source_built_area_m2": 60.0
+        },
+        {
+          "listing_id": 836,
+          "price_uf_used": 2065.51,
+          "area_m2_used": 58.0,
+          "normalized_weight": 0.052075,
+          "source_usable_area_m2": 58.0,
+          "source_built_area_m2": 58.0
+        },
+        {
+          "listing_id": 3349,
+          "price_uf_used": 2673.01,
+          "area_m2_used": 57.0,
+          "normalized_weight": 0.051706,
+          "source_usable_area_m2": 57.0,
+          "source_built_area_m2": 57.0
+        },
+        {
+          "listing_id": 5652,
+          "price_uf_used": 3670.0,
+          "area_m2_used": 57.0,
+          "normalized_weight": 0.051706,
+          "source_usable_area_m2": 57.0,
+          "source_built_area_m2": 57.0
+        },
+        {
+          "listing_id": 684,
+          "price_uf_used": 2308.51,
+          "area_m2_used": 56.0,
+          "normalized_weight": 0.051337,
+          "source_usable_area_m2": 56.0,
+          "source_built_area_m2": 56.0
+        },
+        {
+          "listing_id": 6944,
+          "price_uf_used": 4100.0,
+          "area_m2_used": 71.0,
+          "normalized_weight": 0.051291,
+          "source_usable_area_m2": 71.0,
+          "source_built_area_m2": 71.0
+        },
+        {
+          "listing_id": 188,
+          "price_uf_used": 2964.61,
+          "area_m2_used": 54.0,
+          "normalized_weight": 0.050599,
+          "source_usable_area_m2": 54.0,
+          "source_built_area_m2": 54.0
+        },
+        {
+          "listing_id": 4391,
+          "price_uf_used": 1800.0,
+          "area_m2_used": 50.0,
+          "normalized_weight": 0.049123,
+          "source_usable_area_m2": 50.0,
+          "source_built_area_m2": 50.0
+        },
+        {
+          "listing_id": 5160,
+          "price_uf_used": 2950.0,
+          "area_m2_used": 50.0,
+          "normalized_weight": 0.049123,
+          "source_usable_area_m2": 50.0,
+          "source_built_area_m2": 50.0
+        },
+        {
+          "listing_id": 7035,
+          "price_uf_used": 5000.0,
+          "area_m2_used": 77.0,
+          "normalized_weight": 0.049077,
+          "source_usable_area_m2": 77.0,
+          "source_built_area_m2": 77.0
+        },
+        {
+          "listing_id": 2520,
+          "price_uf_used": 1944.01,
+          "area_m2_used": 62.0,
+          "normalized_weight": 0.048708,
+          "source_usable_area_m2": 62.0,
+          "source_built_area_m2": 62.0
+        },
+        {
+          "listing_id": 3797,
+          "price_uf_used": 1944.01,
+          "area_m2_used": 55.0,
+          "normalized_weight": 0.047739,
+          "source_usable_area_m2": 55.0,
+          "source_built_area_m2": 55.0
+        },
+        {
+          "listing_id": 6756,
+          "price_uf_used": 3000.0,
+          "area_m2_used": 70.0,
+          "normalized_weight": 0.047355,
+          "source_usable_area_m2": 70.0,
+          "source_built_area_m2": 70.0
+        },
+        {
+          "listing_id": 5836,
+          "price_uf_used": 3580.0,
+          "area_m2_used": 67.0,
+          "normalized_weight": 0.047324,
+          "source_usable_area_m2": 67.0,
+          "source_built_area_m2": 67.0
+        },
+        {
+          "listing_id": 3964,
+          "price_uf_used": 1871.11,
+          "area_m2_used": 50.0,
+          "normalized_weight": 0.045894,
+          "source_usable_area_m2": 50.0,
+          "source_built_area_m2": 50.0
+        },
+        {
+          "listing_id": 6427,
+          "price_uf_used": 3645.01,
+          "area_m2_used": 57.0,
+          "normalized_weight": 0.045248,
+          "source_usable_area_m2": 57.0,
+          "source_built_area_m2": 57.0
+        },
+        {
+          "listing_id": 3343,
+          "price_uf_used": 2794.51,
+          "area_m2_used": 51.0,
+          "normalized_weight": 0.045187,
+          "source_usable_area_m2": 51.0,
+          "source_built_area_m2": 51.0
+        }
+      ]
+    },
+    {
+      "payload": {
+        "comuna": "la_florida",
+        "property_type": "apartment",
+        "m2": 82,
+        "built_area_m2": 82,
+        "usable_area_m2": 82,
+        "land_area_m2": null,
+        "dormitorios": 3,
+        "banos": 2,
+        "estacionamientos": 1,
+        "precio_publicado_uf": 4000,
+        "precio_publicado_clp": null
+      },
+      "canonical_uf": 3909.15,
+      "comparable_calculation": [
+        {
+          "listing_id": 6314,
+          "price_uf_used": 4190.0,
+          "area_m2_used": 80.0,
+          "normalized_weight": 0.053887,
+          "source_usable_area_m2": 80.0,
+          "source_built_area_m2": 80.0
+        },
+        {
+          "listing_id": 5693,
+          "price_uf_used": 4500.0,
+          "area_m2_used": 77.0,
+          "normalized_weight": 0.052976,
+          "source_usable_area_m2": 77.0,
+          "source_built_area_m2": 77.0
+        },
+        {
+          "listing_id": 6618,
+          "price_uf_used": 4000.0,
+          "area_m2_used": 77.0,
+          "normalized_weight": 0.052976,
+          "source_usable_area_m2": 77.0,
+          "source_built_area_m2": 77.0
+        },
+        {
+          "listing_id": 539,
+          "price_uf_used": 5900.0,
+          "area_m2_used": 87.0,
+          "normalized_weight": 0.052976,
+          "source_usable_area_m2": 87.0,
+          "source_built_area_m2": 87.0
+        },
+        {
+          "listing_id": 537,
+          "price_uf_used": 3900.0,
+          "area_m2_used": 76.0,
+          "normalized_weight": 0.052672,
+          "source_usable_area_m2": 76.0,
+          "source_built_area_m2": 76.0
+        },
+        {
+          "listing_id": 6991,
+          "price_uf_used": 3760.0,
+          "area_m2_used": 74.0,
+          "normalized_weight": 0.052065,
+          "source_usable_area_m2": 74.0,
+          "source_built_area_m2": 74.0
+        },
+        {
+          "listing_id": 6315,
+          "price_uf_used": 3100.0,
+          "area_m2_used": 72.0,
+          "normalized_weight": 0.051457,
+          "source_usable_area_m2": 72.0,
+          "source_built_area_m2": 72.0
+        },
+        {
+          "listing_id": 5425,
+          "price_uf_used": 2650.0,
+          "area_m2_used": 71.0,
+          "normalized_weight": 0.051153,
+          "source_usable_area_m2": 71.0,
+          "source_built_area_m2": 71.0
+        },
+        {
+          "listing_id": 5427,
+          "price_uf_used": 2650.0,
+          "area_m2_used": 70.0,
+          "normalized_weight": 0.050849,
+          "source_usable_area_m2": 70.0,
+          "source_built_area_m2": 70.0
+        },
+        {
+          "listing_id": 2325,
+          "price_uf_used": 3100.0,
+          "area_m2_used": 80.0,
+          "normalized_weight": 0.050773,
+          "source_usable_area_m2": 80.0,
+          "source_built_area_m2": 80.0
+        },
+        {
+          "listing_id": 6694,
+          "price_uf_used": 2589.0,
+          "area_m2_used": 68.0,
+          "normalized_weight": 0.050242,
+          "source_usable_area_m2": 68.0,
+          "source_built_area_m2": 68.0
+        },
+        {
+          "listing_id": 5437,
+          "price_uf_used": 2850.0,
+          "area_m2_used": 68.0,
+          "normalized_weight": 0.050242,
+          "source_usable_area_m2": 68.0,
+          "source_built_area_m2": 68.0
+        },
+        {
+          "listing_id": 6616,
+          "price_uf_used": 4100.0,
+          "area_m2_used": 68.0,
+          "normalized_weight": 0.050242,
+          "source_usable_area_m2": 68.0,
+          "source_built_area_m2": 68.0
+        },
+        {
+          "listing_id": 5430,
+          "price_uf_used": 2673.01,
+          "area_m2_used": 70.0,
+          "normalized_weight": 0.047735,
+          "source_usable_area_m2": 70.0,
+          "source_built_area_m2": 70.0
+        },
+        {
+          "listing_id": 5428,
+          "price_uf_used": 3100.0,
+          "area_m2_used": 73.0,
+          "normalized_weight": 0.04709,
+          "source_usable_area_m2": 73.0,
+          "source_built_area_m2": 73.0
+        },
+        {
+          "listing_id": 2626,
+          "price_uf_used": 3251.35,
+          "area_m2_used": 67.0,
+          "normalized_weight": 0.046824,
+          "source_usable_area_m2": 67.0,
+          "source_built_area_m2": 67.0
+        },
+        {
+          "listing_id": 3255,
+          "price_uf_used": 2590.0,
+          "area_m2_used": 67.0,
+          "normalized_weight": 0.046824,
+          "source_usable_area_m2": 67.0,
+          "source_built_area_m2": 67.0
+        },
+        {
+          "listing_id": 1659,
+          "price_uf_used": 4500.0,
+          "area_m2_used": 83.0,
+          "normalized_weight": 0.046406,
+          "source_usable_area_m2": 83.0,
+          "source_built_area_m2": 83.0
+        },
+        {
+          "listing_id": 5436,
+          "price_uf_used": 5300.0,
+          "area_m2_used": 95.0,
+          "normalized_weight": 0.046394,
+          "source_usable_area_m2": 95.0,
+          "source_built_area_m2": 95.0
+        },
+        {
+          "listing_id": 950,
+          "price_uf_used": 2794.51,
+          "area_m2_used": 65.0,
+          "normalized_weight": 0.046216,
+          "source_usable_area_m2": 65.0,
+          "source_built_area_m2": 65.0
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -13,15 +13,19 @@ from api.deps import (
     CurrentUser,
     DbSession,
     ListingServiceDep,
+    RateLimiterDep,
     UFServiceDep,
     ValuationServiceDep,
 )
+from api.rate_limit import RateLimitRule, enforce_rate_limit, user_identifier
+from config import Settings, get_settings
 from core.entities.listing import Listing
 from core.exceptions import ListingNotFoundError, UFServiceError
 from core.ports.uf_service import UFRateInfo
 from infrastructure.db.repositories import SqlAlchemyPriceHistoryRepository
 from infrastructure.db.repositories.price_history_repo import PriceSeriesPoint
 from services.formatting import price_clp_int
+from services.thumbnails import ThumbnailRef, resolve as resolve_thumbnails
 from services.listing_analysis import analyze_listing_lookup
 from services.listing_freshness import ListingFreshnessResult, ensure_listing_fresh
 from services.listing_url_lookup import lookup_listing_url
@@ -33,6 +37,7 @@ _log = logging.getLogger(__name__)
 
 
 class ListingOut(BaseModel):
+    thumbnail: ThumbnailRef | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int | None
@@ -63,6 +68,7 @@ class ListingOut(BaseModel):
     source: str
     status: str
     captured_at: datetime
+    last_seen_at: datetime | None = None
     created_at: datetime | None = None
 
 
@@ -70,9 +76,14 @@ class ListingUrlLookupRequest(BaseModel):
     url: str
 
 
+class ListingLookupDataOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    thumbnail: ThumbnailRef | None = None
+
+
 class ListingUrlLookupResponse(BaseModel):
     status: str
-    listing_data: dict[str, Any]
+    listing_data: ListingLookupDataOut
     warnings: list[str]
     source: str | None
     url: str
@@ -83,6 +94,7 @@ class ListingUrlLookupResponse(BaseModel):
     freshness_note: str | None = None
     refresh_attempted: bool = False
     refresh_result: dict[str, Any] | None = None
+    listing_status: str | None = None
 
 
 class ListingUrlAnalyzeRequest(BaseModel):
@@ -102,6 +114,7 @@ class ListingUrlAnalyzeResponse(BaseModel):
     freshness_note: str | None = None
     refresh_attempted: bool = False
     refresh_result: dict[str, Any] | None = None
+    listing_status: str | None = None
 
 
 class PriceHistoryPointOut(BaseModel):
@@ -128,6 +141,7 @@ async def list_listings(
     _current_user: CurrentUser,
     service: ListingServiceDep,
     uf_service: UFServiceDep,
+    session: DbSession,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     comuna: str | None = None,
@@ -147,16 +161,46 @@ async def list_listings(
             detail="Error inesperado al listar publicaciones",
         ) from e
     uf_info = await _require_api_uf_info(uf_service)
-    return [_listing_out(listing, uf_info=uf_info) for listing in listings]
+    refs = await resolve_thumbnails(session, [item.id for item in listings], owner=_current_user.id, surface="detail", listings=listings)
+    return [_listing_out(listing, uf_info=uf_info).model_copy(update={"thumbnail": refs.get(listing.id)}) for listing in listings]
+
+
+def _raise_upstream_lookup_error(result) -> None:
+    if result.status != "upstream_unavailable":
+        return
+    reason = result.warnings[0]
+    errors = {
+        "portal_session_unavailable": (503, "La sesión verificada de Portal no está disponible. Puedes ingresar los datos en Tasar."),
+        "portal_reverification_required": (503, "Portal requiere renovar la verificación oficial. No se consultó la publicación."),
+        "portal_access_denied": (503, "Portal rechazó el acceso a la publicación. No podemos confirmar sus datos actuales."),
+        "portal_rate_limited": (503, "Portal limitó temporalmente las consultas. Intenta más tarde."),
+        "portal_listing_unavailable": (404, "La publicación no está disponible en Portal. No se creó una propiedad activa."),
+        "portal_timeout": (504, "Portal no respondió a tiempo. Puedes volver a consultar más tarde."),
+        "portal_transport_error": (502, "No se pudo conectar con Portal. Intenta más tarde."),
+        "portal_upstream_error": (502, "Portal no pudo responder a la consulta. Intenta más tarde."),
+    }
+    code, message = errors[reason]
+    raise HTTPException(status_code=code, detail={"code": reason, "message": message})
 
 
 @router.post("/lookup-url", response_model=ListingUrlLookupResponse)
 async def lookup_url(
     payload: ListingUrlLookupRequest,
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
+    limiter: RateLimiterDep,
     session: DbSession,
     uf_service: UFServiceDep,
+    settings: Settings = Depends(get_settings),
 ) -> ListingUrlLookupResponse:
+    await enforce_rate_limit(
+        limiter,
+        RateLimitRule(
+            namespace="listings:lookup-url:user",
+            max_requests=settings.rate_limit_analyze_url_user_max,
+            window_seconds=settings.rate_limit_analyze_url_user_window_seconds,
+        ),
+        user_identifier(current_user),
+    )
     url = payload.url.strip()
     if not url:
         raise HTTPException(
@@ -183,6 +227,7 @@ async def lookup_url(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Fuente aun no soportada",
         )
+    _raise_upstream_lookup_error(result)
     if result.status == "failed":
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -197,17 +242,32 @@ async def lookup_url(
         reason="listing_url_lookup",
     )
     _apply_freshness_payload(response, freshness)
+    data = response["listing_data"]
+    refs = await resolve_thumbnails(session, [data.get("listing_id")], owner=current_user.id, surface="detail")
+    ref = refs.get(data.get("listing_id"))
+    data["thumbnail"] = ref.model_dump() if ref is not None else None
     return ListingUrlLookupResponse.model_validate(response)
 
 
 @router.post("/analyze-url", response_model=ListingUrlAnalyzeResponse)
 async def analyze_url(
     payload: ListingUrlAnalyzeRequest,
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
+    limiter: RateLimiterDep,
     valuation_service: ValuationServiceDep,
     session: DbSession,
     uf_service: UFServiceDep,
+    settings: Settings = Depends(get_settings),
 ) -> ListingUrlAnalyzeResponse:
+    await enforce_rate_limit(
+        limiter,
+        RateLimitRule(
+            namespace="listings:analyze-url:user",
+            max_requests=settings.rate_limit_analyze_url_user_max,
+            window_seconds=settings.rate_limit_analyze_url_user_window_seconds,
+        ),
+        user_identifier(current_user),
+    )
     url = payload.url.strip()
     if not url:
         raise HTTPException(
@@ -234,16 +294,20 @@ async def analyze_url(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Fuente aun no soportada",
         )
+    _raise_upstream_lookup_error(lookup)
     if lookup.status == "failed":
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="No se pudo parsear la publicacion",
         )
 
-    analysis = await analyze_listing_lookup(
-        lookup.listing_data,
-        valuation_service=valuation_service,
-    )
+    try:
+        analysis = await analyze_listing_lookup(
+            lookup.listing_data,
+            valuation_service=valuation_service,
+        )
+    except UFServiceError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="UF real no disponible") from e
     response = analysis.to_dict()
     freshness = await _maybe_ensure_lookup_freshness(
         lookup.to_dict(),
@@ -381,6 +445,12 @@ def _apply_freshness_payload(payload: dict[str, Any], freshness: ListingFreshnes
     if freshness is None:
         return
     payload["freshness_status"] = freshness.status
+    payload["listing_status"] = freshness.listing_status
+    for key in ("listing_data", "listing"):
+        data = payload.get(key)
+        if isinstance(data, dict) and freshness.listing_status is not None:
+            data["status"] = freshness.listing_status
+            data["last_seen_at"] = freshness.last_seen_at
     payload["last_seen_at"] = freshness.last_seen_at
     payload["last_refreshed_at"] = freshness.last_refreshed_at
     payload["last_refresh_status"] = freshness.last_refresh_status
@@ -421,6 +491,7 @@ def _listing_out(listing: Listing, *, uf_info: UFRateInfo) -> ListingOut:
         source=listing.source,
         status=listing.status,
         captured_at=listing.scraped_at,
+        last_seen_at=listing.last_seen_at,
         created_at=None,
     )
 

@@ -71,6 +71,7 @@ async def seeded_listings(engine: AsyncEngine) -> list[Listing]:
                         bathrooms=2,
                         parking=1,
                         price=Price(clp=Decimal(str(price))),
+                        price_currency="CLP",
                         status="active",
                         fingerprint=f"api-fp-{idx}",
                         scraped_at=datetime.now(UTC),
@@ -138,7 +139,7 @@ async def test_listings_endpoint_returns_list(
     assert body[0]["comuna"] == "nunoa"
     assert body[0]["price_uf"] is None
     assert body[0]["price_uf_display"] is not None
-    assert body[0]["price_display_basis"] == "legacy_unknown"
+    assert body[0]["price_display_basis"] == "canonical_clp"
     assert body[0]["price_clp_display"] == body[0]["price_clp"]
     assert body[0]["uf_rate_used_for_display"] == 39000.0
 
@@ -602,15 +603,12 @@ async def test_valuation_endpoint_exposes_beta_consensus_when_enabled(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["consensus"]["status"] == "ok"
-    assert body["consensus"]["estimate_clp"] == body["estimated_price_clp"]
+    assert body["valuation_strategy"] == "canonical_only"
+    assert body["consensus_used"] is False
+    assert body["consensus"] is None
     assert body["selected_engine_names"] == ["comparables_canonical_outliers"]
-    assert body["consensus_method"] == "favorite_first_with_legacy_fallback_v1"
-    assert {item["engine_name"] for item in body["engine_results"]} == {
-        "comparables_canonical_outliers",
-        "comparables_legacy",
-        "comparables_canonical",
-    }
+    assert body["consensus_method"] == "canonical_only_v1"
+    assert {item["engine_name"] for item in body["engine_results"]} == {"comparables_canonical_outliers"}
     assert all("traceback" not in str(item).lower() for item in body["engine_results"])
 
 

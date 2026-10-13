@@ -1,15 +1,15 @@
 """Detector de oportunidades: listings subvaluados vs. el mercado.
 
-Usa `domain.valuation.valuate` como motor — cada listing se tasa contra los
-demás listings activos como universo de referencia. Si su precio está por
+Usa `domain.valuation.valuate` como motor â€” cada listing se tasa contra los
+demÃ¡s listings activos como universo de referencia. Si su precio estÃ¡ por
 debajo del estimado en al menos MIN_UNDERVALUATION, se marca como oportunidad.
 
 Modos:
-    · property_type dataset < MIN_RADAR_DATASET_SIZE → no evalúa ese tipo.
-    · property_type dataset < LOW_DATA_THRESHOLD     → modo conservador para ese tipo.
-    · property_type dataset ≥ LOW_DATA_THRESHOLD     → modo normal para ese tipo.
+    Â· property_type dataset < MIN_RADAR_DATASET_SIZE â†’ no evalÃºa ese tipo.
+    Â· property_type dataset < LOW_DATA_THRESHOLD     â†’ modo conservador para ese tipo.
+    Â· property_type dataset â‰¥ LOW_DATA_THRESHOLD     â†’ modo normal para ese tipo.
 
-Función pura: no toca DB, red ni caché.
+FunciÃ³n pura: no toca DB, red ni cachÃ©.
 """
 from __future__ import annotations
 
@@ -27,6 +27,8 @@ from core.entities.listing import Listing, Property
 from core.entities.opportunity import Opportunity, RadarResult
 from core.exceptions import InsufficientDataError, ValidationError
 from core.normalization.property_type import normalize_property_type as _property_type
+from core.normalization.publication_identity import publication_keys, same_publication
+from core.normalization.property_consistency import property_type_conflict
 from domain.radar.price_basis import canonical_discount_pct, radar_price_basis
 from domain.valuation.comparables import valuate
 
@@ -34,24 +36,34 @@ from domain.valuation.comparables import valuate
 def detect_opportunities(
     listings: Sequence[Listing],
     uf_to_clp: Decimal,
+    *,
+    comparable_universe: Sequence[Listing] | None = None,
 ) -> RadarResult:
-    """Recorre `listings` y retorna los que están subvaluados.
+    """Recorre `listings` y retorna los que estÃ¡n subvaluados.
 
     Args:
-        listings: universo completo (filtrado previamente por quien llama).
+        listings: targets que Radar puede mostrar, filtrados previamente.
         uf_to_clp: tasa UF vigente (se propaga a cada ValuationResult).
+        comparable_universe: pool activo usado para tasar los targets. Si se
+            omite, conserva el comportamiento historico de usar ``listings``.
 
     Returns:
         RadarResult con opportunities ordenadas por ranking_score DESC.
     """
-    active = [listing for listing in listings if listing.is_active]
-    total_candidates = len(active)
-    processable = [listing for listing in active if _has_valid_area(listing)]
-    skipped_invalid_area = total_candidates - len(processable)
+    active_targets = [listing for listing in listings if listing.is_active]
+    total_candidates = len(active_targets)
+    processable_targets = [listing for listing in active_targets if _has_valid_area(listing)]
+    skipped_invalid_area = total_candidates - len(processable_targets)
     processed_candidates = 0
     skipped_validation_error = 0
 
-    active_by_property_type = _active_by_property_type(processable)
+    raw_comparable_universe = comparable_universe if comparable_universe is not None else listings
+    processable_comparables = [
+        listing
+        for listing in raw_comparable_universe
+        if listing.is_active and _has_valid_area(listing)
+    ]
+    active_by_property_type = _active_by_property_type(processable_comparables)
     low_data_by_property_type = {
         property_type: len(rows) < LOW_DATA_THRESHOLD
         for property_type, rows in active_by_property_type.items()
@@ -60,7 +72,7 @@ def detect_opportunities(
     if not any(len(rows) >= MIN_RADAR_DATASET_SIZE for rows in active_by_property_type.values()):
         return RadarResult(
             opportunities=[],
-            total_listings_analyzed=len(active),
+            total_listings_analyzed=len(active_targets),
             low_data_mode=True,
             low_data_by_property_type=low_data_by_property_type,
             total_candidates=total_candidates,
@@ -69,8 +81,18 @@ def detect_opportunities(
             skipped_validation_error=skipped_validation_error,
         )
 
+    # Snapshot pure listing facts once for this detection run. Rebuilding URL
+    # identities/regex guards for every target-candidate pair made a production
+    # sized universe several times slower. No process-wide cache can go stale.
+    facts = {id(row): (publication_keys(row), property_type_conflict(row), _property_type(row))
+             for row in [*processable_comparables, *processable_targets]}
+    eligible_by_type: dict[str, list[Listing]] = defaultdict(list)
+    for row in processable_comparables:
+        _, conflict, kind = facts[id(row)]
+        if not conflict:
+            eligible_by_type[kind].append(row)
     opportunities: list[Opportunity] = []
-    for target_listing in processable:
+    for target_listing in processable_targets:
         target_type = _property_type(target_listing)
         same_type_count = len(active_by_property_type.get(target_type, ()))
         if same_type_count < MIN_RADAR_DATASET_SIZE:
@@ -82,7 +104,8 @@ def detect_opportunities(
         processed_candidates += 1
         try:
             opportunity = _evaluate_listing(
-                target_listing, processable, uf_to_clp, min_undervaluation
+                target_listing, eligible_by_type.get(target_type, ()), uf_to_clp,
+                min_undervaluation, facts=facts,
             )
         except ValidationError:
             skipped_validation_error += 1
@@ -94,7 +117,7 @@ def detect_opportunities(
 
     return RadarResult(
         opportunities=opportunities,
-        total_listings_analyzed=len(active),
+        total_listings_analyzed=len(active_targets),
         low_data_mode=any(low_data_by_property_type.values()),
         low_data_by_property_type=low_data_by_property_type,
         total_candidates=total_candidates,
@@ -104,9 +127,9 @@ def detect_opportunities(
     )
 
 
-# ─────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  Helpers internos
-# ─────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _active_by_property_type(active: Sequence[Listing]) -> dict[str, list[Listing]]:
     by_type: dict[str, list[Listing]] = defaultdict(list)
     for listing in active:
@@ -119,12 +142,18 @@ def _evaluate_listing(
     universe: Sequence[Listing],
     uf_to_clp: Decimal,
     min_undervaluation: float,
+    *,
+    facts: dict | None = None,
 ) -> Opportunity | None:
-    """Valora un listing contra los demás del universo; lo retorna si califica."""
+    """Valora un listing contra los demÃ¡s del universo; lo retorna si califica."""
+    target_conflict = facts[id(target)][1] if facts is not None else property_type_conflict(target)
+    if target_conflict:
+        return None
     candidates = [
         listing
-        for listing in _exclude_self(target, universe)
-        if _same_property_type(target, listing)
+        for listing in _exclude_self(target, universe, facts=facts)
+        if ((facts[id(target)][2] == facts[id(listing)][2] and not facts[id(listing)][1])
+            if facts is not None else (_same_property_type(target, listing) and not property_type_conflict(listing)))
     ]
     target_property = _listing_as_property(target)
 
@@ -161,16 +190,17 @@ def _evaluate_listing(
     )
 
 
-def _exclude_self(target: Listing, universe: Sequence[Listing]) -> list[Listing]:
+def _exclude_self(target: Listing, universe: Sequence[Listing], *, facts: dict | None = None) -> list[Listing]:
     """Retorna `universe` sin el target.
 
-    Usa id si está disponible (entidad persistida) o fingerprint como fallback
+    Usa id si estÃ¡ disponible (entidad persistida) o fingerprint como fallback
     (entidad en memoria). La DB garantiza unicidad de fingerprint, por lo que
-    no hay ambigüedad en ambos caminos.
+    no hay ambigÃ¼edad en ambos caminos.
     """
-    if target.id is not None:
-        return [listing for listing in universe if listing.id != target.id]
-    return [listing for listing in universe if listing.fingerprint != target.fingerprint]
+    if facts is None:
+        return [listing for listing in universe if not same_publication(target, listing)]
+    return [listing for listing in universe if not same_publication(
+        target, listing, a_keys=facts[id(target)][0], b_keys=facts[id(listing)][0])]
 
 
 def _same_property_type(a: Listing, b: Listing) -> bool:
@@ -183,7 +213,7 @@ def _has_valid_area(listing: Listing) -> bool:
 
 
 def _listing_as_property(listing: Listing) -> Property:
-    """Construye una Property a partir de los atributos físicos del listing."""
+    """Construye una Property a partir de los atributos fÃ­sicos del listing."""
     return Property(
         id=None,
         comuna=listing.comuna,

@@ -429,6 +429,7 @@ def _valuation_input(listing: ListingORM) -> tuple[ValuationInput, str | None]:
         return _empty_input(), "needs_valuation_input"
     return (
         ValuationInput(
+            target_listing_id=listing.id,
             comuna=listing.comuna,
             property_type=listing.property_type,
             m2=listing.m2,

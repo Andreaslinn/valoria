@@ -15,6 +15,12 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/capabilities")
+async def capabilities() -> dict:
+    from services.v2_contract import v2_capabilities
+    return v2_capabilities()
+
+
 @router.get("/full")
 async def full_health(_admin: CurrentAdmin) -> dict:
     checks = await run_all_checks()

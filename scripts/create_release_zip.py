@@ -364,14 +364,13 @@ def write_zip(
         with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for entry in plan.included:
                 archive.write(entry.source, normalize_relative(entry.arcname))
-            archive.writestr("release_manifest.json", manifest_bytes)
+            archive.writestr("release_manifest.json", manifest_bytes, compress_type=zipfile.ZIP_STORED)
         current_size = destination.stat().st_size
         if current_size == previous_size:
-            break
+            return manifest
         previous_size = current_size
 
-    manifest = build_manifest(root, options, plan, created_at, destination.stat().st_size)
-    return manifest
+    raise ReleaseZipError("Release manifest size did not converge")
 
 
 def write_checksum(zip_path: Path) -> Path:

@@ -6,7 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from sqlalchemy import select
@@ -14,16 +14,24 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from config import get_settings
-from domain.ingestion.data_cleaning import CleanedListing, clean_listing
+from core.normalization.publication_identity import source_identity_from_url
+from domain.ingestion.data_cleaning import CleanedListing, clean_listing, normalize_property_type
 from infrastructure.db.mappers import listing_from_orm
 from infrastructure.db.models import ListingORM
+from infrastructure.scrapers.portal_acquisition import PortalAcquisitionError, portal_lookup_client
 from infrastructure.scrapers.yapo import parse_listing_from_url as parse_yapo_listing_from_url
+
+from infrastructure.scrapers.portalinmobiliario import (
+    classify_portal_detail_page_state,
+    parse_listing_detail_portal,
+)
 
 LookupStatus = str
 ListingLookup = Callable[[str], Awaitable[Any | None]]
 
 _TIMEOUT_SEC = 12.0
 _SUPPORTED_YAPO_HOSTS = {"yapo.cl", "www.yapo.cl"}
+_SUPPORTED_PORTAL_HOSTS = {"portalinmobiliario.com", "www.portalinmobiliario.com"}
 _BLOCKED_HOSTS = {"localhost", "0.0.0.0"}
 _log = logging.getLogger(__name__)
 
@@ -71,7 +79,10 @@ async def lookup_listing_url(
             listing_data=listing_to_form_data(existing),
         )
 
-    raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)
+    try:
+        raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)
+    except PortalAcquisitionError as exc:
+        return _result("upstream_unavailable", url=url, source=source, warnings=[exc.reason])
     if raw is None:
         return _result("failed", url=url, source=source, warnings=["No se pudo parsear la publicación"])
     try:
@@ -82,7 +93,7 @@ async def lookup_listing_url(
             url=url,
             source=source,
             listing_data=raw_to_form_data(raw),
-            warnings=_warnings_for_raw(raw),
+            warnings=sorted(set(_warnings_for_raw(raw) + ["normalization_incomplete"])),
         )
 
     return _result(
@@ -100,7 +111,10 @@ async def parse_listing_from_url(
     source: str | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> CleanedListing | None:
-    raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)
+    try:
+        raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)
+    except PortalAcquisitionError:
+        return None
     if raw is None:
         return None
     try:
@@ -116,12 +130,19 @@ async def _parse_raw_listing_from_url(
     http_client: httpx.AsyncClient | None,
 ) -> dict[str, Any] | None:
     source = source or detect_source(url)
-    if source != "yapo":
+    if source not in {"yapo", "portalinmobiliario"}:
+        return None
+    if validate_public_listing_url(url) or detect_source(url) != source:
         return None
 
+    if source == "portalinmobiliario" and http_client is None:
+        async with portal_lookup_client() as client:
+            return await _parse_portal_url(url, client)
     owns_client = http_client is None
     client = http_client or httpx.AsyncClient(timeout=_TIMEOUT_SEC, follow_redirects=True)
     try:
+        if source == "portalinmobiliario":
+            return await _parse_portal_url(url, client)
         return await parse_yapo_listing_from_url(url, http_client=client)
     except (httpx.HTTPError, ValueError):
         return None
@@ -130,10 +151,71 @@ async def _parse_raw_listing_from_url(
             await client.aclose()
 
 
+
+async def _parse_portal_url(url: str, client: httpx.AsyncClient) -> dict[str, Any] | None:
+    """One detail page, with bounded same-source redirects and no retries.
+
+    Reuse the production parser; never interpret a challenge as a property or
+    follow a redirect to a login/external/internal host. No guessed UF rate.
+    """
+    current = url
+    for _ in range(4):
+        try:
+            response = await client.get(current, follow_redirects=False)
+        except httpx.TimeoutException as exc:
+            raise PortalAcquisitionError("portal_timeout") from exc
+        except httpx.HTTPError as exc:
+            raise PortalAcquisitionError("portal_transport_error") from exc
+        if response.status_code in {401, 403}:
+            raise PortalAcquisitionError("portal_access_denied")
+        if response.status_code == 429:
+            raise PortalAcquisitionError("portal_rate_limited")
+        if response.status_code in {404, 410}:
+            raise PortalAcquisitionError("portal_listing_unavailable")
+        if response.status_code >= 500:
+            raise PortalAcquisitionError("portal_upstream_error")
+        if response.status_code in {301, 302, 303, 307, 308}:
+            location = response.headers.get("location")
+            if not location:
+                return None
+            target = urljoin(current, location)
+            if validate_public_listing_url(target) or detect_source(target) != "portalinmobiliario":
+                return None
+            current = target
+            continue
+        if response.status_code != 200:
+            return None
+        page_state = classify_portal_detail_page_state(response.text, status_code=response.status_code)
+        if page_state in {"login_page", "captcha_visible", "verification_visible", "blocked"}:
+            raise PortalAcquisitionError("portal_access_denied")
+        if page_state != "detail":
+            return None
+        raw = dict(parse_listing_detail_portal(response.text, current))
+        raw["url"] = url
+        # Detail fields are nullable; the existing ingestion/form contract uses
+        # zero for unknown counts. Retain explicit warnings instead of silently
+        # falling out of normalization on int(None).
+        missing_counts = []
+        for field in ("bedrooms", "bathrooms", "parking"):
+            if raw.get(field) is None:
+                raw[field] = 0
+                missing_counts.append("missing_" + field)
+        if missing_counts:
+            raw.setdefault("raw_metadata", {})["data_quality_warnings"] = missing_counts
+        raw["property_type"] = normalize_property_type(None, raw=raw, title=raw.get("title") or "")
+        raw["m2"] = raw.get("usable_area_m2") or raw.get("built_area_m2")
+        if raw.get("price_uf") is not None:
+            raw.update(price_uf_source="scraped", price_uf_confidence="high", price_recovery_method="portal_detail")
+        return raw
+    return None
+
+
 def detect_source(url: str) -> str | None:
     host = (urlparse(url).hostname or "").lower()
     if host in _SUPPORTED_YAPO_HOSTS or host.endswith(".yapo.cl"):
         return "yapo"
+    if host in _SUPPORTED_PORTAL_HOSTS:
+        return "portalinmobiliario"
     return None
 
 
@@ -142,6 +224,13 @@ def validate_public_listing_url(url: str) -> str | None:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return "invalid_url"
     host = (parsed.hostname or "").strip().lower()
+    if parsed.username is not None or parsed.password is not None:
+        return "invalid_url"
+    try:
+        if parsed.port not in {None, 80, 443}:
+            return "invalid_url"
+    except ValueError:
+        return "invalid_url"
     if host in _BLOCKED_HOSTS or host.endswith(".localhost"):
         return "invalid_url"
     try:
@@ -158,6 +247,8 @@ def listing_to_form_data(listing: Any) -> dict[str, Any]:
     price_clp = int(getattr(getattr(listing, "price", None), "clp", 0) or 0)
     return {
         "listing_id": getattr(listing, "id", None),
+        "status": getattr(listing, "status", None),
+        "last_seen_at": getattr(listing, "last_seen_at", None),
         "title": getattr(listing, "title", None),
         "comuna": getattr(listing, "comuna", None),
         "property_type": getattr(listing, "property_type", None) or "unknown",
@@ -176,6 +267,7 @@ def listing_to_form_data(listing: Any) -> dict[str, Any]:
         "price_recovery_method": getattr(listing, "price_recovery_method", None),
         "price_clp_snapshot": price_clp,
         "source": getattr(listing, "source", None),
+        "external_id": getattr(listing, "external_id", None),
         "url": getattr(listing, "url", None),
     }
 
@@ -204,6 +296,7 @@ def raw_to_form_data(raw: dict[str, Any]) -> dict[str, Any]:
         "price_recovery_method": raw.get("price_recovery_method"),
         "price_clp_snapshot": raw.get("price_clp") or None,
         "source": raw.get("source"),
+        "external_id": raw.get("external_id"),
         "url": raw.get("url"),
     }
 
@@ -223,11 +316,25 @@ async def _find_existing_listing_by_url(url: str) -> Any | None:
             class_=AsyncSession,
         )
         async with session_factory() as session:
-            stmt = select(ListingORM).where(ListingORM.url == url)
-            orm = (await session.execute(stmt)).scalar_one_or_none()
-            return listing_from_orm(orm) if orm is not None else None
+            return await find_existing_listing_by_url(session, url)
     finally:
         await engine.dispose()
+
+
+async def find_existing_listing_by_url(session: AsyncSession, url: str) -> Any | None:
+    """Resolve tracked/changed slugs by indexed publication ID, including history."""
+    identity = source_identity_from_url(url)
+    if identity:
+        source, external_id = identity
+        stmt = select(ListingORM).where(
+            ListingORM.source == source, ListingORM.external_id == external_id,
+        )
+        orm = (await session.execute(stmt)).scalar_one_or_none()
+        if orm is not None:
+            return listing_from_orm(orm)
+    stmt = select(ListingORM).where(ListingORM.url == url).order_by(ListingORM.id).limit(1)
+    orm = (await session.execute(stmt)).scalar_one_or_none()
+    return listing_from_orm(orm) if orm is not None else None
 
 
 def _has_minimum_fields(cleaned: CleanedListing) -> bool:

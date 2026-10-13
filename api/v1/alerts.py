@@ -37,11 +37,13 @@ async def list_alerts(
     current_user: CurrentUser,
     session: DbSession,
     limit: int = Query(default=50, ge=1, le=100),
+    include_read: bool = False,
 ) -> list[AlertOut]:
     assert current_user.id is not None
     alerts = await SqlAlchemyAlertRepository(session).get_unread_alerts_for_user_saved_listings(
         user_id=current_user.id,
         limit=limit,
+        include_read=include_read,
     )
     return [_alert_out(alert) for alert in alerts]
 
@@ -58,7 +60,7 @@ async def mark_alert_read(
     if alert is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alerta no encontrada")
     await session.commit()
-    return AlertReadOut(id=alert.id, is_read=alert.is_read)
+    return AlertReadOut(id=alert.id, is_read=getattr(alert, "_user_is_read", alert.is_read))
 
 
 def _alert_out(alert: AlertORM) -> AlertOut:
@@ -70,7 +72,7 @@ def _alert_out(alert: AlertORM) -> AlertOut:
         message=_alert_message(alert.alert_type, alert.payload),
         payload=alert.payload or {},
         created_at=alert.created_at,
-        is_read=alert.is_read,
+        is_read=getattr(alert, "_user_is_read", alert.is_read),
         title=listing.title if listing is not None else None,
         comuna=listing.comuna if listing is not None else None,
         price_clp=int(listing.price_clp) if listing is not None else None,

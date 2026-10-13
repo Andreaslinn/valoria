@@ -7,11 +7,11 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from infrastructure.db.models import AlertORM, SavedListingORM
+from infrastructure.db.models import AlertORM, AlertReadORM, SavedListingORM
 
 
 class SqlAlchemyAlertRepository:
@@ -115,18 +115,24 @@ class SqlAlchemyAlertRepository:
         *,
         user_id: int,
         limit: int = 50,
+        include_read: bool = False,
     ) -> list[AlertORM]:
         stmt = (
-            select(AlertORM)
+            select(AlertORM, AlertReadORM.alert_id)
             .join(SavedListingORM, SavedListingORM.listing_id == AlertORM.listing_id)
+            .outerjoin(AlertReadORM, and_(AlertReadORM.alert_id == AlertORM.id, AlertReadORM.user_id == user_id))
             .options(joinedload(AlertORM.listing))
             .where(SavedListingORM.user_id == user_id)
             .where(SavedListingORM.status == "active")
-            .where(AlertORM.is_read.is_(False))
             .order_by(AlertORM.created_at.desc(), AlertORM.id.desc())
             .limit(limit)
         )
-        return list((await self._session.execute(stmt)).scalars().all())
+        if not include_read:
+            stmt = stmt.where(AlertORM.is_read.is_(False), AlertReadORM.alert_id.is_(None))
+        rows = (await self._session.execute(stmt)).all()
+        for alert, read_id in rows:
+            alert._user_is_read = alert.is_read or read_id is not None
+        return [alert for alert, _ in rows]
 
     async def mark_alert_as_read(self, *, alert_id: int, user_id: int) -> AlertORM | None:
         stmt = (
@@ -140,8 +146,12 @@ class SqlAlchemyAlertRepository:
         alert = (await self._session.execute(stmt)).scalar_one_or_none()
         if alert is None:
             return None
-        alert.is_read = True
-        await self._session.flush()
+        if self._session.get_bind().dialect.name == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert
+        else:
+            from sqlalchemy.dialects.postgresql import insert
+        await self._session.execute(insert(AlertReadORM).values(user_id=user_id, alert_id=alert_id).on_conflict_do_nothing())
+        alert._user_is_read = True
         return alert
 
 

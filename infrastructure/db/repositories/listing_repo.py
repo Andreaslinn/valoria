@@ -32,6 +32,13 @@ class SqlAlchemyListingRepository(ListingRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def record_observation(self, raw, cleaned, saved) -> None:
+        from domain.ingestion.observations import build_observation
+        from infrastructure.db.observation_history import append_observation
+        from config import get_settings
+        if get_settings().ingestion_observation_history_enabled and cleaned.source in {"yapo", "portalinmobiliario"}:
+            await append_observation(self._session, build_observation(raw, cleaned, saved), enabled=True)
+
     async def save(self, listing: Listing) -> Listing:
         if listing.id is None:
             orm = listing_to_orm(listing)

@@ -44,7 +44,10 @@ async def analyze_listing_lookup(
         )
 
     try:
-        valuation = await valuation_service.valuate_property(valuation_input)
+        valuation = await valuation_service.valuate_property(
+            valuation_input,
+            valuation_strategy="consensus_v1",
+        )
     except (ValidationError, InsufficientDataError, ValueError) as error:
         unavailable.append(str(error))
         return _analysis_result(
@@ -71,7 +74,7 @@ async def analyze_listing_lookup(
         valuation=valuation_payload,
         price_analysis=price_analysis,
         signals=signals,
-        report_status=_report_status(),
+        report_status=_report_status(available=valuation_payload["estimated_value_uf"] is not None),
     )
 
 
@@ -107,6 +110,7 @@ def _valuation_input(data: Mapping[str, Any]) -> tuple[ValuationInput | None, li
     assert built_area is not None
     return (
         ValuationInput(
+            target_listing_id=_safe_int(data.get("listing_id")),
             comuna=comuna,
             property_type=property_type,
             m2=built_area,
@@ -126,6 +130,10 @@ def _valuation_input(data: Mapping[str, Any]) -> tuple[ValuationInput | None, li
 def _listing_payload(data: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "listing_id": data.get("listing_id"),
+        "source": data.get("source"),
+        "external_id": data.get("external_id"),
+        "status": data.get("status"),
+        "last_seen_at": data.get("last_seen_at"),
         "title": data.get("title"),
         "url": data.get("url"),
         "comuna": data.get("comuna"),
@@ -156,6 +164,12 @@ def _valuation_payload(valuation: Any) -> dict[str, Any]:
         "confidence_label": getattr(valuation, "confidence_label", None),
         "comparables_used": _safe_int(getattr(valuation, "comparable_count", None)),
         "warnings": list(getattr(valuation, "warnings", []) or []),
+        "valuation_strategy": getattr(valuation, "valuation_strategy", "current"),
+        "consensus_used": bool(getattr(valuation, "consensus_used", False)),
+        "consensus_unavailable_reason": getattr(valuation, "consensus_unavailable_reason", None),
+        "fallback_engine_used": getattr(valuation, "fallback_engine_used", None),
+        "comparables": [item.to_payload() if hasattr(item, "to_payload") else dict(item)
+                        for item in (getattr(valuation, "comparables", []) or [])],
     }
 
 
@@ -169,6 +183,11 @@ def _empty_valuation() -> dict[str, Any]:
         "confidence_label": None,
         "comparables_used": 0,
         "warnings": [],
+        "comparables": [],
+        "valuation_strategy": "unavailable",
+        "consensus_used": False,
+        "consensus_unavailable_reason": None,
+        "fallback_engine_used": None,
     }
 
 
@@ -271,7 +290,7 @@ def _signals(
 
 def _base_unavailable_signals() -> list[str]:
     return [
-        "Listing Risk Report descargable en preparacion.",
+        "Reporte de riesgo ampliado en preparación; el informe del análisis depende de contar con una estimación.",
         "Tendencia de comuna no conectada a este analisis.",
         "Liquidez y plusvalia no disponibles en este endpoint.",
         "Riesgo legal, CBR y contribuciones no conectados.",
@@ -279,10 +298,11 @@ def _base_unavailable_signals() -> list[str]:
     ]
 
 
-def _report_status() -> dict[str, Any]:
+def _report_status(*, available: bool = False) -> dict[str, Any]:
     return {
+        "analysis_report_available": available,
         "listing_risk_report_available": False,
-        "reason": "Reporte descargable en preparacion",
+        "reason": "Informe de análisis HTML disponible. El reporte de riesgo ampliado sigue en preparación." if available else "Se requiere una estimación para descargar el informe de análisis. El reporte de riesgo ampliado sigue en preparación.",
     }
 
 

@@ -1,0 +1,180 @@
+"""Immutable observation documents. No matching or changes to normalization rules."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, is_dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
+import hashlib
+import json
+import math
+from pathlib import Path
+
+from domain.ingestion.raw_safety import sanitize, POLICY_VERSION
+
+VERSION = "listing_observation_v2"
+STATE_FIELDS = (
+    "source",
+    "external_id",
+    "title",
+    "url",
+    "comuna",
+    "property_type",
+    "m2",
+    "built_area_m2",
+    "usable_area_m2",
+    "land_area_m2",
+    "bedrooms",
+    "bathrooms",
+    "parking",
+    "coordinates",
+    "geocode_precision",
+    "price",
+    "price_uf",
+    "price_currency",
+    "price_uf_confidence",
+    "price_uf_source",
+    "price_recovery_method",
+    "status",
+    "scraped_at",
+    "last_seen_at",
+)
+
+
+def json_value(value):
+    if is_dataclass(value):
+        return json_value(asdict(value))
+    if isinstance(value, dict):
+        return {str(k): json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_value(v) for v in value]
+    if isinstance(value, datetime):
+        return (
+            value.replace(tzinfo=UTC).isoformat()
+            if value.tzinfo is None
+            else value.astimezone(UTC).isoformat()
+        )
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"nonfinite_number_raw": str(value)}
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    raise TypeError(f"Unsupported observation value: {type(value).__name__}")
+
+
+def state(entity):
+    return json_value({k: getattr(entity, k, None) for k in STATE_FIELDS})
+
+
+def build_observation(raw, cleaned, saved):
+    evidence = raw.get("_source_evidence") or {}
+    observed = cleaned.scraped_at
+    parsed = state(cleaned)
+    parsed["raw_metadata"] = json_value(cleaned.raw_metadata)
+    # Preserve incoming normalization separately from effective persisted state:
+    # coordinate guards / old metadata merging must not masquerade as reobserved evidence.
+    lineage = {}
+    source_paths = {
+        "external_id": "id",
+        "title": "title",
+        "url": "link",
+        "m2": "square",
+        "built_area_m2": "square",
+        "usable_area_m2": "usableArea",
+        "land_area_m2": "lotSize",
+        "bedrooms": "rooms",
+        "bathrooms": "bathrooms",
+        "parking": "parking",
+        "price_uf": "price.amount.value",
+    }
+    payload = (evidence.get("raw") or {}).get("payload") or {}
+    normalizer = {
+        "module": "data_cleaning.py",
+        "sha256": hashlib.sha256(
+            Path(__file__).with_name("data_cleaning.py").read_bytes()
+        ).hexdigest(),
+    }
+    for k in STATE_FIELDS:
+        path = source_paths.get(k) if cleaned.source == "yapo" and payload else None
+        if k == "price_uf" and (payload.get("price") or {}).get("currency", {}).get(
+            "symbol"
+        ) not in {"UF", "CLF"}:
+            path = None
+        source_value = payload.get(path) if path and "." not in path else None
+        if path == "price.amount.value":
+            source_value = (payload.get("price") or {}).get("amount", {}).get("value")
+        lineage[k] = {
+            "source": cleaned.source,
+            "observed_at": json_value(observed),
+            "parser": evidence.get("parser"),
+            "normalizer": normalizer,
+            "origin": "existing_clean_listing",
+            "raw_field": k if k in raw else None,
+            "raw_value": json_value(raw.get(k)),
+            "parsed_value": parsed.get(k),
+            "source_payload_path": "payload." + path if path else None,
+            "source_value": json_value(source_value),
+            "missing_in_input": k not in raw,
+        }
+    lineage["coordinates"].update(
+        source_precision=evidence.get("coordinate_precision", "unverified"),
+        location_source=(raw.get("raw_metadata") or {}).get("location_source"),
+        raw_value=json_value({"lat": raw.get("lat"), "lon": raw.get("lon")}),
+        source_value=json_value(payload.get("location")),
+    )
+    # Keep existing surface inference traceable, without changing its business meaning.
+    for field in ("built_area_m2", "usable_area_m2", "land_area_m2"):
+        lineage[field]["normalization_path"] = cleaned.raw_metadata.get(
+            field.removesuffix("_m2") + "_parse_source"
+        )
+    document = {
+        "schema_version": VERSION,
+        "event_kind": "listing_seen",
+        "source": cleaned.source,
+        "external_id": cleaned.external_id,
+        "listing_id": saved.id,
+        "observed_at": json_value(observed),
+        "raw_state": json_value(raw),
+        "parsed_state": parsed,
+        "persisted_state": state(saved),
+        "provenance": lineage,
+        "source_evidence_available": bool(evidence),
+    }
+    return identify(document)
+
+
+def status_observation(row, observed_at, refresh_status, previous_status):
+    return identify(
+        {
+            "schema_version": VERSION,
+            "event_kind": "refresh_result",
+            "source": row.source,
+            "external_id": row.external_id,
+            "listing_id": row.id,
+            "observed_at": json_value(observed_at),
+            "raw_state": {"refresh_status": refresh_status, "url": row.url},
+            "parsed_state": {
+                "status": row.status,
+                "previous_status": previous_status,
+                "refresh_status": refresh_status,
+            },
+            "persisted_state": {"status": row.status},
+            "provenance": {"origin": "existing_refresh_state_machine", "is_listing_seen": False},
+        }
+    )
+
+
+def identify(document):
+    document = sanitize(document)
+    document['safety_policy'] = POLICY_VERSION
+    # DB representation (e.g. Numeric scale) and prior state are not observation identity.
+    identity = {k: v for k, v in document.items() if k != "persisted_state"}
+    if document["event_kind"] == "refresh_result":
+        identity["parsed_state"] = {
+            k: v for k, v in identity["parsed_state"].items() if k != "previous_status"
+        }
+    body = json.dumps(
+        identity, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    )
+    return dict(document, observation_id=hashlib.sha256(body.encode()).hexdigest())

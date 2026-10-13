@@ -218,7 +218,9 @@ def portal_detail_to_raw(
         "lat": lat,
         "lon": lon,
         "scraped_at": datetime.now(UTC),
+        "geocode_precision": raw_metadata.get("geocode_precision"),
         "raw_metadata": raw_metadata,
+        "_source_evidence": detail.get("_source_evidence"),
     }
 
 

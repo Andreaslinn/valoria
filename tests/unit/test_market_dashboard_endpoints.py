@@ -33,6 +33,36 @@ async def test_market_briefing_returns_empty_without_listings(engine: AsyncEngin
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("period_days", [7, 30, 90])
+async def test_market_dashboard_endpoint_returns_complete_empty_series(engine: AsyncEngine, period_days: int) -> None:
+    client, _session_factory = _client(engine)
+    async with client:
+        response = await client.get(f"/api/v1/market/dashboard?period_days={period_days}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "empty"
+    assert body["scope"]["property_type"] == "apartment"
+    assert len(body["daily_pulse"]) == period_days
+    assert body["bedrooms_supply"] == [
+        {"bucket": "1", "active_listings": 0},
+        {"bucket": "2", "active_listings": 0},
+        {"bucket": "3", "active_listings": 0},
+        {"bucket": "4_plus", "active_listings": 0},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_market_dashboard_endpoint_rejects_incompatible_property_type(engine: AsyncEngine) -> None:
+    client, _session_factory = _client(engine)
+    async with client:
+        response = await client.get("/api/v1/market/dashboard?property_type=house")
+
+    assert response.status_code == 422
+    assert "soporta solo apartment" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_market_briefing_uses_real_listing_signals(engine: AsyncEngine) -> None:
     client, session_factory = _client(engine)
     async with session_factory() as session:

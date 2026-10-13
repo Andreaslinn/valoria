@@ -16,7 +16,7 @@ def test_yapo_url_is_recognized() -> None:
 
 
 def test_unsupported_source() -> None:
-    assert detect_source("https://portalinmobiliario.com/MLC-1") is None
+    assert detect_source("https://example.com/MLC-1") is None
 
 
 @pytest.mark.parametrize(
@@ -159,7 +159,7 @@ async def test_partial_when_critical_fields_are_missing() -> None:
       <body>
         <h1>Departamento amplio en Nunoa</h1>
         <div class="d3-ad-tile__location"><span>Nunoa</span></div>
-        <p>75 m2, 2 dormitorios, 1 bano</p>
+        <meta name="description" content="75 m2, 2 dormitorios, 1 bano">
       </body>
     </html>
     """
@@ -187,8 +187,8 @@ async def test_lookup_continues_when_existing_listing_lookup_fails() -> None:
       <body>
         <h1>Depto 1D en Macul a pasos de metro</h1>
         <div class="listing-location">Ubicacion estrategica</div>
-        <strong>$120.000.000</strong>
-        <p>45 m2, 1 dormitorio, 1 bano</p>
+        <strong class="price">$120.000.000</strong>
+        <meta name="description" content="45 m2, 1 dormitorio, 1 bano">
       </body>
     </html>
     """
@@ -219,8 +219,8 @@ async def test_yapo_url_with_uf_price_does_not_emit_missing_price() -> None:
       <body>
         <h1>Depto 1D en Macul a pasos de metro</h1>
         <div class="listing-location">Ubicacion estrategica</div>
-        <strong>UF 3.200</strong>
-        <p>45 m2, 1 dormitorio, 1 bano</p>
+        <strong class="price">UF 3.200</strong>
+        <meta name="description" content="45 m2, 1 dormitorio, 1 bano">
       </body>
     </html>
     """

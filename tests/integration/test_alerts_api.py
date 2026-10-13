@@ -61,6 +61,26 @@ async def test_mark_own_alert_as_read_and_hides_from_list(
     assert resp.status_code == 200
     assert resp.json() == {"id": own_alert.id, "is_read": True}
     assert listed.json() == []
+    history = await client.get("/api/v1/alerts?include_read=true", headers=user_headers)
+    assert history.json()[0]["id"] == own_alert.id
+    assert history.json()[0]["is_read"] is True
+
+
+async def test_read_state_isolated_when_two_users_save_same_publication(client, engine):
+    from sqlalchemy import select
+    from infrastructure.db.models import UserORM
+    user_headers, other_headers, own_alert, _, _ = await _seed_users_alerts(engine, client)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        other = (await session.execute(select(UserORM).where(UserORM.email=="alerts-other@example.com"))).scalar_one()
+        session.add(SavedListingORM(user_id=other.id, listing_id=own_alert.listing_id, saved_price_clp=100000000, status="active"))
+        await session.commit()
+    for _ in range(2):
+        assert (await client.post(f"/api/v1/alerts/{own_alert.id}/read",headers=user_headers)).status_code == 200
+    own = (await client.get("/api/v1/alerts",headers=user_headers)).json()
+    other = (await client.get("/api/v1/alerts",headers=other_headers)).json()
+    assert own_alert.id not in [item["id"] for item in own]
+    assert own_alert.id in [item["id"] for item in other]
 
 
 async def test_cannot_mark_another_users_alert_as_read(

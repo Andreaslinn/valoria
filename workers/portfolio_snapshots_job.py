@@ -113,6 +113,7 @@ async def run_portfolio_snapshots_job(
             return ValuationService(
                 listing_repo=SqlAlchemyListingRepository(session),
                 uf_service=uf_service,
+                final_price_policy="canonical_only",
             )
 
         try:

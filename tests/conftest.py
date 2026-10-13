@@ -23,6 +23,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "0" * 32)
 from collections.abc import AsyncGenerator  # noqa: E402
 
 import pytest_asyncio  # noqa: E402
+import pytest  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
     AsyncSession,
@@ -34,6 +35,24 @@ from infrastructure.db.base import Base  # noqa: E402
 
 # Importar modelos para que queden registrados en Base.metadata.
 import infrastructure.db.models  # noqa: E402, F401
+
+
+@pytest.fixture(autouse=True)
+def isolated_api_rate_limit_store(monkeypatch):
+    """Keep real thresholds while isolating counters from other tests/live Redis."""
+    from api import deps
+    import time
+    class Store:
+        def __init__(self):
+            self.values = {}
+        async def eval(self, script, numkeys, key, window):
+            now = time.monotonic()
+            count, expires = self.values.get(key, (0, now + int(window)))
+            if expires <= now:
+                count, expires = 0, now + int(window)
+            self.values[key] = count + 1, expires
+            return [count + 1, max(1, int(expires-now))]
+    monkeypatch.setattr(deps, "_rate_limit_redis_client", Store())
 
 
 @pytest_asyncio.fixture

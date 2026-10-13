@@ -298,6 +298,20 @@ def _observed_publication_time(dataset: MarketDataset) -> ObservedTimeStats:
 
 
 def _price_drop_stats(points: list[PricePoint], *, now: datetime) -> PriceDropStats:
+    drop_events = price_drop_events(points)
+    return PriceDropStats(
+        unique_24h=_unique_drop_count(drop_events, now=now, days=1),
+        unique_7d=_unique_drop_count(drop_events, now=now, days=7),
+        unique_30d=_unique_drop_count(drop_events, now=now, days=30),
+        events_24h=_event_drop_count(drop_events, now=now, days=1),
+        events_7d=_event_drop_count(drop_events, now=now, days=7),
+        events_30d=_event_drop_count(drop_events, now=now, days=30),
+        eligible_listings=len({point.listing_id for point in points if _valid_price_point_value(point) is not None}),
+    )
+
+
+def price_drop_events(points: list[PricePoint]) -> list[tuple[int, datetime]]:
+    """Return valid observed price-drop events using the Market Intelligence rules."""
     grouped: dict[int, list[tuple[datetime, Decimal]]] = defaultdict(list)
     for point in points:
         value = _valid_price_point_value(point)
@@ -309,15 +323,7 @@ def _price_drop_stats(points: list[PricePoint], *, now: datetime) -> PriceDropSt
         for previous, current in pairwise(ordered):
             if current[1] < previous[1]:
                 drop_events.append((listing_id, current[0]))
-    return PriceDropStats(
-        unique_24h=_unique_drop_count(drop_events, now=now, days=1),
-        unique_7d=_unique_drop_count(drop_events, now=now, days=7),
-        unique_30d=_unique_drop_count(drop_events, now=now, days=30),
-        events_24h=_event_drop_count(drop_events, now=now, days=1),
-        events_7d=_event_drop_count(drop_events, now=now, days=7),
-        events_30d=_event_drop_count(drop_events, now=now, days=30),
-        eligible_listings=len(grouped),
-    )
+    return drop_events
 
 
 def _market_balance(

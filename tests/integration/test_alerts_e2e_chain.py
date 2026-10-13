@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport
 from sqlalchemy import select
@@ -30,6 +31,16 @@ from workers.refresh_scraper import run_refresh_scraper
 BASELINE_AT = datetime(2026, 5, 30, 10, 0, tzinfo=UTC)
 REFRESH_AT = BASELINE_AT + timedelta(days=1)
 PASSWORD = "password123"
+
+
+@pytest.fixture(autouse=True)
+def alert_clock_matches_observations(monkeypatch):
+    """Evaluate the fixed history inside its real 30-day eligibility window."""
+    class ObservationClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return REFRESH_AT.astimezone(tz) if tz else REFRESH_AT.replace(tzinfo=None)
+    monkeypatch.setattr("services.alerts.datetime", ObservationClock)
 
 
 @pytest_asyncio.fixture
@@ -241,6 +252,7 @@ async def test_refresh_uf_rate_artifact_does_not_create_false_price_drop_alert(
     assert int(listing.price_clp) == 132_259_985
     assert len(price_history) == 1
     assert alert_stats.detected == 0
+    assert alert_stats.listings_evaluated == 1
     assert alert_stats.created == 0
     assert alerts == []
 

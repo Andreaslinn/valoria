@@ -37,7 +37,12 @@ def runtime_provenance() -> dict[str, Any]:
     revision = os.getenv("VALORIA_RELEASE_COMMIT", "")
     if len(revision) != 40 or any(char not in "0123456789abcdef" for char in revision.lower()):
         revision = None
-    return {"engine_commit": revision, "runtime_source_sha256": digest, "runtime_files_sha256": hashes}
+    manifest_path = _ROOT / "release-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
+    matches = all(value is not None and manifest["files"].get(name) == value for name, value in hashes.items()) if manifest else None
+    return {"engine_commit": revision, "runtime_source_sha256": digest, "runtime_files_sha256": hashes,
+            "release_manifest_commit": manifest.get("commit") if manifest else None,
+            "release_manifest_match": matches}
 
 
 def comparable_identity(ids: list[int | None]) -> dict[str, Any]:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import asyncio
 import logging
 import sys
@@ -21,6 +22,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from core.ports.uf_service import UFService, UFRateInfo
+from core.exceptions import UFServiceError
+from services.uf_rate import require_real_uf_rate
+from services.yapo_price import YapoPendingUF, prepare_yapo_price
 from config import get_settings  # noqa: E402
 from config.constants import (  # noqa: E402
     LISTING_STALE_DAYS,
@@ -44,6 +49,7 @@ from infrastructure.db.repositories import (  # noqa: E402
 from infrastructure.external.uf_client import UFClient  # noqa: E402
 from infrastructure.scrapers.base import RateLimiter, ScraperBase, ScraperResult  # noqa: E402
 from infrastructure.scrapers.yapo import YapoScraper  # noqa: E402
+from workers.rejection_logging import rejection_record
 
 _log = logging.getLogger(__name__)
 
@@ -85,6 +91,8 @@ class JobStats:
     critical_invalid: int = 0
     validation_errors: int = 0
     unexpected_errors: int = 0
+    pending_uf: int = 0
+    pending_uf_reprocessed: int = 0
     price_drop_alerts_created: int = 0
     price_drop_alerts_skipped: int = 0
     raw_scraped: int = 0
@@ -142,6 +150,10 @@ class PersistOutcome:
 async def run_scraper_job(
     scraper: ScraperBase,
     session_factory: async_sessionmaker[AsyncSession],
+    *,
+    mark_stale: bool = False,
+    pending_uf_store: Any = None,
+    uf_info: UFRateInfo | None = None,
 ) -> JobStats:
     """Corre un scraper y persiste sus resultados via process_listing."""
     job_started_monotonic = time.monotonic()
@@ -165,8 +177,38 @@ async def run_scraper_job(
     )
     _init_target_stats(stats, scraper, raw_results)
 
+    replay_ids = set()
+    if pending_uf_store is not None and uf_info is not None:
+        queued = await pending_uf_store.hgetall("scraper:yapo:pending_uf")
+        fresh_ids = {str(raw.get("external_id")) for raw in raw_results}
+        for key, value in list(queued.items())[:100]:
+            identity = key.decode() if isinstance(key, bytes) else str(key)
+            if identity in fresh_ids:
+                replay_ids.add(identity)
+                continue
+            try:
+                saved = json.loads(value)
+                if saved.get("source") != "yapo" or str(saved.get("external_id")) != identity:
+                    raise ValueError("pending identity mismatch")
+                saved["scraped_at"] = datetime.fromisoformat(saved["scraped_at"])
+                raw_results.append(saved)
+                replay_ids.add(identity)
+            except (ValueError, KeyError, TypeError):
+                stats.unexpected_errors += 1
+                _log.error("Invalid pending UF record retained: %s", identity)
     persist_started = time.monotonic()
     for raw in raw_results:
+        try:
+            raw = prepare_yapo_price(raw, uf_info)
+        except YapoPendingUF:
+            if pending_uf_store is None:
+                raise  # Never silently discard a valid original UF price.
+            await pending_uf_store.hset(
+                "scraper:yapo:pending_uf", str(raw["external_id"]),
+                json.dumps(raw, default=str, ensure_ascii=False),
+            )
+            stats.pending_uf += 1
+            continue
         outcome = await _persist_one_with_retries(raw, session_factory)
         if outcome is None:
             if _is_validation_failure(raw):
@@ -179,6 +221,10 @@ async def run_scraper_job(
                 stats.discarded += 1
             continue
 
+        if str(raw.get("external_id")) in replay_ids:
+            stats.pending_uf_reprocessed += 1
+        if pending_uf_store is not None and raw.get("source") == "yapo":
+            await pending_uf_store.hdel("scraper:yapo:pending_uf", str(raw["external_id"]))
         if outcome.status == "inserted":
             stats.inserted += 1
         elif outcome.status == "updated":
@@ -201,9 +247,12 @@ async def run_scraper_job(
             stats.outside_rm_candidates += 1
     stats.stage_durations_sec["persist"] = _round_duration(time.monotonic() - persist_started)
 
-    stale_started = time.monotonic()
-    await _mark_stale_listings(session_factory)
-    stats.stage_durations_sec["mark_stale"] = _round_duration(time.monotonic() - stale_started)
+    # A bounded discovery page is not evidence that an existing listing was
+    # removed. Only an explicit detail refresh may transition a listing.
+    if mark_stale:
+        stale_started = time.monotonic()
+        await _mark_stale_listings(session_factory)
+        stats.stage_durations_sec["mark_stale"] = _round_duration(time.monotonic() - stale_started)
     active_after = await _active_dimension_counts(session_factory)
     stats.active_after = active_after
     stats.geocode_precision_after = active_after.get("geocode_precision", {})
@@ -247,10 +296,23 @@ async def run_scraper_job(
     return stats
 
 
+class _ResolvedUF(UFService):
+    """Reuse the verified rate for this run without a second provider request."""
+    def __init__(self, info: UFRateInfo):
+        self.info = info
+
+    async def get_current_rate(self):
+        return self.info.rate
+
+    async def get_current_rate_info(self):
+        return self.info
+
+
 async def run_yapo_once(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     *,
     max_pages: int | None = None,
+    min_pause_s: float = 0.0,
 ) -> JobStats:
     """Construye Yapo con dependencias reales y ejecuta una pasada local."""
     settings = get_settings()
@@ -267,14 +329,22 @@ async def run_yapo_once(
                 api_url=settings.uf_api_url,
                 http_client=http,
                 redis=redis,
+                session_factory=session_factory,
             )
+            try:
+                uf_info = await require_real_uf_rate(uf_service)
+            except UFServiceError:
+                uf_info = None
+                _log.warning("UF unavailable: preserve original UF listings as pending")
             scraper = YapoScraper(
                 http_client=http,
-                rate_limiter=RateLimiter(min_interval=SCRAPER_MIN_REQUEST_INTERVAL_SEC),
+                rate_limiter=RateLimiter(
+                    min_interval=max(SCRAPER_MIN_REQUEST_INTERVAL_SEC, min_pause_s)
+                ),
                 targets=_targets_for_run(max_pages=max_pages),
-                uf_service=uf_service,
+                uf_service=_ResolvedUF(uf_info) if uf_info is not None else None,
             )
-            return await run_scraper_job(scraper, session_factory)
+            return await run_scraper_job(scraper, session_factory, mark_stale=False, pending_uf_store=redis, uf_info=uf_info)
         finally:
             await redis.aclose()
 
@@ -309,6 +379,8 @@ def print_job_summary(stats: JobStats) -> None:
     print(f"errores: {stats.validation_errors + stats.unexpected_errors}")
     print(f"errores_validacion: {stats.validation_errors}")
     print(f"errores_inesperados: {stats.unexpected_errors}")
+    print(f"pendientes_tasa_uf: {stats.pending_uf}")
+    print(f"pendientes_uf_reprocesados: {stats.pending_uf_reprocessed}")
     print(f"alertas_rebaja_creadas: {stats.price_drop_alerts_created}")
     print(f"alertas_rebaja_omitidas: {stats.price_drop_alerts_skipped}")
     print(f"comuna_detected: {stats.comuna_detected}")
@@ -520,7 +592,7 @@ async def _persist_one(
                 return None
         except (ValidationError, UnknownComunaError) as e:
             await session.rollback()
-            _log.warning("Validation error descartado: %s", e)
+            _log.warning("listing_validation_rejected %s", json.dumps(rejection_record(raw, e), ensure_ascii=True, allow_nan=False))
             raw[_VALIDATION_FLAG] = True  # type: ignore[typeddict-unknown-key]
             raw["__discard_reason__"] = _classify_discard_reason(e)  # type: ignore[typeddict-unknown-key]
             return None

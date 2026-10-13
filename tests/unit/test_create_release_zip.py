@@ -117,3 +117,17 @@ def test_dry_run_does_not_create_zip(tmp_path: Path) -> None:
 
     assert result is None
     assert not (tmp_path / "releases").exists()
+
+@pytest.mark.parametrize("fraction", ["000001", "111111", "123456", "999999"])
+def test_manifest_size_is_exact_across_metadata_variation(tmp_path, fraction):
+    from scripts.create_release_zip import write_zip
+    make_minimal_project(tmp_path)
+    options=ReleaseOptions(mode="beta")
+    plan=build_release_plan(tmp_path,options)
+    path=tmp_path/'release.zip'
+    returned=write_zip(tmp_path,path,options,plan,f'2026-10-12T17:00:00.{fraction}+00:00')
+    with zipfile.ZipFile(path) as archive:
+        embedded=json.loads(archive.read('release_manifest.json'))
+        assert archive.getinfo('release_manifest.json').compress_type==zipfile.ZIP_STORED
+    assert embedded==returned
+    assert embedded['zip_size_bytes']==path.stat().st_size

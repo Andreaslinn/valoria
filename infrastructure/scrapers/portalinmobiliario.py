@@ -20,6 +20,8 @@ inventamos precios).
 """
 from __future__ import annotations
 
+from infrastructure.scrapers.evidence import capture, portal_card_raw, portal_detail_raw
+
 import json
 import logging
 import re
@@ -32,6 +34,8 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import httpx
 from bs4 import BeautifulSoup, Tag
 
+from infrastructure.scrapers.coordinates import coordinate_pair
+from domain.geocoding.source_quality import bind_detail
 from config.comunas import is_known_comuna
 from core.ports.uf_service import UFService
 from infrastructure.scrapers.base import (
@@ -97,6 +101,7 @@ class PortalParseReport(TypedDict):
 
 
 class PortalListingDetail(TypedDict, total=False):
+    _source_evidence: dict[str, Any]
     source: str
     state: PortalDetailState
     external_id: str | None
@@ -323,6 +328,7 @@ def _parse_item(
         "lon": None,
         "scraped_at": scraped_at,
         "raw_metadata": raw_metadata,
+        "_source_evidence": capture("portalinmobiliario", raw=portal_card_raw(item), parser_file=__file__, stage="card", observed_at=scraped_at, original_url=href),
     }, None
 
 
@@ -651,6 +657,7 @@ def parse_listing_detail_portal(html: str, url: str) -> PortalListingDetail:
     if state_data:
         _apply_embedded_state_detail(detail, state_data)
     _apply_meta_detail(detail, soup)
+    detail["_source_evidence"] = capture("portalinmobiliario", raw=portal_detail_raw(soup, state_data, _components_by_id((state_data or {}).get("components"))), parser_file=__file__, stage="detail", original_url=url, canonical_url=detail.get("canonical_url"))
     _apply_dom_detail(detail, soup)
 
     canonical = detail.get("canonical_url") or url
@@ -659,6 +666,8 @@ def parse_listing_detail_portal(html: str, url: str) -> PortalListingDetail:
     if detail.get("location") and not detail.get("comuna"):
         detail["comuna"] = _find_known_comuna(str(detail["location"]))
 
+    bind_detail(detail, state_data or {}, url)
+
     return detail
 
 
@@ -666,14 +675,23 @@ def classify_portal_detail_page_state(html: str, *, status_code: int | None = No
     if status_code in {403, 429}:
         return "blocked"
     soup = BeautifulSoup(html or "", "lxml")
-    if _has_detail_positive_evidence(soup):
-        return "detail"
-    text = _normalize_spaces(_visible_text(soup).lower())
-    if _has_visible_captcha_markup(soup) or _has_visible_captcha_text(text):
+    positive = _has_detail_positive_evidence(soup)
+    # _visible_text mutates its DOM; never destroy the source scripts before
+    # checking positive evidence. Source pages contain passive CAPTCHA widgets.
+    visible = BeautifulSoup(html or "", "lxml")
+    for tag in list(visible.find_all(True)):
+        if tag.parent is not None and _is_hidden_tag(tag):
+            tag.decompose()
+    text = _normalize_spaces(_visible_text(visible).lower())
+    if _has_visible_captcha_text(text):
         return "captcha_visible"
     if _has_visible_verification_text(text):
         return "verification_visible"
-    if _looks_like_login_page(soup, text):
+    if positive:
+        return "detail"
+    if _has_visible_captcha_markup(visible):
+        return "captcha_visible"
+    if _looks_like_login_page(visible, text):
         return "login_page"
     return "unexpected"
 
@@ -775,10 +793,28 @@ def _apply_embedded_state_detail(detail: PortalListingDetail, state: dict[str, A
                 if value:
                     _set_if_missing(detail, "location", value)
                     break
-        map_location = ((location.get("map_info") or {}).get("location") or {})
-        if map_location:
-            detail["raw_metadata"]["lat"] = _decimal_string(map_location.get("latitude"))
-            detail["raw_metadata"]["lon"] = _decimal_string(map_location.get("longitude"))
+
+    # Only publication map components; unrelated state includes country centroids.
+    points = []
+    for component_name in ("location_and_points", "location"):
+        keyed_components = state.get("components")
+        candidates = (components.get(component_name),
+                      keyed_components.get(component_name) if isinstance(keyed_components, dict) else None,
+                      state.get(component_name))
+        for candidate in candidates:
+            map_info = candidate.get("map_info") if isinstance(candidate, dict) else None
+            point = map_info.get("location") if isinstance(map_info, dict) else None
+            if not isinstance(point, dict) or not point:
+                continue
+            raw = {"lat": point.get("latitude"), "lon": point.get("longitude"),
+                   "commune": point.get("comuna") or point.get("commune"),
+                   "source": f"portal:{component_name}.map_info.location"}
+            if raw not in points:
+                points.append(raw)
+    if points:
+        detail["raw_metadata"].update(coordinates_raw=points[0], location_source=points[0]["source"])
+        if len(points) > 1:
+            detail["raw_metadata"]["coordinates_alternatives_raw"] = points[1:]
 
     tech = components.get("technical_specifications")
     if isinstance(tech, dict):

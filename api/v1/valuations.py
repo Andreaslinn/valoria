@@ -6,8 +6,10 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.deps import AppSettings, CurrentUser, ValuationServiceDep
-from core.exceptions import InsufficientDataError, ValidationError
+from api.deps import AppSettings, CurrentUser, DbSession, ValuationServiceDep
+from core.exceptions import InsufficientDataError, UFServiceError, ValidationError
+from infrastructure.db.models import UsageLogORM
+from services.product_usage import sanitize_properties
 from services.valuation import ValuationInput
 from services.valuation_feedback import submit_valuation_feedback
 
@@ -16,6 +18,7 @@ _log = logging.getLogger(__name__)
 
 
 class ValuationRequest(BaseModel):
+    target_listing_id: int | None = Field(default=None, gt=0)
     comuna: str
     property_type: str | None = None
     m2: float = Field(gt=0)
@@ -41,6 +44,8 @@ class ComparableOut(BaseModel):
     usable_area_m2: float | None = None
     similarity: float
     url: str | None
+    source: str | None = None
+    external_id: str | None = None
 
 
 class ComparableQualityMetricsOut(BaseModel):
@@ -76,6 +81,7 @@ class BetaScopeMetricsOut(BaseModel):
 class ValuationEngineResultOut(BaseModel):
     engine_name: str
     engine_version: str
+    engine_family: str | None = None
     role: str
     status: str
     estimate_uf: float | None = None
@@ -99,6 +105,12 @@ class ValuationConsensusOut(BaseModel):
     confidence: float | None = None
     selected_engine_names: list[str] = Field(default_factory=list)
     engine_weights: dict[str, float] = Field(default_factory=dict)
+    consensus_used: bool = False
+    valid_engine_count: int = 0
+    engine_family_count: int = 0
+    engine_families: list[str] = Field(default_factory=list)
+    fallback_reason: str | None = None
+    fallback_engine_used: str | None = None
 
 
 class ValuationVerdictOut(BaseModel):
@@ -108,7 +120,7 @@ class ValuationVerdictOut(BaseModel):
     low_uf: float | None = None
     high_uf: float | None = None
     confidence: float | None = None
-    explanation: str | None = None
+    explanation: str | list[str] | None = None
     source: str | None = None
     status: str | None = None
 
@@ -173,10 +185,17 @@ class ValuationResponse(BaseModel):
     engine_results: list[ValuationEngineResultOut] = Field(default_factory=list)
     selected_engine_names: list[str] = Field(default_factory=list)
     consensus_method: str | None = None
+    uf_rate_source: str | None = None
+    uf_rate_date: str | None = None
+    uf_rate_is_stale: bool = False
     valuation_verdict: ValuationVerdictOut | None = None
     engine_breakdown: list[ValuationEngineBreakdownOut] = Field(default_factory=list)
     consensus_audit: ValuationConsensusAuditOut | None = None
     weight_audit: list[dict] = Field(default_factory=list)
+    valuation_strategy: str = "current"
+    consensus_used: bool = False
+    consensus_unavailable_reason: str | None = None
+    fallback_engine_used: str | None = None
 
 
 class ValuationFeedbackRequest(BaseModel):
@@ -194,13 +213,15 @@ class ValuationFeedbackResponse(BaseModel):
 
 @router.post("", response_model=ValuationResponse)
 async def valuate(
-    _current_user: CurrentUser,
+    current_user: CurrentUser,
     payload: ValuationRequest,
     service: ValuationServiceDep,
+    session: DbSession,
 ) -> ValuationResponse:
     try:
         result = await service.valuate_property(
             ValuationInput(
+                target_listing_id=payload.target_listing_id,
                 comuna=payload.comuna,
                 property_type=payload.property_type,
                 m2=payload.m2,
@@ -212,8 +233,11 @@ async def valuate(
                 estacionamientos=payload.estacionamientos,
                 precio_publicado_uf=payload.precio_publicado_uf,
                 precio_publicado_clp=payload.precio_publicado_clp,
-            )
+            ),
+            valuation_strategy="canonical_only",
         )
+    except UFServiceError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="UF real no disponible") from e
     except (ValidationError, InsufficientDataError, ValueError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
@@ -222,7 +246,56 @@ async def valuate(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error inesperado al tasar propiedad",
         ) from e
-    return ValuationResponse.model_validate(result, from_attributes=True)
+    response = ValuationResponse.model_validate(result, from_attributes=True)
+    try:
+        await _record_valuation_completed_event(
+            session=session,
+            user_id=current_user.id,
+            payload=payload,
+            response=response,
+        )
+    except Exception:
+        _log.exception("Failed to record valuation_completed usage event")
+    return response
+
+
+async def _record_valuation_completed_event(
+    *,
+    session: DbSession,
+    user_id: int | None,
+    payload: ValuationRequest,
+    response: ValuationResponse,
+) -> None:
+    if user_id is None:
+        return
+    raw_metadata = {
+        "comuna": payload.comuna,
+        "property_type": payload.property_type,
+        "m2": payload.m2,
+        "built_area_m2": payload.built_area_m2,
+        "land_area_m2": payload.land_area_m2,
+        "precio_publicado_uf": payload.precio_publicado_uf,
+        "precio_publicado_clp": payload.precio_publicado_clp,
+        "estimated_value_uf": response.estimated_price_uf,
+        "range_low_uf": response.price_range_low_uf,
+        "range_high_uf": response.price_range_high_uf,
+        "comparable_count": response.comparable_count,
+        "comparables_used": response.comparable_count,
+        "confidence": response.confidence,
+        "confidence_score": response.confidence_score,
+        "status": response.status,
+    }
+    metadata = sanitize_properties(
+        {key: value for key, value in raw_metadata.items() if value is not None}
+    )
+    session.add(
+        UsageLogORM(
+            user_id=user_id,
+            event_type="valuation_completed",
+            payload={"feature": "tasar_playground", "metadata": metadata},
+        )
+    )
+    await session.commit()
 
 
 @router.post("/feedback", response_model=ValuationFeedbackResponse)
@@ -230,7 +303,8 @@ async def submit_feedback(
     payload: ValuationFeedbackRequest,
     settings: AppSettings,
 ) -> ValuationFeedbackResponse:
-    if settings.is_cloud_beta or not settings.valuation_feedback_enabled:
+    if (settings.is_cloud_beta or not settings.valuation_feedback_enabled
+            or settings.environment not in {"local", "development"}):
         raise HTTPException(
             status_code=403,
             detail="Valuation feedback is disabled for this runtime profile",
@@ -251,4 +325,3 @@ async def submit_feedback(
             detail="Error inesperado al guardar feedback de tasacion",
         ) from e
     return ValuationFeedbackResponse.model_validate({"status": "ok", **result})
-

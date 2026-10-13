@@ -55,6 +55,7 @@ class ScraperResult(TypedDict, total=False):
     lon: float | None
     scraped_at: datetime
     raw_metadata: dict
+    _source_evidence: dict
 
 
 class ScraperBase(ABC):

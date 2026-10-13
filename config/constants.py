@@ -65,8 +65,8 @@ SCRAPER_MAX_RETRIES: int = 3
 SCRAPER_HTTP_TIMEOUT_SEC: float = 30.0
 YAPO_MAX_PAGES: int = 7
 YAPO_MAX_PAGES_HARD_LIMIT: int = 10
-YAPO_SEARCH_BASE_URL: str = "https://www.yapo.cl/searchresult/bienes-raices-venta-de-propiedades-apartamentos"
-YAPO_HOUSE_SEARCH_BASE_URL: str = "https://www.yapo.cl/searchresult/bienes-raices-venta-de-propiedades-casas"
+YAPO_SEARCH_BASE_URL: str = "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos"
+YAPO_HOUSE_SEARCH_BASE_URL: str = "https://www.yapo.cl/bienes-raices-venta-de-propiedades-casas"
 YAPO_APARTMENT_TARGETS: list[dict[str, str | int]] = [
     {
         "label": "general",

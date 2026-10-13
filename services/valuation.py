@@ -28,10 +28,14 @@ from core.assessment.contracts import (
 )
 from core.entities.listing import Listing, Property
 from core.exceptions import InsufficientDataError, ValidationError
+from core.normalization.property_consistency import property_type_conflict
 from core.normalization.property_type import normalize_property_type as _normalize_property_type
+from core.normalization.publication_identity import publication_keys
 from core.ports.listing_repo import ListingRepository
 from core.ports.uf_service import UFService
+from domain.valuation.canonical_price import valuation_price_basis
 from domain.valuation.comparables import valuate_with_comparables
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine
 from domain.valuation.engines.consensus_orchestrator import (
     CONSENSUS_METHOD,
     BetaConsensus,
@@ -41,6 +45,7 @@ from domain.valuation.engines.consensus_orchestrator import (
 from domain.valuation.engines.contracts import (
     EngineComparable,
     EngineContext,
+    EngineRequest,
     EngineResult,
     EngineStatus,
 )
@@ -57,6 +62,7 @@ from domain.valuation.quality_v2_challenger import (
     evaluate_quality_v2_challenger,
 )
 from services.formatting import price_clp_int, price_uf_float
+from services.release_guard import verify_canonical_response
 from services.uf_rate import require_real_uf_rate
 from services.valuation_debug import engine_trace, value_trace
 
@@ -76,6 +82,7 @@ class ValuationInput:
     estacionamientos: int | None = None
     precio_publicado_uf: float | None = None
     precio_publicado_clp: int | None = None
+    target_listing_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -150,6 +157,10 @@ class ValuationDTO:
     uf_rate_date: str | None = None
     uf_rate_is_stale: bool = False
     valuation_debug: dict[str, Any] = field(default_factory=dict)
+    valuation_strategy: str = "current"
+    consensus_used: bool = False
+    consensus_unavailable_reason: str | None = None
+    fallback_engine_used: str | None = None
 
     def to_payload(self) -> ValuationResultPayload:
         return {
@@ -193,6 +204,10 @@ class ValuationDTO:
             "uf_rate_date": self.uf_rate_date,
             "uf_rate_is_stale": self.uf_rate_is_stale,
             "valuation_debug": dict(self.valuation_debug),
+            "valuation_strategy": self.valuation_strategy,
+            "consensus_used": self.consensus_used,
+            "consensus_unavailable_reason": self.consensus_unavailable_reason,
+            "fallback_engine_used": self.fallback_engine_used,
         }
 
 
@@ -203,12 +218,14 @@ class ValuationService:
         listing_repo: ListingRepository,
         uf_service: UFService,
         engine_registry: EngineRegistry | None = None,
+        final_price_policy: str = "legacy_compatibility",
     ) -> None:
         self._listing_repo = listing_repo
         self._uf_service = uf_service
         self._engine_registry = engine_registry
+        self._final_price_policy = final_price_policy
 
-    async def valuate_property(self, data: ValuationInput) -> ValuationDTO:
+    async def valuate_property(self, data: ValuationInput, *, valuation_strategy: str = "current") -> ValuationDTO:
         property_type = _normalize_property_type(data.property_type)
         built_area_m2 = data.built_area_m2 or data.usable_area_m2 or data.m2
         usable_area_m2 = data.usable_area_m2 or built_area_m2 if property_type == "apartment" else data.usable_area_m2
@@ -235,6 +252,43 @@ class ValuationService:
             data.comuna,
             property_type=property_type,
         )
+        if data.target_listing_id is not None:
+            target_listing = await self._listing_repo.find_by_id(data.target_listing_id)
+            if target_listing is not None and property_type_conflict(target_listing):
+                raise ValidationError("El título y el tipo de la publicación se contradicen.")
+            target_keys = publication_keys(target_listing) if target_listing else set()
+            candidates = [item for item in candidates if item.id != data.target_listing_id
+                          and not target_keys.intersection(publication_keys(item))]
+
+        if self._final_price_policy == "canonical_only" or valuation_strategy == "canonical_only":
+            result = ComparablesCanonicalEngine(name="comparables_canonical_outliers", variant="outliers").valuate(
+                EngineRequest(published_price_provided=data.precio_publicado_uf is not None or data.precio_publicado_clp is not None),
+                EngineContext(target=target, candidates=candidates, uf_to_clp=uf_to_clp),
+            )
+            if not result.is_successful:
+                raise InsufficientDataError(result.error_message or "El motor canónico no tiene evidencia suficiente.")
+            dto = _valuation_dto_from_engine(
+                result=result, candidates=candidates, built_area_m2=built_area_m2,
+                uf_to_clp=uf_to_clp, consensus=None, engine_results=[BetaEngineResult(
+                    engine_name=result.engine_name, engine_version=result.engine_version,
+                    role="favorite", status=result.status, estimate_uf=float(result.estimated_price_uf) if result.estimated_price_uf is not None else None,
+                    estimate_clp=_decimal_int(result.estimated_price_clp),
+                    range_low_uf=_clp_to_uf(result.range_low_clp, uf_to_clp),
+                    range_high_uf=_clp_to_uf(result.range_high_clp, uf_to_clp),
+                    confidence=result.confidence, comparables_count=result.comparables_used,
+                    selected_for_final=True, warnings=list(result.warnings), safe_error_message=None,
+                    diagnostics=dict(result.diagnostics),
+                )],
+            )
+            debug = dict(dto.valuation_debug)
+            debug["final_price_policy"] = "canonical_only"
+            debug["comparable_calculation"] = _canonical_comparable_calculation(result, candidates, uf_to_clp)
+            dto = _with_uf_trace(replace(
+                dto, valuation_debug=debug, valuation_strategy="canonical_only",
+                consensus_used=False, consensus_method="canonical_only_v1",
+            ), uf_info)
+            verify_canonical_response(dto.to_payload())
+            return dto
 
         if valoria_consensus_enabled():
             consensus_run = run_beta_consensus(
@@ -448,7 +502,7 @@ def _valuation_dto_from_engine(
     candidates: Sequence[Listing],
     built_area_m2: float,
     uf_to_clp: Decimal,
-    consensus: BetaConsensus,
+    consensus: BetaConsensus | None,
     engine_results: list[BetaEngineResult],
 ) -> ValuationDTO:
     estimated_clp = _decimal_int(result.estimated_price_clp)
@@ -476,6 +530,7 @@ def _valuation_dto_from_engine(
         result.selected_comparables,
         candidates,
         uf_to_clp,
+        canonical_price=result.engine_name == "comparables_canonical_outliers",
     )
     selected_names = [result.engine_name]
 
@@ -555,14 +610,41 @@ def _selected_comparable_dtos(
     selected: Sequence[EngineComparable],
     candidates: Sequence[Listing],
     uf_to_clp: Decimal,
+    *, canonical_price: bool = False,
 ) -> list[ComparableDTO]:
     result: list[ComparableDTO] = []
     for item in selected:
         listing = _find_selected_listing(item, candidates)
         if listing is None:
             continue
-        result.append(_comparable_dto(item.score, listing, uf_to_clp))
+        dto = _comparable_dto(item.score, listing, uf_to_clp)
+        if canonical_price:
+            basis = valuation_price_basis(listing, uf_to_clp)
+            area = listing.built_area_m2 or listing.usable_area_m2 or listing.m2
+            if basis.amount_uf is None or area is None:
+                raise InsufficientDataError("Comparable canónico sin precio o superficie verificable.")
+            dto = replace(dto, price_uf=float(basis.amount_uf),
+                          price_clp=round(basis.amount_uf * uf_to_clp), m2=area, built_area_m2=area,
+                          usable_area_m2=listing.usable_area_m2 if listing.usable_area_m2 == area else None)
+        result.append(dto)
     return result
+
+
+def _canonical_comparable_calculation(result, candidates, uf_to_clp):
+    weights = result.diagnostics.get("result", {}).get("comparable_weights", {})
+    rows = []
+    for item in result.selected_comparables:
+        listing = _find_selected_listing(item, candidates)
+        if listing is None:
+            raise InsufficientDataError("La muestra canónica no puede reconstruirse.")
+        basis = valuation_price_basis(listing, uf_to_clp)
+        area = listing.built_area_m2 or listing.usable_area_m2 or listing.m2
+        key = f"id:{listing.id}" if listing.id is not None else f"fp:{listing.fingerprint}"
+        rows.append({"listing_id": listing.id, "price_uf_used": float(basis.amount_uf),
+                     "area_m2_used": area, "normalized_weight": weights.get(key),
+                     "source_usable_area_m2": listing.usable_area_m2,
+                     "source_built_area_m2": listing.built_area_m2})
+    return rows
 
 
 def _find_selected_listing(

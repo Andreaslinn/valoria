@@ -81,7 +81,8 @@ async def test_valuation_report_html_download_headers_and_context(
     assert "Investment Intelligence Report" in html
     assert "Ñuñoa" in html
     assert "m²" in html
-    assert "published_price_not_provided" not in html
+    assert "published_price_not_provided" in html
+    assert "Sin precio de comparación" in html
     assert "listing id para watchlist" not in html
     assert "Traceback" not in html
 
@@ -105,7 +106,7 @@ async def test_listing_analysis_report_html_download_headers_and_listing_context
     assert "Listing Risk / Opportunity Report" in html
     assert "Precio publicado" in html
     assert "https://example.test/depto-123" not in response.headers["content-disposition"]
-    assert "publication_history_missing" not in html
+    assert "publication_history_missing" in html
     assert "Traceback" not in html
 
 

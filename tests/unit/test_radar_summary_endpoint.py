@@ -71,6 +71,54 @@ async def test_radar_summary_returns_real_scope_and_freshness_counts(engine: Asy
     assert body["excluded_missing_price_count"] == 0
     assert body["excluded_missing_area_count"] == 0
     assert body["last_refresh_at"] is not None
+    assert body["source"] == "radar_shared_initial_eligibility_v1"
+
+
+@pytest.mark.asyncio
+async def test_radar_summary_counts_clp_candidates_without_price_uf(engine: AsyncEngine) -> None:
+    client, session_factory = _client(engine)
+    async with session_factory() as session:
+        now = datetime.now(UTC)
+        session.add_all(
+            [
+                _listing(
+                    listing_id=10,
+                    property_type="apartment",
+                    status="active",
+                    last_seen_at=now - timedelta(days=1),
+                    price_uf=None,
+                    price_currency="CLP",
+                ),
+                _listing(
+                    listing_id=11,
+                    property_type="apartment",
+                    status="active",
+                    last_seen_at=now - timedelta(days=1),
+                    price_uf=None,
+                    price_currency="UF",
+                ),
+                _listing(
+                    listing_id=12,
+                    property_type="house",
+                    status="active",
+                    last_seen_at=now - timedelta(days=1),
+                    price_uf=None,
+                    price_currency="CLP",
+                ),
+            ]
+        )
+        await session.commit()
+
+    async with client:
+        response = await client.get("/api/v1/radar/summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_scope_count"] == 2
+    assert body["fresh_candidates_count"] == 2
+    assert body["ready_for_radar_count"] == 1
+    assert body["excluded_missing_price_count"] == 1
+    assert body["source"] == "radar_shared_initial_eligibility_v1"
 
 
 @pytest.mark.asyncio
@@ -130,6 +178,8 @@ def _listing(
     property_type: str,
     status: str,
     last_seen_at: datetime,
+    price_uf: Decimal | None = Decimal("6000"),
+    price_currency: str | None = "CLP",
 ) -> ListingORM:
     return ListingORM(
         id=listing_id,
@@ -150,8 +200,8 @@ def _listing(
         lon=-70.6,
         geocode_precision="address",
         price_clp=Decimal("240000000"),
-        price_uf=Decimal("6000"),
-        price_currency="CLP",
+        price_uf=price_uf,
+        price_currency=price_currency,
         price_uf_confidence="high",
         price_uf_source="test",
         price_recovery_method=None,

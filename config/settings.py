@@ -28,12 +28,28 @@ class Settings(BaseSettings):
         description="Sync URL (psycopg) para Alembic",
     )
 
+    ingestion_observation_history_enabled: bool = False
+
     database_pool_size: int = 10
     database_max_overflow: int = 20
 
     # Redis
     redis_enabled: bool = True
     redis_url: str | None = "redis://localhost:6379/0"
+
+    # Rate limiting
+    rate_limit_enabled: bool = True
+    rate_limit_fail_open: bool = True
+    rate_limit_login_ip_max: int = 10
+    rate_limit_login_ip_window_seconds: int = 300
+    rate_limit_login_account_max: int = 20
+    rate_limit_login_account_window_seconds: int = 3600
+    rate_limit_register_ip_max: int = 6
+    rate_limit_register_ip_window_seconds: int = 3600
+    rate_limit_analyze_url_user_max: int = 10
+    rate_limit_analyze_url_user_window_seconds: int = 600
+    rate_limit_report_user_max: int = 20
+    rate_limit_report_user_window_seconds: int = 600
 
     # Auth
     jwt_secret_key: str = Field(
@@ -56,6 +72,9 @@ class Settings(BaseSettings):
     uf_require_fresh_for_radar: bool = True
     # Portal remains opt-in. The manual canary additionally requires --apply
     # before it can write; this flag is reserved for future orchestration.
+    portal_geo_detail_budget: int = Field(0, ge=0, le=5)
+    portal_geo_max_attempts: int = Field(3, ge=1, le=3)
+    portal_geo_cooldown_hours: int = Field(24, ge=24)
     portal_http_enabled: bool = False
     portal_http_max_details: int = Field(50, ge=1, le=50)
     portal_http_max_pages_per_target: int = Field(1, ge=1, le=2)
@@ -63,8 +82,17 @@ class Settings(BaseSettings):
     nominatim_user_agent: str = "AVM-v2-geocoder/0.1 (contact: dev-local)"
 
     # Entorno
-    valoria_runtime_profile: Literal["local", "cloud_beta"] = "local"
-    environment: Literal["local", "development", "beta", "production", "cloud_beta", "cloud-beta"] = "development"
+    valoria_runtime_profile: Literal["local", "cloud_beta", "oracle_beta"] = "local"
+    environment: Literal[
+        "local",
+        "development",
+        "beta",
+        "production",
+        "cloud_beta",
+        "cloud-beta",
+        "oracle_beta",
+        "oracle-beta",
+    ] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     backend_cors_origins: str = Field(
         "http://localhost:3000,http://127.0.0.1:3000",
@@ -103,6 +131,10 @@ class Settings(BaseSettings):
     @property
     def is_cloud_beta(self) -> bool:
         return self.valoria_runtime_profile == "cloud_beta" or self.environment in {"cloud_beta", "cloud-beta"}
+
+    @property
+    def is_oracle_beta(self) -> bool:
+        return self.valoria_runtime_profile == "oracle_beta" or self.environment in {"oracle_beta", "oracle-beta"}
 
     @property
     def backend_cors_origin_list(self) -> tuple[str, ...]:

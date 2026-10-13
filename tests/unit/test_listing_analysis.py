@@ -23,10 +23,21 @@ class _ValuationService:
     def __init__(self, valuation: _Valuation) -> None:
         self.valuation = valuation
         self.inputs = []
+        self.strategies = []
 
-    async def valuate_property(self, valuation_input):
+    async def valuate_property(self, valuation_input, *, valuation_strategy: str = "current"):
         self.inputs.append(valuation_input)
+        self.strategies.append(valuation_strategy)
         return self.valuation
+
+
+async def test_historical_listing_keeps_lifecycle_and_observed_date():
+    data = _listing()
+    data.update(status="removed", last_seen_at="2026-06-05T16:23:39.110704Z")
+    result = await analyze_listing_lookup(data, valuation_service=_ValuationService(_Valuation(5000)))
+    assert result.listing["status"] == "removed"
+    assert result.listing["last_seen_at"] == data["last_seen_at"]
+    assert result.valuation["estimated_value_uf"] == 5000
 
 
 def _listing(price_uf: float | None = 4500) -> dict:
@@ -62,7 +73,9 @@ async def test_listing_analysis_detects_under_market() -> None:
     assert result.price_analysis["difference_uf"] == 700
     assert result.price_analysis["difference_pct"] == 14
     assert result.report_status["listing_risk_report_available"] is False
+    assert result.report_status["analysis_report_available"] is True
     assert service.inputs[0].precio_publicado_uf == 4300
+    assert service.strategies == ["consensus_v1"]
 
 
 @pytest.mark.asyncio

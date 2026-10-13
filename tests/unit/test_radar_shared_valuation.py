@@ -124,7 +124,7 @@ async def test_actual_shared_engine_matches_tasar_and_url_analysis_with_extreme_
     normal = [listing(2000 + i, 2100 + i * 25, 44 + i % 8) for i in range(25)]
     extreme = listing(6124, 23000, 49)
     repo = _FakeListingRepo([target, *normal, extreme]); uf = _FakeUFService()
-    tasar = ValuationService(listing_repo=repo, uf_service=uf)
+    tasar = ValuationService(listing_repo=repo, uf_service=uf, final_price_policy="canonical_only")
     data, missing = _valuation_input(listing_to_form_data(target)); assert not missing
     direct = await tasar.valuate_property(data, valuation_strategy="consensus_v1")
     analysis = await analyze_listing_lookup(listing_to_form_data(target), valuation_service=tasar)

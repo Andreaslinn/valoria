@@ -1,21 +1,7 @@
-"""Scraper para yapo.cl.
+"""Yapo discovery: embedded initialResults, modern DOM fallback and legacy cards.
 
-Selectores verificados contra la estructura real del sitio (abril 2026):
-    Contenedor:    div.d3-ad-tile
-    Título:        h2.d3-ad-tile__title
-    Ubicación:     .d3-ad-tile__location span
-    Precio:        .d3-ad-tile__price   (puede venir en CLP "$260.000.000"
-                                         o UF "UF8.200,00")
-    Detalles:      ul.d3-ad-tile__details li  (sin labels — orden posicional:
-                                               m², dormitorios, baños, estac.)
-    Link detalle:  a.d3-ad-tile__description[href]
-    External ID:   último segmento numérico del href
-
-Notas:
-    · Yapo muestra resultados nacionales. Comunas fuera del catálogo caen
-      en validación del pipeline — es el comportamiento correcto.
-    · Si el precio viene en UF y no hay UFService disponible, la card se
-      descarta (mejor perder el dato que persistir un precio incorrecto).
+Parsing is offline; HTTP access, rate limits and 403/429 guards remain separate.
+Modern UF listings retain their source price when no real conversion is available.
 """
 from __future__ import annotations
 
@@ -29,6 +15,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, NotRequired, TypedDict
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+
+from infrastructure.scrapers.coordinates import coordinate_pair
+from infrastructure.scrapers.evidence import capture, yapo_detail_extra
+from infrastructure.scrapers.yapo_modern import (YapoStructureError, adapt_item, payload_items, classify_page)
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -133,14 +123,7 @@ _TITLE_STOP_WORDS = {
     "bodega",
     "uf",
 }
-_CAPTCHA_MARKERS = (
-    "captcha",
-    "recaptcha",
-    "hcaptcha",
-    "verifychallenge",
-    "verify you are human",
-    "verifica que eres humano",
-)
+
 
 
 class YapoTarget(TypedDict):
@@ -345,19 +328,37 @@ class YapoScraper(ScraperBase):
             uf_to_clp: tasa UF vigente para convertir precios en UF. Si es
                 None, las cards cotizadas en UF se descartan.
         """
+        state = classify_page(html)
+        if state in {"challenge", "http_blocked"}:
+            raise YapoBlockedError("Yapo result page is a challenge")
+        if state == "empty":
+            return []
+        if state == "unknown":
+            raise YapoStructureError("Unknown Yapo results structure; not an empty page")
         soup = BeautifulSoup(html, "lxml")
-        cards = soup.select("div.d3-ad-tile")
         scraped_at = datetime.now(UTC)
         results: list[ScraperResult] = []
-
-        for card in cards:
+        seen = set()
+        for item in payload_items(soup, search_only=True):
             try:
-                parsed = _parse_card(card, scraped_at=scraped_at, uf_to_clp=uf_to_clp)
-            except Exception as e:
-                _log.debug("Card yapo descartada por parsing error: %s", e)
-                continue
+                parsed = adapt_item(item, scraped_at=scraped_at, uf_to_clp=uf_to_clp)
+            except (ValueError, TypeError, AttributeError, OverflowError):
+                parsed = None
             if parsed is not None:
                 results.append(parsed)
+                seen.add(parsed["external_id"])
+        for card in soup.select("a.item-card-link, div.d3-ad-tile"):
+            try:
+                parser = _parse_modern_card if "item-card-link" in card.get("class", []) else _parse_card
+                parsed = parser(card, scraped_at=scraped_at, uf_to_clp=uf_to_clp)
+            except (ValueError, TypeError, AttributeError, OverflowError) as e:
+                _log.debug("Card yapo descartada por parsing error: %s", e)
+                continue
+            if parsed is not None and parsed["external_id"] not in seen:
+                results.append(parsed)
+                seen.add(parsed["external_id"])
+        if not results:
+            raise YapoStructureError("Yapo has result records but none could be parsed")
 
         return results
 
@@ -365,6 +366,44 @@ class YapoScraper(ScraperBase):
 # ─────────────────────────────────────────────────────────
 #  Helpers de parsing
 # ─────────────────────────────────────────────────────────
+def _parse_modern_price(text: str):
+    """Modern cards use comma grouping (UF 9,950 / $ 153,000,000).
+
+    Keep the historical Spanish notation isolated as a compatibility fallback;
+    structured payload amounts and the shared price parser remain unchanged.
+    """
+    match = re.fullmatch(r"\s*(UF|\$)\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d{1,2})?)\s*", text, re.I)
+    if match:
+        return ("UF" if match[1].upper() == "UF" else "CLP", Decimal(match[2].replace(",", "")))
+    return parse_price_text(text)
+
+
+def _parse_modern_card(card: Tag, *, scraped_at: datetime, uf_to_clp: Decimal | None):
+    href = str(card.get("href") or "")
+    parsed_price = _parse_modern_price(_text(card.select_one(".card_price")))
+    if not parsed_price:
+        return None
+    currency, amount = parsed_price
+    item = {"id": _extract_id_from_url(href), "link": href,
+            "title": _text(card.select_one(".card_title")),
+            "price": {"amount": {"value": str(amount)}, "currency": {"symbol": currency}},
+            "location": {"locality": _text(card.select_one(".card_subtitle"))}}
+    for spec in card.select(".card_spec"):
+        text = spec.get_text(" ", strip=True)
+        match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*(Dormitorios?|Baños?|m²|m2|Estacionamientos?)\s*", text, re.I)
+        if match:
+            field = {"d": "rooms", "b": "bathrooms", "m": "square", "e": "parking"}[match[2][0].lower()]
+            item[field] = match[1].replace(",", ".")
+    image = card.select_one("img.card_image")
+    if image:
+        item["principalImage"] = image.get("src")
+    result = adapt_item(item, scraped_at=scraped_at, uf_to_clp=uf_to_clp)
+    if result:
+        result["raw_metadata"]["parser_source"] = "yapo_search_dom"
+        result["_source_evidence"] = capture("yapo", raw={"card_html": str(card), "payload": item, "images_raw": [{"src": x.get("src"), "data_src": x.get("data-src")} for x in card.select("img")]}, parser_file=__file__, stage="dom_card", observed_at=scraped_at, original_url=href, canonical_url=result["url"])
+    return result
+
+
 def _parse_card(
     card: Tag, *, scraped_at: datetime, uf_to_clp: Decimal | None
 ) -> ScraperResult | None:
@@ -421,6 +460,10 @@ def _parse_card(
         card_text=card.get_text(" ", strip=True),
     )
 
+    lat, lon = _property_map_coordinates(card)
+    if lat is not None:
+        raw_metadata["location_source"] = "yapo:property_map.q"
+
     return {
         "source": "yapo",
         "external_id": external_id,
@@ -433,10 +476,11 @@ def _parse_card(
         "parking": int(attrs.get("parking", 0)),
         "price_clp": int(price_clp),
         "url": _absolute_url(href),
-        "lat": None,
-        "lon": None,
+        "lat": lat,
+        "lon": lon,
         "scraped_at": scraped_at,
         "raw_metadata": raw_metadata,
+        "_source_evidence": capture("yapo", raw={"card_html": str(card), "images_raw": [{"src": x.get("src"), "data_src": x.get("data-src")} for x in card.select("img")]}, parser_file=__file__, stage="legacy_card", observed_at=scraped_at, original_url=str(href), canonical_url=_absolute_url(href)),
     }
 
 
@@ -451,6 +495,30 @@ async def parse_listing_from_url(
     return parse_listing_detail(resp.text, url=url)
 
 
+def _property_map_coordinates(soup: BeautifulSoup | Tag) -> tuple[float | None, float | None]:
+    for iframe in soup.select('iframe[src]'):
+        if str(iframe.get("title", "")).strip().casefold() != "mapa de la propiedad":
+            continue
+        try:
+            url = urlsplit(str(iframe.get("src", "")))
+            if url.hostname not in {"www.google.com", "google.com", "maps.google.com"}:
+                continue
+            if not url.path.startswith("/maps/embed"):
+                continue
+            query = parse_qs(url.query).get("q", [])
+            if len(query) != 1:
+                continue
+            parts = query[0].split(",")
+            if len(parts) != 2:
+                continue
+            lat, lon = coordinate_pair(*parts)
+            if lat is not None and (lat, lon) != (0, 0):
+                return lat, lon
+        except ValueError:
+            continue
+    return None, None
+
+
 def parse_listing_detail(
     html: str,
     *,
@@ -463,15 +531,37 @@ def parse_listing_detail(
     deja que `clean_listing(..., allow_incomplete=True)` marque warnings.
     """
     soup = BeautifulSoup(html, "lxml")
+    for item in payload_items(soup):
+        if str(item.get("id")) != _extract_id_from_url(url):
+            continue
+        parsed = adapt_item(item, scraped_at=datetime.now(UTC), uf_to_clp=uf_to_clp)
+        if parsed:
+            parsed["raw_metadata"]["parser_source"] = "yapo_detail_payload"
+            if parsed["lat"] is not None:
+                parsed["raw_metadata"]["location_source"] = "yapo_detail_payload"
+            else:
+                lat, lon = _property_map_coordinates(soup)
+                if lat is not None and (lat, lon) != (0, 0):
+                    parsed.update(lat=lat, lon=lon)
+                    parsed["raw_metadata"]["location_source"] = "yapo:property_map.q"
+            parsed["_source_evidence"]["raw"].update(yapo_detail_extra(soup))
+            parsed["_source_evidence"].update(stage="structured_detail", original_url=url, parser=capture("yapo", raw={}, parser_file=__file__, stage="detail")["parser"])
+            return parsed
+    # Recommendations are not evidence for this property.
+    for related in soup.select("a.item-card-link, .card_container, div.d3-ad-tile"):
+        related.decompose()
     title = _first_meta_content(soup, ("og:title", "twitter:title")) or _text(soup.select_one("h1"))
     if not title and soup.title is not None:
         title = soup.title.get_text(" ", strip=True)
     title = _clean_detail_title(title)
-    page_text = soup.get_text(" ", strip=True)
+    page_text = _first_meta_content(soup, ("description", "og:description")) or ""
     price_clp, price_uf = _extract_detail_price(soup, page_text, uf_to_clp=uf_to_clp)
 
     property_type = _infer_yapo_property_type(url, title, page_text)
-    details = _parse_detail_attributes(soup, page_text, property_type=property_type)
+    details = _parse_detail_attributes(
+        soup, _first_meta_content(soup, ("description", "og:description")) or "",
+        property_type=property_type,
+    )
     location_text = _extract_detail_location(soup, page_text, url=url, title=title)
     raw_metadata: dict[str, Any] = {
         "category": "casas" if property_type == "house" else "departamentos",
@@ -482,6 +572,10 @@ def parse_listing_detail(
     if price_uf is not None:
         raw_metadata["price_uf"] = price_uf
     _add_location_hint_metadata(raw_metadata, title=title, href=url, card_text=page_text, detail_text=page_text)
+
+    lat, lon = _property_map_coordinates(soup)
+    if lat is not None:
+        raw_metadata["location_source"] = "yapo:property_map.q"
 
     if not (title or price_clp or location_text):
         return None
@@ -501,10 +595,11 @@ def parse_listing_detail(
         "price_clp": price_clp or 0,
         "price_uf": price_uf,
         "url": _absolute_url(url),
-        "lat": None,
-        "lon": None,
+        "lat": lat,
+        "lon": lon,
         "scraped_at": datetime.now(UTC),
         "raw_metadata": raw_metadata,
+        "_source_evidence": capture("yapo", raw={"title_raw": title, **yapo_detail_extra(soup)}, parser_file=__file__, stage="dom_detail", original_url=url, canonical_url=_absolute_url(url)),
     }
 
 
@@ -580,8 +675,8 @@ def _extract_detail_price(
 
 
 def _detail_price_candidates(soup: BeautifulSoup, page_text: str) -> list[tuple[str, str | None]]:
-    candidates: list[tuple[str, str | None]] = []
-    visible = _extract_price_text(page_text)
+    candidates: list[tuple[str, str | None]] = _json_ld_price_candidates(soup)
+    visible = _extract_price_text(_first_meta_content(soup, ("description", "og:description")) or "")
     if visible:
         candidates.append((visible, None))
 
@@ -1075,10 +1170,7 @@ def _dedupe_key(item: ScraperResult) -> str:
 
 
 def _looks_blocked_or_captcha(html: str) -> bool:
-    text = (html or "").lower()
-    if "d3-ad-tile" in text:
-        return False
-    return any(marker in text for marker in _CAPTCHA_MARKERS)
+    return classify_page(html) == "challenge"
 
 
 def _clamp_max_pages(max_pages: int) -> int:
@@ -1158,5 +1250,6 @@ def _add_target_metadata(item: ScraperResult, target: YapoTarget) -> None:
     metadata["target_query"] = target["query"]
     metadata["target_property_type"] = property_type
     metadata["category"] = "casas" if property_type == "house" else metadata.get("category", "departamentos")
-    item["property_type"] = property_type
+    if metadata.get("parser_source") not in {"yapo_search_payload", "yapo_search_dom"}:
+        item["property_type"] = property_type
     item["raw_metadata"] = metadata

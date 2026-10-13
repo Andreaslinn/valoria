@@ -29,6 +29,7 @@ from domain.portfolio.contracts import (
 )
 from infrastructure.db.models import (
     AlertORM,
+    AlertReadORM,
     ListingORM,
     PortfolioAggregateSnapshotORM,
     PortfolioItemValuationSnapshotORM,
@@ -116,6 +117,7 @@ class PortfolioService:
             .where(SavedListingORM.user_id == user_id)
             .where(SavedListingORM.status == "active")
             .where(AlertORM.is_read.is_(False))
+            .where(~select(AlertReadORM.alert_id).where(AlertReadORM.alert_id == AlertORM.id, AlertReadORM.user_id == user_id).exists())
         )
         return int((await self._session.execute(stmt)).scalar_one() or 0)
 

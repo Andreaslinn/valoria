@@ -64,6 +64,15 @@ async def process_listing(
         ValidationError / UnknownComunaError: desde clean_listing.
     """
     cleaned = clean_listing(raw, allow_incomplete=allow_incomplete)
+    saved = await _persist_cleaned(cleaned, listing_repo=listing_repo,
+        property_repo=property_repo, price_history_repo=price_history_repo)
+    recorder = getattr(listing_repo, "record_observation", None)
+    if recorder is not None:
+        await recorder(raw, cleaned, saved)
+    return saved
+
+
+async def _persist_cleaned(cleaned, *, listing_repo, property_repo, price_history_repo):
     fingerprint = make_fingerprint(cleaned)
 
     existing = await _find_by_source_external_id(cleaned, listing_repo)
@@ -152,15 +161,30 @@ async def _update_existing(
     existing.property_id = prop.id if prop is not None else None
     # Solo actualizamos coords si la nueva evidencia no baja la calidad
     # geoespacial ya persistida.
-    if _should_update_coordinates(existing, cleaned):
+    replace_coordinates = _should_update_coordinates(existing, cleaned)
+    had_coordinates = existing.coordinates is not None
+    previous_geo = dict(existing.raw_metadata)
+    if replace_coordinates:
         existing.coordinates = cleaned.coordinates
-    if _should_update_geocode_precision(existing, cleaned):
+    keep_portal_precision = existing.source == "portalinmobiliario" and had_coordinates and not replace_coordinates
+    if not keep_portal_precision and ((existing.source == "portalinmobiliario" and replace_coordinates) or _should_update_geocode_precision(existing, cleaned)):
         existing.geocode_precision = cleaned.geocode_precision
     existing.scraped_at = cleaned.scraped_at
     existing.status = "active" if cleaned.is_complete_for_comparables else "incomplete"
     # Merge no destructivo de metadata: nuevos campos ganan. Si la nueva
     # pasada ya no trae warnings, removemos warnings antiguos de calidad.
     merged_metadata = {**existing.raw_metadata, **cleaned.raw_metadata}
+    if existing.source == "portalinmobiliario" and had_coordinates and not replace_coordinates:
+        # Evidence must describe the point retained in the canonical columns.
+        # The rejected new observation remains in append-only source history.
+        for key in ("lat", "lon", "location_source", "coordinates_source", "coordinates_evidence",
+                    "geocode_precision", "geocode_precision_reason", "coordinates_quality", "coordinates_alternatives_raw"):
+            if key in previous_geo:
+                merged_metadata[key] = previous_geo[key]
+            else:
+                merged_metadata.pop(key, None)
+        if cleaned.raw_metadata.get("coordinates_evidence"):
+            merged_metadata["coordinates_candidate_evidence"] = cleaned.raw_metadata["coordinates_evidence"]
     if _should_drop_stale_location_hints(cleaned):
         for key in ("address", "address_label", "street_hint", "subcomuna", "neighborhood"):
             if key not in cleaned.raw_metadata:
@@ -344,6 +368,14 @@ def _should_update_coordinates(existing: Listing, cleaned: CleanedListing) -> bo
         return False
     if existing.coordinates is None:
         return True
+    if existing.source == "portalinmobiliario" and canonical_geocode_precision(existing.geocode_precision) in {"comuna", "comuna_centroid"}:
+        ev = cleaned.raw_metadata.get("coordinates_evidence") or {}
+        if ev.get("quality", {}).get("local_eligible"):
+            return True
+    if existing.source == "portalinmobiliario" and canonical_geocode_precision(existing.geocode_precision) not in {"comuna", "comuna_centroid"}:
+        # A second unverified source pin cannot justify moving an existing point.
+        if existing.coordinates.distance_km(cleaned.coordinates) > 0.001:
+            return False
     new_rank = geocode_precision_rank(cleaned.geocode_precision)
     existing_rank = geocode_precision_rank(existing.geocode_precision)
     return new_rank >= existing_rank
