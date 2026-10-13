@@ -1,0 +1,157 @@
+{
+  "snapshot_utc": "2026-10-13T15:47:43.461196+00:00",
+  "read_only": true,
+  "uf_rate": "41152.13",
+  "ppm2_unit": "UF/m2",
+  "cases": [
+    {
+      "input": {
+        "comuna": "santiago",
+        "usable_area_m2": 70,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 0,
+        "published_uf": 2552,
+        "coordinates": null,
+        "other_fields": "unknown"
+      },
+      "pool_n": 344,
+      "estimated_uf": "3300.65",
+      "ppm2_base": 47.152179000212136,
+      "ppm2_after_surface": 47.152179000212136,
+      "price_surface_factor": 1.0,
+      "surface_adjustment": {
+        "applied": false,
+        "weight": 0.0,
+        "reason": "comuna_bucket_sample_count_below_threshold",
+        "warnings": [
+          "surface_adjustment_weak_comuna_bucket"
+        ]
+      },
+      "selected_ids": [
+        2583,
+        1291,
+        5654,
+        194,
+        836,
+        3349,
+        5652,
+        684,
+        6944,
+        188,
+        4391,
+        5160,
+        7035,
+        2520,
+        3797,
+        6756,
+        5836,
+        3964,
+        6427,
+        3343
+      ],
+      "comparable_weights": {
+        "id:2583": 0.055396,
+        "id:1291": 0.055396,
+        "id:5654": 0.052905,
+        "id:194": 0.052813,
+        "id:836": 0.052075,
+        "id:3349": 0.051706,
+        "id:5652": 0.051706,
+        "id:684": 0.051337,
+        "id:6944": 0.051291,
+        "id:188": 0.050599,
+        "id:4391": 0.049123,
+        "id:5160": 0.049123,
+        "id:7035": 0.049077,
+        "id:2520": 0.048708,
+        "id:3797": 0.047739,
+        "id:6756": 0.047355,
+        "id:5836": 0.047324,
+        "id:3964": 0.045894,
+        "id:6427": 0.045248,
+        "id:3343": 0.045187
+      },
+      "exclusions": {
+        "area_outside_tolerance": 271,
+        "legacy_unrecoverable": 44,
+        "top_n_cutoff": 9
+      }
+    },
+    {
+      "input": {
+        "comuna": "la_florida",
+        "usable_area_m2": 82,
+        "bedrooms": 3,
+        "bathrooms": 2,
+        "parking": 1,
+        "published_uf": 4000,
+        "coordinates": null,
+        "other_fields": "unknown"
+      },
+      "pool_n": 170,
+      "estimated_uf": "3909.15",
+      "ppm2_base": 47.67253104813654,
+      "ppm2_after_surface": 47.67253104813654,
+      "price_surface_factor": 1.0,
+      "surface_adjustment": {
+        "applied": false,
+        "weight": 0.0,
+        "reason": "sample_count_below_threshold",
+        "warnings": [
+          "surface_adjustment_low_sample"
+        ]
+      },
+      "selected_ids": [
+        6314,
+        5693,
+        6618,
+        539,
+        537,
+        6991,
+        6315,
+        5425,
+        5427,
+        2325,
+        6694,
+        5437,
+        6616,
+        5430,
+        5428,
+        2626,
+        3255,
+        1659,
+        5436,
+        950
+      ],
+      "comparable_weights": {
+        "id:6314": 0.053887,
+        "id:5693": 0.052976,
+        "id:6618": 0.052976,
+        "id:539": 0.052976,
+        "id:537": 0.052672,
+        "id:6991": 0.052065,
+        "id:6315": 0.051457,
+        "id:5425": 0.051153,
+        "id:5427": 0.050849,
+        "id:2325": 0.050773,
+        "id:6694": 0.050242,
+        "id:5437": 0.050242,
+        "id:6616": 0.050242,
+        "id:5430": 0.047735,
+        "id:5428": 0.04709,
+        "id:2626": 0.046824,
+        "id:3255": 0.046824,
+        "id:1659": 0.046406,
+        "id:5436": 0.046394,
+        "id:950": 0.046216
+      },
+      "exclusions": {
+        "area_outside_tolerance": 99,
+        "legacy_unrecoverable": 31,
+        "price_m2_high_outlier": 1,
+        "top_n_cutoff": 19
+      }
+    }
+  ]
+}

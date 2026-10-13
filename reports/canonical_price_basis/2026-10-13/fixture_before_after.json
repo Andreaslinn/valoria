@@ -1,0 +1,18 @@
+{
+  "before": {
+    "fixture_estimated_uf": "3880.35",
+    "fixture_ppm2_base": 47.32132675134683,
+    "fixture_selected_n": 19,
+    "surface_factor": "1",
+    "synthetic_original_ppm2": 52.3125,
+    "synthetic_duplicated_clp_ppm2": 104.625
+  },
+  "after": {
+    "fixture_estimated_uf": "3880.35",
+    "fixture_ppm2_base": 47.32132675134683,
+    "fixture_selected_n": 19,
+    "surface_factor": "1",
+    "synthetic_original_ppm2": 52.3125,
+    "synthetic_duplicated_clp_ppm2": 52.3125
+  }
+}

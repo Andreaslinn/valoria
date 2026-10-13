@@ -123,15 +123,15 @@ class ComparablesCanonicalEngine:
         if len(canonical) < self.config.min_comparables:
             raise InsufficientDataError(f"Solo {len(canonical)} comparables con precio canonico usable; se requieren al menos {self.config.min_comparables}.")
 
-        estimate_before_product = _safe_estimate(target, score_and_rank(target, [item[0] for item in canonical]))
+        estimate_before_product = _safe_estimate(target, score_and_rank(target, [item[0] for item in canonical]), uf_to_clp)
         product_filtered = self._product_pool(target_product, canonical, diagnostics)
         if len(product_filtered) < self.config.min_comparables:
             raise InsufficientDataError(f"Solo {len(product_filtered)} comparables compatibles por producto; se requieren al menos {self.config.min_comparables}.")
-        estimate_after_product = _safe_estimate(target, score_and_rank(target, [item[0] for item in product_filtered]))
+        estimate_after_product = _safe_estimate(target, score_and_rank(target, [item[0] for item in product_filtered]), uf_to_clp)
 
         robust_input = [item[0] for item in product_filtered]
         diagnostics.pool["robust_filter_input"] = len(robust_input)
-        estimate_before_robust = _safe_estimate(target, score_and_rank(target, robust_input))
+        estimate_before_robust = _safe_estimate(target, score_and_rank(target, robust_input), uf_to_clp)
         final_pool = self._robust_pool(target, robust_input, diagnostics)
         diagnostics.pool["robust_filter_output"] = len(final_pool)
         if len(final_pool) < self.config.min_comparables:
@@ -143,7 +143,7 @@ class ComparablesCanonicalEngine:
         diagnostics.exclusions["top_n_cutoff"] += max(0, len(final_pool) - len(scored))
         diagnostics.pool["selected_comparables"] = len(scored)
 
-        estimate_before_surface = _weighted_total(target, scored)
+        estimate_before_surface = _weighted_total(target, scored, uf_to_clp)
         estimated_clp, low_clp, high_clp, confidence, warnings, extra = self._post_process(
             target=target,
             candidates=final_pool,
@@ -337,6 +337,10 @@ class ComparablesCanonicalEngine:
         extra = {
             "base_estimated_price_clp": base_estimated_clp,
             "base_estimated_price_uf": _clp_to_uf(base_estimated_clp, uf_to_clp),
+            "ppm2_base": float(Decimal(base_estimated_clp) / uf_to_clp / Decimal(str(built_area))),
+            "ppm2_after_surface": float(Decimal(adjusted_clp) / uf_to_clp / Decimal(str(built_area))),
+            "price_surface_factor": adjusted_clp / base_estimated_clp,
+            "ppm2_unit": "UF/m2",
             "range_low_uf": _clp_to_uf(low_clp, uf_to_clp),
             "range_high_uf": _clp_to_uf(high_clp, uf_to_clp),
             "data_quality": comparable_quality.level,
@@ -474,29 +478,37 @@ def _built_area(value: Property | Listing) -> float | None:
     return getattr(value, "built_area_m2", None) or getattr(value, "usable_area_m2", None) or value.m2
 
 
-def _weighted_total(target: Property, scored: Sequence[tuple[Score, Listing]]) -> Decimal:
+def _weighted_total(target: Property, scored: Sequence[tuple[Score, Listing]], uf_to_clp: Decimal) -> Decimal:
     area = _built_area(target)
     if area is None or area <= 0:
         raise ValidationError("target built area must be positive")
-    return _weighted_mean_ppm2(scored) * Decimal(str(area))
+    return _weighted_mean_ppm2(scored, uf_to_clp) * Decimal(str(area))
 
 
-def _safe_estimate(target: Property, scored: Sequence[tuple[Score, Listing]]) -> float | None:
+def _safe_estimate(target: Property, scored: Sequence[tuple[Score, Listing]], uf_to_clp: Decimal) -> float | None:
     try:
-        return _decimal_float(_weighted_total(target, scored[:TOP_N_COMPARABLES]))
+        return _decimal_float(_weighted_total(target, scored[:TOP_N_COMPARABLES], uf_to_clp))
     except Exception:
         return None
 
 
-def _weighted_mean_ppm2(scored: Sequence[tuple[Score, Listing]]) -> Decimal:
+def _weighted_mean_ppm2(scored: Sequence[tuple[Score, Listing]], uf_to_clp: Decimal) -> Decimal:
+    """Weighted canonical UF/m2 converted to CLP/m2 for downstream processing.
+
+    Keep the price basis explicit here rather than depending on an upstream
+    replacement of the stored CLP snapshot. Weights and surface logic are unchanged.
+    """
     total_weight = Decimal("0")
     weighted_sum = Decimal("0")
     for score, listing in scored:
         area = _built_area(listing)
         if area is None or area <= 0:
             continue
+        basis = valuation_price_basis(listing, uf_to_clp)
+        if not basis.is_usable_for_valuation or basis.amount_uf is None:
+            continue
         weight = Decimal(str(score.value))
-        weighted_sum += weight * (listing.price.clp / Decimal(str(area)))
+        weighted_sum += weight * (basis.amount_uf / Decimal(str(area))) * uf_to_clp
         total_weight += weight
     if total_weight == 0:
         raise InsufficientDataError("Pesos de comparables suman 0")

@@ -1,0 +1,18 @@
+{
+  "base_revision": "c889f4d65ce1fc7a145b72491a470bda728465c9",
+  "focused_pr_checkout": {
+    "passed": 66,
+    "command": "python -m pytest tests/unit/test_canonical_engine_price_basis.py tests/unit/test_canonical_price_basis_diagnostic.py tests/unit/test_comparables_canonical_engine.py tests/unit/test_valuation_canonical_mode.py tests/unit/test_valuation_canonical_price.py tests/unit/test_valuation_consensus_orchestrator.py tests/unit/test_price_surface.py -q -p no:cacheprovider --tb=short"
+  },
+  "runtime_complete_isolated_checkout": {
+    "passed": 1979,
+    "warnings": 9,
+    "seconds": 193.37,
+    "command": "python -m pytest tests/unit tests/integration -q -p no:cacheprovider --tb=short"
+  },
+  "lint": "passed",
+  "diff_check": "passed",
+  "pr_checkout_full_suite_baseline_limitation": "api.rate_limit missing from release branch; API tests cannot collect",
+  "production_changed": false,
+  "ui_changed": false
+}
