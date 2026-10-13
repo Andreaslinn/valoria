@@ -1,0 +1,14 @@
+{
+  "flags": {
+    "VALORIA_USE_CONSENSUS": "true",
+    "VALUATION_CANONICAL_PRICE_ENABLED": null,
+    "VALORIA_EXPERIMENTAL_ENGINE_LAB_ENABLED": null,
+    "VALUATION_QUALITY_V2_APPLY_MODE": "guarded"
+  },
+  "container": {
+    "image_id": "sha256:22081087e836574f11091c45a164f6dbe6891f095cf55e6c6945c38c49f90f69",
+    "image_tag": "valoria-remediation:radar-tasar-20261013",
+    "started_at": "2026-10-13T07:34:25.024008925Z",
+    "revision": "c889f4d65ce1fc7a145b72491a470bda728465c9"
+  }
+}

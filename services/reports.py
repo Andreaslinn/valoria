@@ -5,6 +5,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from services.valuation_debug import embed_valuation_debug
 from ui.components.risk_report_html import (
     build_investment_intelligence_report_data,
     build_listing_risk_report_data,
@@ -29,7 +30,7 @@ def build_property_valuation_report_html(
         valuation_payload=valuation_payload,
         lookup_result={},
     )
-    return build_risk_report_html(report_data)
+    return embed_valuation_debug(build_risk_report_html(report_data), valuation_result.get("valuation_debug"))
 
 
 def build_listing_analysis_report_html(*, analysis: dict[str, Any]) -> str:

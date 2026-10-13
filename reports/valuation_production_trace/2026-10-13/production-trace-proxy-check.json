@@ -1,0 +1,16 @@
+[
+  {
+    "origin": "https://valoria-v2.netlify.app/backend",
+    "code_fingerprint": "41a546ec7725669d2419998e9325438598c5093491a63780a703b5b68de8db88",
+    "unauthenticated_valuation_status": 401,
+    "cache_control": "no-cache",
+    "cache_status": "\"Netlify Durable\"; fwd=bypass, \"Netlify Edge\"; fwd=miss; fwd-status=401"
+  },
+  {
+    "origin": "https://161-153-201-245.sslip.io",
+    "code_fingerprint": "41a546ec7725669d2419998e9325438598c5093491a63780a703b5b68de8db88",
+    "unauthenticated_valuation_status": 401,
+    "cache_control": null,
+    "cache_status": null
+  }
+]

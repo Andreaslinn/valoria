@@ -140,6 +140,7 @@ class ValuationConsensusAuditOut(BaseModel):
 
 
 class ValuationResponse(BaseModel):
+    valuation_debug: dict = Field(default_factory=dict)
     base_estimated_price_uf: float | None = None
     base_estimated_price_clp: int | None = None
     estimated_price_uf: float | None

@@ -1,0 +1,11 @@
+{
+  "focused_tests_passed": 66,
+  "production_overlay_frozen_case_checks_passed": 2,
+  "all_existing_production_response_fields_unchanged": true,
+  "runtime_overlay_test_database_access": false,
+  "lint": "passed",
+  "production_overlay_patch_check": "passed",
+  "engine_files_changed": false,
+  "frontend_files_changed": false,
+  "deployment_performed": false
+}

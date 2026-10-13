@@ -1,0 +1,56 @@
+{
+  "context": "isolated browser, all backend transport intercepted; no real credentials or account writes",
+  "requests": [
+    {
+      "url": "https://valoria-v2.netlify.app/backend/api/v1/valuations",
+      "method": "POST",
+      "payload": {
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "m2": 70,
+        "built_area_m2": 70,
+        "usable_area_m2": 70,
+        "land_area_m2": null,
+        "dormitorios": 2,
+        "banos": 2,
+        "estacionamientos": 0,
+        "precio_publicado_uf": 2552,
+        "precio_publicado_clp": null
+      }
+    },
+    {
+      "url": "https://valoria-v2.netlify.app/backend/api/v1/valuations",
+      "method": "POST",
+      "payload": {
+        "comuna": "la_florida",
+        "property_type": "apartment",
+        "m2": 82,
+        "built_area_m2": 82,
+        "usable_area_m2": 82,
+        "land_area_m2": null,
+        "dormitorios": 3,
+        "banos": 2,
+        "estacionamientos": 1,
+        "precio_publicado_uf": 4000,
+        "precio_publicado_clp": null
+      }
+    },
+    {
+      "url": "https://valoria-v2.netlify.app/backend/api/v1/valuations",
+      "method": "POST",
+      "payload": {
+        "comuna": "santiago",
+        "property_type": "apartment",
+        "m2": 70,
+        "built_area_m2": 70,
+        "usable_area_m2": 70,
+        "land_area_m2": null,
+        "dormitorios": null,
+        "banos": null,
+        "estacionamientos": null,
+        "precio_publicado_uf": 2552,
+        "precio_publicado_clp": null
+      }
+    }
+  ]
+}

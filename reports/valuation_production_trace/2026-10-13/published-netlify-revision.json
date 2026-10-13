@@ -1,0 +1,23 @@
+{
+  "site_id": "0af3d12f-a75b-494e-b75a-333a6165db68",
+  "url": "https://valoria-v2.netlify.app",
+  "published_deploy": {
+    "id": "6acde09716880ca8084866fa",
+    "state": "ready",
+    "context": "production",
+    "commit_ref": "c889f4d65ce1fc7a145b72491a470bda728465c9",
+    "published_at": "2026-10-13T07:42:21.295Z",
+    "build_id": "6acde09616880ca8084866f7"
+  },
+  "build_settings": {
+    "provider": "github",
+    "repo_path": "Andreaslinn/valoria",
+    "repo_branch": "release/valoria-v2-20261012",
+    "base": "frontend-v2",
+    "dir": ".next",
+    "cmd": "npm ci --no-audit --no-fund && node ../tests/frontend/remediation.test.cjs && npm run build",
+    "base_rel_dir": true,
+    "stop_builds": false,
+    "installation_id": 145314570
+  }
+}

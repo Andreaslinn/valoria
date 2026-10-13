@@ -101,6 +101,7 @@ class ValuationConsensusPayload(TypedDict):
 
 
 class ValuationResultPayload(ConfidencePayload, ComparableQualityPayload, BetaScopePayload):
+    valuation_debug: NotRequired[dict]
     base_estimated_price_uf: float | None
     base_estimated_price_clp: int | None
     estimated_price_uf: float | None
