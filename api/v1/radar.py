@@ -8,7 +8,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.deps import AppSettings, CurrentUser, DbSession, RadarServiceDep
+from core.exceptions import UFServiceError
 from services.radar import RadarFilters
+from services.thumbnails import ThumbnailRef, resolve as resolve_thumbnails
 from services.radar_summary import build_radar_summary
 
 router = APIRouter(prefix="/radar", tags=["radar"])
@@ -16,6 +18,7 @@ _log = logging.getLogger(__name__)
 
 
 class OpportunityOut(BaseModel):
+    thumbnail: ThumbnailRef | None = None
     listing_id: int | None
     title: str
     comuna: str
@@ -30,6 +33,7 @@ class OpportunityOut(BaseModel):
     property_type: str | None = None
     source: str | None = None
     external_id: str | None = None
+    last_seen_at: str | None = None
     lat: float | None = None
     lon: float | None = None
     geocode_precision: str | None = None
@@ -54,6 +58,10 @@ class OpportunityOut(BaseModel):
     beta_scope_flags: list[str] = Field(default_factory=list)
     estimated_value_uf: float | None = None
     estimated_value_clp: int | None = None
+    valuation_strategy: str | None = None
+    consensus_used: bool = False
+    consensus_unavailable_reason: str | None = None
+    fallback_engine_used: str | None = None
     price_currency: str | None = None
     price_clp_snapshot: int | None = None
     price_basis_used: str | None = None
@@ -120,6 +128,7 @@ async def summary(
 async def opportunities(
     _current_user: CurrentUser,
     service: RadarServiceDep,
+    session: DbSession,
     limit: int = Query(default=20, ge=1, le=100),
     bedrooms_min: int | None = Query(default=None, ge=1, le=20),
     bedrooms_max: int | None = Query(default=None, ge=1, le=20),
@@ -133,6 +142,8 @@ async def opportunities(
                 bedrooms_max=bedrooms_max,
             ),
         )
+    except UFServiceError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="UF real no disponible") from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
@@ -149,7 +160,9 @@ async def opportunities(
         len(result),
         _elapsed_ms(start),
     )
-    return [OpportunityOut.model_validate(item, from_attributes=True) for item in result]
+    outputs = [OpportunityOut.model_validate(item, from_attributes=True) for item in result]
+    refs = await resolve_thumbnails(session, [item.listing_id for item in outputs], owner=_current_user.id, surface="radar")
+    return [item.model_copy(update={"thumbnail": refs.get(item.listing_id)}) for item in outputs]
 
 
 def _elapsed_ms(start: float) -> float:

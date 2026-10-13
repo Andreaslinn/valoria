@@ -26,6 +26,7 @@ from fastapi.security import OAuth2PasswordBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.rate_limit import RateLimiter
 from api.security import TokenError, decode_token
 from config import Settings, get_settings
 from core.entities.user import User
@@ -39,6 +40,7 @@ from infrastructure.db.repositories import (
 )
 from infrastructure.external.uf_client import UFClient
 from services.listings import ListingService
+from services.patrimony import PatrimonyService
 from services.portfolio import PortfolioService
 from services.portfolio_comparisons import PortfolioComparisonService
 from services.portfolio_snapshots import PortfolioSnapshotService
@@ -53,6 +55,7 @@ _log = logging.getLogger(__name__)
 
 _uf_http_client: httpx.AsyncClient | None = None
 _uf_redis_client: Redis | None = None
+_rate_limit_redis_client: Redis | None = None
 
 
 # ------------------------------------------------------------
@@ -99,6 +102,25 @@ def _get_uf_redis_client(settings: Settings) -> Redis | None:
     return _uf_redis_client
 
 
+def get_rate_limit_redis_client(settings: AppSettings) -> Redis | None:
+    global _rate_limit_redis_client
+    if not settings.redis_enabled or not settings.redis_url:
+        return None
+    if _rate_limit_redis_client is None:
+        _rate_limit_redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
+    return _rate_limit_redis_client
+
+
+def get_rate_limiter(
+    settings: AppSettings,
+    redis: Annotated[Redis | None, Depends(get_rate_limit_redis_client)],
+) -> RateLimiter:
+    return RateLimiter(redis=redis, settings=settings)
+
+
+RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
+
+
 def get_uf_service(settings: AppSettings) -> UFService:
     return UFClient(
         api_url=settings.uf_api_url,
@@ -112,7 +134,7 @@ def get_uf_service(settings: AppSettings) -> UFService:
 
 
 async def close_external_clients() -> None:
-    global _uf_http_client, _uf_redis_client
+    global _uf_http_client, _uf_redis_client, _rate_limit_redis_client
     if _uf_http_client is not None and not _uf_http_client.is_closed:
         await _uf_http_client.aclose()
         _uf_http_client = None
@@ -123,6 +145,13 @@ async def close_external_clients() -> None:
             _log.warning("Redis UF close failed: %s", e)
         finally:
             _uf_redis_client = None
+    if _rate_limit_redis_client is not None:
+        try:
+            await _rate_limit_redis_client.aclose()
+        except Exception as e:
+            _log.warning("Redis rate limit close failed: %s", e)
+        finally:
+            _rate_limit_redis_client = None
 
 
 UFServiceDep = Annotated[UFService, Depends(get_uf_service)]
@@ -148,8 +177,9 @@ ValuationServiceDep = Annotated[ValuationService, Depends(get_valuation_service)
 def get_radar_service(
     listing_repo: ListingRepoDep,
     uf_service: UFServiceDep,
+    valuation_service: ValuationServiceDep,
 ) -> RadarService:
-    return RadarService(listing_repo=listing_repo, uf_service=uf_service)
+    return RadarService(listing_repo=listing_repo, uf_service=uf_service, valuation_service=valuation_service)
 
 
 RadarServiceDep = Annotated[RadarService, Depends(get_radar_service)]
@@ -183,6 +213,13 @@ PortfolioSnapshotServiceDep = Annotated[
     PortfolioSnapshotService,
     Depends(get_portfolio_snapshot_service),
 ]
+
+
+def get_patrimony_service(session: DbSession) -> PatrimonyService:
+    return PatrimonyService(session)
+
+
+PatrimonyServiceDep = Annotated[PatrimonyService, Depends(get_patrimony_service)]
 
 
 # ------------------------------------------------------------

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -10,7 +9,7 @@ from decimal import Decimal
 from time import perf_counter
 
 from config import get_settings
-from config.constants import MIN_COMPARABLES
+from config.constants import MIN_COMPARABLES, MIN_UNDERVALUATION, MIN_UNDERVALUATION_LOW_DATA
 from core.assessment.beta_status import beta_scope_warning_codes
 from core.assessment.confidence import build_confidence_contract
 from core.assessment.contracts import RadarOpportunityPayload
@@ -22,16 +21,19 @@ from core.ports.listing_repo import ListingRepository
 from core.ports.uf_service import UFService
 from domain.radar.beta_safety import assess_radar_safety
 from domain.radar.detector import detect_opportunities
+from domain.radar.eligibility import list_initial_radar_candidates
 from domain.radar.filters import apply_quality_filters, top_n
 from domain.radar.freshness import (
     RadarFreshnessConfig,
-    is_fresh_for_radar,
 )
 from domain.radar.price_basis import display_price_uf, radar_price_basis
-from domain.radar.scope import apply_radar_property_scope, parse_allowed_property_types
+from domain.radar.scope import parse_allowed_property_types
 from domain.valuation.comparables import filter_candidates, valuate
 from services.formatting import price_clp_int, price_uf_float
 from services.uf_rate import require_real_uf_rate
+from services.valuation import ValuationService
+from services.listing_analysis import _valuation_input
+from services.listing_url_lookup import listing_to_form_data
 
 _log = logging.getLogger(__name__)
 
@@ -84,16 +86,6 @@ class RadarFilterDiagnostics:
 
 
 @dataclass(frozen=True)
-class RadarFreshnessDiagnostics:
-    included_count: int = 0
-    excluded_by_missing_url_count: int = 0
-    excluded_by_stale_count: int = 0
-    excluded_by_removed_or_unavailable_count: int = 0
-    excluded_by_refresh_failed_count: int = 0
-    excluded_by_missing_freshness_count: int = 0
-
-
-@dataclass(frozen=True)
 class OpportunityDTO:
     listing_id: int | None
     title: str
@@ -122,6 +114,10 @@ class OpportunityDTO:
     beta_scope_flags: list[str] = field(default_factory=list)
     estimated_value_uf: float | None = None
     estimated_value_clp: int | None = None
+    valuation_strategy: str | None = None
+    consensus_used: bool = False
+    consensus_unavailable_reason: str | None = None
+    fallback_engine_used: str | None = None
     price_currency: str | None = None
     price_clp_snapshot: int | None = None
     price_basis_used: str | None = None
@@ -141,6 +137,7 @@ class OpportunityDTO:
     property_type: str | None = None
     source: str | None = None
     external_id: str | None = None
+    last_seen_at: str | None = None
     lat: float | None = None
     lon: float | None = None
     geocode_precision: str | None = None
@@ -170,6 +167,7 @@ class OpportunityDTO:
             "property_type": self.property_type,
             "source": self.source,
             "external_id": self.external_id,
+            "last_seen_at": self.last_seen_at,
             "lat": self.lat,
             "lon": self.lon,
             "geocode_precision": self.geocode_precision,
@@ -194,6 +192,10 @@ class OpportunityDTO:
             "beta_scope_flags": list(self.beta_scope_flags),
             "estimated_value_uf": self.estimated_value_uf,
             "estimated_value_clp": self.estimated_value_clp,
+            "valuation_strategy": self.valuation_strategy,
+            "consensus_used": self.consensus_used,
+            "consensus_unavailable_reason": self.consensus_unavailable_reason,
+            "fallback_engine_used": self.fallback_engine_used,
             "price_currency": self.price_currency,
             "price_clp_snapshot": self.price_clp_snapshot,
             "price_basis_used": self.price_basis_used,
@@ -225,9 +227,11 @@ class RadarService:
         uf_service: UFService,
         allowed_property_types: Sequence[str] | None = None,
         freshness_config: RadarFreshnessConfig | None = None,
+        valuation_service: ValuationService | None = None,
     ) -> None:
         self._listing_repo = listing_repo
         self._uf_service = uf_service
+        self._valuation_service = valuation_service or ValuationService(listing_repo=listing_repo, uf_service=uf_service)
         settings = get_settings()
         configured_types = (
             allowed_property_types
@@ -260,16 +264,22 @@ class RadarService:
         listings = await self._listing_repo.list_active()
         listings_ms = _elapsed_ms(listings_start)
 
-        scope = apply_radar_property_scope(listings, self._allowed_property_types)
-        fresh_listings, freshness_diagnostics = _apply_radar_freshness(
-            scope.included,
-            config=self._freshness_config,
+        eligibility = list_initial_radar_candidates(
+            listings,
+            allowed_property_types=self._allowed_property_types,
+            freshness_config=self._freshness_config,
             now=datetime.now(UTC),
         )
-        scoped_listings, filter_diagnostics = _apply_radar_filters(fresh_listings, filters)
+        scope = eligibility.scope
+        eligibility_diagnostics = eligibility.diagnostics
+        scoped_listings, filter_diagnostics = _apply_radar_filters(eligibility.candidates, filters)
 
         detection_start = perf_counter()
-        result = detect_opportunities(scoped_listings, uf_to_clp)
+        result = detect_opportunities(
+            scoped_listings,
+            uf_to_clp,
+            comparable_universe=listings,
+        )
         detection_ms = _elapsed_ms(detection_start)
 
         filtering_start = perf_counter()
@@ -279,32 +289,38 @@ class RadarService:
         dto_start = perf_counter()
         opportunities: list[OpportunityDTO] = []
         for o in top_n(filtered, limit):
-            warnings: list[str] = []
-            if result.low_data_by_property_type.get(_property_type(o.listing), result.low_data_mode):
+            # Detection is only a bounded preselection. Every displayed estimate
+            # comes from the actual Tasar service, never the screening value.
+            valuation_input, missing = _valuation_input(listing_to_form_data(o.listing))
+            if missing or valuation_input is None:
+                continue
+            try:
+                valuation = await self._valuation_service.valuate_property(
+                    valuation_input, valuation_strategy="consensus_v1",
+                )
+            except (InsufficientDataError, ValidationError, ValueError):
+                _log.info("radar_canonical_valuation_unavailable listing_id=%s", o.listing.id)
+                continue
+            estimated_uf = valuation.estimated_price_uf
+            listed_price_uf = display_price_uf(o.listing, uf_to_clp)
+            discount = calculate_discount_pct(estimated_uf, listed_price_uf)
+            low_data = result.low_data_by_property_type.get(_property_type(o.listing), result.low_data_mode)
+            threshold = MIN_UNDERVALUATION_LOW_DATA if low_data else MIN_UNDERVALUATION
+            if discount is None or discount < threshold * 100:
+                continue
+            warnings = list(valuation.warnings)
+            if low_data:
                 warnings.append("low_data_mode")
-            if o.valuation_result is not None:
-                warnings.extend(o.valuation_result.reliability_warnings)
-                warnings.extend(o.valuation_result.comparable_quality_flags)
-                warnings.extend(_beta_scope_warning_codes(o.valuation_result.beta_scope_status))
-            safety = _safety_for_opportunity(o, warnings)
+            safety = assess_radar_safety(
+                beta_scope_status=valuation.beta_scope_status,
+                beta_scope_flags=valuation.beta_scope_flags,
+                comparable_quality_level=valuation.comparable_quality_level,
+                comparable_quality_flags=valuation.comparable_quality_flags,
+                warnings=warnings,
+            )
             if not safety.show:
                 continue
             basis = radar_price_basis(o.listing)
-            listed_price_uf = display_price_uf(o.listing, uf_to_clp)
-            avm = _enrichment_from_opportunity(o, scoped_listings, uf_to_clp)
-            opportunity_confidence = build_confidence_contract(
-                score=o.confidence,
-                base_score=(
-                    o.valuation_result.base_confidence
-                    if o.valuation_result is not None
-                    else None
-                ),
-                reliability_warnings=(
-                    o.valuation_result.reliability_warnings
-                    if o.valuation_result is not None
-                    else ()
-                ),
-            )
             opportunities.append(
                 OpportunityDTO(
                     listing_id=o.listing.id,
@@ -321,50 +337,38 @@ class RadarService:
                     property_type=_property_type(o.listing),
                     source=o.listing.source,
                     external_id=o.listing.external_id,
+                    last_seen_at=(
+                        (o.listing.last_seen_at.replace(tzinfo=UTC) if o.listing.last_seen_at.tzinfo is None else o.listing.last_seen_at).isoformat()
+                        if o.listing.last_seen_at is not None else None
+                    ),
                     lat=o.listing.coordinates.lat if o.listing.coordinates is not None else None,
                     lon=o.listing.coordinates.lon if o.listing.coordinates is not None else None,
                     geocode_precision=o.listing.geocode_precision,
-                    estimated_price_uf=price_uf_float(o.market_price, uf_to_clp),
-                    discount_pct=round(o.discount_pct * 100, 2),
-                    score=round(o.ranking_score, 4),
-                    confidence=opportunity_confidence.legacy_confidence,
-                    confidence_score=opportunity_confidence.confidence_score,
-                    confidence_label=opportunity_confidence.confidence_label,
-                    confidence_reasons=list(opportunity_confidence.confidence_reasons),
-                    confidence_risk_flags=list(opportunity_confidence.confidence_risk_flags),
-                    comparables_used=o.comparables_used,
+                    estimated_price_uf=estimated_uf,
+                    discount_pct=discount,
+                    score=round((discount / 100) * (valuation.confidence_score or 0), 4),
+                    confidence=valuation.confidence,
+                    confidence_score=valuation.confidence_score,
+                    confidence_label=valuation.confidence_label,
+                    confidence_reasons=list(valuation.confidence_reasons),
+                    confidence_risk_flags=list(valuation.confidence_risk_flags),
+                    comparables_used=valuation.comparable_count,
                     url=o.listing.url,
                     warnings=_dedupe(warnings),
                     radar_verdict=safety.verdict,
                     radar_verdict_message=safety.message,
                     risk_flags=list(safety.risk_flags),
-                    comparable_quality_level=(
-                        o.valuation_result.comparable_quality_level
-                        if o.valuation_result is not None
-                        else None
-                    ),
-                    comparable_quality_flags=(
-                        list(o.valuation_result.comparable_quality_flags)
-                        if o.valuation_result is not None
-                        else []
-                    ),
-                    beta_scope_status=(
-                        o.valuation_result.beta_scope_status
-                        if o.valuation_result is not None
-                        else None
-                    ),
-                    beta_scope_message=(
-                        o.valuation_result.beta_scope_message
-                        if o.valuation_result is not None
-                        else None
-                    ),
-                    beta_scope_flags=(
-                        list(o.valuation_result.beta_scope_flags)
-                        if o.valuation_result is not None
-                        else []
-                    ),
-                    estimated_value_uf=avm.estimated_value_uf,
-                    estimated_value_clp=avm.estimated_value_clp,
+                    comparable_quality_level=valuation.comparable_quality_level,
+                    comparable_quality_flags=list(valuation.comparable_quality_flags),
+                    beta_scope_status=valuation.beta_scope_status,
+                    beta_scope_message=valuation.beta_scope_message,
+                    beta_scope_flags=list(valuation.beta_scope_flags),
+                    estimated_value_uf=estimated_uf,
+                    estimated_value_clp=valuation.estimated_price_clp,
+                    valuation_strategy=valuation.valuation_strategy,
+                    consensus_used=valuation.consensus_used,
+                    consensus_unavailable_reason=valuation.consensus_unavailable_reason,
+                    fallback_engine_used=valuation.fallback_engine_used,
                     price_currency=o.price_currency or basis.price_currency,
                     price_clp_snapshot=int(o.price_clp_snapshot or basis.price_clp_snapshot),
                     price_basis_used=o.price_basis_used or basis.price_basis_used,
@@ -387,6 +391,7 @@ class RadarService:
                     excluded_by_bedrooms_count=filter_diagnostics.excluded_by_bedrooms_count,
                 )
             )
+        opportunities.sort(key=lambda item: item.score, reverse=True)
         dto_ms = _elapsed_ms(dto_start)
         _log.info(
             "radar_opportunities_timing limit=%s listings_loaded=%s "
@@ -418,12 +423,12 @@ class RadarService:
             self._freshness_config.require_fresh_listings,
             self._freshness_config.max_listing_staleness_days,
             len(scope.included),
-            freshness_diagnostics.included_count,
-            freshness_diagnostics.excluded_by_missing_url_count,
-            freshness_diagnostics.excluded_by_stale_count,
-            freshness_diagnostics.excluded_by_removed_or_unavailable_count,
-            freshness_diagnostics.excluded_by_refresh_failed_count,
-            freshness_diagnostics.excluded_by_missing_freshness_count,
+            eligibility_diagnostics.fresh_candidates_count,
+            eligibility_diagnostics.freshness_excluded_missing_url_count,
+            eligibility_diagnostics.excluded_stale_count,
+            eligibility_diagnostics.excluded_removed_count,
+            eligibility_diagnostics.freshness_excluded_refresh_failed_count,
+            eligibility_diagnostics.freshness_excluded_missing_freshness_count,
             len(scoped_listings),
             result.total_listings_analyzed,
             len(result.opportunities),
@@ -445,32 +450,6 @@ class RadarService:
 
 def _elapsed_ms(start: float) -> float:
     return (perf_counter() - start) * 1000
-
-
-def _apply_radar_freshness(
-    listings: Sequence[Listing],
-    *,
-    config: RadarFreshnessConfig,
-    now: datetime,
-) -> tuple[list[Listing], RadarFreshnessDiagnostics]:
-    included: list[Listing] = []
-    excluded = Counter[str]()
-
-    for listing in listings:
-        decision = is_fresh_for_radar(listing, now=now, config=config)
-        if decision.allowed:
-            included.append(listing)
-            continue
-        excluded[decision.cause] += 1
-
-    return included, RadarFreshnessDiagnostics(
-        included_count=len(included),
-        excluded_by_missing_url_count=excluded["missing_url"],
-        excluded_by_stale_count=excluded["stale"],
-        excluded_by_removed_or_unavailable_count=excluded["removed_or_unavailable"],
-        excluded_by_refresh_failed_count=excluded["refresh_failed"],
-        excluded_by_missing_freshness_count=excluded["missing_freshness"],
-    )
 
 
 def _apply_radar_filters(
@@ -604,6 +583,9 @@ def _insufficient_avm() -> RadarAvmEnrichment:
 
 
 def _is_valid_target(listing: Listing) -> bool:
+    from core.normalization.property_consistency import property_type_conflict
+    if property_type_conflict(listing):
+        return False
     area = _effective_area_m2(listing)
     return (
         listing.is_active
@@ -619,9 +601,8 @@ def _is_valid_comparable_input(listing: Listing) -> bool:
 
 
 def _same_listing(a: Listing, b: Listing) -> bool:
-    if a.id is not None and b.id is not None:
-        return a.id == b.id
-    return a.fingerprint == b.fingerprint
+    from core.normalization.publication_identity import same_publication
+    return same_publication(a, b)
 
 
 def _same_property_type(a: Listing, b: Listing) -> bool:

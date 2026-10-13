@@ -8,12 +8,13 @@ test('Portal upstream failures retain provider message instead of UF/auth text',
   try {await assert.rejects(apiClient.post('/api/v1/listings/lookup-url',{url:'https://www.portalinmobiliario.com/MLC-123'},{token:null}),e=>e instanceof ApiError&&e.status===503&&e.message==='Portal rechazó el acceso a la publicación.');}
   finally {global.fetch=prior;}
 });
-test('Radar estimate and discount share the screening result', () => {
+test('Radar displays the Tasar engine result and its matching discount', () => {
   const {opportunity} = load('@/features/radar/model');
-  const result = opportunity({listing_id:1130, price_uf:1520, estimated_price_uf:3385.9,
-    estimated_value_uf:2375.9, discount_pct:55.11, warnings:[], confidence_risk_flags:[]});
-  assert.equal(result.estimate,3385.9);
-  assert.match(result.evidence,/consenso/);
+  const result = opportunity({listing_id:1130, price_uf:1520, estimated_price_uf:2376.63,
+    estimated_value_uf:2376.63, discount_pct:36.04, consensus_used:true, valuation_strategy:"consensus_v1", warnings:[], confidence_risk_flags:[]});
+  assert.equal(result.estimate,2376.63);
+  assert.equal(result.valuationMethod,"Consenso Valoria");
+  assert.match(result.evidence,/motor de Tasar/);
   assert.ok(Math.abs((1-result.price/result.estimate)*100-result.discount)<0.01);
 });
 test('withdrawn status dominates even an obsolete fresh label', () => {

@@ -40,6 +40,10 @@ export type RadarOpportunity = {
   beta_scope_flags: string[];
   estimated_value_uf?: number | null;
   estimated_value_clp?: number | null;
+  valuation_strategy?: string | null;
+  consensus_used?: boolean;
+  consensus_unavailable_reason?: string | null;
+  fallback_engine_used?: string | null;
   price_currency?: string | null;
   price_clp_snapshot?: number | null;
   price_basis_used?: string | null;

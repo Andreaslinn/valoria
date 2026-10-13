@@ -350,6 +350,32 @@ async def test_radar_service_filters_houses_before_detector(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_radar_service_sends_only_initially_eligible_candidates_to_detector(monkeypatch) -> None:
+    ready = make_listing(fingerprint="ready", price_currency="CLP", price_uf=None)
+    missing_price = make_listing(fingerprint="missing-price", price_currency="UF", price_uf=None)
+    missing_area = _without_valid_area("missing-area")
+    captured_fingerprints: list[str] = []
+
+    def fake_detect(listings, *args, **kwargs):
+        captured_fingerprints.extend(listing.fingerprint for listing in listings)
+        return RadarResult(
+            opportunities=[],
+            total_listings_analyzed=len(listings),
+            low_data_mode=False,
+            low_data_by_property_type={"apartment": False},
+        )
+
+    monkeypatch.setattr(radar_module, "detect_opportunities", fake_detect)
+    service = RadarService(
+        listing_repo=_FakeListingRepo([ready, missing_price, missing_area]),
+        uf_service=_FakeUFService(),
+    )
+
+    assert await service.opportunities(limit=5) == []
+    assert captured_fingerprints == ["ready"]
+
+
+@pytest.mark.asyncio
 async def test_radar_service_without_bedrooms_filter_keeps_detector_input(monkeypatch) -> None:
     studio = make_listing(fingerprint="studio", bedrooms=0)
     one_bed = make_listing(fingerprint="one-bed", bedrooms=1)
@@ -450,9 +476,13 @@ async def test_radar_service_freshness_on_filters_stale_before_detector(monkeypa
     fresh = _fresh_listing("fresh", last_seen_at=current - timedelta(days=2))
     stale = _fresh_listing("stale", last_seen_at=current - timedelta(days=30))
     captured_fingerprints: list[str] = []
+    captured_comparable_fingerprints: list[str] = []
 
     def fake_detect(listings, *args, **kwargs):
         captured_fingerprints.extend(listing.fingerprint for listing in listings)
+        captured_comparable_fingerprints.extend(
+            listing.fingerprint for listing in kwargs["comparable_universe"]
+        )
         return RadarResult(
             opportunities=[],
             total_listings_analyzed=len(listings),
@@ -472,6 +502,7 @@ async def test_radar_service_freshness_on_filters_stale_before_detector(monkeypa
 
     assert await service.opportunities(limit=5) == []
     assert captured_fingerprints == ["fresh"]
+    assert captured_comparable_fingerprints == ["fresh", "stale"]
 
 
 @pytest.mark.asyncio
@@ -540,6 +571,7 @@ async def test_radar_service_scope_metadata_counts_houses_on_hold(monkeypatch) -
     service = RadarService(
         listing_repo=_FakeListingRepo([listing, house]),
         uf_service=_FakeUFService(),
+        valuation_service=_CanonicalValuationStub(valuation),
     )
 
     result = (await service.opportunities(limit=5))[0]
@@ -580,6 +612,7 @@ async def test_radar_service_hides_no_data_opportunities(monkeypatch) -> None:
     service = RadarService(
         listing_repo=_FakeListingRepo([listing]),
         uf_service=_FakeUFService(),
+        valuation_service=_CanonicalValuationStub(valuation),
     )
 
     assert await service.opportunities(limit=5) == []
@@ -615,6 +648,7 @@ async def test_radar_service_exposes_quality_and_risk_flags(monkeypatch) -> None
     service = RadarService(
         listing_repo=_FakeListingRepo([listing]),
         uf_service=_FakeUFService(),
+        valuation_service=_CanonicalValuationStub(valuation),
     )
 
     result = (await service.opportunities(limit=5))[0]
@@ -743,3 +777,19 @@ def _valuation_result(
         beta_scope_metrics={"segment_sample_count": 10},
         beta_scope_message="scope test",
     )
+
+
+class _CanonicalValuationStub:
+    def __init__(self, result):
+        self.result = result
+    async def valuate_property(self, data, *, valuation_strategy):
+        from types import SimpleNamespace
+        v = self.result
+        return SimpleNamespace(estimated_price_uf=float(v.estimated_price.clp / UF),
+            estimated_price_clp=int(v.estimated_price.clp), confidence_score=v.confidence.value,
+            confidence_risk_flags=list(v.reliability_warnings), confidence="medium", confidence_label="medium", confidence_reasons=[], comparable_count=v.comparables_used,
+            warnings=list(v.reliability_warnings), beta_scope_status=v.beta_scope_status,
+            beta_scope_flags=v.beta_scope_flags, beta_scope_message=v.beta_scope_message,
+            comparable_quality_level=v.comparable_quality_level,
+            comparable_quality_flags=v.comparable_quality_flags, valuation_strategy=valuation_strategy,
+            consensus_used=True, consensus_unavailable_reason=None, fallback_engine_used=None)
