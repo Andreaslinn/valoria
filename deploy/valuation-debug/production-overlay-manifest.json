@@ -1,0 +1,10 @@
+{
+  "base_image": "sha256:22081087e836574f11091c45a164f6dbe6891f095cf55e6c6945c38c49f90f69",
+  "description": "Optional diagnostic-only overlay for the exact drifted production sources; not deployed",
+  "required_new_file": "services/valuation_debug.py",
+  "original_source_sha256": {
+    "services/valuation.py": "dcd0fb3daff6889819a65fbcb81e3913f121da590707f2faa9b054eb020722a9",
+    "api/v1/valuations.py": "b6c3a6ce3c241713cf3be95c209af9dbe37e5616f42cb5506affa3f4369857e0",
+    "services/reports.py": "f21955d676655e8d1715f83da2feba587d64b7d597f9064af58ebf16253aa40c"
+  }
+}

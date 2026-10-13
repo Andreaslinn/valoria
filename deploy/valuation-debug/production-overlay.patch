@@ -1,0 +1,40 @@
+--- a/services/valuation.py
++++ b/services/valuation.py
+@@ -64,0 +65 @@
++from services.valuation_debug import engine_trace, value_trace
+@@ -163,0 +165 @@
++    valuation_debug: dict[str, Any] = field(default_factory=dict)
+@@ -209,0 +212 @@
++            "valuation_debug": dict(self.valuation_debug),
+@@ -371,0 +375,12 @@
++            valuation_debug=value_trace(
++                engine_selected=selected_engine_names[0] if selected_engine_names else "comparables_legacy",
++                engine_version=next(
++                    (item.engine_version for item in engine_results
++                     if item.engine_name == (selected_engine_names[0] if selected_engine_names else "comparables_legacy")),
++                    "phase0b_legacy_v1",
++                ),
++                uf_to_clp=uf_to_clp, area_m2=built_area_m2,
++                base_clp=base_estimated_clp, after_surface_clp=adjusted_estimated_clp,
++                final_clp=final_estimated_clp,
++                comparable_ids=[listing.id for _, listing in valuation_run.scored_comparables],
++            ),
+@@ -543,0 +559,6 @@
++        valuation_debug={
++            **engine_trace(selected, uf_to_clp=uf_to_clp, area_m2=target.built_area_m2 or target.m2),
++            "engines": [engine_trace(item, uf_to_clp=uf_to_clp, area_m2=target.built_area_m2 or target.m2)
++                        for item in consensus_run.raw_results],
++            "previous_pipeline": dict(dto.valuation_debug),
++        },
+--- a/api/v1/valuations.py
++++ b/api/v1/valuations.py
+@@ -154,0 +155 @@
++    valuation_debug: dict = Field(default_factory=dict)
+--- a/services/reports.py
++++ b/services/reports.py
+@@ -2,0 +3,2 @@
++
++from services.valuation_debug import embed_valuation_debug
+@@ -36 +38 @@
+-    return _include_analysis_evidence(_include_model_warnings(build_risk_report_html(report_data), valuation_result), valuation_result, valuation_payload)
++    return embed_valuation_debug(_include_analysis_evidence(_include_model_warnings(build_risk_report_html(report_data), valuation_result), valuation_result, valuation_payload), valuation_result.get("valuation_debug"))

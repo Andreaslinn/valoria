@@ -58,6 +58,7 @@ from domain.valuation.quality_v2_challenger import (
 )
 from services.formatting import price_clp_int, price_uf_float
 from services.uf_rate import require_real_uf_rate
+from services.valuation_debug import engine_trace, value_trace
 
 _log = logging.getLogger(__name__)
 
@@ -148,6 +149,7 @@ class ValuationDTO:
     uf_rate_source: str | None = None
     uf_rate_date: str | None = None
     uf_rate_is_stale: bool = False
+    valuation_debug: dict[str, Any] = field(default_factory=dict)
 
     def to_payload(self) -> ValuationResultPayload:
         return {
@@ -190,6 +192,7 @@ class ValuationDTO:
             "uf_rate_source": self.uf_rate_source,
             "uf_rate_date": self.uf_rate_date,
             "uf_rate_is_stale": self.uf_rate_is_stale,
+            "valuation_debug": dict(self.valuation_debug),
         }
 
 
@@ -362,6 +365,18 @@ class ValuationService:
             uf_rate_source=uf_info.source,
             uf_rate_date=uf_info.rate_date.isoformat() if uf_info.rate_date else None,
             uf_rate_is_stale=uf_info.is_stale,
+            valuation_debug=value_trace(
+                engine_selected=selected_engine_names[0] if selected_engine_names else "comparables_legacy",
+                engine_version=next(
+                    (item.engine_version for item in engine_results
+                     if item.engine_name == (selected_engine_names[0] if selected_engine_names else "comparables_legacy")),
+                    "phase0b_legacy_v1",
+                ),
+                uf_to_clp=uf_to_clp, area_m2=built_area_m2,
+                base_clp=base_estimated_clp, after_surface_clp=adjusted_estimated_clp,
+                final_clp=final_estimated_clp,
+                comparable_ids=[listing.id for _, listing in valuation_run.scored_comparables],
+            ),
         )
         return _with_experimental_lab(
             dto,
@@ -516,6 +531,7 @@ def _valuation_dto_from_engine(
         engine_results=engine_results,
         selected_engine_names=selected_names,
         consensus_method=CONSENSUS_METHOD,
+        valuation_debug=engine_trace(result, uf_to_clp=uf_to_clp, area_m2=built_area_m2),
     )
 
 
