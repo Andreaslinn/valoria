@@ -5,15 +5,15 @@
  from services.formatting import price_clp_int, price_uf_float
  from services.uf_rate import require_real_uf_rate
 +from services.valuation_debug import engine_trace, value_trace
- 
+
  _log = logging.getLogger(__name__)
- 
+
 @@ -161,6 +162,7 @@
      uf_rate_source: str | None = None
      uf_rate_date: str | None = None
      uf_rate_is_stale: bool = False
 +    valuation_debug: dict[str, Any] = field(default_factory=dict)
- 
+
      def to_payload(self) -> ValuationResultPayload:
          return {
 @@ -207,6 +209,7 @@
@@ -22,8 +22,8 @@
              "uf_rate_is_stale": self.uf_rate_is_stale,
 +            "valuation_debug": dict(self.valuation_debug),
          }
- 
- 
+
+
 @@ -369,6 +372,18 @@
              uf_rate_source=uf_info.source,
              uf_rate_date=uf_info.rate_date.isoformat() if uf_info.rate_date else None,
@@ -59,8 +59,8 @@
 --- a/api/v1/valuations.py
 +++ b/api/v1/valuations.py
 @@ -152,6 +152,7 @@
- 
- 
+
+
  class ValuationResponse(BaseModel):
 +    valuation_debug: dict = Field(default_factory=dict)
      base_estimated_price_uf: float | None = None
@@ -73,7 +73,7 @@
  from __future__ import annotations
 +
 +from services.valuation_debug import embed_valuation_debug
- 
+
  import math
  import re
 @@ -33,7 +35,7 @@
@@ -82,6 +82,6 @@
      )
 -    return _include_analysis_evidence(_include_model_warnings(build_risk_report_html(report_data), valuation_result), valuation_result, valuation_payload)
 +    return embed_valuation_debug(_include_analysis_evidence(_include_model_warnings(build_risk_report_html(report_data), valuation_result), valuation_result, valuation_payload), valuation_result.get("valuation_debug"))
- 
- 
+
+
  def build_listing_analysis_report_html(*, analysis: dict[str, Any]) -> str:
