@@ -15,6 +15,26 @@ from infrastructure.db.observation_history import append_observation
 STATE_KEY = "portal_geo_enrichment"
 
 
+def apply_original_address(row, address):
+    """Add source-bound address evidence without touching valuation inputs."""
+    if not isinstance(address, dict) or not mlc(row.external_id) or mlc(address.get("source_listing_id")) != mlc(row.external_id):
+        return False
+    if address.get("source") not in {
+        "portal:location.map_info.item_address", "portal:location_and_points.map_info.item_address",
+        "portal:location.map_info.location", "portal:location_and_points.map_info.location"}:
+        return False
+    if not isinstance(address.get("original"), str) or not address["original"].strip():
+        return False
+    metadata = deepcopy(row.raw_metadata or {})
+    metadata["address_evidence"] = deepcopy(address)
+    from domain.ingestion.location_evidence import candidate_building_key
+    building = candidate_building_key(address["original"], row.comuna)
+    if building:
+        metadata["building_candidate"] = building
+    row.raw_metadata = metadata
+    return True
+
+
 def eligible(row):
     if row.source != "portalinmobiliario" or row.status != "active":
         return False
@@ -22,7 +42,8 @@ def eligible(row):
     return quality["status"] in {"INVALID", "MISSING"} or row.geocode_precision in {
         "comuna",
         "comuna_centroid",
-    }
+    } or (row.geocode_precision == "unknown" and not
+          ((row.raw_metadata or {}).get("address_evidence") or {}).get("original"))
 
 
 def candidate_evidence(detail):
@@ -57,6 +78,9 @@ def recover_metadata(metadata, external_id):
             observed_at=ev.get("observed_at"),
         )
         validated.update(commune=ev.get("commune"), map_commune=ev.get("map_commune"))
+        for key in ("address_evidence", "precision_original"):
+            if key in ev:
+                validated[key] = deepcopy(ev[key])
         return validated
     # Already stored detail components from the evidence-preservation pipeline.
     raw = (metadata.get("source_evidence") or {}).get("raw") or {}
@@ -164,6 +188,11 @@ async def apply_geography(
         coordinates_quality=ev["quality"],
         geocode_precision_reason="source_map_accuracy_not_certified",
     )
+    metadata["coordinate_provenance"] = {
+        "kind": "portal_map_unknown_accuracy", "precision": "unknown",
+        "source_listing_id": ev["source_listing_id"], "source": ev["source"],
+        "precision_original": ev.get("precision_original") or {},
+    }
     if origin == "archive":
         metadata["coordinates_recovery"] = {
             "recovered_at": now.isoformat(),
@@ -171,6 +200,7 @@ async def apply_geography(
             "origin": origin,
         }
     row.raw_metadata = metadata
+    apply_original_address(row, ev.get("address_evidence"))
     document = identify(
         {
             "schema_version": "listing_observation_v2",

@@ -13,7 +13,7 @@ import httpx
 
 from config import get_settings
 from config.comunas import is_known_comuna
-from config.portal_targets import PORTAL_TARGETS
+from config.portal_targets import PORTAL_TARGETS, discovery_targets
 from infrastructure.db.database import get_session_factory
 from infrastructure.db.repositories import SqlAlchemyListingRepository, SqlAlchemyPriceHistoryRepository, SqlAlchemyPropertyRepository
 from infrastructure.scrapers.base import RateLimiter
@@ -128,7 +128,7 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                     await _persist(raw, stats, factory=factory)
                     await pending.hdel("scraper:portalinmobiliario:pending_uf", str(raw["external_id"]))
 
-            targets = [t for t in PORTAL_TARGETS if t["enabled"] and t["operation"] == "venta"]
+            targets = discovery_targets(PORTAL_TARGETS, day=datetime.now(UTC).date())
             if max_targets is not None:
                 if not 1 <= max_targets <= len(targets):
                     raise ValueError("invalid_target_budget")

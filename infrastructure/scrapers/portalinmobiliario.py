@@ -803,12 +803,25 @@ def _apply_embedded_state_detail(detail: PortalListingDetail, state: dict[str, A
                       state.get(component_name))
         for candidate in candidates:
             map_info = candidate.get("map_info") if isinstance(candidate, dict) else None
+            if isinstance(map_info, dict) and isinstance(map_info.get("item_address"), str):
+                detail["raw_metadata"]["address_candidate"] = {
+                    "original": map_info["item_address"],
+                    "source": f"portal:{component_name}.map_info.item_address"}
+                _set_if_missing(detail, "location", map_info["item_address"].strip())
             point = map_info.get("location") if isinstance(map_info, dict) else None
             if not isinstance(point, dict) or not point:
                 continue
             raw = {"lat": point.get("latitude"), "lon": point.get("longitude"),
                    "commune": point.get("comuna") or point.get("commune"),
                    "source": f"portal:{component_name}.map_info.location"}
+            # Keep the original address from the same publication map. Neither
+            # zoom level nor a street number certifies the coordinate accuracy.
+            raw["address"] = map_info.get("item_address")
+            raw["item_location"] = map_info.get("item_location")
+            raw["precision_original"] = {k: map_info[k] for k in
+                ("precision", "accuracy", "approximate", "radius") if k in map_info}
+            if isinstance(raw["address"], str) and raw["address"].strip():
+                _set_if_missing(detail, "location", raw["address"].strip())
             if raw not in points:
                 points.append(raw)
     if points:
