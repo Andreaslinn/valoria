@@ -25,12 +25,21 @@ def apply_original_address(row, address):
         return False
     if not isinstance(address.get("original"), str) or not address["original"].strip():
         return False
+    from config.comunas import normalize_comuna, is_known_comuna
+    declared = address.get("commune")
+    if not declared:
+        declared = next((part.strip() for part in address["original"].split(",")
+                         if is_known_comuna(part.strip())), None)
+    if declared and normalize_comuna(declared) != normalize_comuna(row.comuna):
+        return False
     metadata = deepcopy(row.raw_metadata or {})
     metadata["address_evidence"] = deepcopy(address)
     from domain.ingestion.location_evidence import candidate_building_key
     building = candidate_building_key(address["original"], row.comuna)
     if building:
         metadata["building_candidate"] = building
+    else:
+        metadata.pop("building_candidate", None)
     row.raw_metadata = metadata
     return True
 

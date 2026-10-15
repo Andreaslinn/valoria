@@ -97,11 +97,11 @@ incluidos los hashes de comparables. No fue un despliegue ni una ingesta.
 Las corridas manuales exitosas del 15 a las 12:33/12:35 UTC no satisfacen Parte A.
 La primera UF programada se espera el 15 después de 16:30 UTC; Yapo el 16
 después de 06:00 UTC y Portal después de 07:00 UTC. Se dejó verificación
-desatendida en este chat el 16 a las 10:30 Europe/Berlin. Debe correlacionar
+desatendida en este chat cada hora, al minuto 35. Debe correlacionar
 timer, journal, ledger y salud, y leer stderr privado si falla. La verificación
 programada sigue pendiente; no se marca exitosa anticipadamente.
 
-## Despliegue y rollback: requieren OK nuevo
+## Despliegue y rollback: OK condicionado recibido
 
 1. Completar Parte A sobre la imagen actual. Si falla, conservar y reportar
    stderr completo antes de continuar. No lanzar una corrida manual para sustituirla.
@@ -110,10 +110,12 @@ programada sigue pendiente; no se marca exitosa anticipadamente.
    verificable y guardar imagen, pins de lanzadores y estado de timers actuales.
 3. Comprobar guardia de archivos, UF, salud y referencias antes/después sobre
    la misma base y UF **antes** de ingesta. Ante diferencias, rollback de imagen.
-4. Canary acotado de ingesta normal: una búsqueda, un detalle y un GET geográfico,
-   con memoria 384 MiB, CPU 0,25, swap 384 MiB, pids 96 y pausa mínima tres segundos.
-   La corrida completa conserva ocho búsquedas, hasta cinco detalles incompletos
-   y cinco GETs geográficos totales. Si falla, guardar stderr y restaurar imagen/pins.
+4. Tras el despliegue, esperar exclusivamente el ciclo programado normal;
+   no lanzar corridas manuales extra. El canary previo es de lectura y pruebas
+   aisladas, no ingesta en producción. La corrida programada conserva ocho
+   búsquedas, hasta cinco detalles incompletos y cinco GETs geográficos totales,
+   memoria 384 MiB, CPU 0,25, swap 384 MiB, pids 96 y pausa mínima tres segundos.
+   Si falla Portal o se degrada salud, guardar stderr y restaurar imagen/pins.
 5. Auditoría de producción de solo lectura después de ingesta. Publicar antes/
    después, precisión desconocida por separado, edificios candidatos y referencias.
    No declarar cierre hasta >40% en las seis comunas o evidencia de barrera real.
@@ -121,3 +123,13 @@ programada sigue pendiente; no se marca exitosa anticipadamente.
    verificar manifiesto y salud. Este cambio no agrega migraciones: **no** bajar
    0023 ni desactivar UF. Los metadatos aditivos pueden permanecer auditables;
    no borrar avisos ni restaurar producción por fuera de la autorización de ingesta.
+
+## Autorización y seguimiento del 15 de octubre
+
+El usuario autorizó merge y despliegue del commit mergeado del PR #4 únicamente
+después de Parte A exitosa. No se requiere otro OK para ese despliegue condicionado.
+Después se debe medir cada ciclo programado, sin ejecuciones manuales adicionales.
+Rollback a c55f4b6 si salud se degrada, Portal empieza a fallar o alguna referencia
+varía más de 5% sin explicación sustentada en los comparables. La comparación
+antes/después de despliegue exige misma base y UF; cualquier diferencia implica rollback.
+Si una comuna se estabiliza bajo 40%, entregar causa y evidencia y detenerse.

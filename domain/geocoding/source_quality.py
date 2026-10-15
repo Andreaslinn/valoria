@@ -101,7 +101,8 @@ def bind_detail(detail, state, requested_url):
     address_candidate = metadata.pop("address_candidate", None)
     if bound and address_candidate:
         metadata["address_evidence"] = dict(address_candidate,
-            source_listing_id=point_id, observed_at=datetime.now(UTC).isoformat())
+            source_listing_id=point_id, commune=detail.get("comuna"),
+            observed_at=datetime.now(UTC).isoformat())
         from domain.ingestion.location_evidence import candidate_building_key
         key = candidate_building_key(address_candidate.get("original"), detail.get("comuna"))
         if key:
@@ -127,23 +128,14 @@ def bind_detail(detail, state, requested_url):
     ev["commune"] = detail.get("comuna")
     ev["map_commune"] = raw.get("commune")
     if bound:
-        address = raw.get("address")
-        ev["address_evidence"] = {
-            "original": address, "item_location": raw.get("item_location"),
-            "source": metadata.get("location_source"), "source_listing_id": point_id,
-            "observed_at": ev["observed_at"],
-        }
+        if metadata.get("address_evidence"):
+            ev["address_evidence"] = metadata["address_evidence"]
         ev["precision_original"] = raw.get("precision_original") or {}
-        metadata["address_evidence"] = ev["address_evidence"]
         metadata["coordinate_provenance"] = {
             "kind": "portal_map_unknown_accuracy", "precision": "unknown",
             "source_listing_id": point_id, "source": ev["source"],
             "precision_original": ev["precision_original"],
         }
-        from domain.ingestion.location_evidence import candidate_building_key
-        key = candidate_building_key(address, detail.get("comuna"))
-        if key:
-            metadata["building_candidate"] = key
     ev = validate_context(ev, detail.get("comuna"))
     from core.value_objects.location import Coordinates
 

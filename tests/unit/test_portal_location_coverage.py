@@ -165,3 +165,17 @@ def test_original_address_survives_missing_map_coordinates():
     assert result['raw_metadata']['address_evidence']['original']=='Los Leones 1500, Providencia'
     assert result['raw_metadata']['coordinates_quality']['status']=='MISSING'
     assert result['raw_metadata']['building_candidate']['certified_building'] is False
+
+
+def test_address_recovery_rejects_conflicting_commune_and_clears_stale_key():
+    from types import SimpleNamespace
+    from infrastructure.db.portal_geography import apply_original_address
+    row=SimpleNamespace(external_id='MLC-123456789',comuna='providencia',raw_metadata={
+        'building_candidate':{'key':'stale'}})
+    ev={'original':'Los Leones 1500, Santiago','source_listing_id':row.external_id,
+        'source':'portal:location_and_points.map_info.item_address'}
+    assert not apply_original_address(row,ev)
+    assert row.raw_metadata['building_candidate']['key']=='stale'
+    ev['original']='Los Leones, Providencia'
+    assert apply_original_address(row,ev)
+    assert 'building_candidate' not in row.raw_metadata
