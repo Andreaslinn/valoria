@@ -23,9 +23,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.ports.uf_service import UFService, UFRateInfo
-from core.exceptions import UFServiceError
-from services.uf_rate import require_real_uf_rate
 from services.yapo_price import YapoPendingUF, prepare_yapo_price
+from services.ingestion_uf import resolve_ingestion_rate, annotate_pending
+from services.ingestion_state import PendingPriceStore, start_run, finish_run, safe_error
 from config import get_settings  # noqa: E402
 from config.constants import (  # noqa: E402
     LISTING_STALE_DAYS,
@@ -46,7 +46,6 @@ from infrastructure.db.repositories import (  # noqa: E402
     SqlAlchemyPriceHistoryRepository,
     SqlAlchemyPropertyRepository,
 )
-from infrastructure.external.uf_client import UFClient  # noqa: E402
 from infrastructure.scrapers.base import RateLimiter, ScraperBase, ScraperResult  # noqa: E402
 from infrastructure.scrapers.yapo import YapoScraper  # noqa: E402
 from workers.rejection_logging import rejection_record
@@ -93,6 +92,8 @@ class JobStats:
     unexpected_errors: int = 0
     pending_uf: int = 0
     pending_uf_reprocessed: int = 0
+    blocked_or_captcha: int = 0
+    fetch_errors: int = 0
     price_drop_alerts_created: int = 0
     price_drop_alerts_skipped: int = 0
     raw_scraped: int = 0
@@ -154,6 +155,7 @@ async def run_scraper_job(
     mark_stale: bool = False,
     pending_uf_store: Any = None,
     uf_info: UFRateInfo | None = None,
+    ingestion_resolution=None,
 ) -> JobStats:
     """Corre un scraper y persiste sus resultados via process_listing."""
     job_started_monotonic = time.monotonic()
@@ -175,10 +177,12 @@ async def run_scraper_job(
         geocode_precision_before=active_before.get("geocode_precision", {}),
         stage_durations_sec={"scrape": _round_duration(scrape_duration)},
     )
+    stats.blocked_or_captcha = int(getattr(scraper, "last_blocked_or_captcha_count", 0))
+    stats.fetch_errors = int(getattr(scraper, "last_fetch_error_count", 0))
     _init_target_stats(stats, scraper, raw_results)
 
     replay_ids = set()
-    if pending_uf_store is not None and uf_info is not None:
+    if pending_uf_store is not None and (uf_info is not None or isinstance(pending_uf_store, PendingPriceStore)):
         queued = await pending_uf_store.hgetall("scraper:yapo:pending_uf")
         fresh_ids = {str(raw.get("external_id")) for raw in raw_results}
         for key, value in list(queued.items())[:100]:
@@ -199,8 +203,15 @@ async def run_scraper_job(
     persist_started = time.monotonic()
     for raw in raw_results:
         try:
-            raw = prepare_yapo_price(raw, uf_info)
+            effective_info = uf_info
+            if isinstance(pending_uf_store, PendingPriceStore) and str(raw.get("external_id")) in replay_ids:
+                from zoneinfo import ZoneInfo
+                observed_day = raw["scraped_at"].astimezone(ZoneInfo("America/Santiago")).date()
+                resolved = await resolve_ingestion_rate(session_factory, None, today=observed_day, refresh=False)
+                effective_info = resolved.exact
+            raw = prepare_yapo_price(raw, effective_info)
         except YapoPendingUF:
+            raw = annotate_pending(raw, ingestion_resolution)
             if pending_uf_store is None:
                 raise  # Never silently discard a valid original UF price.
             await pending_uf_store.hset(
@@ -308,11 +319,13 @@ class _ResolvedUF(UFService):
         return self.info
 
 
-async def run_yapo_once(
+async def _run_yapo_once(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     *,
     max_pages: int | None = None,
     min_pause_s: float = 0.0,
+    max_targets: int | None = None,
+    resolution=None,
 ) -> JobStats:
     """Construye Yapo con dependencias reales y ejecuta una pasada local."""
     settings = get_settings()
@@ -325,28 +338,48 @@ async def run_yapo_once(
     ) as http:
         redis = Redis.from_url(settings.redis_url)
         try:
-            uf_service = UFClient(
-                api_url=settings.uf_api_url,
-                http_client=http,
-                redis=redis,
-                session_factory=session_factory,
-            )
-            try:
-                uf_info = await require_real_uf_rate(uf_service)
-            except UFServiceError:
-                uf_info = None
-                _log.warning("UF unavailable: preserve original UF listings as pending")
+            resolution = resolution or await resolve_ingestion_rate(session_factory, http)
+            uf_info = resolution.exact
+            targets = _targets_for_run(max_pages=max_pages)
+            if max_targets is not None:
+                if not 1 <= max_targets <= len(targets):
+                    raise ValueError("invalid_target_budget")
+                targets = targets[:max_targets]
             scraper = YapoScraper(
                 http_client=http,
                 rate_limiter=RateLimiter(
                     min_interval=max(SCRAPER_MIN_REQUEST_INTERVAL_SEC, min_pause_s)
                 ),
-                targets=_targets_for_run(max_pages=max_pages),
+                targets=targets,
                 uf_service=_ResolvedUF(uf_info) if uf_info is not None else None,
             )
-            return await run_scraper_job(scraper, session_factory, mark_stale=False, pending_uf_store=redis, uf_info=uf_info)
+            return await run_scraper_job(scraper, session_factory, mark_stale=False,
+                pending_uf_store=PendingPriceStore(session_factory, "yapo", legacy_redis=redis),
+                uf_info=uf_info, ingestion_resolution=resolution)
         finally:
             await redis.aclose()
+
+
+async def run_yapo_once(session_factory=None, *, max_pages=None, min_pause_s=0.0, max_targets=None, resolution=None):
+    from dataclasses import asdict
+    factory = session_factory or get_session_factory()
+    run_id = await start_run(factory, "yapo")
+    try:
+        stats = await _run_yapo_once(factory, max_pages=max_pages, min_pause_s=min_pause_s,
+                                    max_targets=max_targets, resolution=resolution)
+    except Exception as exc:
+        await finish_run(factory, run_id, successful=False, errors=[safe_error(exc, stage="yapo_run")])
+        raise
+    errors = []
+    if stats.unexpected_errors:
+        errors.append({"type": "PersistenceErrors", "stage": "yapo_persist", "count": stats.unexpected_errors})
+    if stats.blocked_or_captcha:
+        errors.append({"type": "YapoAccessError", "stage": "search", "count": stats.blocked_or_captcha})
+    if stats.fetch_errors:
+        errors.append({"type": "SourceFetchErrors", "stage": "search", "count": stats.fetch_errors})
+    await finish_run(factory, run_id, successful=not errors and stats.raw_scraped > 0,
+                     counters=asdict(stats), errors=errors)
+    return stats
 
 
 def print_job_start(source: str) -> None:

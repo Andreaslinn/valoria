@@ -10,6 +10,18 @@ from audits.registry import run_all_checks, summarize_status
 router = APIRouter(prefix="/health", tags=["meta"])
 
 
+@router.get("/ingestion")
+async def source_health() -> dict:
+    from infrastructure.db.database import get_session_factory
+    from services.ingestion_state import ingestion_health
+    from sqlalchemy.exc import SQLAlchemyError
+    try:
+        return await ingestion_health(get_session_factory())
+    except SQLAlchemyError:
+        # Liveness remains separate; never report fresh data when ledger is unavailable.
+        return {"status": "degraded", "reason": "ingestion_state_unavailable", "sources": {}}
+
+
 @router.get("")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
