@@ -1,0 +1,20 @@
+{
+  "counts": {
+    "yapo": 200,
+    "portalinmobiliario": 200
+  },
+  "persisted_counts": {
+    "yapo": 200,
+    "portalinmobiliario": 200
+  },
+  "isolated_database": true,
+  "production_writes": 0,
+  "commercial_values_unchanged": true,
+  "executed_on": "Local offline replay of saved Oracle HTTP observations; isolated SQLite database",
+  "candidate_file_sha256": {
+    "domain/ingestion/published_fields.py": "18405e51d0ce33c55fd77c945da75b1267ec96d78694412c5558688f45d5c524",
+    "infrastructure/scrapers/published_fields.py": "cc8f3aa75b2f6254ad3ff1848d7c719d039564a5efde34c5598a35c6de075b46",
+    "infrastructure/db/published_fields.py": "fdbf588cd9ce49b3f5b2e6109c32d8a12fe490a39733a2c91455ef3923daa130",
+    "scripts/audit_published_fields.py": "179c8ea2a29b7baaa4d2dfa726f7bf7ab5b4a64fe9b16d89e0e2b60d7f4ee6d0"
+  }
+}

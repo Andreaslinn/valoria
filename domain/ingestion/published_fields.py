@@ -94,14 +94,29 @@ def address(fields, raw, path, *, locality=None):
         fields['rejected']['address'] = {'reason': 'broker_office', 'path': path}
         fields['address_raw'] = None
         return
-    unit = re.search(r'(?:^|,)\s*(?:depto\.?|departamento)\s*(?:n[°ºo.]?\s*)?([0-9]+[a-zA-Z]?)\b', raw, re.I)
+    # Unit labels may occur inline or before the street. Remove the whole
+    # labelled unit before looking for a civic number, never just its label.
+    unit_pattern = r'\b(?:dpto|depto|departamento|dp)\.?\s*(?:n(?:[°ºo.]|ro\.?)?\s*|[#°º]\s*)?(\d+[a-zA-Z]?)\b'
+    unit = re.search(unit_pattern, raw, re.I)
     if unit:
         fields['apartment_number'] = unit[1]
         fields['provenance']['apartment_number'] = path + ':explicit_unit'
-    first = raw.split(',', 1)[0].strip()
-    parts = [part.strip() for part in raw.split(',')]
+    without_unit = re.sub(unit_pattern, '', raw, flags=re.I)
+    parts = [part.strip() for part in without_unit.split(',')]
+    first = parts[0]
+    if not first:
+        # A unit-only prefix is not a street; skip room counts and landmarks.
+        first = next((part for part in parts[1:] if re.match(
+            r'^(?:calle|av\.?|avenida|pasaje|camino)\s+\S', part, re.I)), '')
+    first = re.sub(r'^(?:real\s+)?oportunidad\s*[!¡:.-]*\s*', '', first, flags=re.I)
+    first = re.sub(r'^departamento\s+en\s+', '', first, flags=re.I)
+    if re.match(r'^venta\b', first, re.I):
+        fields['address_type'] = 'no_number'
+        return
     if len(parts) > 1 and re.fullmatch(r'\d+(?:[a-zA-Z]|\s*(?:[-–]|a|al)\s*\d+)?', parts[1]):
         first += ' ' + parts[1]
+    # N° belongs to the civic number only after an actual street name.
+    first = re.sub(r'\s+n(?:[°ºo.]|ro\.?)\s*(?=\d)', ' ', first, flags=re.I).strip()
     if locality:
         commune = str(locality).rsplit(',', 1)[-1].strip()
         if commune and normalized(first).endswith(' ' + normalized(commune)):
@@ -138,6 +153,12 @@ def address(fields, raw, path, *, locality=None):
     for key in ('street', 'address_number', 'address_range', 'address_type'):
         if fields[key] is not None:
             fields['provenance'][key] = path
+    if fields['street'] is not None and (not fields['street'].strip() or re.fullmatch(
+            r'(?:(?:dpto|depto|departamento|dp|nro|n)[\s.°º#]*)+', normalized(fields['street']))):
+        for key in ('street', 'address_number', 'address_range'):
+            fields[key] = None
+            fields['provenance'].pop(key, None)
+        fields['address_type'] = 'no_number'
 
 
 def description_fields(fields, description, path):
@@ -154,7 +175,8 @@ def description_fields(fields, description, path):
     if match is None:
         match = re.search(r'(?i:\ben\s+)((?i:av(?:da)?\.?|avenida|calle|pasaje|camino)\s+[^\n]+?)' + end, plain)
     if match is None:
-        match = re.search(r'(?i:\bubicado\s+en\s+)((?!La comuna\b|Un\b|El\b|Sector\b)[A-ZÁÉÍÓÚ][^,.;\n]{1,100})', plain)
+        location_end = end.replace('(?=', '(?=,|;|', 1)
+        match = re.search(r'(?i:\bubicado\s+en\s+)((?!La comuna\b|Un\b|El\b|Sector\b)[A-ZÁÉÍÓÚ][^,;\n]{1,100}?)' + location_end, plain)
     if match:
         candidate = match[1].strip()
         probe = empty_fields(fields['source'], fields['external_id'])

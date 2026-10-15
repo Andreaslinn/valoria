@@ -1,1 +1,1 @@
-Final suite: python -m pytest -q | 1967 passed, 9 existing FastAPI deprecation warnings in 90.00s. Source code frozen before this run.
+Final address correction suite: python -m pytest -q | 1980 passed, 9 existing FastAPI deprecation warnings in 176.61s. Includes 13 new address regressions. Replayed all 400 saved details locally; no Oracle or portal connections. Frozen local valuation snapshot: Santiago 3247.66 UF and La Florida 3854.09 UF identical before/after at UF 41162.73.

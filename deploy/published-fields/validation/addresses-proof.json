@@ -1,0 +1,861 @@
+{
+  "offline_only": true,
+  "reviewed": 400,
+  "affected": 8,
+  "raw_addresses_unchanged": true,
+  "non_address_fields_unchanged": true,
+  "empty_string_or_unit_only_streets": 0,
+  "apartment_number_count": 4,
+  "apartment_numbers_by_source": {
+    "yapo": 3,
+    "portalinmobiliario": 1
+  },
+  "apartment_numbers": [
+    {
+      "source": "yapo",
+      "id": "32286254",
+      "apartment_number": "1815"
+    },
+    {
+      "source": "yapo",
+      "id": "32919337",
+      "apartment_number": "1205"
+    },
+    {
+      "source": "yapo",
+      "id": "32266506",
+      "apartment_number": "1401"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4061330986",
+      "apartment_number": "2307"
+    }
+  ],
+  "null_streets": 164,
+  "null_original_addresses": 92,
+  "literal_all_400_streets_present": false,
+  "limitation": "NULL is retained where street identification is unresolved; filling all 400 would require unsupported inference.",
+  "missing_street_evidence": [
+    {
+      "source": "yapo",
+      "id": "29557598",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31398708",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31387211",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "33063054",
+      "address_raw": "La Reina La Reina, Santiago, Metropolitana De Santiago"
+    },
+    {
+      "source": "yapo",
+      "id": "30040948",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32218784",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32121367",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31523821",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28702129",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "33119593",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "30664245",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28700188",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31449343",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "33033930",
+      "address_raw": "Ñuñoa, Santiago, Metropolitana De Santiago"
+    },
+    {
+      "source": "yapo",
+      "id": "32925799",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "29443532",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "29956052",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "29667710",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31704761",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32660187",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "29574838",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31605250",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31088895",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32392450",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32233427",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28837337",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32792431",
+      "address_raw": "Departamento en VENTA de 1D 1B y Bodega  con Excelente Vista en Macul"
+    },
+    {
+      "source": "yapo",
+      "id": "32499916",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28700344",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "30726883",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "30314532",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "25883484",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28703174",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32895591",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32214632",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32304035",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32592853",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32200237",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31113993",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32636282",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32422974",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32860293",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "30850802",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28703694",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31965232",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28700686",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28702323",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "30982423",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "30960210",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31997222",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "30626839",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "33122834",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32394020",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32056310",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32247971",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32190113",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28700402",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32974435",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32844606",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28702986",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32870458",
+      "address_raw": "Peñalolén, Santiago, Metropolitana De Santiago"
+    },
+    {
+      "source": "yapo",
+      "id": "32166831",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32803450",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "33098439",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31934907",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28878256",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28702121",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28703110",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32508882",
+      "address_raw": "La Reina, Santiago, Metropolitana De Santiago"
+    },
+    {
+      "source": "yapo",
+      "id": "33062577",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "33113997",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31675618",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32139972",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "33108005",
+      "address_raw": "La Reina, Santiago, Metropolitana De Santiago"
+    },
+    {
+      "source": "yapo",
+      "id": "28703211",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32376473",
+      "address_raw": "Vitacura Vitacura, Santiago, Metropolitana De Santiago"
+    },
+    {
+      "source": "yapo",
+      "id": "25832340",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32743330",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28701128",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32681517",
+      "address_raw": "Vitacura, Santiago, Metropolitana De Santiago"
+    },
+    {
+      "source": "yapo",
+      "id": "32804602",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "25947987",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "28703734",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "30687470",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31894070",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "31056805",
+      "address_raw": null
+    },
+    {
+      "source": "yapo",
+      "id": "32766694",
+      "address_raw": "Vitacura, Santiago, Metropolitana De Santiago"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4578391212",
+      "address_raw": "Metro Ecuador"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4557222258",
+      "address_raw": "Luis Thayer Ojeda"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2333094009",
+      "address_raw": "Roberto Del Rio - Vista Despejada"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2337102667",
+      "address_raw": "Pocuro - Pedro De Valdivia / Metro Ines De Suarez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4186962898",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4404574920",
+      "address_raw": "Eliodoro Yañez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2274079265",
+      "address_raw": "Las Lilas"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4546563918",
+      "address_raw": "Lota"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4576370502",
+      "address_raw": "Luis Thayer Ojeda"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4170199452",
+      "address_raw": "Carlos Antúnez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4293021428",
+      "address_raw": "Holanda"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4170369582",
+      "address_raw": "Hernando De Aguirre"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4219663840",
+      "address_raw": "Colegio San Ignacio"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2216001543",
+      "address_raw": "Las Hortensias, Providencia"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4460696632",
+      "address_raw": "Manuel Montt - Granaderos"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2267451093",
+      "address_raw": "Providencia"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2274104699",
+      "address_raw": "El Bosque Sur"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2235084545",
+      "address_raw": "Nuevo, A Estrenar: Plaza De La Alcaldesa"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4502087860",
+      "address_raw": "Nuevo, A Estrenar: Plaza De La Alcaldesa"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4557225260",
+      "address_raw": "Carmen Silva - El Bosque"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "1881601783",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2053103373",
+      "address_raw": "Lyon"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "1945133495",
+      "address_raw": "Colegio San Benito"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2073907639",
+      "address_raw": "Con Jardín Privado, En Condominio: Santa María De Manquehue"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2274118325",
+      "address_raw": "Parque Arauco"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2274104987",
+      "address_raw": "Luis Carrera"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4533656760",
+      "address_raw": "Santa Maria De Manquehue / Colegio San Benito"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2274105129",
+      "address_raw": "Las Hualtatas"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4417106254",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4397550940",
+      "address_raw": "Juan Xxiii"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2208871355",
+      "address_raw": "Jardín Del Este"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4170365230",
+      "address_raw": "Rotonda Perez Zujovic"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4457004684",
+      "address_raw": "Tabancura"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4533651458",
+      "address_raw": "Raimundo Larraín - Santa Teresa De Los Andes"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2267432735",
+      "address_raw": "Penthouse: Nueva Costanera - Francisco De Aguirre"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4510775212",
+      "address_raw": "El Tamarugo"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2273816215",
+      "address_raw": "A Estrenar Jardín Propio | Museo Ralli"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2333143653",
+      "address_raw": "Vitacura / Departamento Familiar / 130m2 Totales"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2299443541",
+      "address_raw": "Metro Bellavista, La Florida, Inversionista"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "1836546117",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "3919791628",
+      "address_raw": "Froilán Roa"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4522103698",
+      "address_raw": "Walker Martinez | Metro V. Mackenna | Metro B. La Florida"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4188214628",
+      "address_raw": "José Miguel Carrera"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "3624119758",
+      "address_raw": "Punta Arenas"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2268136489",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4414856374",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "3737989808",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2195834049",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4569815586",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "1941300537",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "1766638875",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2019967669",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "1978669815",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2332349361",
+      "address_raw": "Toro Mazotte"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4405963330",
+      "address_raw": "Blanco Garcés"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2210025435",
+      "address_raw": "Santa Petronila"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4105674578",
+      "address_raw": "Porto Seguro"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4473014054",
+      "address_raw": "Santa Petronila"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4437286942",
+      "address_raw": "Coronel Souper"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2082124151",
+      "address_raw": "Santa Petronila"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4500847048",
+      "address_raw": "Coronel Godoy, Estación Central"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2324115773",
+      "address_raw": "María Rozas Velásquez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2324110407",
+      "address_raw": "María Rozas Velásquez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2324110477",
+      "address_raw": "María Rozas Velásquez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2324135697",
+      "address_raw": "María Rozas Velásquez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2324084457",
+      "address_raw": "María Rozas Velásquez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2324122871",
+      "address_raw": "María Rozas Velásquez"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4582727986",
+      "address_raw": "Arriero Estay"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4582728082",
+      "address_raw": "Coronel Souper 4060 Estacion Central"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4560592036",
+      "address_raw": null
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2337103019",
+      "address_raw": "Ecuador"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2334217273",
+      "address_raw": "Matro Padre Hurtado Y Metro Ecuador"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "2012999503",
+      "address_raw": "Departamento Unico, 1 D., 1b., Est. Y Bodega. Vista Despejada, Cocina Tradicional, Logia, Metro El Llano, San Miguel"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4096144286",
+      "address_raw": "Metro Lo Ovalle"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4574264008",
+      "address_raw": "Cuarta Avenida"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4574302758",
+      "address_raw": "Jose Joaquin Vallejos- San Ignacio De Loyola"
+    },
+    {
+      "source": "portalinmobiliario",
+      "id": "4574263550",
+      "address_raw": "Salvador Allende"
+    }
+  ]
+}
