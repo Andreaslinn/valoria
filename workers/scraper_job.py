@@ -92,6 +92,9 @@ class JobStats:
     unexpected_errors: int = 0
     pending_uf: int = 0
     pending_uf_reprocessed: int = 0
+    published_detail_requested: int = 0
+    published_detail_captured: int = 0
+    published_detail_rejected: int = 0
     blocked_or_captcha: int = 0
     fetch_errors: int = 0
     price_drop_alerts_created: int = 0
@@ -353,9 +356,13 @@ async def _run_yapo_once(
                 targets=targets,
                 uf_service=_ResolvedUF(uf_info) if uf_info is not None else None,
             )
-            return await run_scraper_job(scraper, session_factory, mark_stale=False,
+            stats = await run_scraper_job(scraper, session_factory, mark_stale=False,
                 pending_uf_store=PendingPriceStore(session_factory, "yapo", legacy_redis=redis),
                 uf_info=uf_info, ingestion_resolution=resolution)
+            if not stats.blocked_or_captcha and not stats.fetch_errors:
+                from workers.published_detail_enrichment import enrich_yapo_details
+                await enrich_yapo_details(session_factory, http, scraper._rate, budget=5, stats=stats)
+            return stats
         finally:
             await redis.aclose()
 

@@ -238,6 +238,10 @@ async def enrich_geography(
             )
             ev = candidate_evidence(detail or {})
             if detail:
+                published = (detail.get("raw_metadata") or {}).get("published_fields")
+                if published:
+                    from infrastructure.db.published_fields import apply_published_fields
+                    apply_published_fields(row, published)
                 apply_original_address(row, (detail.get("raw_metadata") or {}).get("address_evidence"))
             if ev:
                 ev = validate_context(ev, row.comuna)

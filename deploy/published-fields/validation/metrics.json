@@ -1,0 +1,83 @@
+{
+  "random_seed": 20261016,
+  "reviewed_per_source": 30,
+  "minimum_percent": 95,
+  "source_reference_independent_of_capture": true,
+  "results": {
+    "yapo": {
+      "useful_area": {
+        "published": 5,
+        "captured": 5,
+        "percent": 100.0
+      },
+      "total_area": {
+        "published": 25,
+        "captured": 25,
+        "percent": 100.0
+      },
+      "constructed_area": {
+        "published": 30,
+        "captured": 30,
+        "percent": 100.0
+      },
+      "age_or_year": {
+        "published": 22,
+        "captured": 22,
+        "percent": 100.0
+      },
+      "floor": {
+        "published": 19,
+        "captured": 19,
+        "percent": 100.0
+      },
+      "coordinates": {
+        "published": 30,
+        "captured": 30,
+        "percent": 100.0
+      },
+      "address": {
+        "published": 18,
+        "captured": 18,
+        "percent": 100.0
+      }
+    },
+    "portalinmobiliario": {
+      "useful_area": {
+        "published": 30,
+        "captured": 30,
+        "percent": 100.0
+      },
+      "total_area": {
+        "published": 30,
+        "captured": 30,
+        "percent": 100.0
+      },
+      "constructed_area": {
+        "published": 4,
+        "captured": 4,
+        "percent": 100.0
+      },
+      "age_or_year": {
+        "published": 28,
+        "captured": 28,
+        "percent": 100.0
+      },
+      "floor": {
+        "published": 23,
+        "captured": 23,
+        "percent": 100.0
+      },
+      "coordinates": {
+        "published": 30,
+        "captured": 30,
+        "percent": 100.0
+      },
+      "address": {
+        "published": 28,
+        "captured": 28,
+        "percent": 100.0
+      }
+    }
+  },
+  "errors": []
+}

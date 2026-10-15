@@ -16,6 +16,7 @@ COUNTERS = {"inserted", "updated", "known_unchanged", "skipped", "raw_cards", "u
             "pending_uf", "pending_uf_reprocessed", "validation_errors", "unexpected_errors",
             "blocked_or_captcha", "fetch_errors", "geo_stage_errors", "geo_blocked", "geo_stopped",
             "scraped", "raw_scraped", "discarded"}
+COUNTERS.update({"published_detail_requested", "published_detail_captured", "published_detail_rejected"})
 
 
 def safe_error(exc, *, stage="ingestion"):
@@ -25,6 +26,8 @@ def safe_error(exc, *, stage="ingestion"):
     # Known literal only; never serialize arbitrary exception text containing credentials/HTML.
     if type(exc).__name__ == "UFServiceError":
         result["reason"] = "UF real no disponible"
+    if type(exc).__name__ == "PortalSessionExpired":
+        result.update(code="PORTAL_SESSION_EXPIRED", reason="official_verification_required")
     return result
 
 
@@ -82,6 +85,8 @@ async def ingestion_health(factory, *, now=None):
                              "errors": latest.errors} if latest else None,
                 "last_success_counters": success.counters if success else None,
                 "conversion_pending": pending,
+                "alarms": sorted({error.get("code") for error in (latest.errors or [])
+                                  if isinstance(error, dict) and error.get("code")}) if latest else [],
             }
     return {"status": "degraded" if any(v["status"] != "ok" for v in sources.values()) else "ok",
             "observed_at": now.isoformat(), "sources": sources}

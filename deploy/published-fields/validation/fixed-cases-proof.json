@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "cases": [
+    "33000977",
+    "33014082",
+    "33003203",
+    "MLC-4578391212",
+    "MLC-2247746657",
+    "MLC-1778189475"
+  ],
+  "verified_against": "persisted fresh Oracle observations"
+}

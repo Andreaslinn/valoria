@@ -47,6 +47,8 @@ def _card_raw(card: dict, target: dict, uf_rate: Decimal | None) -> dict:
     if not external_id or not card.get("title") or not card.get("url"):
         raise ValueError("missing_identity")
     metadata = dict(card.get("raw_metadata") or {})
+    from domain.ingestion.published_fields import empty_fields
+    metadata.setdefault("published_fields", empty_fields("portalinmobiliario", external_id, stage="card"))
     currency = metadata.get("currency_original")
     if currency == "UF" and metadata.get("price_uf"):
         amount = Decimal(str(metadata["price_uf"]))
@@ -82,6 +84,8 @@ async def _persist(raw: dict, stats: Counter, *, factory=None) -> None:
         await process_listing(raw, listing_repo=repo, property_repo=SqlAlchemyPropertyRepository(session), price_history_repo=SqlAlchemyPriceHistoryRepository(session), allow_incomplete=True)
         await session.commit()
     stats["inserted" if existing is None else "updated" if changed else "known_unchanged"] += 1
+    if (raw.get("raw_metadata") or {}).get("published_fields", {}).get("stage") == "detail":
+        stats["published_detail_captured"] += 1
 
 
 async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
@@ -165,11 +169,50 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                             traceback.print_exc()
                             stats["validation_errors"] += 1
                             errors.append(safe_error(exc, stage="card_persist"))
-            for target, card in incomplete[:max_details]:
+            # Complete cards still need a detail observation. Use the same
+            # existing five-request budget, prioritising never-fetched details
+            # and then the oldest observation, rather than the first cards again.
+            detail_queue = list(incomplete)
+            if apply and incomplete:
+                # Reserve part of the same budget for complete cards. Otherwise
+                # permanently incomplete/project cards can starve every detail.
+                slots = max_details // 2
+                offset = (datetime.now(UTC).date().toordinal() * max(1, slots)) % len(incomplete)
+                detail_queue = (incomplete[offset:] + incomplete[:offset])[:slots]
+            if apply and len(detail_queue) < max_details:
+                from sqlalchemy import select
+                from infrastructure.db.models import ListingORM
+                async with factory() as session:
+                    rows = (await session.scalars(select(ListingORM).where(
+                        ListingORM.source == "portalinmobiliario",
+                        ListingORM.status.in_(["active", "incomplete"]),
+                    ).order_by(ListingORM.raw_metadata["published_detail_attempted_at"].as_string().asc().nulls_first(),
+                               ListingORM.raw_metadata["published_fields"]["observed_at"].as_string().asc().nulls_first(),
+                               ListingORM.id).limit(max_details))).all()
+                    queued = {str(card.get("external_id")) for _, card in detail_queue}
+                    for row in rows:
+                        if str(row.external_id) not in queued and row.url:
+                            detail_queue.append(({"operation": "venta", "property_type": row.property_type,
+                                "label": "bounded_detail_refresh", "base_url": "https://www.portalinmobiliario.com"},
+                                {"external_id": row.external_id, "url": row.url}))
+            for target, card in detail_queue[:max_details]:
+                if stats["details_requested"] >= max_details:
+                    break
+                if apply:
+                    from infrastructure.db.published_fields import record_detail_attempt
+                    await record_detail_attempt(factory, "portalinmobiliario", str(card.get("external_id")))
                 await limiter.wait()
                 stats["details_requested"] += 1
-                response = await client.get(_url(str(card.get("url") or ""), target["base_url"]))
+                detail_url = _url(str(card.get("url") or ""), target["base_url"])
+                response = await client.get(detail_url, follow_redirects=False)
                 from domain.geocoding.source_quality import mlc
+                if response.status_code in (301, 302, 303, 307, 308):
+                    from workers.portal_geo_enrichment import allowed_url
+                    redirected = urljoin(detail_url, response.headers.get("location", ""))
+                    if allowed_url(redirected, card.get("external_id")) and stats["details_requested"] < max_details:
+                        await limiter.wait()
+                        stats["details_requested"] += 1
+                        response = await client.get(redirected, follow_redirects=False)
                 fetched[mlc(card.get("external_id"))] = response
                 if response.status_code in (403, 429):
                     stats["blocked_or_captcha"] += 1
@@ -178,6 +221,22 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                 if classify_portal_detail_page_state(response.text, status_code=response.status_code) != "detail":
                     continue
                 detail = parse_listing_detail_portal(response.text, str(response.url))
+                published = detail.get("raw_metadata", {}).get("published_fields") or {}
+                if published and not published.get("technical_table_observed") and stats["details_requested"] < max_details:
+                    # A transient partial Nordic response is retried once with
+                    # another slot from the SAME five-GET budget, never via API.
+                    await limiter.wait()
+                    stats["details_requested"] += 1
+                    retry = await client.get(str(response.url), follow_redirects=False)
+                    if retry.status_code in (403, 429):
+                        stats["blocked_or_captcha"] += 1
+                        errors.append({"type": "PortalAccessError", "stage": "detail_retry", "http_status": retry.status_code})
+                        return dict(stats)
+                    if retry.status_code == 200 and classify_portal_detail_page_state(retry.text, status_code=200) == "detail":
+                        retried = parse_listing_detail_portal(retry.text, str(retry.url))
+                        if retried.get("external_id") == detail.get("external_id"):
+                            response, detail = retry, retried
+                            fetched[mlc(card.get("external_id"))] = retry
                 try:
                     raw = portal_detail_to_raw(detail, target, uf_info=uf_info)
                 except PortalCanaryReject as exc:
@@ -223,6 +282,7 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
         errors.append(safe_error(exc, stage="portal_run"))
         raise
     finally:
+        stats["published_detail_requested"] = stats["details_requested"]
         if run_id is not None:
             success = not errors and not stats["blocked_or_captcha"] and stats["raw_cards"] > 0
             await finish_run(factory, run_id, successful=success, counters=stats, errors=errors)

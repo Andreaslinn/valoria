@@ -1,0 +1,47 @@
+{
+  "passed": true,
+  "read_only": true,
+  "same_repeatable_read_transaction": true,
+  "uf": "41162.73",
+  "before": [
+    {
+      "comuna": "santiago",
+      "estimated_uf": 3247.66,
+      "comparables_sha256": "7973f54d975a06b46fa2e866b3080fda6d13f114c8d2ccc5fa2507596c8b0a8d"
+    },
+    {
+      "comuna": "la_florida",
+      "estimated_uf": 3854.09,
+      "comparables_sha256": "fd93c294c32159754f1a72a882e43249f734e3a45692659bafc5f92ff0ab5dea"
+    }
+  ],
+  "after": [
+    {
+      "comuna": "santiago",
+      "estimated_uf": 3247.66,
+      "comparables_sha256": "7973f54d975a06b46fa2e866b3080fda6d13f114c8d2ccc5fa2507596c8b0a8d"
+    },
+    {
+      "comuna": "la_florida",
+      "estimated_uf": 3854.09,
+      "comparables_sha256": "fd93c294c32159754f1a72a882e43249f734e3a45692659bafc5f92ff0ab5dea"
+    }
+  ],
+  "candidate_file_sha256": {
+    "domain/ingestion/published_fields.py": "71f7c100d76bbdb200d6c84019adeb03d203bd8b5fe9569cdf21f51cd2470023",
+    "infrastructure/scrapers/published_fields.py": "cc8f3aa75b2f6254ad3ff1848d7c719d039564a5efde34c5598a35c6de075b46",
+    "config/portal_targets.py": "413daa8fbaf3a6f3afecc5e768ba1db50ff462218812dad8ce12c36ac57964e4",
+    "domain/ingestion/location_evidence.py": "48b1826fa94e6c223394136569d0a82b4981809ac7bfe723dc6a39c4adf04f1d",
+    "domain/geocoding/source_quality.py": "837dabba64e2a633d280e85e4d340249cff071d19f9c6ff9a3299c849d88ae36",
+    "infrastructure/scrapers/portalinmobiliario.py": "2d476046546fb0c7788c4b8c72982e1e56c945ff64f201a3c4828adf6dd31493",
+    "infrastructure/db/portal_geography.py": "e58bd8c030e90a9e0196feabf687a5038a2c52fb0383dcf772f1524f39ba0c43",
+    "workers/portal_geo_enrichment.py": "94cb464684bfaa62a9d2966fee952939efdae5d7dcf934127391805e66e335b8",
+    "scripts/portal_card_first.py": "d22a2e1605b7a8fbc852781678c369941cd5c0d593c046a8c951b4a13b3367c3",
+    "domain/ingestion/data_cleaning.py": "2d687533f144c501981082ba78dbd01b1da4d38e485b7b37bcceda73cc18e44c",
+    "domain/ingestion/pipeline.py": "9ee19379a48ede04588bd6df69b46c537b4f03419fe2737b7990260e38245a63",
+    "scripts/portal_session.py": "d22a69e1936e906cbab16bae90bda713d3419999ffaa2cc8dffe84df3e9c650c",
+    "services/ingestion_state.py": "8da3563aeb91c704db80b9669c39a5ad7e7f4639ea62a36c889d7acc6bbef968",
+    "infrastructure/scrapers/yapo_modern.py": "e91f26b6d93732eb334b3c2c972bc9594925dcbabe6daddbb7589b98b0f5cc37",
+    "infrastructure/scrapers/yapo.py": "1a9d114169830538432dcfd804a7d401fcba38415cf8d1d6dbf6a2c6a1a98381"
+  }
+}

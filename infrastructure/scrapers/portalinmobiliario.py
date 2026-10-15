@@ -668,6 +668,11 @@ def parse_listing_detail_portal(html: str, url: str) -> PortalListingDetail:
 
     bind_detail(detail, state_data or {}, url)
 
+    from infrastructure.scrapers.published_fields import portal_fields
+    published = portal_fields(state_data or {}, _components_by_id((state_data or {}).get("components")), detail.get("external_id"))
+    if published is not None:
+        detail["raw_metadata"]["published_fields"] = published
+
     return detail
 
 
