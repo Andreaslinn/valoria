@@ -238,3 +238,24 @@ async def test_replayed_original_is_not_converted_with_wrong_day(engine):
     stats=await job.run_scraper_job(scraper,factory,pending_uf_store=store,uf_info=info(date(2026,10,16)),ingestion_resolution=IngestionRate(None,None))
     assert stats.pending_uf==1 and stats.pending_uf_reprocessed==0
     assert "uf-1" in await store.hgetall("scraper:yapo:pending_uf")
+
+
+def test_migration_adds_only_isolated_ingestion_tables(monkeypatch):
+    from pathlib import Path
+    import importlib.util
+    from sqlalchemy import create_engine, inspect
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    path=Path(__file__).resolve().parents[2]/"alembic/versions/0023_ingestion_resilience.py"
+    spec=importlib.util.spec_from_file_location("ingestion_migration",path)
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    engine=create_engine("sqlite:///:memory:")
+    try:
+        with engine.begin() as connection:
+            monkeypatch.setattr(module,"op",Operations(MigrationContext.configure(connection)))
+            module.upgrade()
+            assert set(inspect(connection).get_table_names())=={"ingestion_uf_calendar","ingestion_pending_prices","ingestion_runs"}
+            assert module.down_revision=="0022"
+    finally:
+        engine.dispose()
