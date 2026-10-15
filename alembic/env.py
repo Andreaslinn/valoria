@@ -17,6 +17,7 @@ from infrastructure.db.base import Base
 # y Alembic los detecte para autogenerate. Los imports con noqa evitan que
 # los linters los marquen como "no usados".
 from infrastructure.db import models as _models  # noqa: F401
+from infrastructure.db import ingestion_models as _ingestion_models  # noqa: F401
 
 config = context.config
 

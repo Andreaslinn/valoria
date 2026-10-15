@@ -26,7 +26,8 @@ def prepare_yapo_price(raw, uf_info=None):
         raise YapoPendingUF("Yapo price retained in UF; real conversion rate unavailable")
     validate_real_uf_rate(uf_info)
     result["price_clp"] = int(amount * uf_info.rate)
-    metadata.pop("price_clp_missing_reason", None)
+    for key in ("price_clp_missing_reason", "conversion_status", "reference_uf_rate", "reference_uf_date", "provisional_price_clp"):
+        metadata.pop(key, None)
     metadata.update(price_clp_provenance="derived_from_uf_real_rate", uf_rate_used=str(uf_info.rate),
                     uf_rate_source=uf_info.source,
                     uf_rate_date=uf_info.rate_date.isoformat() if uf_info.rate_date else None)

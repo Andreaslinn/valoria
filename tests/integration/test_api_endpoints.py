@@ -112,7 +112,9 @@ async def auth_headers(engine: AsyncEngine, client: httpx.AsyncClient) -> dict[s
 async def test_health_endpoint(client: httpx.AsyncClient):
     resp = await client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json()["liveness"] == "ok"
+    assert resp.json()["status"] in {"ok", "degraded"}
+    assert "ingestion" in resp.json()
 
 
 async def test_market_uf_endpoint_uses_central_service(client: httpx.AsyncClient):

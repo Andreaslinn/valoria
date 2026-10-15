@@ -54,4 +54,5 @@ async def portal_client(**kwargs):
         try:
             yield client
         finally:
-            if path: save_session(path, client.cookies)
+            if path and os.environ.get("PORTAL_SESSION_READ_ONLY") != "1":
+                save_session(path, client.cookies)
