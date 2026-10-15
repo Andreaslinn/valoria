@@ -171,6 +171,7 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                 fetched[mlc(card.get("external_id"))] = response
                 if response.status_code in (403, 429):
                     stats["blocked_or_captcha"] += 1
+                    errors.append({"type": "PortalAccessError", "stage": "detail", "http_status": response.status_code})
                     return dict(stats)
                 if classify_portal_detail_page_state(response.text, status_code=response.status_code) != "detail":
                     continue
@@ -213,6 +214,8 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                 await enrich_geography(session_factory=factory, client=client, limiter=limiter, budget=geo_budget,
                     fetched=fetched, stats=stats, max_attempts=settings.portal_geo_max_attempts,
                     cooldown_hours=settings.portal_geo_cooldown_hours)
+                if stats["geo_stopped"]:
+                    errors.append({"type": "PortalAccessError", "stage": "geography"})
         return dict(stats)
     except Exception as exc:
         errors.append(safe_error(exc, stage="portal_run"))
@@ -235,7 +238,7 @@ def main() -> int:
         report = asyncio.run(run(apply=args.apply, max_pages=args.max_pages, max_details=args.max_details,
             pause_s=args.pause_s, max_geo_details=args.max_geo_details, max_targets=args.max_targets))
         print(json.dumps(report, sort_keys=True))
-        return 1 if report.get("blocked_or_captcha") or report.get("validation_errors") else 0
+        return 1 if report.get("blocked_or_captcha") or report.get("geo_stopped") or report.get("validation_errors") or not report.get("raw_cards") else 0
     except Exception as exc:
         print(json.dumps({"error": safe_error(exc, stage="portal_entrypoint")}, sort_keys=True))
         return 1

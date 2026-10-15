@@ -14,7 +14,8 @@ SOURCES = ("portalinmobiliario", "yapo")
 COUNTERS = {"inserted", "updated", "known_unchanged", "skipped", "raw_cards", "unique_cards",
             "raw_cards_http", "valid_cards", "persisted_from_card", "persisted_from_detail",
             "pending_uf", "pending_uf_reprocessed", "validation_errors", "unexpected_errors",
-            "blocked_or_captcha", "fetch_errors", "geo_stage_errors", "scraped", "raw_scraped", "discarded"}
+            "blocked_or_captcha", "fetch_errors", "geo_stage_errors", "geo_blocked", "geo_stopped",
+            "scraped", "raw_scraped", "discarded"}
 
 
 def safe_error(exc, *, stage="ingestion"):

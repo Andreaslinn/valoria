@@ -111,8 +111,9 @@ async def test_source_health_age_errors_and_counters(engine):
 
 
 @pytest.mark.parametrize("code", [1, 75, 124])
-def test_launcher_propagates_legacy_errors_without_secret(code):
-    stderr='Traceback (most recent call last):\n  File "/app/services/uf_rate.py", line 18, in require_real_uf_rate\nUFServiceError: UF real no disponible secret_password ssid=private\n'
+@pytest.mark.parametrize("prefix", ["", "core.exceptions."])
+def test_launcher_propagates_legacy_errors_without_secret(code, prefix):
+    stderr='Traceback (most recent call last):\n  File "/app/services/uf_rate.py", line 18, in require_real_uf_rate\n'+prefix+'UFServiceError: UF real no disponible secret_password ssid=private\n'
     report=summarize_process(SimpleNamespace(returncode=code,stdout='',stderr=stderr))
     assert report["exit_code"] == code and report["runtime_error"]
     assert report["error"]["type"] == "UFServiceError"
@@ -191,3 +192,49 @@ async def test_portal_exception_is_recorded_and_propagated(engine,monkeypatch):
         run=await s.scalar(select(IngestionRun))
         assert not run.successful and run.errors[0]["type"] == "ReadTimeout"
         assert "sensitive" not in json.dumps(run.errors)
+
+
+def test_actual_host_launcher_returns_child_exit_and_saves_sanitized_error(tmp_path, monkeypatch, capsys):
+    from pathlib import Path
+    from scripts import run_portal_session as launcher
+    meminfo = tmp_path/"meminfo"
+    meminfo.write_text("MemAvailable: 2097152 kB\n")
+    monkeypatch.setattr(launcher,"Path",lambda value: meminfo if value=="/proc/meminfo" else Path(value))
+    monkeypatch.setattr(launcher,"SESSION",tmp_path)
+    monkeypatch.setattr(launcher.shutil,"disk_usage",lambda root:SimpleNamespace(free=10*1024**3))
+    monkeypatch.setattr(launcher.os,"getuid",lambda:1001,raising=False)
+    monkeypatch.setattr(launcher.os,"getgid",lambda:1001,raising=False)
+    monkeypatch.setattr(launcher.sys,"argv",["run_portal_session.py"])
+    current={"NetworkSettings":{"Networks":{"review":{}}},"Config":{"Env":["PASSWORD=private"]},"Image":"sha256:review"}
+    monkeypatch.setattr(launcher.subprocess,"check_output",lambda *a,**kw:json.dumps([current]).encode())
+    child=SimpleNamespace(returncode=1,stdout=json.dumps({"error":{"type":"UFServiceError","stage":"uf","reason":"UF real no disponible"}}),stderr="PASSWORD=private")
+    monkeypatch.setattr(launcher.subprocess,"run",lambda *a,**kw:child)
+    assert launcher.main()==1
+    stored=json.loads((tmp_path/"last_run.json").read_text())
+    assert stored["runtime_error"] and stored["error"]["type"]=="UFServiceError"
+    assert "private" not in json.dumps(stored) and "private" not in capsys.readouterr().out
+
+
+async def test_endpoint_uses_ledger_and_reports_stale_sources(engine,monkeypatch):
+    from api.v1.health import source_health
+    import infrastructure.db.database as database
+    factory=async_sessionmaker(engine,expire_on_commit=False)
+    monkeypatch.setattr(database,"get_session_factory",lambda:factory)
+    state=await source_health()
+    assert state["status"]=="degraded"
+    assert all(v["last_success_at"] is None for v in state["sources"].values())
+
+
+async def test_replayed_original_is_not_converted_with_wrong_day(engine):
+    from workers import scraper_job as job
+    factory=async_sessionmaker(engine,expire_on_commit=False)
+    store=PendingPriceStore(factory,"yapo")
+    item=annotate_pending(raw(),IngestionRate(None,None))
+    await store.hset("scraper:yapo:pending_uf","uf-1",json.dumps(item,default=str))
+    async with factory() as session:
+        session.add(IngestionUFCalendar(date=date(2026,10,16),value=Decimal("41168.03"),source="sii.cl",fetched_at=datetime.now(UTC)))
+        await session.commit()
+    scraper=SimpleNamespace(source_name="yapo",scrape=AsyncMock(return_value=[]),last_raw_count=0)
+    stats=await job.run_scraper_job(scraper,factory,pending_uf_store=store,uf_info=info(date(2026,10,16)),ingestion_resolution=IngestionRate(None,None))
+    assert stats.pending_uf==1 and stats.pending_uf_reprocessed==0
+    assert "uf-1" in await store.hgetall("scraper:yapo:pending_uf")

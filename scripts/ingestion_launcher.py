@@ -5,7 +5,8 @@ import re
 COUNTERS = {"inserted", "updated", "known_unchanged", "skipped", "raw_cards", "unique_cards",
             "raw_cards_http", "valid_cards", "persisted_from_card", "persisted_from_detail",
             "pending_uf", "pending_uf_reprocessed", "validation_errors", "unexpected_errors",
-            "blocked_or_captcha", "fetch_errors", "geo_stage_errors", "scraped", "raw_scraped", "discarded"}
+            "blocked_or_captcha", "fetch_errors", "geo_stage_errors", "geo_blocked", "geo_stopped",
+            "scraped", "raw_scraped", "discarded"}
 
 
 def sanitize_error(value):
@@ -45,7 +46,7 @@ def summarize_process(result):
     if result.returncode and error is None:
         # Legacy traceback: extract exception class and frame positions, never exception message/source lines.
         text = result.stderr[-16000:]
-        names = re.findall(r"^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Expired))(?::|$)", text, re.M)
+        names = re.findall(r"^(?:[A-Za-z_][A-Za-z0-9_]*\.)*([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Expired))(?::|$)", text, re.M)
         frames = [{"file": name, "line": int(line), "function": function}
                   for name, line, function in re.findall(r'File "[^"\n]*[/\\]([A-Za-z0-9_]+\.py)", line (\d+), in ([A-Za-z_][A-Za-z0-9_]*)', text)]
         error = {"type": names[-1] if names else "ChildProcessError", "stage": "container", "frames": frames[-8:]}
