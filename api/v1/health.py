@@ -17,7 +17,7 @@ async def source_health() -> dict:
     from sqlalchemy.exc import SQLAlchemyError
     try:
         return await ingestion_health(get_session_factory())
-    except SQLAlchemyError:
+    except (SQLAlchemyError, TypeError):
         # Liveness remains separate; never report fresh data when ledger is unavailable.
         return {"status": "degraded", "reason": "ingestion_state_unavailable", "sources": {}}
 

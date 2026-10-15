@@ -161,6 +161,8 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                             await accept(raw)
                             stats["persisted_from_card" if apply else "card_complete"] += 1
                         except Exception as exc:
+                            import traceback
+                            traceback.print_exc()
                             stats["validation_errors"] += 1
                             errors.append(safe_error(exc, stage="card_persist"))
             for target, card in incomplete[:max_details]:

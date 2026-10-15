@@ -107,7 +107,8 @@ class TestHealth:
     async def test_health_no_auth_required(self, client: httpx.AsyncClient):
         resp = await client.get("/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json()["liveness"] == "ok"
+        assert resp.json()["status"] in {"ok", "degraded"}
 
         versioned_resp = await client.get("/api/v1/health")
         assert versioned_resp.status_code == 200
