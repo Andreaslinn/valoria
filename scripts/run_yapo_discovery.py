@@ -26,6 +26,8 @@ def main() -> int:
         print(json.dumps(clean_counters(asdict(stats))))
         return 1 if stats.unexpected_errors or stats.blocked_or_captcha or stats.fetch_errors or not stats.raw_scraped else 0
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         print(json.dumps({"error": safe_error(exc, stage="yapo_entrypoint")}))
         return 1
 

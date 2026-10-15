@@ -215,6 +215,30 @@ def test_actual_host_launcher_returns_child_exit_and_saves_sanitized_error(tmp_p
     assert "private" not in json.dumps(stored) and "private" not in capsys.readouterr().out
 
 
+def test_launcher_retains_complete_stderr_privately(tmp_path,monkeypatch):
+    from pathlib import Path
+    from scripts import run_portal_session as launcher
+    meminfo=tmp_path/"meminfo"
+    meminfo.write_text("MemAvailable: 2097152 kB\n")
+    monkeypatch.setattr(launcher,"Path",lambda v:meminfo if v=="/proc/meminfo" else Path(v))
+    session=tmp_path/"portal-session";session.mkdir()
+    monkeypatch.setattr(launcher,"SESSION",session)
+    monkeypatch.setattr(launcher.shutil,"disk_usage",lambda root:SimpleNamespace(free=10*1024**3))
+    monkeypatch.setattr(launcher.os,"getuid",lambda:1001,raising=False)
+    monkeypatch.setattr(launcher.os,"getgid",lambda:1001,raising=False)
+    monkeypatch.setattr(launcher.sys,"argv",["launcher"])
+    current={"NetworkSettings":{"Networks":{"review":{}}},"Config":{"Env":[]},"Image":"sha256:review"}
+    monkeypatch.setattr(launcher.subprocess,"check_output",lambda *a,**kw:json.dumps([current]).encode())
+    stderr="Traceback original\n"+"x"*20000+"\nValueError: original full message\n"
+    def child(*args,**kw):
+        kw["stderr"].write(stderr)
+        return SimpleNamespace(returncode=1,stdout="",stderr=None)
+    monkeypatch.setattr(launcher.subprocess,"run",child)
+    assert launcher.main()==1
+    saved=list((tmp_path/"ingestion-errors").glob("*.stderr.log"))
+    assert len(saved)==1 and saved[0].read_text()==stderr
+
+
 async def test_endpoint_uses_ledger_and_reports_stale_sources(engine,monkeypatch):
     from api.v1.health import source_health
     import infrastructure.db.database as database

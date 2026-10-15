@@ -45,8 +45,15 @@ def main():
         # Candidate image contains versioned acquisition code; never mount a stale host patch over it.
         args += ['--entrypoint','python',os.environ.get('VALORIA_INGESTION_IMAGE', current['Image']),'-B','scripts/portal_card_first.py']
         args += sys.argv[1:] or ['--apply','--max-pages','1','--max-details','5','--max-geo-details','5','--pause-s','3']
-        result = subprocess.run(args,timeout=900,capture_output=True,text=True)
+        logs = SESSION.parent / 'ingestion-errors'
+        logs.mkdir(mode=0o700, exist_ok=True)
+        error_path = logs / ('portal-' + str(time.time_ns()) + '.stderr.log')
+        with os.fdopen(os.open(error_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600),'w') as errors:
+            result = subprocess.run(args,timeout=900,stdout=subprocess.PIPE,stderr=errors,text=True)
+        # Complete original stderr remains in the private file; only a sanitized tail is public.
+        result.stderr = error_path.read_text(errors='replace')[-16000:]
         safe = summarize_process(result)
+        safe['stderr_log'] = error_path.name
         safe['at'] = int(time.time())
         safe['image_id'] = os.environ.get('VALORIA_INGESTION_IMAGE', current['Image'])
         report = safe['counts']

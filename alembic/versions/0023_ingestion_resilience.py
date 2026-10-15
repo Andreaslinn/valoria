@@ -29,5 +29,15 @@ def upgrade():
 
 
 def downgrade():
-    # Operational rollback retains original prices/calendar; do not silently lose pending ads.
-    raise RuntimeError("Rollback application image; retain ingestion tables until pending prices are reconciled and archived")
+    # Archive original observations before removing operational tables. The rollback
+    # runner verifies this schema and keeps it outside the application's migration tree.
+    if op.get_bind().dialect.name == "postgresql":
+        from datetime import UTC, datetime
+        schema = "ingestion_rollback_" + datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
+        op.execute(f'CREATE SCHEMA {schema}')
+        for table in ("ingestion_uf_calendar", "ingestion_pending_prices", "ingestion_runs"):
+            op.execute(f'CREATE TABLE {schema}.{table} AS TABLE public.{table}')
+    op.drop_index("ix_ingestion_runs_source_finished", table_name="ingestion_runs")
+    op.drop_table("ingestion_runs")
+    op.drop_table("ingestion_pending_prices")
+    op.drop_table("ingestion_uf_calendar")

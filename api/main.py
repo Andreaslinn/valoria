@@ -93,8 +93,10 @@ def create_app() -> FastAPI:
 
     # Healthcheck simple — no autenticado
     @app.get("/health", tags=["meta"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health() -> dict:
+        state = await health_router.source_health()
+        return {"status": state["status"], "liveness": "ok", "ingestion": state,
+                "sources": state.get("sources", {})}
 
     return app
 

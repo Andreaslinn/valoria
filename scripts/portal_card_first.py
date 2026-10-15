@@ -240,6 +240,8 @@ def main() -> int:
         print(json.dumps(report, sort_keys=True))
         return 1 if report.get("blocked_or_captcha") or report.get("geo_stopped") or report.get("validation_errors") or not report.get("raw_cards") else 0
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         print(json.dumps({"error": safe_error(exc, stage="portal_entrypoint")}, sort_keys=True))
         return 1
 
