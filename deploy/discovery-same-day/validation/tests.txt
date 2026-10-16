@@ -1,0 +1,1 @@
+1989 passed, 9 existing deprecation warnings, full suite before final counter initialization fix. After the fix: 50 targeted ingestion/discovery regressions passed. Yapo live acceptance remains pending.

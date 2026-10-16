@@ -1,0 +1,27 @@
+{
+  "outcomes": [
+    {
+      "event": "source_done",
+      "source": "yapo",
+      "new_isolated_apartments": 1,
+      "with_detail_published_fields": 0,
+      "capture_percent": 0.0,
+      "requests": 0,
+      "cached_measurement_requests": 0,
+      "statuses": {
+        "200": 29
+      },
+      "error_type": "KeyError",
+      "counters": {}
+    }
+  ],
+  "production_writes": 0,
+  "candidate_loaded_in_memory": true,
+  "isolated_database": "SQLite in RAM",
+  "withheld_for_new_admission_test": {
+    "yapo": 145,
+    "portalinmobiliario": 38
+  },
+  "snapshot_uf": "41168.03",
+  "passed": false
+}

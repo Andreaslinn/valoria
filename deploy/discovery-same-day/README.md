@@ -96,3 +96,6 @@ Tras un OK nuevo: reconstruir exactamente el commit mergeado en release,
 respaldar y restaurar en aislamiento, comparar referencias antes de ingesta,
 mantener recursos/timers y observar el siguiente ciclo normal. Rollback de
 código a `80bd8a9`; sin downgrade de 0023, sin desactivar UF ni borrar datos.
+
+Estado al cerrar el plazo: Portal pasa 61/61 y cero 302/403/429. Yapo no cumple todavía la condición 3: tras 29 respuestas 200 falló el contador same_day_new_apartments; se corrigió la inicialización y pasan 50 pruebas dirigidas, pero falta repetir su ciclo real. No se autoriza despliegue con este estado. Suite completa anterior a esa corrección: 1989 verdes. Referencias idénticas.
+

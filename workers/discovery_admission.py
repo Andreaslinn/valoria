@@ -20,6 +20,9 @@ class DiscoveryAdmission:
     def __init__(self, factory, client, limiter, *, stats=None, seconds=600):
         self.factory, self.client, self.limiter = factory, client, limiter
         self.stats = stats if stats is not None else Counter()
+        for key in ('same_day_new_apartments', 'same_day_detail_requests', 'same_day_detail_captured',
+                    'same_day_detail_rejected', 'same_day_deferred_deadline', 'blocked_or_captcha'):
+            self.stats.setdefault(key, 0)
         self.deadline = time.monotonic() + seconds
         self.requested = self.captured = 0
         self.fetched = {}
