@@ -27,14 +27,34 @@ def flight_roots(soup):
         except (ValueError, TypeError):
             continue
     # Flight records can cross script boundaries. Decode JSON, never eval JS.
-    for line in "".join(chunks).splitlines():
-        _, sep, body = line.partition(":")
-        if not sep:
+    # Flight text records have a UTF-8 byte length, can contain newlines and
+    # need not end with one. Splitting lines swallows the next JSON record.
+    data = ''.join(chunks).encode('utf-8')
+    offset = 0
+    while offset < len(data):
+        if data[offset:offset + 1] == b'\n':
+            offset += 1
             continue
+        header = re.match(rb'[0-9a-f]+:', data[offset:])
+        if header is None:
+            end = data.find(b'\n', offset)
+            if end < 0:
+                break
+            offset = end + 1
+            continue
+        start = offset + header.end()
+        text_record = re.match(rb'T([0-9a-f]+),', data[start:])
+        if text_record is not None:
+            offset = start + text_record.end() + int(text_record[1], 16)
+            continue
+        end = data.find(b'\n', start)
+        if end < 0:
+            end = len(data)
         try:
-            yield json.loads(body)
-        except ValueError:
-            continue
+            yield json.loads(data[start:end])
+        except (ValueError, UnicodeDecodeError):
+            pass
+        offset = end + 1
 
 
 def search_results(soup):

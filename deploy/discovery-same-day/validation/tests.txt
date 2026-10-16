@@ -1,0 +1,1 @@
+1995 passed, 9 existing deprecation warnings, full suite on 2026-10-16 in 202.41 s. Includes UTF-8 length-delimited Flight text (multiline, script-boundary, empty and accented text), source-bound Yapo capture with UF/$/missing currency, unchanged stored price/area, and discovery access-denial regressions.

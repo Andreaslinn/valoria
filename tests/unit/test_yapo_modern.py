@@ -171,6 +171,17 @@ def test_flight_record_split_across_script_chunks():
     assert parse(html)[0]["external_id"] == "32919337"
 
 
+@pytest.mark.parametrize('text', ['Descripción Ñuñoa\nTerraza ✓', 'line one\nline two\n', ''])
+def test_flight_length_delimited_text_does_not_swallow_next_payload(text):
+    from infrastructure.scrapers.yapo_modern import payload_items
+    record = 'af:T' + format(len(text.encode('utf-8')), 'x') + ',' + text
+    record += 'b0:' + json.dumps({'item': source_item()}, ensure_ascii=False) + '\n'
+    split = len(record) // 2
+    body = ''.join('<script>self.__next_f.push(' + json.dumps([1, part]) + ')</script>'
+                   for part in (record[:split], record[split:]))
+    assert payload_items(BeautifulSoup(body, 'lxml'))[0]['id'] == '32919337'
+
+
 @pytest.mark.asyncio
 async def test_modern_coordinates_and_metadata_persist_in_existing_columns(session):
     from domain.ingestion.pipeline import process_listing
