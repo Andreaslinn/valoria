@@ -234,6 +234,9 @@ class PortalInmobiliarioScraper(ScraperBase):
         scraped_at = datetime.now(timezone.utc)
         results: list[ScraperResult] = []
         discarded: list[PortalParseDiscard] = []
+        from infrastructure.scrapers.discovery_fields import portal_search_fields
+        from domain.geocoding.source_quality import mlc
+        published = portal_search_fields(html)
 
         for item in items:
             try:
@@ -243,6 +246,9 @@ class PortalInmobiliarioScraper(ScraperBase):
                 discarded.append(_discard("parse_error", item))
                 continue
             if parsed is not None:
+                fields = published.get(mlc('MLC-' + str(parsed.get('external_id', ''))))
+                if fields:
+                    parsed['raw_metadata']['published_fields'] = fields
                 results.append(parsed)
             elif reason is not None:
                 discarded.append(_discard(reason, item))

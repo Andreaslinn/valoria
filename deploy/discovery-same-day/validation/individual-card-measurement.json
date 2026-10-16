@@ -1,0 +1,17 @@
+{
+  "sample": 30,
+  "scope": "individual apartments; project ranges excluded",
+  "baseline_acquired_before_code_changes": true,
+  "same_saved_search_and_map_responses": true,
+  "new_http_requests": 0,
+  "counts": {
+    "useful_scalar": 29,
+    "total_scalar": 1,
+    "map_point": 30
+  },
+  "percent": {
+    "useful_scalar": 96.66666666666667,
+    "total_scalar": 3.3333333333333335,
+    "map_point": 100.0
+  }
+}

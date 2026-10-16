@@ -7,6 +7,7 @@ import asyncio
 import logging
 import sys
 import time
+from contextlib import nullcontext
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -95,6 +96,11 @@ class JobStats:
     published_detail_requested: int = 0
     published_detail_captured: int = 0
     published_detail_rejected: int = 0
+    same_day_new_apartments: int = 0
+    same_day_detail_requests: int = 0
+    same_day_detail_captured: int = 0
+    same_day_detail_rejected: int = 0
+    same_day_deferred_deadline: int = 0
     blocked_or_captcha: int = 0
     fetch_errors: int = 0
     price_drop_alerts_created: int = 0
@@ -159,6 +165,7 @@ async def run_scraper_job(
     pending_uf_store: Any = None,
     uf_info: UFRateInfo | None = None,
     ingestion_resolution=None,
+    enrich_admissions=False,
 ) -> JobStats:
     """Corre un scraper y persiste sus resultados via process_listing."""
     job_started_monotonic = time.monotonic()
@@ -168,7 +175,7 @@ async def run_scraper_job(
     scrape_started = time.monotonic()
     raw_results: list[ScraperResult] = await asyncio.wait_for(
         scraper.scrape(),
-        timeout=_SCRAPE_STAGE_TIMEOUT_SEC,
+        timeout=300 if enrich_admissions else _SCRAPE_STAGE_TIMEOUT_SEC,
     )
     scrape_duration = time.monotonic() - scrape_started
     stats = JobStats(
@@ -204,6 +211,11 @@ async def run_scraper_job(
                 stats.unexpected_errors += 1
                 _log.error("Invalid pending UF record retained: %s", identity)
     persist_started = time.monotonic()
+    admission = None
+    if enrich_admissions:
+        from workers.discovery_admission import DiscoveryAdmission
+        admission = DiscoveryAdmission(session_factory, scraper._http, scraper._rate, stats=stats.reason_counts,
+            seconds=max(0, min(600, 840 - (time.monotonic() - job_started_monotonic))))
     for raw in raw_results:
         try:
             effective_info = uf_info
@@ -241,6 +253,11 @@ async def run_scraper_job(
             await pending_uf_store.hdel("scraper:yapo:pending_uf", str(raw["external_id"]))
         if outcome.status == "inserted":
             stats.inserted += 1
+            if admission is not None:
+                from workers.discovery_admission import COMMUNES
+                if outcome.listing.comuna in COMMUNES and outcome.listing.property_type == 'apartment':
+                    stats.reason_counts['same_day_new_apartments'] += 1
+                    await admission.capture(raw, comuna=outcome.listing.comuna)
         elif outcome.status == "updated":
             stats.updated += 1
         else:
@@ -329,17 +346,19 @@ async def _run_yapo_once(
     min_pause_s: float = 0.0,
     max_targets: int | None = None,
     resolution=None,
+    client=None,
+    legacy_redis=True,
 ) -> JobStats:
     """Construye Yapo con dependencias reales y ejecuta una pasada local."""
     settings = get_settings()
     session_factory = session_factory or get_session_factory()
 
-    async with httpx.AsyncClient(
+    async with (nullcontext(client) if client is not None else httpx.AsyncClient(
         timeout=SCRAPER_HTTP_TIMEOUT_SEC,
         headers={"User-Agent": SCRAPER_USER_AGENT},
         follow_redirects=True,
-    ) as http:
-        redis = Redis.from_url(settings.redis_url)
+    )) as http:
+        redis = Redis.from_url(settings.redis_url) if legacy_redis else None
         try:
             resolution = resolution or await resolve_ingestion_rate(session_factory, http)
             uf_info = resolution.exact
@@ -358,22 +377,26 @@ async def _run_yapo_once(
             )
             stats = await run_scraper_job(scraper, session_factory, mark_stale=False,
                 pending_uf_store=PendingPriceStore(session_factory, "yapo", legacy_redis=redis),
-                uf_info=uf_info, ingestion_resolution=resolution)
+                uf_info=uf_info, ingestion_resolution=resolution, enrich_admissions=True)
             if not stats.blocked_or_captcha and not stats.fetch_errors:
                 from workers.published_detail_enrichment import enrich_yapo_details
-                await enrich_yapo_details(session_factory, http, scraper._rate, budget=5, stats=stats)
+                await enrich_yapo_details(session_factory, http, scraper._rate,
+                    budget=max(0, 5 - stats.reason_counts.get('same_day_detail_requests', 0)), stats=stats)
+            for key in ('same_day_new_apartments', 'same_day_detail_requests', 'same_day_detail_captured', 'same_day_detail_rejected', 'same_day_deferred_deadline'):
+                setattr(stats, key, stats.reason_counts.get(key, 0))
             return stats
         finally:
-            await redis.aclose()
+            if redis is not None:
+                await redis.aclose()
 
 
-async def run_yapo_once(session_factory=None, *, max_pages=None, min_pause_s=0.0, max_targets=None, resolution=None):
+async def run_yapo_once(session_factory=None, *, max_pages=None, min_pause_s=0.0, max_targets=None, resolution=None, client=None, legacy_redis=True):
     from dataclasses import asdict
     factory = session_factory or get_session_factory()
     run_id = await start_run(factory, "yapo")
     try:
         stats = await _run_yapo_once(factory, max_pages=max_pages, min_pause_s=min_pause_s,
-                                    max_targets=max_targets, resolution=resolution)
+                                    max_targets=max_targets, resolution=resolution, client=client, legacy_redis=legacy_redis)
     except Exception as exc:
         await finish_run(factory, run_id, successful=False, errors=[safe_error(exc, stage="yapo_run")])
         raise

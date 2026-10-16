@@ -1,0 +1,46 @@
+{
+  "outcomes": [
+    {
+      "event": "source_done",
+      "source": "portalinmobiliario",
+      "new_isolated_apartments": 61,
+      "with_detail_published_fields": 61,
+      "capture_percent": 100.0,
+      "requests": 137,
+      "cached_measurement_requests": 2,
+      "statuses": {
+        "200": 72,
+        "301": 65
+      },
+      "error_type": null,
+      "counters": {
+        "uf_provider_errors": 0,
+        "raw_cards_http": 8,
+        "raw_cards": 384,
+        "unique_cards": 378,
+        "valid_cards": 378,
+        "known_unchanged": 172,
+        "persisted_from_card": 378,
+        "inserted": 206,
+        "same_day_new_apartments": 65,
+        "same_day_detail_requests": 130,
+        "same_day_detail_captured": 65,
+        "geo_map_requests": 1,
+        "geo_map_enriched": 47,
+        "geo_reused_detail_response": 1,
+        "geo_already_geolocated": 1,
+        "published_detail_requested": 130,
+        "published_detail_captured": 65
+      }
+    }
+  ],
+  "production_writes": 0,
+  "candidate_loaded_in_memory": true,
+  "isolated_database": "SQLite in RAM",
+  "withheld_for_new_admission_test": {
+    "yapo": 145,
+    "portalinmobiliario": 38
+  },
+  "snapshot_uf": "41168.03",
+  "passed": true
+}

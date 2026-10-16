@@ -90,7 +90,7 @@ async def _persist(raw: dict, stats: Counter, *, factory=None) -> None:
 
 async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
               max_geo_details: int | None = None, max_targets: int | None = None,
-              factory=None, client=None, resolution=None, ledger=True) -> dict:
+              factory=None, client=None, resolution=None, ledger=True, enrich_admissions=False) -> dict:
     from contextlib import AsyncExitStack
     settings = get_settings()
     factory = factory or get_session_factory()
@@ -118,6 +118,21 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
             stats["uf_provider_errors"] = len(resolution.errors)
             limiter = RateLimiter(max(3.0, pause_s))
             seen = set()
+            from workers.discovery_admission import DiscoveryAdmission, DiscoveryAccessBlocked
+            from scripts.portal_session import PortalSessionExpired
+            admission = DiscoveryAdmission(factory, client, limiter, stats=stats) if enrich_admissions and apply else None
+            map_response, map_points = None, {}
+            if admission is not None and geo_budget:
+                from workers.portal_geo_enrichment import map_publication_points
+                communes = ('providencia', 'vitacura', 'la_florida', 'estacion_central', 'san_miguel', 'santiago')
+                comuna = communes[datetime.now(UTC).date().toordinal() % len(communes)]
+                await limiter.wait()
+                map_response = await client.get('https://www.portalinmobiliario.com/venta/departamento/' + comuna.replace('_', '-') + '-metropolitana/_DisplayType_M', follow_redirects=False)
+                if map_response.status_code in (403, 429):
+                    stats['blocked_or_captcha'] += 1
+                    raise DiscoveryAccessBlocked('source_access_denied')
+                if map_response.status_code == 200:
+                    map_points = map_publication_points(map_response.text)
 
             async def accept(raw, current_resolution=resolution):
                 if raw.get("price_clp") is None:
@@ -145,10 +160,14 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                     if response.status_code != 200 or classify_portal_page_state(response.text, status_code=response.status_code) != "authenticated":
                         stats["blocked_or_captcha"] += 1
                         errors.append({"type": "PortalAccessError", "stage": "search", "http_status": response.status_code})
-                        return dict(stats)
+                        return stats
                     report = PortalInmobiliarioScraper.parse_listings_detailed(response.text, uf_to_clp=uf_rate)
                     stats["raw_cards"] += report["cards_detected"]
-                    for card in report["items"]:
+                    cards = list(report['items'])
+                    if admission is not None:
+                        import random
+                        random.Random(datetime.now(UTC).date().toordinal()).shuffle(cards)
+                    for card in cards:
                         key = portal_dedupe_key(source="portalinmobiliario", external_id=card.get("external_id"), url=card.get("url"))
                         if not key or key in seen:
                             continue
@@ -162,13 +181,32 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                             continue
                         stats["valid_cards"] += 1
                         try:
+                            is_new = await admission.is_new(raw) if admission is not None else False
+                            if admission is not None:
+                                from domain.geocoding.source_quality import mlc
+                                from domain.ingestion.published_fields import coordinates
+                                point = map_points.get(mlc('MLC-' + str(raw['external_id'])))
+                                if point and point['quality']['status'] not in {'INVALID', 'MISSING'}:
+                                    native = point['original']
+                                    coordinates(raw['raw_metadata']['published_fields'], native['lat'], native['lon'], 'portal.map.polycard.metadata', point.get('precision_original'))
                             await accept(raw)
                             stats["persisted_from_card" if apply else "card_complete"] += 1
+                            if is_new:
+                                stats['same_day_new_apartments'] += 1
+                                await admission.capture(raw, referer=str(response.url))
+                        except (DiscoveryAccessBlocked, PortalSessionExpired):
+                            raise
                         except Exception as exc:
                             import traceback
                             traceback.print_exc()
                             stats["validation_errors"] += 1
                             errors.append(safe_error(exc, stage="card_persist"))
+            # Admissions consume the existing backfill slots first. Do not
+            # follow a successful new-ad burst with sequential stale URLs.
+            if admission is not None:
+                from domain.geocoding.source_quality import mlc
+                max_details = max(0, max_details - admission.requested)
+                fetched.update(admission.fetched)
             # Complete cards still need a detail observation. Use the same
             # existing five-request budget, prioritising never-fetched details
             # and then the oldest observation, rather than the first cards again.
@@ -191,6 +229,8 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                                ListingORM.id).limit(max_details))).all()
                     queued = {str(card.get("external_id")) for _, card in detail_queue}
                     for row in rows:
+                        if admission is not None and mlc('MLC-' + str(row.external_id)) in admission.visited:
+                            continue
                         if str(row.external_id) not in queued and row.url:
                             detail_queue.append(({"operation": "venta", "property_type": row.property_type,
                                 "label": "bounded_detail_refresh", "base_url": "https://www.portalinmobiliario.com"},
@@ -217,7 +257,7 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                 if response.status_code in (403, 429):
                     stats["blocked_or_captcha"] += 1
                     errors.append({"type": "PortalAccessError", "stage": "detail", "http_status": response.status_code})
-                    return dict(stats)
+                    return stats
                 if classify_portal_detail_page_state(response.text, status_code=response.status_code) != "detail":
                     continue
                 detail = parse_listing_detail_portal(response.text, str(response.url))
@@ -231,7 +271,7 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                     if retry.status_code in (403, 429):
                         stats["blocked_or_captcha"] += 1
                         errors.append({"type": "PortalAccessError", "stage": "detail_retry", "http_status": retry.status_code})
-                        return dict(stats)
+                        return stats
                     if retry.status_code == 200 and classify_portal_detail_page_state(retry.text, status_code=200) == "detail":
                         retried = parse_listing_detail_portal(retry.text, str(retry.url))
                         if retried.get("external_id") == detail.get("external_id"):
@@ -272,17 +312,18 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
                     stats["pending_uf_reprocessed"] += 1
             if apply and geo_budget:
                 from workers.portal_geo_enrichment import enrich_geography
-                await enrich_geography(session_factory=factory, client=client, limiter=limiter, budget=geo_budget,
+                await enrich_geography(session_factory=factory, client=client, limiter=limiter, budget=min(geo_budget, 1) if admission is not None and admission.requested else geo_budget,
                     fetched=fetched, stats=stats, max_attempts=settings.portal_geo_max_attempts,
-                    cooldown_hours=settings.portal_geo_cooldown_hours)
+                    cooldown_hours=settings.portal_geo_cooldown_hours, map_response=map_response)
                 if stats["geo_stopped"]:
                     errors.append({"type": "PortalAccessError", "stage": "geography"})
-        return dict(stats)
+        return stats
     except Exception as exc:
         errors.append(safe_error(exc, stage="portal_run"))
         raise
     finally:
-        stats["published_detail_requested"] = stats["details_requested"]
+        stats["published_detail_requested"] = stats["details_requested"] + stats['same_day_detail_requests']
+        stats['published_detail_captured'] += stats['same_day_detail_captured']
         if run_id is not None:
             success = not errors and not stats["blocked_or_captcha"] and stats["raw_cards"] > 0
             await finish_run(factory, run_id, successful=success, counters=stats, errors=errors)
@@ -298,7 +339,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         report = asyncio.run(run(apply=args.apply, max_pages=args.max_pages, max_details=args.max_details,
-            pause_s=args.pause_s, max_geo_details=args.max_geo_details, max_targets=args.max_targets))
+            pause_s=args.pause_s, max_geo_details=args.max_geo_details, max_targets=args.max_targets, enrich_admissions=True))
         print(json.dumps(report, sort_keys=True))
         return 1 if report.get("blocked_or_captcha") or report.get("geo_stopped") or report.get("validation_errors") or not report.get("raw_cards") else 0
     except Exception as exc:

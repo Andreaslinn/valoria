@@ -17,6 +17,7 @@ COUNTERS = {"inserted", "updated", "known_unchanged", "skipped", "raw_cards", "u
             "blocked_or_captcha", "fetch_errors", "geo_stage_errors", "geo_blocked", "geo_stopped",
             "scraped", "raw_scraped", "discarded"}
 COUNTERS.update({"published_detail_requested", "published_detail_captured", "published_detail_rejected"})
+COUNTERS.update({'same_day_new_apartments', 'same_day_detail_requests', 'same_day_detail_captured', 'same_day_detail_rejected', 'same_day_deferred_deadline'})
 
 
 def safe_error(exc, *, stage="ingestion"):
@@ -28,6 +29,8 @@ def safe_error(exc, *, stage="ingestion"):
         result["reason"] = "UF real no disponible"
     if type(exc).__name__ == "PortalSessionExpired":
         result.update(code="PORTAL_SESSION_EXPIRED", reason="official_verification_required")
+    if type(exc).__name__ == 'DiscoveryAccessBlocked':
+        result.update(code='PORTAL_ACCESS_BLOCKED', reason='source_access_denied')
     return result
 
 

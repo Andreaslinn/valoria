@@ -95,6 +95,7 @@ async def enrich_geography(
     now=None,
     fetched=None,
     stats=None,
+    map_response=None,
 ):
     stats = stats if stats is not None else Counter()
     if budget <= 0:
@@ -111,12 +112,13 @@ async def enrich_geography(
     communes = ("providencia", "vitacura", "la_florida", "estacion_central", "san_miguel", "santiago")
     reference = now or datetime.now(UTC)
     comuna = communes[reference.date().toordinal() % len(communes)]
-    await limiter.wait()
+    if map_response is None:
+        await limiter.wait()
     spent += 1
     stats["geo_map_requests"] += 1
     try:
-        response = await client.get("https://www.portalinmobiliario.com/venta/departamento/" +
-            comuna.replace("_", "-") + "-metropolitana_DisplayType_M", follow_redirects=False)
+        response = map_response if map_response is not None else await client.get("https://www.portalinmobiliario.com/venta/departamento/" +
+            comuna.replace("_", "-") + "-metropolitana/_DisplayType_M", follow_redirects=False)
     except httpx.HTTPError:
         response = None
     if response is not None and response.status_code in (403, 429):

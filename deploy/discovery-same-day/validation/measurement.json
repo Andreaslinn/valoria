@@ -1,0 +1,20 @@
+{
+  "sample": 30,
+  "comuna": "estacion_central",
+  "requests": 2,
+  "detail_requests": 0,
+  "counts": {
+    "useful_label": 29,
+    "total_label": 1,
+    "map_point": 30
+  },
+  "percent": {
+    "useful_label": 96.67,
+    "total_label": 3.33,
+    "map_point": 100.0
+  },
+  "map_points": 100,
+  "useful_scalar": 21,
+  "useful_range": 8,
+  "project_cards": 8
+}
