@@ -30,8 +30,8 @@ class DiscoveryAdmission:
 
     async def has_incomplete_alias(self, raw):
         from infrastructure.db.models import ListingObservationORM
-        from config.comunas import normalize_comuna
-        if raw.get('property_type') != 'apartment' or normalize_comuna(raw.get('comuna', '')) not in COMMUNES:
+        from domain.ingestion.data_cleaning import detect_comuna
+        if raw.get('property_type') != 'apartment' or detect_comuna(raw).normalized not in COMMUNES:
             return False
         async with self.factory() as session:
             row = await session.scalar(select(ListingORM).where(ListingORM.source == raw['source'], ListingORM.external_id == str(raw['external_id'])))
@@ -45,8 +45,8 @@ class DiscoveryAdmission:
                 ListingObservationORM.external_id != str(raw['external_id'])).limit(1)) is not None
 
     async def is_new(self, raw):
-        from config.comunas import normalize_comuna
-        if raw.get('property_type') != 'apartment' or normalize_comuna(raw.get('comuna', '')) not in COMMUNES:
+        from domain.ingestion.data_cleaning import detect_comuna
+        if raw.get('property_type') != 'apartment' or detect_comuna(raw).normalized not in COMMUNES:
             return False
         if raw.get('raw_metadata', {}).get('published_fields', {}).get('source_is_project'):
             return False
