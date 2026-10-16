@@ -7,6 +7,10 @@ COUNTERS = {"inserted", "updated", "known_unchanged", "skipped", "raw_cards", "u
             "pending_uf", "pending_uf_reprocessed", "validation_errors", "unexpected_errors",
             "blocked_or_captcha", "fetch_errors", "geo_stage_errors", "geo_blocked", "geo_stopped",
             "scraped", "raw_scraped", "discarded"}
+COUNTERS.update({'http_requests', 'http_302', 'http_403', 'http_429',
+    'same_day_new_apartments', 'same_day_detail_requests', 'same_day_detail_captured',
+    'same_day_detail_rejected', 'same_day_deferred_deadline', 'published_detail_requested',
+    'published_detail_captured', 'published_detail_rejected'})
 
 
 def sanitize_error(value):

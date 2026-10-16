@@ -28,6 +28,22 @@ class DiscoveryAdmission:
         self.fetched = {}
         self.visited = set()
 
+    async def has_incomplete_alias(self, raw):
+        from infrastructure.db.models import ListingObservationORM
+        from config.comunas import normalize_comuna
+        if raw.get('property_type') != 'apartment' or normalize_comuna(raw.get('comuna', '')) not in COMMUNES:
+            return False
+        async with self.factory() as session:
+            row = await session.scalar(select(ListingORM).where(ListingORM.source == raw['source'], ListingORM.external_id == str(raw['external_id'])))
+            if row is None:
+                return False
+            facts = (row.raw_metadata or {}).get('published_detail_fields') or (row.raw_metadata or {}).get('published_fields') or {}
+            if facts.get('stage') in ('detail', 'merged'):
+                return False
+            return await session.scalar(select(ListingObservationORM.observation_id).where(
+                ListingObservationORM.listing_id == row.id, ListingObservationORM.source == row.source,
+                ListingObservationORM.external_id != str(raw['external_id'])).limit(1)) is not None
+
     async def is_new(self, raw):
         from config.comunas import normalize_comuna
         if raw.get('property_type') != 'apartment' or normalize_comuna(raw.get('comuna', '')) not in COMMUNES:

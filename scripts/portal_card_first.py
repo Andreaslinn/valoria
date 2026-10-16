@@ -110,6 +110,8 @@ async def run(*, apply: bool, max_pages: int, max_details: int, pause_s: float,
         async with AsyncExitStack() as stack:
             if client is None:
                 client = await stack.enter_async_context(portal_client(headers=DEFAULT_HEADERS, follow_redirects=True, timeout=30.0))
+            from workers.discovery_http import source_http_counters
+            stack.enter_context(source_http_counters(client, stats))
             if resolution is None:
                 uf_http = await stack.enter_async_context(httpx.AsyncClient())
                 resolution = await resolve_ingestion_rate(factory, uf_http)

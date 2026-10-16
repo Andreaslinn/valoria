@@ -101,6 +101,10 @@ class JobStats:
     same_day_detail_captured: int = 0
     same_day_detail_rejected: int = 0
     same_day_deferred_deadline: int = 0
+    http_requests: int = 0
+    http_302: int = 0
+    http_403: int = 0
+    http_429: int = 0
     blocked_or_captcha: int = 0
     fetch_errors: int = 0
     price_drop_alerts_created: int = 0
@@ -235,6 +239,11 @@ async def run_scraper_job(
             )
             stats.pending_uf += 1
             continue
+        # A new publication can update a canonical row through fingerprint
+        # deduplication. Determine its identity before that upsert changes it.
+        new_admission = await admission.is_new(raw) if admission is not None else False
+        repair_alias = bool(admission is not None and not new_admission and admission.requested < 5
+                            and await admission.has_incomplete_alias(raw))
         outcome = await _persist_one_with_retries(raw, session_factory)
         if outcome is None:
             if _is_validation_failure(raw):
@@ -253,15 +262,17 @@ async def run_scraper_job(
             await pending_uf_store.hdel("scraper:yapo:pending_uf", str(raw["external_id"]))
         if outcome.status == "inserted":
             stats.inserted += 1
-            if admission is not None:
-                from workers.discovery_admission import COMMUNES
-                if outcome.listing.comuna in COMMUNES and outcome.listing.property_type == 'apartment':
-                    stats.reason_counts['same_day_new_apartments'] += 1
-                    await admission.capture(raw, comuna=outcome.listing.comuna)
         elif outcome.status == "updated":
             stats.updated += 1
         else:
             stats.skipped += 1
+        if admission is not None and new_admission:
+            stats.reason_counts['same_day_new_apartments'] += 1
+            await admission.capture(raw, comuna=outcome.listing.comuna)
+        elif repair_alias:
+            # Spend the existing five maintenance slots on previously missed
+            # alias admissions before the unchanged discovery backfill.
+            await admission.capture(raw, comuna=outcome.listing.comuna)
         _count_target_outcome(stats, outcome)
         _count_listing_dimensions(stats, outcome)
         _count_geocode_transition(stats, outcome)
@@ -358,6 +369,11 @@ async def _run_yapo_once(
         headers={"User-Agent": SCRAPER_USER_AGENT},
         follow_redirects=True,
     )) as http:
+        from collections import Counter
+        from workers.discovery_http import source_http_counters
+        http_counts = Counter()
+        monitor = source_http_counters(http, http_counts, hosts={'www.yapo.cl', 'yapo.cl'})
+        monitor.__enter__()
         redis = Redis.from_url(settings.redis_url) if legacy_redis else None
         try:
             resolution = resolution or await resolve_ingestion_rate(session_factory, http)
@@ -384,8 +400,11 @@ async def _run_yapo_once(
                     budget=max(0, 5 - stats.reason_counts.get('same_day_detail_requests', 0)), stats=stats)
             for key in ('same_day_new_apartments', 'same_day_detail_requests', 'same_day_detail_captured', 'same_day_detail_rejected', 'same_day_deferred_deadline'):
                 setattr(stats, key, stats.reason_counts.get(key, 0))
+            for key, value in http_counts.items():
+                setattr(stats, key, value)
             return stats
         finally:
+            monitor.__exit__(None, None, None)
             if redis is not None:
                 await redis.aclose()
 

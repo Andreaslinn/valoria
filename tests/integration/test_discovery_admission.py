@@ -179,3 +179,57 @@ async def test_yapo_job_initializes_plain_dict_admission_counters(engine, curren
         assert row.price_clp == 100000000 and row.m2 == 37
         assert row.raw_metadata['published_fields']['constructed_area_m2'] == 37
         assert row.raw_metadata['published_fields']['floor'] == 19
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('stored_id', ['32982982', '32747182'])
+async def test_yapo_pocuro_32747182_deduplicated_without_detail_is_captured(engine, stored_id):
+    from workers.scraper_job import _persist_one, run_scraper_job
+    from infrastructure.db.models import ListingObservationORM
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    raw = {'source':'yapo','external_id':'32747182','title':'Departamento en Avenida Pocuro',
+           'url':'https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-avenida-pocuro/32747182',
+           'comuna':'Providencia','property_type':'apartment','m2':84,'price_clp':200000000,
+           'bedrooms':2,'bathrooms':2,'parking':1,'lat':-33.435883,'lon':-70.60571,
+           'scraped_at':datetime.now(UTC),'raw_metadata':{}}
+    old = dict(raw, external_id=stored_id, url=raw['url'].replace('32747182', stored_id))
+    seeded = await _persist_one(old, factory)
+    async with factory() as session:
+        session.add(ListingObservationORM(observation_id='pocuro-prior-id', listing_id=seeded.listing.id,
+            source='yapo', external_id='32982982', observed_at=datetime.now(UTC),
+            event_kind='scrape', document={}))
+        await session.commit()
+    item={'id':'32747182','link':raw['url'],'location':{'lat':raw['lat'],'lon':raw['lon']},
+          'price':{},'square':'84','lotSize':'84','floor':'7','exactAddress':'Avenida Pocuro'}
+    record='1:'+json.dumps({'item':item})+'\n'
+    body='<script>self.__next_f.push('+json.dumps([1,record])+')</script>'
+    class Scraper:
+        source_name='yapo'
+        async def scrape(self):return [raw]
+    requests=[]
+    def response(request):
+        requests.append(str(request.url));return httpx.Response(200,text=body)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+        scraper=Scraper();scraper._http=client;scraper._rate=Limiter()
+        stats=await run_scraper_job(scraper,factory,enrich_admissions=True)
+    assert stats.inserted == 0
+    assert len(requests)==1
+    assert stats.reason_counts['same_day_detail_captured']==1
+    async with factory() as session:
+        rows=(await session.scalars(select(ListingORM))).all()
+        assert len(rows)==1 and rows[0].id==seeded.listing.id
+        assert rows[0].external_id=='32747182'
+        assert rows[0].raw_metadata['published_fields']['stage']=='detail'
+        assert rows[0].raw_metadata['published_fields']['floor']==7
+
+
+@pytest.mark.asyncio
+async def test_source_http_counters_capture_statuses_and_remove_hook():
+    from workers.discovery_http import source_http_counters
+    counters={}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request:httpx.Response(int(request.url.path[1:])))) as client:
+        with source_http_counters(client,counters):
+            for status in [200,301,302,403,429]:
+                await client.get('https://www.yapo.cl/'+str(status))
+        assert client.event_hooks['response']==[]
+    assert counters=={'http_requests':5,'http_302':1,'http_403':1,'http_429':1}
