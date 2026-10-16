@@ -84,8 +84,14 @@ class DiscoveryAdmission:
             from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal
             parsed = parse_listing_detail_portal(response.text, url=url)
         else:
-            from infrastructure.scrapers.yapo import parse_listing_detail
-            parsed = parse_listing_detail(response.text, url=url, uf_to_clp=None)
+            # Original property fields do not depend on price/currency validity.
+            # Bind the detail payload to this ID, excluding recommendations.
+            from bs4 import BeautifulSoup
+            from infrastructure.scrapers.yapo_modern import payload_items
+            from infrastructure.scrapers.published_fields import yapo_fields
+            soup = BeautifulSoup(response.text, 'lxml')
+            item = next((item for item in payload_items(soup) if str(item.get('id')) == identity), None)
+            parsed = {'raw_metadata': {'published_fields': yapo_fields(item, soup)}} if item else None
         fields = (parsed or {}).get('raw_metadata', {}).get('published_fields')
         if fields is None or (source == 'portalinmobiliario' and not fields.get('technical_table_observed')):
             self.stats['same_day_detail_rejected'] += 1

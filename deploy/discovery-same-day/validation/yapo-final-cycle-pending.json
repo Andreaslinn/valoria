@@ -23,5 +23,7 @@
     "portalinmobiliario": 38
   },
   "snapshot_uf": "41168.03",
-  "passed": false
+  "passed": false,
+  "historical_only": true,
+  "superseded_by": "yapo-cycle-proof.json"
 }

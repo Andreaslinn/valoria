@@ -1,0 +1,42 @@
+{
+  "observed_date": "2026-10-16",
+  "method": "Authorized existing Chrome session, OCI Console, read only",
+  "tenancy": "andreaspizarro10",
+  "plan_type": "Pay As You Go",
+  "account_type": "Individual",
+  "subscribed_regions": ["sa-santiago-1"],
+  "resource_explorer": {
+    "compartment_filter": "All",
+    "region_filter": "Chile Central (Santiago), sole subscribed region",
+    "pages_reviewed": 2,
+    "total_items": 34,
+    "instances": 1,
+    "boot_volumes": 1,
+    "block_volumes": 0,
+    "volume_backups": 0,
+    "object_storage_buckets": 0,
+    "other_items": "Networking, IAM, quotas, budget, resource manager stack and historic jobs"
+  },
+  "instance": {"shape": "VM.Standard.A1.Flex", "ocpus": 1, "memory_gb": 6},
+  "boot_volume": {
+    "size_gb": 47,
+    "console_label": "Always Free",
+    "backup_policy": null,
+    "replication": "Off",
+    "performance": "Balanced, 10 VPU/GB",
+    "backups_tab_root_compartment": 0,
+    "backups_tab_valoria_compartment": 0
+  },
+  "cost_analysis": {
+    "period_utc": ["2026-10-01", "2026-10-16"],
+    "filters": [],
+    "group_by": "Service",
+    "currency": "CLP",
+    "cost_to_date": 0,
+    "services_shown": ["Block Storage", "Compute", "Telemetry", "Virtual Cloud Network"],
+    "subscription_dialog_current_charges_usd": 0,
+    "report_disclaimer": "Usage typically delayed approximately 24 hours; estimate may differ from invoice"
+  },
+  "conclusion": "No additional cost-generating resources observed in the reviewed inventory; current reported charges zero. This is a paid-capable PAYG tenancy, not a free-only account. Future charges cannot be ruled out by a zero-cost snapshot.",
+  "account_mutations": 0
+}

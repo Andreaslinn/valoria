@@ -1,0 +1,1715 @@
+{
+  "outcomes": [
+    {
+      "event": "source_done",
+      "source": "yapo",
+      "new_isolated_apartments": 15,
+      "with_detail_published_fields": 6,
+      "capture_percent": 40.0,
+      "requests": 43,
+      "cached_measurement_requests": 0,
+      "statuses": {
+        "200": 43
+      },
+      "error_type": null,
+      "counters": {
+        "source": "yapo",
+        "started_at": "2026-10-16 10:35:19.612689+00:00",
+        "finished_at": "2026-10-16 10:40:30.505892+00:00",
+        "duration_sec": 310.893,
+        "stage_durations_sec": {
+          "scrape": 188.691,
+          "persist": 112.604
+        },
+        "scraped": 563,
+        "inserted": 14,
+        "updated": 277,
+        "skipped": 262,
+        "incomplete_saved": 43,
+        "discarded": 10,
+        "critical_invalid": 10,
+        "validation_errors": 10,
+        "unexpected_errors": 0,
+        "pending_uf": 0,
+        "pending_uf_reprocessed": 0,
+        "published_detail_requested": 0,
+        "published_detail_captured": 0,
+        "published_detail_rejected": 0,
+        "same_day_new_apartments": 14,
+        "same_day_detail_requests": 14,
+        "same_day_detail_captured": 6,
+        "same_day_detail_rejected": 8,
+        "same_day_deferred_deadline": 0,
+        "blocked_or_captcha": 0,
+        "fetch_errors": 0,
+        "price_drop_alerts_created": 0,
+        "price_drop_alerts_skipped": 0,
+        "raw_scraped": 580,
+        "comuna_detected": 540,
+        "comuna_unknown": 13,
+        "comuna_detected_from_title": 277,
+        "comuna_detected_from_location": 263,
+        "comuna_detected_from_description": 0,
+        "comuna_detected_from_alias": 0,
+        "comuna_detected_from_partial_match": 277,
+        "outside_rm_candidates": 20,
+        "rm_scope_count": 543,
+        "general_scope_count": 20,
+        "by_target": {
+          "general": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 20,
+            "unknown": 12,
+            "outside_rm": 13,
+            "detected": 8
+          },
+          "santiago": {
+            "raw": 20,
+            "unique": 18,
+            "updated": 14,
+            "detected": 17,
+            "inserted": 2,
+            "skipped": 1
+          },
+          "nunoa": {
+            "raw": 20,
+            "unique": 18,
+            "updated": 17,
+            "detected": 17,
+            "inserted": 1,
+            "unknown": 1,
+            "outside_rm": 1
+          },
+          "providencia": {
+            "raw": 20,
+            "unique": 19,
+            "inserted": 2,
+            "detected": 19,
+            "updated": 17
+          },
+          "las_condes": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 19,
+            "detected": 20,
+            "inserted": 1
+          },
+          "la_reina": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 20,
+            "detected": 20
+          },
+          "macul": {
+            "raw": 20,
+            "unique": 19,
+            "updated": 19,
+            "detected": 19
+          },
+          "san_miguel": {
+            "raw": 20,
+            "unique": 19,
+            "updated": 14,
+            "detected": 18,
+            "inserted": 4
+          },
+          "la_florida": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 19,
+            "detected": 20,
+            "outside_rm": 2,
+            "inserted": 1
+          },
+          "vitacura": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 19,
+            "detected": 20,
+            "inserted": 1
+          },
+          "penalolen": {
+            "raw": 20,
+            "unique": 19,
+            "updated": 19,
+            "detected": 19
+          },
+          "maipu": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 20,
+            "detected": 20
+          },
+          "recoleta": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 20,
+            "detected": 20
+          },
+          "independencia": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 20,
+            "detected": 20
+          },
+          "estacion_central": {
+            "raw": 20,
+            "unique": 20,
+            "updated": 15,
+            "detected": 18,
+            "inserted": 2,
+            "skipped": 1
+          },
+          "santiago_house": {
+            "raw": 20,
+            "unique": 20,
+            "skipped": 17,
+            "detected": 17,
+            "outside_rm": 1
+          },
+          "nunoa_house": {
+            "raw": 20,
+            "unique": 19,
+            "skipped": 19,
+            "detected": 19,
+            "outside_rm": 1
+          },
+          "providencia_house": {
+            "raw": 20,
+            "unique": 20,
+            "skipped": 18,
+            "detected": 20,
+            "updated": 2,
+            "outside_rm": 1
+          },
+          "las_condes_house": {
+            "raw": 20,
+            "unique": 20,
+            "skipped": 20,
+            "detected": 20
+          },
+          "la_reina_house": {
+            "raw": 20,
+            "unique": 18,
+            "skipped": 17,
+            "detected": 17
+          },
+          "macul_house": {
+            "raw": 20,
+            "unique": 20,
+            "skipped": 20,
+            "detected": 20
+          },
+          "san_miguel_house": {
+            "raw": 20,
+            "unique": 20,
+            "skipped": 19,
+            "detected": 20,
+            "updated": 1
+          },
+          "la_florida_house": {
+            "raw": 20,
+            "unique": 19,
+            "skipped": 19,
+            "detected": 19
+          },
+          "vitacura_house": {
+            "raw": 20,
+            "unique": 20,
+            "skipped": 18,
+            "detected": 19,
+            "updated": 1
+          },
+          "penalolen_house": {
+            "raw": 20,
+            "unique": 17,
+            "skipped": 17,
+            "detected": 17
+          },
+          "maipu_house": {
+            "raw": 20,
+            "unique": 19,
+            "skipped": 19,
+            "detected": 19
+          },
+          "recoleta_house": {
+            "raw": 20,
+            "unique": 20,
+            "skipped": 19,
+            "detected": 20,
+            "updated": 1
+          },
+          "independencia_house": {
+            "raw": 20,
+            "unique": 19,
+            "skipped": 19,
+            "detected": 19,
+            "outside_rm": 1
+          },
+          "estacion_central_house": {
+            "raw": 20,
+            "unique": 20,
+            "skipped": 19,
+            "detected": 19
+          }
+        },
+        "by_comuna": {
+          "valparaiso,_vina_del_mar": {
+            "total": 3,
+            "updated": 3,
+            "incomplete": 3
+          },
+          "tarapaca,_iquique": {
+            "total": 3,
+            "updated": 3,
+            "incomplete": 3
+          },
+          "arica_&_parinacota,_arica": {
+            "total": 2,
+            "updated": 2,
+            "incomplete": 2
+          },
+          "los_rios,_valdivia": {
+            "total": 1,
+            "updated": 1,
+            "incomplete": 1
+          },
+          "lo_barnechea": {
+            "total": 1,
+            "updated": 1
+          },
+          "providencia": {
+            "total": 39,
+            "updated": 20,
+            "inserted": 2,
+            "incomplete": 3,
+            "skipped": 17
+          },
+          "san_miguel": {
+            "total": 38,
+            "updated": 16,
+            "inserted": 4,
+            "incomplete": 3,
+            "skipped": 18
+          },
+          "antofagasta,_antofagasta": {
+            "total": 1,
+            "updated": 1,
+            "incomplete": 1
+          },
+          "santiago": {
+            "total": 39,
+            "updated": 18,
+            "incomplete": 3,
+            "inserted": 2,
+            "skipped": 19
+          },
+          "nunoa": {
+            "total": 28,
+            "updated": 15,
+            "incomplete": 1,
+            "inserted": 1,
+            "skipped": 12
+          },
+          "valparaiso,_quillota": {
+            "total": 1,
+            "updated": 1,
+            "incomplete": 1
+          },
+          "san_joaquin": {
+            "total": 2,
+            "updated": 1,
+            "skipped": 1
+          },
+          "antofagasta": {
+            "total": 1,
+            "updated": 1,
+            "incomplete": 1
+          },
+          "biobio,_concepcion": {
+            "total": 1,
+            "updated": 1,
+            "incomplete": 1
+          },
+          "penalolen": {
+            "total": 33,
+            "updated": 15,
+            "incomplete": 2,
+            "skipped": 18
+          },
+          "la_cisterna": {
+            "total": 2,
+            "updated": 1,
+            "skipped": 1
+          },
+          "macul": {
+            "total": 40,
+            "updated": 22,
+            "skipped": 18
+          },
+          "las_condes": {
+            "total": 40,
+            "updated": 20,
+            "incomplete": 2,
+            "inserted": 1,
+            "skipped": 19
+          },
+          "la_reina": {
+            "total": 39,
+            "updated": 20,
+            "incomplete": 4,
+            "skipped": 19
+          },
+          "la_florida": {
+            "total": 41,
+            "updated": 19,
+            "incomplete": 5,
+            "inserted": 1,
+            "skipped": 21
+          },
+          "vitacura": {
+            "total": 38,
+            "updated": 20,
+            "incomplete": 1,
+            "inserted": 1,
+            "skipped": 17
+          },
+          "renca": {
+            "total": 1,
+            "updated": 1
+          },
+          "maipu": {
+            "total": 41,
+            "updated": 20,
+            "incomplete": 1,
+            "skipped": 21
+          },
+          "recoleta": {
+            "total": 38,
+            "updated": 20,
+            "incomplete": 2,
+            "skipped": 18
+          },
+          "independencia": {
+            "total": 40,
+            "updated": 20,
+            "skipped": 20
+          },
+          "estacion_central": {
+            "total": 37,
+            "updated": 15,
+            "incomplete": 3,
+            "inserted": 2,
+            "skipped": 20
+          },
+          "el_bosque": {
+            "total": 1,
+            "skipped": 1
+          },
+          "san_ramon": {
+            "total": 1,
+            "skipped": 1
+          },
+          "puente_alto": {
+            "total": 1,
+            "skipped": 1
+          }
+        },
+        "by_property_type": {
+          "apartment": 288,
+          "house": 265
+        },
+        "by_geocode_precision": {
+          "address": 417,
+          "comuna": 132,
+          "comuna_centroid": 4
+        },
+        "geocode_precision_before": {
+          "comuna": 4054,
+          "unknown": 18,
+          "address": 1749,
+          "comuna_centroid": 71,
+          "street": 12
+        },
+        "geocode_precision_after": {
+          "address": 1756,
+          "comuna": 4061,
+          "comuna_centroid": 71,
+          "unknown": 18,
+          "street": 12
+        },
+        "active_before": {
+          "source": {
+            "portalinmobiliario": 1169,
+            "yapo": 4735
+          },
+          "comuna": {
+            "puente_alto": 113,
+            "la_reina": 391,
+            "penalolen": 380,
+            "santiago": 450,
+            "estacion_central": 507,
+            "macul": 409,
+            "lo_barnechea": 236,
+            "vitacura": 627,
+            "nunoa": 363,
+            "independencia": 338,
+            "recoleta": 261,
+            "maipu": 348,
+            "la_florida": 345,
+            "san_miguel": 304,
+            "las_condes": 441,
+            "san_ramon": 1,
+            "providencia": 359,
+            "el_bosque": 5,
+            "la_cisterna": 4,
+            "san_joaquin": 8,
+            "renca": 2,
+            "quilicura": 3,
+            "quinta_normal": 3,
+            "pudahuel": 1,
+            "la_granja": 1,
+            "cerrillos": 1,
+            "conchali": 2,
+            "colina": 1
+          },
+          "property_type": {
+            "house": 3345,
+            "apartment": 2559
+          },
+          "geocode_precision": {
+            "comuna": 4054,
+            "unknown": 18,
+            "address": 1749,
+            "comuna_centroid": 71,
+            "street": 12
+          }
+        },
+        "active_after": {
+          "source": {
+            "yapo": 4750,
+            "portalinmobiliario": 1168
+          },
+          "comuna": {
+            "estacion_central": 509,
+            "independencia": 338,
+            "recoleta": 261,
+            "maipu": 348,
+            "penalolen": 380,
+            "vitacura": 628,
+            "santiago": 452,
+            "la_florida": 346,
+            "san_miguel": 308,
+            "puente_alto": 113,
+            "macul": 409,
+            "la_reina": 391,
+            "las_condes": 442,
+            "san_ramon": 1,
+            "providencia": 361,
+            "el_bosque": 5,
+            "nunoa": 364,
+            "la_cisterna": 4,
+            "san_joaquin": 8,
+            "renca": 2,
+            "lo_barnechea": 236,
+            "quilicura": 3,
+            "quinta_normal": 3,
+            "pudahuel": 1,
+            "la_granja": 1,
+            "cerrillos": 1,
+            "conchali": 2,
+            "colina": 1
+          },
+          "property_type": {
+            "house": 3345,
+            "apartment": 2573
+          },
+          "geocode_precision": {
+            "address": 1756,
+            "comuna": 4061,
+            "comuna_centroid": 71,
+            "unknown": 18,
+            "street": 12
+          }
+        },
+        "geocode_precision_transitions": {
+          "unknown->address": 7,
+          "unknown->comuna": 7
+        },
+        "geocode_fallbacks": {
+          "comuna": 132,
+          "comuna_centroid": 4
+        },
+        "health_warnings": [],
+        "reason_counts": {
+          "same_day_new_apartments": 14,
+          "same_day_detail_requests": 14,
+          "same_day_detail_captured": 6,
+          "same_day_detail_rejected": 8,
+          "same_day_deferred_deadline": 0,
+          "blocked_or_captcha": 0,
+          "missing_m2": 31,
+          "unknown_comuna": 13,
+          "missing_price": 6,
+          "critical_invalid": 4,
+          "published_detail_requested": 0,
+          "published_detail_updated": 0,
+          "published_detail_rejected": 0
+        },
+        "unknown_comuna_samples": [
+          {
+            "source": "yapo",
+            "external_id": "32139280",
+            "title": "Departamento venta 2 dorm. 1 Ba\u00f1o box 1 Norte V del mar",
+            "location_text": "Valpara\u00edso, Vi\u00f1a del Mar",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Valpara\u00edso, Vi\u00f1a del Mar",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Departamento venta 2 dorm. 1 Ba\u00f1o box 1 Norte V del mar",
+                "normalized_text": "departamento venta 2 dorm 1 bano box 1 norte v del mar",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Valpara\u00edso, Vi\u00f1a del Mar",
+                "normalized_text": "valparaiso vina del mar",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Valpara\u00edso, Vi\u00f1a del Mar",
+                "normalized_text": "valparaiso vina del mar",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-venta-2-dorm-1-bano-box-1-norte-v-del-mar/32139280"
+          },
+          {
+            "source": "yapo",
+            "external_id": "31785022",
+            "title": "Condominio Terrazas",
+            "location_text": "Tarapac\u00e1, Iquique",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Tarapac\u00e1, Iquique",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Condominio Terrazas",
+                "normalized_text": "condominio terrazas",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Tarapac\u00e1, Iquique",
+                "normalized_text": "tarapaca iquique",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Tarapac\u00e1, Iquique",
+                "normalized_text": "tarapaca iquique",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/condominio-terrazas/31785022"
+          },
+          {
+            "source": "yapo",
+            "external_id": "33041845",
+            "title": "Edificio Mirador Playa Brava I",
+            "location_text": "Tarapac\u00e1, Iquique",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Tarapac\u00e1, Iquique",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Edificio Mirador Playa Brava I",
+                "normalized_text": "edificio mirador playa brava i",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Tarapac\u00e1, Iquique",
+                "normalized_text": "tarapaca iquique",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Tarapac\u00e1, Iquique",
+                "normalized_text": "tarapaca iquique",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/edificio-mirador-playa-brava-i/33041845"
+          },
+          {
+            "source": "yapo",
+            "external_id": "32988783",
+            "title": "Venta Departamento Condominio PORTAL DEL NORTE",
+            "location_text": "Arica & Parinacota, Arica",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Arica & Parinacota, Arica",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Venta Departamento Condominio PORTAL DEL NORTE",
+                "normalized_text": "venta departamento condominio portal del norte",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Arica & Parinacota, Arica",
+                "normalized_text": "arica parinacota arica",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Arica & Parinacota, Arica",
+                "normalized_text": "arica parinacota arica",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/venta-departamento-condominio-portal-del-norte/32988783"
+          },
+          {
+            "source": "yapo",
+            "external_id": "25914586",
+            "title": "Departamento en pleno centro de Valdivia. Rebajado",
+            "location_text": "Los R\u00edos, Valdivia",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Los R\u00edos, Valdivia",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Departamento en pleno centro de Valdivia. Rebajado",
+                "normalized_text": "departamento en pleno centro de valdivia rebajado",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Los R\u00edos, Valdivia",
+                "normalized_text": "los rios valdivia",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Los R\u00edos, Valdivia",
+                "normalized_text": "los rios valdivia",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-pleno-centro-de-valdivia-rebajado/25914586"
+          },
+          {
+            "source": "yapo",
+            "external_id": "33111035",
+            "title": "Departamento 1 Dormitorio + Estacionamiento y Bodega, Coraceros, Vi\u00f1a del Mar",
+            "location_text": "Valpara\u00edso, Vi\u00f1a del Mar",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Valpara\u00edso, Vi\u00f1a del Mar",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Departamento 1 Dormitorio + Estacionamiento y Bodega, Coraceros, Vi\u00f1a del Mar",
+                "normalized_text": "departamento 1 dormitorio estacionamiento y bodega coraceros vina del mar",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Valpara\u00edso, Vi\u00f1a del Mar",
+                "normalized_text": "valparaiso vina del mar",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Valpara\u00edso, Vi\u00f1a del Mar",
+                "normalized_text": "valparaiso vina del mar",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-1-dormitorio-estacionamiento-y-bodega-coraceros-vina-del-mar/33111035"
+          },
+          {
+            "source": "yapo",
+            "external_id": "32230217",
+            "title": "SE VENDE HERMOSO DEPARTAMENTO EN EL SECTOR NORTE DE LA CIUDAD PORTADA NORTE X",
+            "location_text": "Antofagasta, Antofagasta",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Antofagasta, Antofagasta",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "SE VENDE HERMOSO DEPARTAMENTO EN EL SECTOR NORTE DE LA CIUDAD PORTADA NORTE X",
+                "normalized_text": "se vende hermoso departamento en el sector norte de la ciudad portada norte x",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Antofagasta, Antofagasta",
+                "normalized_text": "antofagasta antofagasta",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Antofagasta, Antofagasta",
+                "normalized_text": "antofagasta antofagasta",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/se-vende-hermoso-departamento-en-el-sector-norte-de-la-ciudad-portada-norte-x/32230217"
+          },
+          {
+            "source": "yapo",
+            "external_id": "33037685",
+            "title": "Departamento en Venta Iquique 3D 2B con Vista al Mar \u2013 Altos de Huayquique",
+            "location_text": "Tarapac\u00e1, Iquique",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Tarapac\u00e1, Iquique",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Departamento en Venta Iquique 3D 2B con Vista al Mar \u2013 Altos de Huayquique",
+                "normalized_text": "departamento en venta iquique 3d 2b con vista al mar altos de huayquique",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Tarapac\u00e1, Iquique",
+                "normalized_text": "tarapaca iquique",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Tarapac\u00e1, Iquique",
+                "normalized_text": "tarapaca iquique",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-iquique-3d-2b-con-vista-al-mar-altos-de-huayquique/33037685"
+          },
+          {
+            "source": "yapo",
+            "external_id": "31244664",
+            "title": "DEPARTAMENTO NUEVO 2D2B QUILLOTA 2.980 UF",
+            "location_text": "Valpara\u00edso, Quillota",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Valpara\u00edso, Quillota",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "DEPARTAMENTO NUEVO 2D2B QUILLOTA 2.980 UF",
+                "normalized_text": "departamento nuevo 2d2b quillota 2 980 uf",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Valpara\u00edso, Quillota",
+                "normalized_text": "valparaiso quillota",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Valpara\u00edso, Quillota",
+                "normalized_text": "valparaiso quillota",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-nuevo-2d2b-quillota-2-980-uf/31244664"
+          },
+          {
+            "source": "yapo",
+            "external_id": "32980856",
+            "title": "Departamento en venta, norte de antofagasta",
+            "location_text": "Antofagasta",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Antofagasta",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Departamento en venta, norte de antofagasta",
+                "normalized_text": "departamento en venta norte de antofagasta",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Antofagasta",
+                "normalized_text": "antofagasta",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Antofagasta",
+                "normalized_text": "antofagasta",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-norte-de-antofagasta/32980856"
+          },
+          {
+            "source": "yapo",
+            "external_id": "32983814",
+            "title": "Departamento en venta 3 dormitorios en Concepci\u00f3n",
+            "location_text": "Biob\u00edo, Concepci\u00f3n",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Biob\u00edo, Concepci\u00f3n",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Departamento en venta 3 dormitorios en Concepci\u00f3n",
+                "normalized_text": "departamento en venta 3 dormitorios en concepcion",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Biob\u00edo, Concepci\u00f3n",
+                "normalized_text": "biobio concepcion",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Biob\u00edo, Concepci\u00f3n",
+                "normalized_text": "biobio concepcion",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-3-dormitorios-en-concepcion/32983814"
+          },
+          {
+            "source": "yapo",
+            "external_id": "32680906",
+            "title": "Departamento Condominio BRISAS DE AZAPA",
+            "location_text": "Arica & Parinacota, Arica",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Arica & Parinacota, Arica",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Departamento Condominio BRISAS DE AZAPA",
+                "normalized_text": "departamento condominio brisas de azapa",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Arica & Parinacota, Arica",
+                "normalized_text": "arica parinacota arica",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Arica & Parinacota, Arica",
+                "normalized_text": "arica parinacota arica",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-condominio-brisas-de-azapa/32680906"
+          },
+          {
+            "source": "yapo",
+            "external_id": "32974882",
+            "title": "Se vende departamento plan de Vi\u00f1a, sector Oriente",
+            "location_text": "Valpara\u00edso, Vi\u00f1a del Mar",
+            "address": null,
+            "description_snippet": null,
+            "comuna_raw": "Valpara\u00edso, Vi\u00f1a del Mar",
+            "extraction_attempts": [
+              {
+                "source": "title",
+                "text": "Se vende departamento plan de Vi\u00f1a, sector Oriente",
+                "normalized_text": "se vende departamento plan de vina sector oriente",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Valpara\u00edso, Vi\u00f1a del Mar",
+                "normalized_text": "valparaiso vina del mar",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              },
+              {
+                "source": "location",
+                "text": "Valpara\u00edso, Vi\u00f1a del Mar",
+                "normalized_text": "valparaiso vina del mar",
+                "match_strategy": null,
+                "match_value": null,
+                "normalized_result": null
+              }
+            ],
+            "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/se-vende-departamento-plan-de-vina-sector-oriente/32974882"
+          }
+        ]
+      },
+      "ledger": {
+        "successful": true,
+        "counters": {
+          "scraped": 563,
+          "inserted": 14,
+          "updated": 277,
+          "skipped": 262,
+          "discarded": 10,
+          "validation_errors": 10,
+          "unexpected_errors": 0,
+          "pending_uf": 0,
+          "pending_uf_reprocessed": 0,
+          "published_detail_requested": 0,
+          "published_detail_captured": 0,
+          "published_detail_rejected": 0,
+          "same_day_new_apartments": 14,
+          "same_day_detail_requests": 14,
+          "same_day_detail_captured": 6,
+          "same_day_detail_rejected": 8,
+          "same_day_deferred_deadline": 0,
+          "blocked_or_captcha": 0,
+          "fetch_errors": 0,
+          "raw_scraped": 580
+        },
+        "errors": []
+      },
+      "ledger_coherent": true,
+      "detail_diagnostics": [
+        {
+          "id": "32279897",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/dpto-n-412-1d-1b-mapocho-metro-santa-ana/32279897",
+          "payload_ids": [
+            "32279897",
+            "32464348",
+            "32266506",
+            "33016268",
+            "31831299",
+            "32280796",
+            "32836944",
+            "33135083",
+            "32281940",
+            "33129458",
+            "33129228",
+            "32421728",
+            "32648698",
+            "32279908",
+            "32266457",
+            "32279882",
+            "32279986",
+            "32280626",
+            "32193149"
+          ],
+          "matching_keys": [
+            "active",
+            "advertiserType",
+            "age",
+            "allowContactByForm",
+            "balcon",
+            "bathrooms",
+            "benefits",
+            "biUrl",
+            "biUrls",
+            "dateCreated",
+            "dateUpdated",
+            "description",
+            "exactAddress",
+            "featured",
+            "fieldset",
+            "firstName",
+            "floor",
+            "floorType",
+            "funding",
+            "furnished",
+            "hallmark",
+            "hideMapMarker",
+            "id",
+            "images",
+            "known",
+            "lastName",
+            "link",
+            "location",
+            "lotSize",
+            "mainCategory",
+            "maintenanceCost",
+            "parking",
+            "pdfPlan",
+            "petFriendly",
+            "price",
+            "pricePerM2Square",
+            "pricePerM2Total",
+            "price_discount",
+            "price_symbol",
+            "price_value",
+            "primaryCta",
+            "principalImage",
+            "principalVideo",
+            "projectModels",
+            "projectStatus",
+            "propertyPrice",
+            "publishSelectors",
+            "regionName",
+            "rent",
+            "reposted",
+            "repostedUntil",
+            "roomHeight",
+            "rooms",
+            "showCall",
+            "showWhatsapp",
+            "square",
+            "status",
+            "stories",
+            "subCategoryType",
+            "swimmingPool",
+            "title",
+            "units",
+            "user",
+            "vertical",
+            "youtubeVideo"
+          ],
+          "title": "DPTO N\u00b0 412, 1D+1B, MAPOCHO, METRO SANTA ANA | 1 dormitorios por 1500.00 en Santiago",
+          "html_bytes": 558918
+        },
+        {
+          "id": "32067690",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/oportunidad-de-inversion-departamentos-en-venta-2d-1b-adicional-1e-1b-santiago/32067690",
+          "payload_ids": [
+            "32067690",
+            "32857649",
+            "32279908",
+            "32355029",
+            "32377489",
+            "33000809",
+            "32995764",
+            "32117636",
+            "31321806",
+            "33135736",
+            "33134176",
+            "33133816",
+            "32479266",
+            "32228295",
+            "32792431",
+            "32705656",
+            "32055235",
+            "32245769",
+            "32519142",
+            "32091663",
+            "30916918",
+            "31388594"
+          ],
+          "matching_keys": [
+            "active",
+            "advertiserType",
+            "age",
+            "allowContactByForm",
+            "balcon",
+            "bathrooms",
+            "benefits",
+            "biUrl",
+            "biUrls",
+            "dateCreated",
+            "dateUpdated",
+            "description",
+            "exactAddress",
+            "featured",
+            "fieldset",
+            "firstName",
+            "floor",
+            "floorType",
+            "funding",
+            "furnished",
+            "hallmark",
+            "hideMapMarker",
+            "id",
+            "images",
+            "known",
+            "lastName",
+            "link",
+            "location",
+            "lotSize",
+            "mainCategory",
+            "maintenanceCost",
+            "parking",
+            "pdfPlan",
+            "petFriendly",
+            "price",
+            "pricePerM2Square",
+            "pricePerM2Total",
+            "price_discount",
+            "price_symbol",
+            "price_value",
+            "primaryCta",
+            "principalImage",
+            "principalVideo",
+            "projectModels",
+            "projectStatus",
+            "propertyPrice",
+            "publishSelectors",
+            "regionName",
+            "rent",
+            "reposted",
+            "repostedUntil",
+            "roomHeight",
+            "rooms",
+            "showCall",
+            "showWhatsapp",
+            "square",
+            "status",
+            "stories",
+            "subCategoryType",
+            "swimmingPool",
+            "title",
+            "units",
+            "user",
+            "vertical",
+            "youtubeVideo"
+          ],
+          "title": "Oportunidad de Inversi\u00f3n Departamentos en Venta 2D 1B + Adicional 1E 1B, Santiago | 2 dormitorios por 2320.00 en Santiago",
+          "html_bytes": 600701
+        },
+        {
+          "id": "32464028",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-impecable-4d-3b-con-2-terrazas-y-gran-ubicacion/32464028",
+          "payload_ids": [],
+          "matching_keys": [],
+          "title": "Departamento impecable 4D 3B con 2 terrazas y gran ubicacion | 4 dormitorios por 8260.00 en \u00d1u\u00f1oa",
+          "html_bytes": 598850
+        },
+        {
+          "id": "32464135",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-2-dorm-en-providencia/32464135",
+          "payload_ids": [],
+          "matching_keys": [],
+          "title": "Departamento en venta de 2 dorm. en Providencia | 2 dormitorios por 7800.00 en Providencia",
+          "html_bytes": 594212
+        },
+        {
+          "id": "32827971",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/dpto-con-antejardin-exclusivo-y-estac-en-pq-ines-de-suarez/32827971",
+          "payload_ids": [
+            "32827971",
+            "32394020",
+            "31811789",
+            "32334105",
+            "32279796",
+            "32464135",
+            "32683924",
+            "33031033",
+            "31091303",
+            "33108993",
+            "33108843",
+            "33106913",
+            "33097573",
+            "33114697",
+            "33121304",
+            "33121318",
+            "33126144",
+            "33130761",
+            "33135118",
+            "33086355",
+            "33086422"
+          ],
+          "matching_keys": [
+            "active",
+            "advertiserType",
+            "age",
+            "allowContactByForm",
+            "balcon",
+            "bathrooms",
+            "benefits",
+            "biUrl",
+            "biUrls",
+            "dateCreated",
+            "dateUpdated",
+            "description",
+            "exactAddress",
+            "featured",
+            "fieldset",
+            "firstName",
+            "floor",
+            "floorType",
+            "funding",
+            "furnished",
+            "hallmark",
+            "hideMapMarker",
+            "id",
+            "images",
+            "known",
+            "lastName",
+            "link",
+            "location",
+            "lotSize",
+            "mainCategory",
+            "maintenanceCost",
+            "parking",
+            "pdfPlan",
+            "petFriendly",
+            "price",
+            "pricePerM2Square",
+            "pricePerM2Total",
+            "price_discount",
+            "price_symbol",
+            "price_value",
+            "primaryCta",
+            "principalImage",
+            "principalVideo",
+            "projectModels",
+            "projectStatus",
+            "propertyPrice",
+            "publishSelectors",
+            "regionName",
+            "rent",
+            "reposted",
+            "repostedUntil",
+            "roomHeight",
+            "rooms",
+            "showCall",
+            "showWhatsapp",
+            "square",
+            "status",
+            "stories",
+            "subCategoryType",
+            "swimmingPool",
+            "title",
+            "units",
+            "user",
+            "vertical",
+            "youtubeVideo"
+          ],
+          "title": "DPTO CON ANTEJARD\u00cdN EXCLUSIVO Y ESTAC EN PQ IN\u00c9S DE SU\u00c1REZ | 4 dormitorios por 230000000.00 en Providencia",
+          "html_bytes": 586777
+        },
+        {
+          "id": "33053724",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-neveria-las-condes-184217/33053724",
+          "payload_ids": [],
+          "matching_keys": [],
+          "title": "Departamento Neveria - Las Condes (184217) | 3 dormitorios por 9800.00 en Las Condes",
+          "html_bytes": 581270
+        },
+        {
+          "id": "32705419",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-3d-2b-en-av-la-marina-san-miguel/32705419",
+          "payload_ids": [],
+          "matching_keys": [],
+          "title": "Departamento en venta de 3D/2B en Av La Marina San Miguel | 3 dormitorios por 4200.00 en San Miguel",
+          "html_bytes": 596715
+        },
+        {
+          "id": "32723439",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-2-dorm-en-san-miguel/32723439",
+          "payload_ids": [],
+          "matching_keys": [],
+          "title": "Departamento en venta de 2 dorm. en San Miguel | 2 dormitorios por 2300.00 en San Miguel",
+          "html_bytes": 590623
+        },
+        {
+          "id": "32091663",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/venta-san-miguel-20-m2-oriente-depto-rebajado/32091663",
+          "payload_ids": [
+            "32091663",
+            "31862058",
+            "32227707",
+            "31377248",
+            "33056658",
+            "32770698",
+            "32544488",
+            "32234408",
+            "32207638",
+            "32180898",
+            "32158178",
+            "32011328",
+            "28202308",
+            "32228295",
+            "32792431",
+            "32705656",
+            "32055235",
+            "32245769",
+            "32067690",
+            "32519142",
+            "30916918",
+            "31388594"
+          ],
+          "matching_keys": [
+            "active",
+            "advertiserType",
+            "age",
+            "allowContactByForm",
+            "balcon",
+            "bathrooms",
+            "benefits",
+            "biUrl",
+            "biUrls",
+            "dateCreated",
+            "dateUpdated",
+            "description",
+            "exactAddress",
+            "featured",
+            "fieldset",
+            "firstName",
+            "floor",
+            "floorType",
+            "funding",
+            "furnished",
+            "hallmark",
+            "hideMapMarker",
+            "id",
+            "images",
+            "known",
+            "lastName",
+            "link",
+            "location",
+            "lotSize",
+            "mainCategory",
+            "maintenanceCost",
+            "parking",
+            "pdfPlan",
+            "petFriendly",
+            "price",
+            "pricePerM2Square",
+            "pricePerM2Total",
+            "price_discount",
+            "price_symbol",
+            "price_value",
+            "primaryCta",
+            "principalImage",
+            "principalVideo",
+            "projectModels",
+            "projectStatus",
+            "propertyPrice",
+            "publishSelectors",
+            "regionName",
+            "rent",
+            "reposted",
+            "repostedUntil",
+            "roomHeight",
+            "rooms",
+            "showCall",
+            "showWhatsapp",
+            "square",
+            "status",
+            "stories",
+            "subCategoryType",
+            "swimmingPool",
+            "title",
+            "units",
+            "user",
+            "vertical",
+            "youtubeVideo"
+          ],
+          "title": "VENTA | SAN MIGUEL | 20 M2 | ORIENTE | DEPTO REBAJADO | 1 dormitorios por 1390.00 en San Miguel",
+          "html_bytes": 590108
+        },
+        {
+          "id": "32463760",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-3-dorm-2-banos-en-san-miguel/32463760",
+          "payload_ids": [],
+          "matching_keys": [],
+          "title": "Departamento en venta de 3 dorm. 2 ba\u00f1os en San Miguel | 3 dormitorios por 3850.00 en San Miguel",
+          "html_bytes": 600730
+        },
+        {
+          "id": "33042394",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-2d-2b-estc-bod-la-florida/33042394",
+          "payload_ids": [],
+          "matching_keys": [],
+          "title": "Departamento en venta de 2D-2B-ESTC-BOD. La Florida | 2 dormitorios por 3330.00 en La Florida",
+          "html_bytes": 579254
+        },
+        {
+          "id": "32973942",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/exclusivo-y-amplio-a-pasos-de-a-de-cordoba-182194/32973942",
+          "payload_ids": [
+            "32973942",
+            "33094489",
+            "32999869",
+            "32901489",
+            "32870459",
+            "32808529",
+            "32716279",
+            "32676349",
+            "32634959",
+            "32632249",
+            "32568749",
+            "32506819",
+            "32420699",
+            "32297441",
+            "32814243",
+            "32632972",
+            "32900940",
+            "33089767",
+            "32666624",
+            "31237531",
+            "32119867",
+            "32716305",
+            "33092750"
+          ],
+          "matching_keys": [
+            "active",
+            "advertiserType",
+            "age",
+            "allowContactByForm",
+            "balcon",
+            "bathrooms",
+            "benefits",
+            "biUrl",
+            "biUrls",
+            "dateCreated",
+            "dateUpdated",
+            "description",
+            "exactAddress",
+            "featured",
+            "fieldset",
+            "firstName",
+            "floor",
+            "floorType",
+            "funding",
+            "furnished",
+            "hallmark",
+            "hideMapMarker",
+            "id",
+            "images",
+            "known",
+            "lastName",
+            "link",
+            "location",
+            "lotSize",
+            "mainCategory",
+            "maintenanceCost",
+            "parking",
+            "pdfPlan",
+            "petFriendly",
+            "price",
+            "pricePerM2Square",
+            "pricePerM2Total",
+            "price_discount",
+            "price_symbol",
+            "price_value",
+            "primaryCta",
+            "principalImage",
+            "principalVideo",
+            "projectModels",
+            "projectStatus",
+            "propertyPrice",
+            "publishSelectors",
+            "regionName",
+            "rent",
+            "reposted",
+            "repostedUntil",
+            "roomHeight",
+            "rooms",
+            "showCall",
+            "showWhatsapp",
+            "square",
+            "status",
+            "stories",
+            "subCategoryType",
+            "swimmingPool",
+            "title",
+            "units",
+            "user",
+            "vertical",
+            "youtubeVideo"
+          ],
+          "title": "Exclusivo y amplio a pasos de A. de C\u00f3rdoba (182194) | 4 dormitorios por 18490.00 en Vitacura",
+          "html_bytes": 584839
+        },
+        {
+          "id": "32205147",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-venta-de-2-dorm-en-estacion-central/32205147",
+          "payload_ids": [],
+          "matching_keys": [],
+          "title": "Departamento en venta de 2 dorm. en Estaci\u00f3n Central | 2 dormitorios por 130000000.00 en Estaci\u00f3n Central",
+          "html_bytes": 591337
+        },
+        {
+          "id": "32889358",
+          "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-avenida-ecuador/32889358",
+          "payload_ids": [
+            "32889358",
+            "25883484",
+            "32977062",
+            "32705248",
+            "33092764",
+            "32877974",
+            "31748895",
+            "33122834",
+            "33024874",
+            "30513657",
+            "29427087",
+            "31599407",
+            "28701767",
+            "30993955",
+            "32540580",
+            "31303420",
+            "31303422",
+            "31798414",
+            "31613054",
+            "31489401",
+            "32479266",
+            "31613387",
+            "31613388"
+          ],
+          "matching_keys": [
+            "active",
+            "advertiserType",
+            "age",
+            "allowContactByForm",
+            "balcon",
+            "bathrooms",
+            "benefits",
+            "biUrl",
+            "biUrls",
+            "dateCreated",
+            "dateUpdated",
+            "description",
+            "exactAddress",
+            "featured",
+            "fieldset",
+            "firstName",
+            "floor",
+            "floorType",
+            "funding",
+            "furnished",
+            "hallmark",
+            "hideMapMarker",
+            "id",
+            "images",
+            "known",
+            "lastName",
+            "link",
+            "location",
+            "lotSize",
+            "mainCategory",
+            "maintenanceCost",
+            "parking",
+            "pdfPlan",
+            "petFriendly",
+            "price",
+            "pricePerM2Square",
+            "pricePerM2Total",
+            "price_discount",
+            "price_symbol",
+            "price_value",
+            "primaryCta",
+            "principalImage",
+            "principalVideo",
+            "projectModels",
+            "projectStatus",
+            "propertyPrice",
+            "publishSelectors",
+            "regionName",
+            "rent",
+            "reposted",
+            "repostedUntil",
+            "roomHeight",
+            "rooms",
+            "showCall",
+            "showWhatsapp",
+            "square",
+            "status",
+            "stories",
+            "subCategoryType",
+            "swimmingPool",
+            "title",
+            "units",
+            "user",
+            "vertical",
+            "youtubeVideo"
+          ],
+          "title": "Departamento en Avenida Ecuador | 1 dormitorios por 1290.00 en Estaci\u00f3n Central",
+          "html_bytes": 549756
+        }
+      ]
+    }
+  ],
+  "production_writes": 0,
+  "candidate_loaded_in_memory": true,
+  "isolated_database": "SQLite in RAM",
+  "withheld_for_new_admission_test": {
+    "yapo": 145,
+    "portalinmobiliario": 38
+  },
+  "snapshot_uf": "41168.03",
+  "passed": false
+}

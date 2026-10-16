@@ -29,11 +29,12 @@
   ],
   "candidate_file_sha256": {
     "infrastructure/scrapers/discovery_fields.py": "e1c310d78b83f88a7dac69dbe33717eaaca1797503c67402814894bb79936491",
-    "workers/discovery_admission.py": "f50f380bad94ba35c924a687ebfe57f0053f90f6fd5da0f1e43bcfdfcbe34016",
+    "workers/discovery_admission.py": "399f22061595e2f2af4bb2453f71e24fb1de48c515724967d44793cea041544a",
     "infrastructure/scrapers/portalinmobiliario.py": "45f011d4b99f10639a5f9cdc47a09d989eb71e8efaabeb28cdb1f2b1a90177e0",
     "workers/portal_geo_enrichment.py": "2968f10ce7b873e600af71a34edb392ecb1ad42549d32563b531b4478950ee64",
     "services/ingestion_state.py": "32b3103dbeb3ea52a72482f48e9d21e60604acb492cd6ad14c84a97f3fbbf0b6",
     "workers/scraper_job.py": "757a0583b3704082349c5282c68effff0520887126dbd01b16ba6ee07010253e",
-    "scripts/portal_card_first.py": "34fa310765cfc6eda93af9e0b2aa17b1eb92ffcb65ecfc7bf6b26a375cd15c9b"
+    "scripts/portal_card_first.py": "34fa310765cfc6eda93af9e0b2aa17b1eb92ffcb65ecfc7bf6b26a375cd15c9b",
+    "infrastructure/scrapers/yapo_modern.py": "3345fcdd89e71f72254abb8cdaa5eeeca9d3caea198be65a148bbd6a936b8d63"
   }
 }

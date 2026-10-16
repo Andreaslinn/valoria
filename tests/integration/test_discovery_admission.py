@@ -157,11 +157,13 @@ async def test_large_admission_batch_keeps_only_four_html_responses(engine):
 
 
 @pytest.mark.asyncio
-async def test_yapo_job_initializes_plain_dict_admission_counters(engine):
+@pytest.mark.parametrize('currency', ['UF', '$', None])
+async def test_yapo_job_initializes_plain_dict_admission_counters(engine, currency):
     from workers.scraper_job import run_scraper_job
     factory=async_sessionmaker(engine,expire_on_commit=False)
     raw={'source':'yapo','external_id':'100','title':'Departamento Santiago','url':'https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/depto/100','comuna':'Santiago','property_type':'apartment','m2':37,'price_clp':100000000,'bedrooms':1,'bathrooms':1,'parking':0,'scraped_at':datetime.now(UTC),'raw_metadata':{}}
     item={'id':'100','link':raw['url'],'title':'Departamento','active':True,'rent':False,'square':'37','lotSize':'40','floor':'19','age':'2008','exactAddress':'Calle A 123','location':{'lat':0,'lon':0,'locality':'Santiago'},'price':{'amount':{'value':'2000'},'currency':{'symbol':'UF'}}}
+    item['price']['currency']['symbol'] = currency
     record='1:'+json.dumps({'item':item})+'\n'
     body='<script>self.__next_f.push('+json.dumps([1,record])+')</script>'
     class Scraper:
@@ -172,3 +174,8 @@ async def test_yapo_job_initializes_plain_dict_admission_counters(engine):
         stats=await run_scraper_job(scraper,factory,enrich_admissions=True)
     assert stats.reason_counts['same_day_new_apartments']==1
     assert stats.reason_counts['same_day_detail_captured']==1
+    async with factory() as session:
+        row = await session.scalar(select(ListingORM))
+        assert row.price_clp == 100000000 and row.m2 == 37
+        assert row.raw_metadata['published_fields']['constructed_area_m2'] == 37
+        assert row.raw_metadata['published_fields']['floor'] == 19
