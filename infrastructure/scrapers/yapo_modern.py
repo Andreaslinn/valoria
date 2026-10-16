@@ -155,6 +155,11 @@ def adapt_item(item, *, scraped_at, uf_to_clp):
     if lat is not None:
         metadata["location_source"] = "yapo_search_payload"
     from infrastructure.scrapers.published_fields import yapo_fields
+    description = item.get('description')
+    reference = re.search(r'\bID\s+HOUM\s*:\s*(\d+)\b', description, re.I) if isinstance(description, str) else None
+    if reference:
+        metadata['source_property_reference'] = {'namespace': 'houm', 'value': reference[1],
+            'origin': 'yapo.payload.description'}
     metadata["published_fields"] = yapo_fields(item, stage="card")
     if price_uf is not None:
         metadata["price_uf"] = price_uf

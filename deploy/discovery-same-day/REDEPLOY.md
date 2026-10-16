@@ -8,6 +8,19 @@ en los datos de tarjeta, pero el fingerprint no prueba por sí solo que sean
 el mismo departamento. Al no existir una ficha canónica completa, la omisión
 no puede contarse como éxito, cualquiera sea la identidad física.
 
+El contraste posterior del historial nativo encontró referencias de propiedad
+HOUM **176619** (32982982) y **176620** (32747182), descripciones diferentes y
+ninguna foto con el mismo token entre ambos conjuntos. No se acepta la
+igualdad de un título genérico y 84 m² como prueba de duplicidad. El fingerprint
+de ingesta incorpora ahora la referencia HOUM explícita, con procedencia del
+payload, para impedir la colisión entre referencias distintas. Referencias
+iguales siguen pudiendo deduplicarse. No se cambia el motor de tasación.
+
+La elegibilidad de discovery utiliza el detector de comuna ya empleado por
+la ingesta: la ficha real dice «Región Metropolitana, Providencia», no solo
+«Providencia». La regresión reproduce esa entrada nativa; normalizar únicamente
+espacios/acentos antes del upsert no reconocía la comuna.
+
 Yapo decide si el ID de publicación existe **antes** del upsert. Una identidad
 nueva recibe detalle incluso si el upsert la clasifica como actualización de
 una fila canónica. Los aliases incompletos de una identidad ya conocida se

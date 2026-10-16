@@ -189,7 +189,7 @@ async def test_yapo_pocuro_32747182_deduplicated_without_detail_is_captured(engi
     factory = async_sessionmaker(engine, expire_on_commit=False)
     raw = {'source':'yapo','external_id':'32747182','title':'Departamento en Avenida Pocuro',
            'url':'https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-avenida-pocuro/32747182',
-           'comuna':'Providencia','property_type':'apartment','m2':84,'price_clp':200000000,
+           'comuna':'Región Metropolitana, Providencia','property_type':'apartment','m2':84,'price_clp':200000000,
            'bedrooms':2,'bathrooms':2,'parking':1,'lat':-33.435883,'lon':-70.60571,
            'scraped_at':datetime.now(UTC),'raw_metadata':{}}
     old = dict(raw, external_id=stored_id, url=raw['url'].replace('32747182', stored_id))

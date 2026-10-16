@@ -32,6 +32,13 @@ def make_fingerprint(cleaned: CleanedListing) -> str:
         str(cleaned.parking),
         _title_key(cleaned.title),
     )
+    reference = cleaned.raw_metadata.get('source_property_reference') or {}
+    if (isinstance(reference, dict) and cleaned.source == 'yapo' and reference.get('namespace') == 'houm'
+            and reference.get('origin') == 'yapo.payload.description'
+            and re.fullmatch(r'\d+', str(reference.get('value', '')))):
+        # Different explicit broker property references must not collide just
+        # because generic titles, rounded areas and room counts are equal.
+        parts += ('yapo:houm:' + str(reference['value']),)
     payload = "|".join(parts).encode("utf-8")
     return hashlib.sha1(payload).hexdigest()
 

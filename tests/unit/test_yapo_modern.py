@@ -182,6 +182,23 @@ def test_flight_length_delimited_text_does_not_swallow_next_payload(text):
     assert payload_items(BeautifulSoup(body, 'lxml'))[0]['id'] == '32919337'
 
 
+def test_pocuro_distinct_houm_references_do_not_share_fingerprint():
+    from domain.ingestion.deduplication import make_fingerprint
+    items=[]
+    for identity, reference in [('32982982','176619'), ('32747182','176620')]:
+        value=source_item()
+        value.update(id=identity, title='Departamento en Avenida Pocuro', square='84', lotSize='84',
+            rooms='2', bathrooms='2', parking='0', description='[VEN] ID HOUM: '+reference,
+            link='/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-avenida-pocuro/'+identity,
+            location={'locality':'Región Metropolitana, Providencia','lat':-33.435883,'lon':-70.60571})
+        items.append(value)
+    rows=parse(page(items))
+    assert [v['raw_metadata']['source_property_reference']['value'] for v in rows]==['176619','176620']
+    assert make_fingerprint(clean_listing(rows[0])) != make_fingerprint(clean_listing(rows[1]))
+    same=copy.deepcopy(rows[0]);same['external_id']='99999999';same['url']=same['url'].replace('32982982','99999999')
+    assert make_fingerprint(clean_listing(rows[0])) == make_fingerprint(clean_listing(same))
+
+
 @pytest.mark.asyncio
 async def test_modern_coordinates_and_metadata_persist_in_existing_columns(session):
     from domain.ingestion.pipeline import process_listing
