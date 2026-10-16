@@ -1,0 +1,17 @@
+﻿source,id,stage,address_raw,street,address_number,address_range,address_type,apartment_number,address_description_raw
+yapo,32286254,before,"DPTO N° 1815, 2D+1B+EST+BOD, CALLE ZENTENO, SANTIAGO CENTRO",DPTO N°,1815,,exact,,Franklin
+yapo,32286254,after,"DPTO N° 1815, 2D+1B+EST+BOD, CALLE ZENTENO, SANTIAGO CENTRO",CALLE ZENTENO,,,no_number,1815,Franklin
+yapo,32792431,before,Departamento en VENTA de 1D 1B y Bodega  con Excelente Vista en Macul,Departamento en VENTA de 1D 1B y Bodega,,,intersection,,
+yapo,32792431,after,Departamento en VENTA de 1D 1B y Bodega  con Excelente Vista en Macul,,,,no_number,,
+yapo,31985494,before,DEPARTAMENTO EN LORD COCHRANE 635,DEPARTAMENTO EN LORD COCHRANE,635,,exact,,
+yapo,31985494,after,DEPARTAMENTO EN LORD COCHRANE 635,LORD COCHRANE,635,,exact,,
+yapo,32266506,before,"DPTO N° 1401, HOME STUDIO, METRO IRRAZABAL",DPTO N°,1401,,exact,,Santa Isabel/Av
+yapo,32266506,after,"DPTO N° 1401, HOME STUDIO, METRO IRRAZABAL",Santa Isabel,,,intersection,1401,Santa Isabel/Av. Matta
+portalinmobiliario,1939531495,before,"Calle Dos N° 33 Esquina Vicuña Makenna, La Florida",Calle Dos N° 33,,,intersection,,
+portalinmobiliario,1939531495,after,"Calle Dos N° 33 Esquina Vicuña Makenna, La Florida",Calle Dos 33,,,intersection,,
+portalinmobiliario,4563754608,before,"Real Oportunidad!!  Av. Ecuador, 4707",Real Oportunidad!!  Av. Ecuador,4707,,exact,,
+portalinmobiliario,4563754608,after,"Real Oportunidad!!  Av. Ecuador, 4707",Av. Ecuador,4707,,exact,,
+portalinmobiliario,4061330986,before,Calle Ecuador N°5079 Dp 2307,Calle Ecuador N°5079 Dp,2307,,exact,,
+portalinmobiliario,4061330986,after,Calle Ecuador N°5079 Dp 2307,Calle Ecuador,5079,,exact,2307,
+portalinmobiliario,4574302758,before,Jose Joaquin Vallejos- San Ignacio De Loyola,SECTOR EL LLANO calle José Joaquín Vallejos a paso de CENCO MALL EL LLANO,,,intersection,,SECTOR EL LLANO calle José Joaquín Vallejos a paso de CENCO MALL EL LLANO con fácil acceso a locales
+portalinmobiliario,4574302758,after,Jose Joaquin Vallejos- San Ignacio De Loyola,,,,no_number,,

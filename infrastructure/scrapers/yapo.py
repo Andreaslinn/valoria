@@ -536,6 +536,8 @@ def parse_listing_detail(
             continue
         parsed = adapt_item(item, scraped_at=datetime.now(UTC), uf_to_clp=uf_to_clp)
         if parsed:
+            from infrastructure.scrapers.published_fields import yapo_fields
+            parsed["raw_metadata"]["published_fields"] = yapo_fields(item, soup)
             parsed["raw_metadata"]["parser_source"] = "yapo_detail_payload"
             if parsed["lat"] is not None:
                 parsed["raw_metadata"]["location_source"] = "yapo_detail_payload"

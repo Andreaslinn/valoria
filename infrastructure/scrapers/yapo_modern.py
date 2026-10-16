@@ -134,6 +134,8 @@ def adapt_item(item, *, scraped_at, uf_to_clp):
                 "area_source": "yapo_payload.square", "source_total_area_m2": float(lot) if lot else None}
     if lat is not None:
         metadata["location_source"] = "yapo_search_payload"
+    from infrastructure.scrapers.published_fields import yapo_fields
+    metadata["published_fields"] = yapo_fields(item, stage="card")
     if price_uf is not None:
         metadata["price_uf"] = price_uf
         if not uf_to_clp:

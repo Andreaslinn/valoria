@@ -178,6 +178,8 @@ def clean_listing(raw: dict[str, Any], *, allow_incomplete: bool = False) -> Cle
 
     warnings: list[str] = []
     raw_metadata = dict(raw.get("raw_metadata", {}))
+    from domain.ingestion.published_fields import area_kind
+    raw_metadata["valuation_m2_kind"] = area_kind(raw)
     raw_metadata = enrich_raw_metadata_with_microzones(raw_metadata, title=title)
 
     detection = detect_comuna(raw, title=title)
@@ -284,6 +286,18 @@ def clean_listing(raw: dict[str, Any], *, allow_incomplete: bool = False) -> Cle
             raise ValidationError(f"m2 fuera de rango [{MIN_M2}, {MAX_M2}]: {m2}")
         m2 = None
         warnings.append("missing_m2")
+
+    published = raw_metadata.get("published_fields")
+    if isinstance(published, dict) and published.get("version") == 1:
+        # Keep the generic compatibility m2 above; explicit physical columns
+        # must describe what was published, never a copy of that generic value.
+        built_area_m2 = published.get("constructed_area_m2")
+        usable_area_m2 = published.get("useful_area_m2")
+        for key, native in (("built_area_m2", "constructed_area_m2"), ("usable_area_m2", "useful_area_m2")):
+            area_sources.pop(key, None)
+            origin = (published.get("provenance") or {}).get(native)
+            if origin:
+                area_sources[key] = origin
 
     bedrooms = _parse_int(
         raw.get("bedrooms", 0 if allow_incomplete else None),
@@ -1071,6 +1085,8 @@ def _parse_coords(lat: Any, lon: Any) -> Coordinates | None:
     if lat is None or lon is None:
         return None
     try:
+        if float(lat) == 0 and float(lon) == 0:
+            return None
         return Coordinates(lat=float(lat), lon=float(lon))
     except (TypeError, ValueError) as e:
         raise ValidationError(f"Coordenadas invalidas: lat={lat!r}, lon={lon!r}") from e

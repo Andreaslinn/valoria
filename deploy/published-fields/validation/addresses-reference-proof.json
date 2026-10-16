@@ -1,0 +1,30 @@
+{
+  "passed": true,
+  "execution": "local SQLite replay of saved snapshot; no production connection",
+  "uf": "41162.73",
+  "listings": 2699,
+  "before": [
+    {
+      "comuna": "santiago",
+      "estimated_uf": 3247.66,
+      "comparables_sha256": "22b1a33452ab4aa6a64951cbcdbc54dd24b6d4ba15ac548f56ced9e7229b94ff"
+    },
+    {
+      "comuna": "la_florida",
+      "estimated_uf": 3854.09,
+      "comparables_sha256": "76a5d259c9df6b020ead3367a7446993d951f8623787e155f8380a4ab8b63db4"
+    }
+  ],
+  "after": [
+    {
+      "comuna": "santiago",
+      "estimated_uf": 3247.66,
+      "comparables_sha256": "22b1a33452ab4aa6a64951cbcdbc54dd24b6d4ba15ac548f56ced9e7229b94ff"
+    },
+    {
+      "comuna": "la_florida",
+      "estimated_uf": 3854.09,
+      "comparables_sha256": "76a5d259c9df6b020ead3367a7446993d951f8623787e155f8380a4ab8b63db4"
+    }
+  ]
+}

@@ -1,0 +1,1156 @@
+[
+  {
+    "source": "yapo",
+    "id": "33000977",
+    "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/2d-estar-terraza-y-estacionamiento-en-providencia/33000977",
+    "inputs": {
+      "item": {
+        "id": "33000977",
+        "square": "109",
+        "lotSize": "120",
+        "usableArea": null,
+        "age": "2003",
+        "floor": "4",
+        "location": {
+          "address": "#f_location#",
+          "locality": "Región Metropolitana, Providencia",
+          "city": "",
+          "lat": -33.4391162,
+          "lon": -70.6036636,
+          "zoom": 14
+        },
+        "exactAddress": "Providencia, Santiago, Metropolitana De Santiago",
+        "description": "109 m² útiles. Ubicación Premium: Calle Ricardo Lyon, entre Bustos y Av. Francisco de Bilbao"
+      }
+    },
+    "expected": {
+      "useful_area_m2": 109,
+      "total_area_m2": 120,
+      "constructed_area_m2": 109,
+      "floor": 4,
+      "construction_year": 2003,
+      "construction_year_description": null,
+      "construction_year_conflict": false,
+      "latitude": -33.4391162,
+      "longitude": -70.6036636,
+      "apartment_number": null,
+      "coordinates_precision": "unknown"
+    }
+  },
+  {
+    "source": "yapo",
+    "id": "33014082",
+    "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/depto-1-dormitorio-con-bodega-en-irarrazaval-nunoa-a-pasos-del-metro/33014082",
+    "inputs": {
+      "item": {
+        "id": "33014082",
+        "square": "37",
+        "lotSize": "37",
+        "usableArea": null,
+        "age": "2008",
+        "floor": "19",
+        "location": {
+          "address": "#f_location#",
+          "locality": "Región Metropolitana, Ñuñoa",
+          "city": "",
+          "lat": 0,
+          "lon": 0,
+          "zoom": 0
+        },
+        "exactAddress": "Irarrazaval 5091",
+        "description": ""
+      }
+    },
+    "expected": {
+      "useful_area_m2": null,
+      "total_area_m2": 37,
+      "constructed_area_m2": 37,
+      "floor": 19,
+      "construction_year": 2008,
+      "construction_year_description": null,
+      "construction_year_conflict": false,
+      "latitude": null,
+      "longitude": null,
+      "apartment_number": null,
+      "coordinates_precision": null
+    }
+  },
+  {
+    "source": "yapo",
+    "id": "33003203",
+    "url": "https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/departamento-en-avenida-vicuna-mackenna/33003203",
+    "inputs": {
+      "item": {
+        "id": "33003203",
+        "square": "77",
+        "lotSize": "77",
+        "usableArea": null,
+        "age": "2026",
+        "floor": null,
+        "location": {
+          "address": "Av del valle 787, Piso 2 oficinas 202 y 203, Ciudad Empresarial, Huechuraba.",
+          "locality": "Región Metropolitana, La Florida",
+          "city": "",
+          "lat": -33.5253705,
+          "lon": -70.5985391,
+          "zoom": 14
+        },
+        "exactAddress": "Avenida Vicuña Mackenna",
+        "description": "Año de construcción: 2012"
+      }
+    },
+    "expected": {
+      "useful_area_m2": null,
+      "total_area_m2": 77,
+      "constructed_area_m2": 77,
+      "floor": null,
+      "construction_year": 2026,
+      "construction_year_description": 2012,
+      "construction_year_conflict": true,
+      "latitude": -33.5253705,
+      "longitude": -70.5985391,
+      "apartment_number": null,
+      "coordinates_precision": "unknown"
+    }
+  },
+  {
+    "source": "portalinmobiliario",
+    "id": "MLC-4578391212",
+    "url": "https://www.portalinmobiliario.com/MLC-4578391212-se-vende-depto-1d-1b43-bodega-metro-ecuador-_JM",
+    "inputs": {
+      "id": "MLC4578391212",
+      "components": {
+        "technical_specifications": {
+          "id": "technical_specifications",
+          "type": "technical_specifications",
+          "state": "VISIBLE",
+          "title": "Características del inmueble",
+          "specs": [
+            {
+              "title": "Principales",
+              "type": "TITLE_STRIPED",
+              "column": "LEFT",
+              "attributes": [
+                {
+                  "id": "Superficie total",
+                  "text": "32 m²"
+                },
+                {
+                  "id": "Superficie útil",
+                  "text": "32 m²"
+                },
+                {
+                  "id": "Superficie de terraza",
+                  "text": "4 m²"
+                },
+                {
+                  "id": "Ambientes",
+                  "text": "0"
+                },
+                {
+                  "id": "Dormitorios",
+                  "text": "1"
+                },
+                {
+                  "id": "Baños",
+                  "text": "1"
+                },
+                {
+                  "id": "Estacionamientos",
+                  "text": "0"
+                },
+                {
+                  "id": "Bodegas",
+                  "text": "1"
+                },
+                {
+                  "id": "Cantidad de pisos",
+                  "text": "20"
+                },
+                {
+                  "id": "Departamentos por piso",
+                  "text": "15"
+                },
+                {
+                  "id": "Tipo de departamento",
+                  "text": "Departamento"
+                },
+                {
+                  "id": "Orientación",
+                  "text": "N"
+                },
+                {
+                  "id": "Antigüedad",
+                  "text": "9 años"
+                },
+                {
+                  "id": "Gastos comunes",
+                  "text": "50.000 CLP"
+                }
+              ],
+              "heading_label": {
+                "text": "Principales",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Comodidades y equipamiento",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Acceso a internet",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Gimnasio",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Salón de usos múltiples",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Ascensor",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Estacionamiento de visitas",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Lavandería",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Salón de fiestas",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Área de juegos infantiles",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Comodidades y equipamiento",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Seguridad",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "En condominio cerrado",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Conserjería",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Seguridad",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Ambientes",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Closets",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Terraza",
+                  "text": "No"
+                },
+                {
+                  "id": "Comedor",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Living",
+                  "text": "No"
+                },
+                {
+                  "id": "Dormitorio en suite",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Balcón",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Cocina",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Piscina",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Ambientes",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Servicios",
+              "type": "TITLE_STRIPED",
+              "column": "LEFT",
+              "attributes": [
+                {
+                  "id": "Agua corriente",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Gas natural",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Aire acondicionado",
+                  "text": "No"
+                },
+                {
+                  "id": "Calefacción",
+                  "text": "No"
+                },
+                {
+                  "id": "Con conexión para lavarropas",
+                  "text": "No"
+                },
+                {
+                  "id": "Generador eléctrico",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Servicios",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Condiciones especiales",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Admite mascotas",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Condiciones especiales",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Otros",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Recepción",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Otros",
+                "is_heading": true
+              }
+            }
+          ],
+          "action": {
+            "timeout": 0,
+            "duration": 0,
+            "label": {
+              "text": "Ver todas las características",
+              "color": "BLUE"
+            },
+            "track": {
+              "melidata_event": {
+                "path": "/vip/technical_specs/see_more",
+                "event_data": {
+                  "item_id": "MLC4578391212",
+                  "category_id": "MLC157522",
+                  "category_path": [
+                    "MLC1459",
+                    "MLC1472",
+                    "MLC1480",
+                    "MLC157522"
+                  ],
+                  "vertical": "real_estate",
+                  "item_status": "active",
+                  "seller_id": 263770190,
+                  "is_highlighted": true,
+                  "item_condition": "used",
+                  "listing_type_id": "silver",
+                  "pid": "MLCI4578391212",
+                  "pid_extended": "MLCI4578391212",
+                  "pid_version": "0.5.0"
+                }
+              }
+            }
+          },
+          "collapse": {
+            "timeout": 0,
+            "duration": 0,
+            "label": {
+              "text": "Ocultar todas las características",
+              "color": "BLUE"
+            },
+            "track": {
+              "melidata_event": {
+                "path": "/vip/technical_specs/see_less",
+                "event_data": {
+                  "item_id": "MLC4578391212",
+                  "category_id": "MLC157522",
+                  "category_path": [
+                    "MLC1459",
+                    "MLC1472",
+                    "MLC1480",
+                    "MLC157522"
+                  ],
+                  "vertical": "real_estate",
+                  "item_status": "active",
+                  "seller_id": 263770190,
+                  "is_highlighted": true,
+                  "item_condition": "used",
+                  "listing_type_id": "silver",
+                  "pid": "MLCI4578391212",
+                  "pid_extended": "MLCI4578391212",
+                  "pid_version": "0.5.0"
+                }
+              }
+            }
+          },
+          "max_groups": 1
+        },
+        "location_and_points": {
+          "map_info": {
+            "location": {
+              "latitude": "-33.4535575",
+              "longitude": "-70.6991662"
+            },
+            "item_address": "Metro Ecuador"
+          }
+        },
+        "description": {
+          "content": "piso 10"
+        }
+      }
+    },
+    "expected": {
+      "useful_area_m2": 32,
+      "total_area_m2": 32,
+      "constructed_area_m2": null,
+      "floor": 10,
+      "age_years": 9,
+      "latitude": -33.4535575,
+      "longitude": -70.6991662,
+      "apartment_number": null,
+      "coordinates_precision": "unknown"
+    }
+  },
+  {
+    "source": "portalinmobiliario",
+    "id": "MLC-2247746657",
+    "url": "https://www.portalinmobiliario.com/MLC-2247746657-venta-depto-2d-2b-oriente-conectividad-y-metro-el-llano-_JM",
+    "inputs": {
+      "id": "MLC2247746657",
+      "components": {
+        "technical_specifications": {
+          "id": "technical_specifications",
+          "type": "technical_specifications",
+          "state": "VISIBLE",
+          "title": "Características del inmueble",
+          "specs": [
+            {
+              "title": "Principales",
+              "type": "TITLE_STRIPED",
+              "column": "LEFT",
+              "attributes": [
+                {
+                  "id": "Superficie total",
+                  "text": "45 m²"
+                },
+                {
+                  "id": "Superficie útil",
+                  "text": "42 m²"
+                },
+                {
+                  "id": "Superficie de terraza",
+                  "text": "3 m²"
+                },
+                {
+                  "id": "Dormitorios",
+                  "text": "2"
+                },
+                {
+                  "id": "Baños",
+                  "text": "2"
+                },
+                {
+                  "id": "Estacionamientos",
+                  "text": "0"
+                },
+                {
+                  "id": "Bodegas",
+                  "text": "0"
+                },
+                {
+                  "id": "Cantidad de pisos",
+                  "text": "14"
+                },
+                {
+                  "id": "Departamentos por piso",
+                  "text": "8"
+                },
+                {
+                  "id": "Número de piso de la unidad",
+                  "text": "5"
+                },
+                {
+                  "id": "Tipo de departamento",
+                  "text": "Departamento"
+                },
+                {
+                  "id": "Orientación",
+                  "text": "O"
+                },
+                {
+                  "id": "Antigüedad",
+                  "text": "11 años"
+                }
+              ],
+              "heading_label": {
+                "text": "Principales",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Comodidades y equipamiento",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Rampa para silla de ruedas",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Número de torre",
+                  "text": "1"
+                },
+                {
+                  "id": "Con área verde",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Refrigerador",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Acceso a internet",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Gimnasio",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Salón de usos múltiples",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Ascensor",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Estacionamiento de visitas",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Lavandería",
+                  "text": "No"
+                },
+                {
+                  "id": "Salón de fiestas",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Azotea",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Comodidades y equipamiento",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Seguridad",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "En condominio cerrado",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Tipo de seguridad",
+                  "text": "24 horas"
+                },
+                {
+                  "id": "Conserjería",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Seguridad",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Ambientes",
+              "type": "TITLE_STRIPED",
+              "column": "LEFT",
+              "attributes": [
+                {
+                  "id": "Closets",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Baño de visitas",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Terraza",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Comedor",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Living",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Dormitorio en suite",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Balcón",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Cocina",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Con logia",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Parrilla",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Piscina",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Ambientes",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Servicios",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Agua corriente",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Línea telefónica",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Gas natural",
+                  "text": "No"
+                },
+                {
+                  "id": "Aire acondicionado",
+                  "text": "No"
+                },
+                {
+                  "id": "Calefacción",
+                  "text": "No"
+                },
+                {
+                  "id": "Con conexión para lavarropas",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Servicios",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Condiciones especiales",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Admite mascotas",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Condiciones especiales",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Otros",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Recepción",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Otros",
+                "is_heading": true
+              }
+            }
+          ],
+          "action": {
+            "timeout": 0,
+            "duration": 0,
+            "label": {
+              "text": "Revisar todas las características",
+              "color": "BLUE"
+            },
+            "track": {
+              "melidata_event": {
+                "path": "/vip/technical_specs/see_more",
+                "event_data": {
+                  "item_id": "MLC2247746657",
+                  "category_id": "MLC157522",
+                  "category_path": [
+                    "MLC1459",
+                    "MLC1472",
+                    "MLC1480",
+                    "MLC157522"
+                  ],
+                  "vertical": "real_estate",
+                  "item_status": "active",
+                  "seller_id": 315707056,
+                  "is_highlighted": true,
+                  "item_condition": "used",
+                  "listing_type_id": "gold_premium",
+                  "pid": "MLCI2247746657",
+                  "pid_extended": "MLCI2247746657",
+                  "pid_version": "0.5.0"
+                }
+              }
+            }
+          },
+          "collapse": {
+            "timeout": 0,
+            "duration": 0,
+            "label": {
+              "text": "Ocultar todas las características",
+              "color": "BLUE"
+            },
+            "track": {
+              "melidata_event": {
+                "path": "/vip/technical_specs/see_less",
+                "event_data": {
+                  "item_id": "MLC2247746657",
+                  "category_id": "MLC157522",
+                  "category_path": [
+                    "MLC1459",
+                    "MLC1472",
+                    "MLC1480",
+                    "MLC157522"
+                  ],
+                  "vertical": "real_estate",
+                  "item_status": "active",
+                  "seller_id": 315707056,
+                  "is_highlighted": true,
+                  "item_condition": "used",
+                  "listing_type_id": "gold_premium",
+                  "pid": "MLCI2247746657",
+                  "pid_extended": "MLCI2247746657",
+                  "pid_version": "0.5.0"
+                }
+              }
+            }
+          },
+          "max_groups": 1
+        },
+        "location_and_points": {
+          "map_info": {
+            "location": {
+              "latitude": "-33.4872423",
+              "longitude": "-70.64524"
+            },
+            "item_address": "Alcalde Pedro Alarcón 600 - 900, San Miguel"
+          }
+        }
+      }
+    },
+    "expected": {
+      "useful_area_m2": 42,
+      "total_area_m2": 45,
+      "constructed_area_m2": null,
+      "floor": 5,
+      "age_years": 11,
+      "latitude": -33.4872423,
+      "longitude": -70.64524,
+      "apartment_number": null,
+      "coordinates_precision": "unknown"
+    }
+  },
+  {
+    "source": "portalinmobiliario",
+    "id": "MLC-1778189475",
+    "url": "https://www.portalinmobiliario.com/MLC-1778189475-excelente-oportunidad-de-compra-en-la-florida-uf-3750-_JM",
+    "inputs": {
+      "id": "MLC1778189475",
+      "components": {
+        "technical_specifications": {
+          "id": "technical_specifications",
+          "type": "technical_specifications",
+          "state": "VISIBLE",
+          "title": "Características del inmueble",
+          "specs": [
+            {
+              "title": "Principales",
+              "type": "TITLE_STRIPED",
+              "column": "LEFT",
+              "attributes": [
+                {
+                  "id": "Superficie total",
+                  "text": "53,6 m²"
+                },
+                {
+                  "id": "Superficie útil",
+                  "text": "50,7 m²"
+                },
+                {
+                  "id": "Superficie de terraza",
+                  "text": "2,95 m²"
+                },
+                {
+                  "id": "Dormitorios",
+                  "text": "2"
+                },
+                {
+                  "id": "Baños",
+                  "text": "2"
+                },
+                {
+                  "id": "Estacionamientos",
+                  "text": "0"
+                },
+                {
+                  "id": "Bodegas",
+                  "text": "1"
+                },
+                {
+                  "id": "Cantidad de pisos",
+                  "text": "18"
+                },
+                {
+                  "id": "Departamentos por piso",
+                  "text": "5"
+                },
+                {
+                  "id": "Número de piso de la unidad",
+                  "text": "6"
+                },
+                {
+                  "id": "Tipo de departamento",
+                  "text": "Departamento"
+                },
+                {
+                  "id": "Orientación",
+                  "text": "O"
+                },
+                {
+                  "id": "Antigüedad",
+                  "text": "2 años"
+                },
+                {
+                  "id": "Gastos comunes",
+                  "text": "130.000 CLP"
+                }
+              ],
+              "heading_label": {
+                "text": "Principales",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Comodidades y equipamiento",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Rampa para silla de ruedas",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Número de torre",
+                  "text": "1"
+                },
+                {
+                  "id": "Acceso a internet",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Gimnasio",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Salón de usos múltiples",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Ascensor",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Lavandería",
+                  "text": "No"
+                },
+                {
+                  "id": "Salón de fiestas",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Azotea",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Comodidades y equipamiento",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Seguridad",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "En condominio cerrado",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Tipo de seguridad",
+                  "text": "24 horas"
+                },
+                {
+                  "id": "Conserjería",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Seguridad",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Ambientes",
+              "type": "TITLE_STRIPED",
+              "column": "RIGHT",
+              "attributes": [
+                {
+                  "id": "Closets",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Terraza",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Comedor",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Living",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Dormitorio en suite",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Balcón",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Cocina",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Parrilla",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Piscina",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Ambientes",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Servicios",
+              "type": "TITLE_STRIPED",
+              "column": "LEFT",
+              "attributes": [
+                {
+                  "id": "Agua corriente",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Gas natural",
+                  "text": "Sí"
+                },
+                {
+                  "id": "Aire acondicionado",
+                  "text": "No"
+                },
+                {
+                  "id": "Calefacción",
+                  "text": "No"
+                }
+              ],
+              "heading_label": {
+                "text": "Servicios",
+                "is_heading": true
+              }
+            },
+            {
+              "title": "Otros",
+              "type": "TITLE_STRIPED",
+              "column": "LEFT",
+              "attributes": [
+                {
+                  "id": "Recepción",
+                  "text": "Sí"
+                }
+              ],
+              "heading_label": {
+                "text": "Otros",
+                "is_heading": true
+              }
+            }
+          ],
+          "action": {
+            "timeout": 0,
+            "duration": 0,
+            "label": {
+              "text": "Ver todas las características",
+              "color": "BLUE"
+            },
+            "track": {
+              "melidata_event": {
+                "path": "/vip/technical_specs/see_more",
+                "event_data": {
+                  "item_id": "MLC1778189475",
+                  "category_id": "MLC157522",
+                  "category_path": [
+                    "MLC1459",
+                    "MLC1472",
+                    "MLC1480",
+                    "MLC157522"
+                  ],
+                  "vertical": "real_estate",
+                  "item_status": "active",
+                  "seller_id": 254414130,
+                  "is_highlighted": true,
+                  "item_condition": "used",
+                  "listing_type_id": "gold_premium",
+                  "pid": "MLCI1778189475",
+                  "pid_extended": "MLCI1778189475",
+                  "pid_version": "0.5.0"
+                }
+              }
+            }
+          },
+          "collapse": {
+            "timeout": 0,
+            "duration": 0,
+            "label": {
+              "text": "Ocultar todas las características",
+              "color": "BLUE"
+            },
+            "track": {
+              "melidata_event": {
+                "path": "/vip/technical_specs/see_less",
+                "event_data": {
+                  "item_id": "MLC1778189475",
+                  "category_id": "MLC157522",
+                  "category_path": [
+                    "MLC1459",
+                    "MLC1472",
+                    "MLC1480",
+                    "MLC157522"
+                  ],
+                  "vertical": "real_estate",
+                  "item_status": "active",
+                  "seller_id": 254414130,
+                  "is_highlighted": true,
+                  "item_condition": "used",
+                  "listing_type_id": "gold_premium",
+                  "pid": "MLCI1778189475",
+                  "pid_extended": "MLCI1778189475",
+                  "pid_version": "0.5.0"
+                }
+              }
+            }
+          },
+          "max_groups": 1
+        },
+        "location_and_points": {
+          "map_info": {
+            "location": {
+              "latitude": "-33.5161428",
+              "longitude": "-70.6065972"
+            },
+            "item_address": "Av. Vicuña Mackenna 6633, La Florida"
+          }
+        }
+      }
+    },
+    "expected": {
+      "useful_area_m2": 50.7,
+      "total_area_m2": 53.6,
+      "constructed_area_m2": null,
+      "floor": 6,
+      "age_years": 2,
+      "latitude": -33.5161428,
+      "longitude": -70.6065972,
+      "apartment_number": null,
+      "coordinates_precision": "unknown"
+    }
+  }
+]

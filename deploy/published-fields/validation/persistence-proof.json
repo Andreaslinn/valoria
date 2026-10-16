@@ -1,0 +1,20 @@
+{
+  "counts": {
+    "yapo": 200,
+    "portalinmobiliario": 200
+  },
+  "persisted_counts": {
+    "yapo": 200,
+    "portalinmobiliario": 200
+  },
+  "isolated_database": true,
+  "production_writes": 0,
+  "commercial_values_unchanged": true,
+  "executed_on": "Oracle; candidate in memory, isolated SQLite database",
+  "candidate_file_sha256": {
+    "domain/ingestion/published_fields.py": "71f7c100d76bbdb200d6c84019adeb03d203bd8b5fe9569cdf21f51cd2470023",
+    "infrastructure/scrapers/published_fields.py": "cc8f3aa75b2f6254ad3ff1848d7c719d039564a5efde34c5598a35c6de075b46",
+    "infrastructure/db/published_fields.py": "fdbf588cd9ce49b3f5b2e6109c32d8a12fe490a39733a2c91455ef3923daa130",
+    "scripts/audit_published_fields.py": "179c8ea2a29b7baaa4d2dfa726f7bf7ab5b4a64fe9b16d89e0e2b60d7f4ee6d0"
+  }
+}

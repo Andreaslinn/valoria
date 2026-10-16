@@ -401,6 +401,9 @@ async def _refresh_one(
         _log.info("Refresh 404 listing_id=%s url=%s", listing.id, listing.url)
         return
     if 300 <= response.status_code < 400:
+        if listing.source == "portalinmobiliario":
+            from scripts.portal_session import detect_session_expiry
+            await detect_session_expiry(response)
         stats.redirects += 1
         location = response.headers.get("location")
         blocked_redirect = _is_blocked_redirect(location)

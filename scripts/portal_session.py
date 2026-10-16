@@ -7,8 +7,27 @@ from pathlib import Path
 import stat
 import time
 import httpx
+import logging
+from urllib.parse import urlsplit
 
 ALLOWED_DOMAINS = {'.portalinmobiliario.com', 'www.portalinmobiliario.com', '.www.portalinmobiliario.com'}
+
+
+class PortalSessionExpired(ValueError):
+    """Actionable alarm, propagated to stderr and the source run ledger."""
+
+
+def session_alarm(reason):
+    logging.getLogger(__name__).error('PORTAL_SESSION_EXPIRED reason=%s; official verification required', reason)
+    raise PortalSessionExpired('PORTAL_SESSION_EXPIRED: ' + reason)
+
+
+async def detect_session_expiry(response):
+    path = urlsplit(response.headers.get('location', '')).path
+    if response.status_code in {301, 302, 303, 307, 308} and (
+        path.startswith('/gz/account-verification') or path.startswith('/login')
+    ):
+        session_alarm('http_' + str(response.status_code) + '_account_verification')
 
 def load_session(path):
     path = Path(path)
@@ -28,7 +47,7 @@ def load_session(path):
             domain, True, domain.startswith('.'), entry.get('path', '/'), True,
             bool(entry.get('secure', True)), expires, expires is None, None, None, {}))
     if not any(c.name == 'ssid' for c in jar.jar):
-        raise ValueError('Portal session expired; official verification required')
+        session_alarm('expired_or_missing_ssid')
     return jar
 
 def save_session(path, jar):
@@ -50,9 +69,16 @@ def save_session(path, jar):
 async def portal_client(**kwargs):
     path = os.environ.get('PORTAL_SESSION_FILE')
     cookies = load_session(path) if path else None
+    hooks = dict(kwargs.pop('event_hooks', {}) or {})
+    hooks['response'] = [*hooks.get('response', []), detect_session_expiry]
+    kwargs['event_hooks'] = hooks
     async with httpx.AsyncClient(cookies=cookies, **kwargs) as client:
+        invalid_session = False
         try:
             yield client
+        except PortalSessionExpired:
+            invalid_session = True
+            raise
         finally:
-            if path and os.environ.get("PORTAL_SESSION_READ_ONLY") != "1":
+            if path and not invalid_session and os.environ.get("PORTAL_SESSION_READ_ONLY") != "1":
                 save_session(path, client.cookies)

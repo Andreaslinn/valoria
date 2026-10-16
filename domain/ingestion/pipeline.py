@@ -174,6 +174,21 @@ async def _update_existing(
     # Merge no destructivo de metadata: nuevos campos ganan. Si la nueva
     # pasada ya no trae warnings, removemos warnings antiguos de calidad.
     merged_metadata = {**existing.raw_metadata, **cleaned.raw_metadata}
+    prior_facts = existing.raw_metadata.get("published_fields") or {}
+    incoming_facts = cleaned.raw_metadata.get("published_fields") or {}
+    if incoming_facts.get("stage") == "card" and prior_facts.get("stage") in {"detail", "merged"}:
+        # A card cannot erase facts absent from its smaller schema. Keep its
+        # separate observation and the date of the detailed evidence unchanged.
+        merged_metadata["published_card_fields"] = incoming_facts
+        if prior_facts.get("stage") == "detail":
+            merged_metadata["published_detail_fields"] = prior_facts
+        from domain.ingestion.published_fields import merge_card_fields
+        combined = merge_card_fields(prior_facts, incoming_facts)
+        merged_metadata["published_fields"] = combined
+        existing.built_area_m2 = combined.get("constructed_area_m2")
+        existing.usable_area_m2 = combined.get("useful_area_m2")
+    elif incoming_facts.get("stage") == "detail":
+        merged_metadata["published_detail_fields"] = incoming_facts
     if existing.source == "portalinmobiliario" and had_coordinates and not replace_coordinates:
         # Evidence must describe the point retained in the canonical columns.
         # The rejected new observation remains in append-only source history.
@@ -192,6 +207,14 @@ async def _update_existing(
     if "data_quality_warnings" not in cleaned.raw_metadata:
         merged_metadata.pop("data_quality", None)
         merged_metadata.pop("data_quality_warnings", None)
+    from domain.ingestion.published_fields import area_kind
+    if merged_metadata.get("published_fields"):
+        from domain.ingestion.published_fields import synchronize_area_provenance
+        synchronize_area_provenance(merged_metadata, merged_metadata["published_fields"])
+    merged_metadata["valuation_m2_kind"] = area_kind({
+        "m2": existing.built_area_m2 or existing.usable_area_m2 or existing.m2,
+        "raw_metadata": merged_metadata,
+    })
     existing.raw_metadata = merged_metadata
     existing.last_seen_at = cleaned.scraped_at
     return await listing_repo.save(existing)
