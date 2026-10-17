@@ -72,6 +72,8 @@ or authentication code exists.
 Every file version has a source row and preserved raw bytes on disk. Role and line
 snapshots retain their source IDs; the latest **complete** N/NL semester pair is
 selected per input commune, so an incomplete next semester cannot mix snapshots.
+The common NL source is recorded once on the N source-file record, rather than
+repeating a construction-file foreign key on millions of role rows.
 F2890 raw rows for the requested codes are append-only (UPDATE, DELETE and TRUNCATE
 are blocked by a database trigger). The national ZIP preserves all other communes.
 Parsed dates, amounts and incomplete roles never replace original field strings:
@@ -113,6 +115,9 @@ in (SII commune, block, FE, FI), apartment + unpriced parking/storage package,
 block on the same FE (or FI when FE is absent). Packages are marked and retained.
 The derived transfer table represents the current F2890 version; rebuilding can
 replace this cache while all raw versions and catastro snapshots remain intact.
+It is built in a new SII table, with primary key and every foreign key validated
+in bulk before an atomic swap. No integrity trigger on raw observations is disabled.
+Future dependent tables should reference immutable raw IDs, not the replaceable cache.
 
 The eight-commune reference in `research/sii-cross-reference:research/sii_cross/join6.py`
 uses **FI >= 2024-01-01**. The report makes that window explicit; all older history

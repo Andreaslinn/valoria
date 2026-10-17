@@ -23,17 +23,19 @@ CREATE UNIQUE INDEX ON line_totals(comuna,manzana,predio);
 ANALYZE line_totals;
 
 UPDATE sii.predio p SET anio_min=l.anio_min,m2_h=l.m2_h,m2_h_abierta=l.m2_h_abierta,
- line_source_file_id=a.line_source
+ semestre=a.semestre
 FROM active_catastro a,line_totals l
 WHERE p.source_file_id=a.role_source AND l.source_file_id=a.line_source
  AND (p.comuna,p.manzana,p.predio)=(l.comuna,l.manzana,l.predio)
- AND (p.anio_min,p.m2_h,p.m2_h_abierta,p.line_source_file_id)
- IS DISTINCT FROM (l.anio_min,l.m2_h,l.m2_h_abierta,a.line_source);
-UPDATE sii.predio p SET anio_min=NULL,m2_h=0,m2_h_abierta=0,line_source_file_id=a.line_source
+ AND (p.anio_min,p.m2_h,p.m2_h_abierta)
+ IS DISTINCT FROM (l.anio_min,l.m2_h,l.m2_h_abierta);
+UPDATE sii.predio p SET anio_min=NULL,m2_h=0,m2_h_abierta=0
 FROM active_catastro a
 WHERE p.source_file_id=a.role_source AND NOT EXISTS
  (SELECT 1 FROM line_totals l WHERE (p.comuna,p.manzana,p.predio)=(l.comuna,l.manzana,l.predio))
- AND (p.m2_h,p.m2_h_abierta,p.line_source_file_id) IS DISTINCT FROM (0::numeric,0::numeric,a.line_source);
+ AND (p.m2_h,p.m2_h_abierta) IS DISTINCT FROM (0::numeric,0::numeric);
+UPDATE sii.source_file s SET line_source_file_id=a.line_source FROM active_catastro a
+WHERE s.id=a.role_source AND s.line_source_file_id IS DISTINCT FROM a.line_source;
 
 CREATE TEMP TABLE current_predio ON COMMIT DROP AS
 SELECT p.source_file_id,p.comuna,p.manzana,p.predio,p.tipo,p.semestre,p.m2_h,p.m2_cerrado,p.calle,p.numero
@@ -114,26 +116,26 @@ CREATE TEMP TABLE rebuild_counters ON COMMIT DROP AS
 SELECT count(*) AS rows_new FROM decisions d WHERE NOT EXISTS
  (SELECT 1 FROM sii.transferencia t WHERE t.raw_id=d.id);
 
--- A derived cache is atomically replaced; immutable raw is never mutated.
-DELETE FROM sii.transferencia WHERE source_file_id<>(SELECT id FROM sii.source_file
- WHERE tipo='F2890' ORDER BY fecha DESC,cargado_en DESC,id DESC LIMIT 1);
-INSERT INTO sii.transferencia(raw_id,source_file_id,predio_source_file_id,comuna,manzana,predio,
+-- Build without row-by-row FK probes, then validate every FK in bulk before
+-- the atomic cache swap. Raw's append-only trigger remains enabled throughout.
+CREATE TABLE sii.transferencia_build
+ (LIKE sii.transferencia INCLUDING DEFAULTS INCLUDING GENERATED INCLUDING CONSTRAINTS);
+INSERT INTO sii.transferencia_build(raw_id,source_file_id,predio_source_file_id,comuna,manzana,predio,
  fi,fe,fecha,tipo,semestre,monto_uf,monto_clp,uf_usada,uf_fecha,m2_h,m2_cerrado,
  uf_m2_h,uf_m2_cerrado,paquete,cierre_comparable,motivo_exclusion,motivos_exclusion)
 SELECT id,source_file_id,predio_source_file_id,comuna,manzana,predio,fi,fe,fecha,tipo,semestre,
  monto_uf,clp,uf_usada,uf_fecha,m2_h,m2_cerrado,uf_m2_h,uf_m2_cerrado,coalesce(paquete,false),
- cardinality(motivos)=0,motivos[1],motivos FROM decisions
-ON CONFLICT(raw_id) DO UPDATE SET
- predio_source_file_id=EXCLUDED.predio_source_file_id,tipo=EXCLUDED.tipo,semestre=EXCLUDED.semestre,
- monto_uf=EXCLUDED.monto_uf,uf_usada=EXCLUDED.uf_usada,uf_fecha=EXCLUDED.uf_fecha,
- m2_h=EXCLUDED.m2_h,m2_cerrado=EXCLUDED.m2_cerrado,uf_m2_h=EXCLUDED.uf_m2_h,
- uf_m2_cerrado=EXCLUDED.uf_m2_cerrado,paquete=EXCLUDED.paquete,
- cierre_comparable=EXCLUDED.cierre_comparable,motivo_exclusion=EXCLUDED.motivo_exclusion,
- motivos_exclusion=EXCLUDED.motivos_exclusion
-WHERE (transferencia.predio_source_file_id,transferencia.tipo,transferencia.semestre,
- transferencia.monto_uf,transferencia.uf_usada,transferencia.uf_fecha,transferencia.m2_h,
- transferencia.m2_cerrado,transferencia.uf_m2_h,transferencia.uf_m2_cerrado,transferencia.paquete,
- transferencia.cierre_comparable,transferencia.motivos_exclusion)
-IS DISTINCT FROM (EXCLUDED.predio_source_file_id,EXCLUDED.tipo,EXCLUDED.semestre,
- EXCLUDED.monto_uf,EXCLUDED.uf_usada,EXCLUDED.uf_fecha,EXCLUDED.m2_h,EXCLUDED.m2_cerrado,
- EXCLUDED.uf_m2_h,EXCLUDED.uf_m2_cerrado,EXCLUDED.paquete,EXCLUDED.cierre_comparable,EXCLUDED.motivos_exclusion);
+ cardinality(motivos)=0,motivos[1],motivos FROM decisions;
+ALTER TABLE sii.transferencia_build ADD PRIMARY KEY(raw_id);
+ALTER TABLE sii.transferencia_build ADD CONSTRAINT bulk_raw_fk
+ FOREIGN KEY(raw_id) REFERENCES sii.transferencia_raw(id) NOT VALID;
+ALTER TABLE sii.transferencia_build ADD CONSTRAINT bulk_file_fk
+ FOREIGN KEY(source_file_id) REFERENCES sii.source_file(id) NOT VALID;
+ALTER TABLE sii.transferencia_build ADD CONSTRAINT bulk_predio_file_fk
+ FOREIGN KEY(predio_source_file_id) REFERENCES sii.source_file(id) NOT VALID;
+ALTER TABLE sii.transferencia_build VALIDATE CONSTRAINT bulk_raw_fk;
+ALTER TABLE sii.transferencia_build VALIDATE CONSTRAINT bulk_file_fk;
+ALTER TABLE sii.transferencia_build VALIDATE CONSTRAINT bulk_predio_file_fk;
+CREATE INDEX ON sii.transferencia_build(comuna,tipo,cierre_comparable);
+DROP TABLE sii.transferencia;
+ALTER TABLE sii.transferencia_build RENAME TO transferencia;

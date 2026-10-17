@@ -127,6 +127,8 @@ def test_conversion_closed_surface_and_missing_exact_day(pg):
     assert report["por_comuna"][0]["deptos"] == 3
     assert report["por_comuna"][0]["mediana_depto_uf_m2_h"] == 50
     assert report["catastro"][0]["semestre"] == "2026-2"
+    assert conn.execute("""SELECT count(*),bool_and(convalidated) FROM pg_constraint
+        WHERE conrelid='sii.transferencia'::regclass AND contype='f'""").fetchone() == (3, True)
     assert rebuild()["rows_new"] == 0
 
 
@@ -299,3 +301,30 @@ def test_complete_versions_replace_stale_aggregates_atomically(pg):
         new_role,
         Decimal(150),
     )
+
+
+def test_failed_bulk_validation_keeps_previous_cache_and_raw(pg, monkeypatch):
+    from pathlib import Path
+
+    conn, _, _ = pg
+    ids = seed(conn)
+    parcel(conn, ids, 1, 1)
+    raw_id = transfer(conn, ids, 1, 1)
+    rebuild()
+    read_text = Path.read_text
+
+    def invalid_reference(path, *args, **kwargs):
+        content = read_text(path, *args, **kwargs)
+        if path.name == "rebuild.sql":
+            content = content.replace(
+                "SELECT id,source_file_id,predio_source_file_id,comuna",
+                "SELECT -id,source_file_id,predio_source_file_id,comuna",
+            )
+        return content
+
+    monkeypatch.setattr(Path, "read_text", invalid_reference)
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        rebuild()
+    assert conn.execute("SELECT raw_id FROM sii.transferencia").fetchall() == [(raw_id,)]
+    assert conn.execute("SELECT count(*) FROM sii.transferencia_raw").fetchone()[0] == 1
+    assert conn.execute("SELECT to_regclass('sii.transferencia_build')").fetchone()[0] is None
