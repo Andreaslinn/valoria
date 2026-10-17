@@ -69,7 +69,7 @@ Import commits each file before moving it to `processed/<sha256>/`; hash identit
 recovers safely from interruption between commit and move. No catastro download
 or authentication code exists.
 
-Every file version has a source row and preserved raw bytes on disk. Role and line
+Every F2890 and catastro version has a source row and preserved raw bytes on disk. Role and line
 snapshots retain their source IDs; the latest **complete** N/NL semester pair is
 selected per input commune, so an incomplete next semester cannot mix snapshots.
 The common NL source is recorded once on the N source-file record, rather than
@@ -121,9 +121,12 @@ Future dependent tables should reference immutable raw IDs, not the replaceable 
 
 The eight-commune reference in `research/sii-cross-reference:research/sii_cross/join6.py`
 uses **FI >= 2024-01-01**. The report makes that window explicit; all older history
-is still ingested. That reference used a 300 UF/m² ceiling and several DP aliases;
-this phase follows the requested 500 ceiling and literal DP token. Any resulting
-benchmark difference is reported, not hidden by tuning filters.
+is still ingested. That reference used a 300 UF/m² ceiling, several DP aliases,
+and excluded repeated amounts only when all observations in the operation group
+were positively priced and identical. Its CLP conversion used FE only when
+2024-01-01 <= FE <= FI, otherwise FI. This phase follows the requested 500 ceiling,
+literal DP token, any repeated positive amount, and exact FE with FI only when FE
+is absent. The validation report measures the resulting benchmark differences.
 
 ## Offline geocoding
 
@@ -147,8 +150,10 @@ sector, a unique best `difflib` street similarity >=0.8, and records the correct
 not a measured accuracy guarantee. The OSM source hash and evidence are persisted.
 Without an extract, the job reports `pending_local_osm_extract` and leaves unknown
 locations absent. No coordinates are fabricated. Coverage uses active catastro
-roles as denominator and is reported by method. Supplying/removing OSM addresses
+roles as denominator and is reported by method. Supplying an OSM address file
 and rebuilding replaces the derived geocoding cache without changing source roles.
+Without that file, existing locations for the active catastro remain available
+with their original evidence; locations from replaced catastro versions are removed.
 
 ## Verification and rollback
 
