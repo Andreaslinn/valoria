@@ -95,8 +95,17 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["meta"])
     async def health() -> dict:
         state = await health_router.source_health()
-        return {"status": state["status"], "liveness": "ok", "ingestion": state,
-                "sources": state.get("sources", {})}
+        result = {"status": state["status"], "liveness": "ok", "ingestion": state,
+                  "sources": state.get("sources", {})}
+        from services.sii.settings import enabled
+        if enabled():
+            import asyncio
+            from services.sii.reporting import health as sii_health
+            try:
+                result["sii"] = await asyncio.to_thread(sii_health)
+            except Exception as exc:
+                result["sii"] = {"enabled": True, "status": "degraded", "error": type(exc).__name__}
+        return result
 
     return app
 

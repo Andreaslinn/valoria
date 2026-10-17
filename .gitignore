@@ -8,6 +8,8 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.sii.example
+data/sii/
 .streamlit/secrets.toml
 users.json
 .pycache_compile/
