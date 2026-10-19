@@ -78,3 +78,36 @@ Las capturas se obtuvieron del formulario real y routers/servicios reales en
 loopback, con el stock de avisos previamente capturado y los archivos SII locales.
 El acceso sintético existe solo en el arnés local fuera del repositorio. Los
 registros individuales, el arnés y las capturas permanecen exclusivamente locales.
+
+## Autocompletado desde la dirección
+
+Con el mismo flag habilitado, ambas interfaces consultan automáticamente
+`POST /api/v1/tasar/address-details` tras 600 ms sin escribir, una vez indicadas
+comuna y dirección. Este endpoint requiere autenticación y devuelve 404 con el
+flag apagado antes de abrir archivos. Consulta únicamente el índice catastral de
+solo lectura; no requiere cargar cierres ni ejecutar una tasación.
+
+Solo una unidad inequívoca permite completar superficie cerrada y tipo de
+propiedad; también se muestra el año de construcción disponible. Varios roles
+en el edificio requieren completar el departamento/torre: no se elige la primera
+unidad, no se promedian áreas ni se toman atributos de un aviso cercano. La
+respuesta conserva candidatos anónimos y no expone roles o direcciones ajenas.
+
+El índice actual no contiene baños, dormitorios, estacionamientos ni terreno;
+los avisos no están enlazados de forma fiable a esa unidad. Esos datos permanecen
+desconocidos y editables, nunca se rellenan con cero. Los datos importados desde
+una publicación y las correcciones manuales se conservan. Al cambiar dirección
+o comuna se retiran el área/tipo autocompletados anteriores; las respuestas de
+consultas anteriores se descartan. No se consulta sin comuna o dirección.
+
+El campo se etiqueta **Superficie cerrada SII** mientras proviene del catastro,
+con una explicación de que puede diferir de la útil. Se envía como superficie
+construida y `m2`, dejando `usable_area_m2=null` en lugar de fingir que es útil.
+Si se edita manualmente, vuelve a la base de superficie del formulario habitual.
+El año se muestra como dato de fuente y no modifica el contrato del canónico.
+
+La ampliación pasa 153 pruebas de regresión/API/SII y TypeScript en ambas
+interfaces. Se comprobó en Tasar local el llenado desde dirección, conservación
+de m² y baños manuales, retirada de m² ante ambigüedad, cambio automático a casa
+y tasación completa desde los datos rellenados. El informe agregado de la
+ampliación está en `reports/sii/address_autofill_20261019/report.md`.

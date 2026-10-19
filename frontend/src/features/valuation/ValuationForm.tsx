@@ -1,7 +1,7 @@
 "use client";
 
 import { Calculator, ChevronDown, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import type { PropertyType, ValuationRequest } from "@/types/valuation";
 import type { ValuationFormPrefill } from "./prefill";
 
 import { useSiiClosingCapability } from "./SiiClosingOpinion";
+import { AddressAutofillNote, useAddressDetails } from "./address-autofill";
 
 type FormValues = { address: string; propertyType: PropertyType; comuna: string; builtAreaM2: string; landAreaM2: string; dormitorios: string; banos: string; estacionamientos: string; publishedPriceUf: string; publishedPriceClp: string };
 type Props = { importedPrefill?: ValuationFormPrefill | null; isSubmitting: boolean; onSubmit: (payload: ValuationRequest) => Promise<void> };
@@ -42,9 +43,28 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
   const [formError, setFormError] = useState<string | null>(null);
   const [priceOpen, setPriceOpen] = useState(false);
   const isHouse = values.propertyType === "house";
+  const autoArea = useRef<string|null>(null), typeEdited = useRef(false), autoType = useRef(false);
+  const lookup = useAddressDetails(siiEnabled&&!isSubmitting, values.address, values.comuna);
+  useEffect(() => {
+    const data=lookup.data;if(data?.status!=="resolved")return;
+    const area=data.fields.closed_area_m2;
+    const fillArea=typeof area==="number"&&area>0&&values.builtAreaM2==="";
+    const fillType=data.fields.property_type&&!typeEdited.current?data.fields.property_type:null;
+    if(fillArea)autoArea.current=String(area);
+    if(fillType)autoType.current=true;
+    setValues(v=>({...v,...(fillArea&&v.builtAreaM2===""?{builtAreaM2:String(area)}:{}),...(fillType?{propertyType:fillType}:{})}));
+  },[lookup.data]);
+  function update(key:keyof FormValues,value:string) {
+    const clearArea=(key==="address"||key==="comuna")&&autoArea.current!==null;
+    if(clearArea||key==="builtAreaM2")autoArea.current=null;
+    const clearType=(key==="address"||key==="comuna")&&autoType.current;
+    if(clearType)autoType.current=false;
+    setValues(v=>({...v,...(clearArea?{builtAreaM2:""}:{}),...(clearType?{propertyType:"apartment" as PropertyType}:{}),[key]:value}));
+  }
 
   useEffect(() => {
     if (!importedPrefill) return;
+    autoArea.current=null;autoType.current=false;typeEdited.current=true;
     setValues((current) => ({
       ...current,
       address: "",
@@ -68,7 +88,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
     if (!values.comuna.trim()) return setFormError("Ingresa la comuna de la propiedad.");
     if (!builtArea || builtArea <= 0) return setFormError("Ingresa una superficie útil o construida mayor a 0.");
     if (isHouse && (!landArea || landArea <= 0)) return setFormError("Para casas, ingresa la superficie de terreno.");
-    await onSubmit({ comuna: values.comuna, property_type: values.propertyType, m2: builtArea, built_area_m2: builtArea, land_area_m2: isHouse ? landArea : null, usable_area_m2: values.propertyType === "apartment" ? builtArea : null, dormitorios: integerOrNull(values.dormitorios), banos: integerOrNull(values.banos), estacionamientos: integerOrNull(values.estacionamientos), precio_publicado_uf: numberOrNull(values.publishedPriceUf), precio_publicado_clp: integerOrNull(values.publishedPriceClp), ...(siiEnabled && values.address.trim() ? { address: values.address.trim() } : {}) });
+    await onSubmit({ comuna: values.comuna, property_type: values.propertyType, m2: builtArea, built_area_m2: builtArea, land_area_m2: isHouse ? landArea : null, usable_area_m2: values.propertyType === "apartment" && autoArea.current===null ? builtArea : null, dormitorios: integerOrNull(values.dormitorios), banos: integerOrNull(values.banos), estacionamientos: integerOrNull(values.estacionamientos), precio_publicado_uf: numberOrNull(values.publishedPriceUf), precio_publicado_clp: integerOrNull(values.publishedPriceClp), ...(siiEnabled && values.address.trim() ? { address: values.address.trim() } : {}) });
   }
 
   return <Card className="h-fit p-5 sm:p-6">
@@ -77,12 +97,13 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
     <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
       {importedPrefill ? <StatusNote>Datos importados desde una publicación. Revísalos antes de tasar.</StatusNote> : null}
       <div className="grid gap-4 sm:grid-cols-2">
-        <SelectField label="Tipo de propiedad" value={values.propertyType} onChange={(value) => setValues((current) => ({ ...current, propertyType: value as PropertyType }))}>{propertyTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</SelectField>
-        <SelectField label="Comuna" value={values.comuna} onChange={(value) => setValues((current) => ({ ...current, comuna: value }))} required><option value="">Selecciona una comuna</option>{comunaOptionsFor(values.comuna).map((comuna) => <option key={comuna.value} value={comuna.value}>{comuna.label}</option>)}</SelectField>
+        <SelectField label="Tipo de propiedad" value={values.propertyType} onChange={(value) => {typeEdited.current=true;autoType.current=false;setValues((current) => ({ ...current, propertyType: value as PropertyType }));}}>{propertyTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</SelectField>
+        <SelectField label="Comuna" value={values.comuna} onChange={(value) => update("comuna",value)} required><option value="">Selecciona una comuna</option>{comunaOptionsFor(values.comuna).map((comuna) => <option key={comuna.value} value={comuna.value}>{comuna.label}</option>)}</SelectField>
       </div>
-      {siiEnabled ? <div><Input label="Dirección (opcional)" name="address" value={values.address} onChange={(event) => setValues(current => ({...current,address:event.target.value}))} placeholder="Calle, número y departamento" /><p className="sii-address-note">Para consultar cierres SII junto a la estimación actual.</p></div> : null}
+      {siiEnabled ? <div><Input label="Dirección (opcional)" name="address" value={values.address} onChange={(event) => update("address",event.target.value)} placeholder="Calle, número y departamento" /><p className="sii-address-note">Para consultar cierres SII junto a la estimación actual.</p></div> : null}
+      <AddressAutofillNote lookup={lookup}/>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Input label="Superficie útil" min="1" name="builtAreaM2" onChange={(event) => setValues((current) => ({ ...current, builtAreaM2: event.target.value }))} required type="number" value={values.builtAreaM2} />
+        <Input label={autoArea.current!==null?"Superficie cerrada SII":"Superficie útil"} min="1" name="builtAreaM2" onChange={(event) => update("builtAreaM2",event.target.value)} required type="number" value={values.builtAreaM2} />
         <Input disabled={!isHouse} label={isHouse ? "Superficie total / terreno" : "Superficie total"} min="1" name="landAreaM2" onChange={(event) => setValues((current) => ({ ...current, landAreaM2: event.target.value }))} placeholder={isHouse ? "300" : "No aplica"} type="number" value={values.landAreaM2} />
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
