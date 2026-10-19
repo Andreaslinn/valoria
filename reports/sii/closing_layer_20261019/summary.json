@@ -1,0 +1,409 @@
+{
+  "passed": false,
+  "address_passed": true,
+  "resolution_global_pct": 93.66666666666667,
+  "sample_n": 300,
+  "roles_indexed": 1673327,
+  "as_of_utc": "2026-10-19T16:22:27.872391+00:00",
+  "snapshot_sha256": "c83a108b5738fd730050e58d21b9cc00326d680f9fed49ef15db162f21e9b329",
+  "by_commune": [
+    {
+      "n": 2202,
+      "predicted": 2130,
+      "coverage_pct": 96.73024523160763,
+      "mdape_pct": 12.385708433157987,
+      "p95_ape_pct": 61.832707280495946,
+      "comuna": 13101,
+      "name": "SANTIAGO",
+      "passed": false,
+      "by_age": {
+        "0-9": {
+          "n": 618,
+          "predicted": 613,
+          "coverage_pct": 99.19093851132686,
+          "mdape_pct": 6.420280246374988,
+          "p95_ape_pct": 47.77480748783067
+        },
+        "10-19": {
+          "n": 928,
+          "predicted": 880,
+          "coverage_pct": 94.82758620689656,
+          "mdape_pct": 14.882303163044718,
+          "p95_ape_pct": 56.98595775096611
+        },
+        "20-39": {
+          "n": 383,
+          "predicted": 367,
+          "coverage_pct": 95.822454308094,
+          "mdape_pct": 14.490865318472945,
+          "p95_ape_pct": 65.02449512105395
+        },
+        "40+": {
+          "n": 273,
+          "predicted": 270,
+          "coverage_pct": 98.9010989010989,
+          "mdape_pct": 19.383952983652925,
+          "p95_ape_pct": 88.35771806852678
+        },
+        "unknown": {
+          "n": 0,
+          "predicted": 0,
+          "coverage_pct": 0,
+          "mdape_pct": null,
+          "p95_ape_pct": null
+        }
+      },
+      "address_sample_n": 38,
+      "address_resolution_pct": 92.10526315789474
+    },
+    {
+      "n": 837,
+      "predicted": 817,
+      "coverage_pct": 97.610513739546,
+      "mdape_pct": 16.226373703741224,
+      "p95_ape_pct": 100.14276852972206,
+      "comuna": 14157,
+      "name": "ESTACION CENTRAL",
+      "passed": false,
+      "by_age": {
+        "0-9": {
+          "n": 481,
+          "predicted": 481,
+          "coverage_pct": 100.0,
+          "mdape_pct": 13.08213849510549,
+          "p95_ape_pct": 118.51862910694626
+        },
+        "10-19": {
+          "n": 131,
+          "predicted": 130,
+          "coverage_pct": 99.23664122137404,
+          "mdape_pct": 16.536428464740723,
+          "p95_ape_pct": 74.60413105691055
+        },
+        "20-39": {
+          "n": 50,
+          "predicted": 50,
+          "coverage_pct": 100.0,
+          "mdape_pct": 20.56452037006742,
+          "p95_ape_pct": 69.70312675907867
+        },
+        "40+": {
+          "n": 175,
+          "predicted": 156,
+          "coverage_pct": 89.14285714285714,
+          "mdape_pct": 22.19447121959655,
+          "p95_ape_pct": 97.15521284963471
+        },
+        "unknown": {
+          "n": 0,
+          "predicted": 0,
+          "coverage_pct": 0,
+          "mdape_pct": null,
+          "p95_ape_pct": null
+        }
+      },
+      "address_sample_n": 38,
+      "address_resolution_pct": 81.57894736842105
+    },
+    {
+      "n": 1265,
+      "predicted": 1259,
+      "coverage_pct": 99.52569169960475,
+      "mdape_pct": 13.019607843137248,
+      "p95_ape_pct": 122.4561613461858,
+      "comuna": 15103,
+      "name": "PROVIDENCIA",
+      "passed": false,
+      "by_age": {
+        "0-9": {
+          "n": 247,
+          "predicted": 247,
+          "coverage_pct": 100.0,
+          "mdape_pct": 8.056404379933802,
+          "p95_ape_pct": 62.9849232765479
+        },
+        "10-19": {
+          "n": 182,
+          "predicted": 181,
+          "coverage_pct": 99.45054945054945,
+          "mdape_pct": 10.393296606516111,
+          "p95_ape_pct": 104.95562910216721
+        },
+        "20-39": {
+          "n": 369,
+          "predicted": 368,
+          "coverage_pct": 99.7289972899729,
+          "mdape_pct": 13.629257354118906,
+          "p95_ape_pct": 146.1806412473563
+        },
+        "40+": {
+          "n": 467,
+          "predicted": 463,
+          "coverage_pct": 99.14346895074947,
+          "mdape_pct": 18.471209598089,
+          "p95_ape_pct": 149.92141531262396
+        },
+        "unknown": {
+          "n": 0,
+          "predicted": 0,
+          "coverage_pct": 0,
+          "mdape_pct": null,
+          "p95_ape_pct": null
+        }
+      },
+      "address_sample_n": 38,
+      "address_resolution_pct": 97.36842105263158
+    },
+    {
+      "n": 2699,
+      "predicted": 2640,
+      "coverage_pct": 97.81400518710633,
+      "mdape_pct": 8.333333333333337,
+      "p95_ape_pct": 72.01214759234226,
+      "comuna": 15105,
+      "name": "ÑUÑOA",
+      "passed": true,
+      "by_age": {
+        "0-9": {
+          "n": 1505,
+          "predicted": 1505,
+          "coverage_pct": 100.0,
+          "mdape_pct": 5.845096936907213,
+          "p95_ape_pct": 26.299762093576515
+        },
+        "10-19": {
+          "n": 412,
+          "predicted": 411,
+          "coverage_pct": 99.75728155339806,
+          "mdape_pct": 8.88443808181819,
+          "p95_ape_pct": 70.745169747549
+        },
+        "20-39": {
+          "n": 276,
+          "predicted": 269,
+          "coverage_pct": 97.46376811594203,
+          "mdape_pct": 14.864864864864868,
+          "p95_ape_pct": 166.39036735856422
+        },
+        "40+": {
+          "n": 506,
+          "predicted": 455,
+          "coverage_pct": 89.9209486166008,
+          "mdape_pct": 20.710926550544574,
+          "p95_ape_pct": 144.4180516352549
+        },
+        "unknown": {
+          "n": 0,
+          "predicted": 0,
+          "coverage_pct": 0,
+          "mdape_pct": null,
+          "p95_ape_pct": null
+        }
+      },
+      "address_sample_n": 38,
+      "address_resolution_pct": 89.47368421052632
+    },
+    {
+      "n": 2033,
+      "predicted": 2014,
+      "coverage_pct": 99.06542056074767,
+      "mdape_pct": 11.590990029208491,
+      "p95_ape_pct": 121.29420840141977,
+      "comuna": 15108,
+      "name": "LAS CONDES",
+      "passed": false,
+      "by_age": {
+        "0-9": {
+          "n": 342,
+          "predicted": 341,
+          "coverage_pct": 99.70760233918129,
+          "mdape_pct": 9.397234045858461,
+          "p95_ape_pct": 35.40965207631874
+        },
+        "10-19": {
+          "n": 344,
+          "predicted": 343,
+          "coverage_pct": 99.70930232558139,
+          "mdape_pct": 8.571428571428562,
+          "p95_ape_pct": 87.16238611114765
+        },
+        "20-39": {
+          "n": 784,
+          "predicted": 772,
+          "coverage_pct": 98.46938775510205,
+          "mdape_pct": 11.018712626380388,
+          "p95_ape_pct": 121.59764013062667
+        },
+        "40+": {
+          "n": 563,
+          "predicted": 558,
+          "coverage_pct": 99.11190053285968,
+          "mdape_pct": 18.88579143990353,
+          "p95_ape_pct": 157.6978255762994
+        },
+        "unknown": {
+          "n": 0,
+          "predicted": 0,
+          "coverage_pct": 0,
+          "mdape_pct": null,
+          "p95_ape_pct": null
+        }
+      },
+      "address_sample_n": 37,
+      "address_resolution_pct": 97.2972972972973
+    },
+    {
+      "n": 2648,
+      "predicted": 2584,
+      "coverage_pct": 97.58308157099698,
+      "mdape_pct": 9.447297423781986,
+      "p95_ape_pct": 77.76959900166273,
+      "comuna": 15128,
+      "name": "LA FLORIDA",
+      "passed": true,
+      "by_age": {
+        "0-9": {
+          "n": 1520,
+          "predicted": 1513,
+          "coverage_pct": 99.53947368421052,
+          "mdape_pct": 5.884083553986463,
+          "p95_ape_pct": 24.27777356039713
+        },
+        "10-19": {
+          "n": 179,
+          "predicted": 157,
+          "coverage_pct": 87.70949720670392,
+          "mdape_pct": 13.29454507544251,
+          "p95_ape_pct": 68.47316105230529
+        },
+        "20-39": {
+          "n": 497,
+          "predicted": 469,
+          "coverage_pct": 94.36619718309859,
+          "mdape_pct": 22.35327465635826,
+          "p95_ape_pct": 121.38444492505165
+        },
+        "40+": {
+          "n": 452,
+          "predicted": 445,
+          "coverage_pct": 98.45132743362832,
+          "mdape_pct": 26.613650638272222,
+          "p95_ape_pct": 107.32152914358815
+        },
+        "unknown": {
+          "n": 0,
+          "predicted": 0,
+          "coverage_pct": 0,
+          "mdape_pct": null,
+          "p95_ape_pct": null
+        }
+      },
+      "address_sample_n": 37,
+      "address_resolution_pct": 100.0
+    },
+    {
+      "n": 776,
+      "predicted": 765,
+      "coverage_pct": 98.58247422680412,
+      "mdape_pct": 11.920683343502125,
+      "p95_ape_pct": 95.39483559114902,
+      "comuna": 15160,
+      "name": "VITACURA",
+      "passed": false,
+      "by_age": {
+        "0-9": {
+          "n": 175,
+          "predicted": 167,
+          "coverage_pct": 95.42857142857143,
+          "mdape_pct": 9.51179432812086,
+          "p95_ape_pct": 48.479568130803564
+        },
+        "10-19": {
+          "n": 143,
+          "predicted": 142,
+          "coverage_pct": 99.3006993006993,
+          "mdape_pct": 9.159723296135214,
+          "p95_ape_pct": 55.54854953990742
+        },
+        "20-39": {
+          "n": 182,
+          "predicted": 182,
+          "coverage_pct": 100.0,
+          "mdape_pct": 10.898982452653694,
+          "p95_ape_pct": 78.72579590631507
+        },
+        "40+": {
+          "n": 276,
+          "predicted": 274,
+          "coverage_pct": 99.27536231884058,
+          "mdape_pct": 16.053677894202366,
+          "p95_ape_pct": 149.3638797208582
+        },
+        "unknown": {
+          "n": 0,
+          "predicted": 0,
+          "coverage_pct": 0,
+          "mdape_pct": null,
+          "p95_ape_pct": null
+        }
+      },
+      "address_sample_n": 37,
+      "address_resolution_pct": 94.5945945945946
+    },
+    {
+      "n": 675,
+      "predicted": 672,
+      "coverage_pct": 99.55555555555556,
+      "mdape_pct": 15.766646541314477,
+      "p95_ape_pct": 79.36649641069988,
+      "comuna": 16106,
+      "name": "SAN MIGUEL",
+      "passed": false,
+      "by_age": {
+        "0-9": {
+          "n": 313,
+          "predicted": 313,
+          "coverage_pct": 100.0,
+          "mdape_pct": 11.352630420427023,
+          "p95_ape_pct": 45.75920245160753
+        },
+        "10-19": {
+          "n": 165,
+          "predicted": 165,
+          "coverage_pct": 100.0,
+          "mdape_pct": 16.64114030000001,
+          "p95_ape_pct": 59.30225935621653
+        },
+        "20-39": {
+          "n": 102,
+          "predicted": 102,
+          "coverage_pct": 100.0,
+          "mdape_pct": 19.050285087076055,
+          "p95_ape_pct": 84.21423495611424
+        },
+        "40+": {
+          "n": 95,
+          "predicted": 92,
+          "coverage_pct": 96.84210526315789,
+          "mdape_pct": 36.96681340475044,
+          "p95_ape_pct": 108.82183351605467
+        },
+        "unknown": {
+          "n": 0,
+          "predicted": 0,
+          "coverage_pct": 0,
+          "mdape_pct": null,
+          "p95_ape_pct": null
+        }
+      },
+      "address_sample_n": 37,
+      "address_resolution_pct": 97.2972972972973
+    }
+  ],
+  "holdout_roles": 13061,
+  "pool_rows": 49066,
+  "tests": "105 passed",
+  "flag_default": "off",
+  "step_4": "stopped",
+  "row_level_evidence": "Delivered locally; excluded from GitHub publication."
+}
