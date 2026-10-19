@@ -5,9 +5,27 @@ from __future__ import annotations
 import math
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from services.sii.closing_address import AddressIndex
+
+
+def _extra_facts(root: Path, role: dict):
+    """Only join the exact subject role AND source snapshot; optional old datasets work."""
+    path = root / "address-details.sqlite"
+    if not path.is_file():
+        return {}
+    try:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute(
+                "SELECT land_area_m2,source_period FROM facts WHERE rol=? AND source_id=?",
+                (role["rol"], role["source"]),
+            ).fetchone()
+            return dict(row) if row else {}
+    except (OSError, sqlite3.Error):
+        return {}
 
 
 def address_details(*, address: str, comuna: str, data_dir: str | None = None):
@@ -72,13 +90,24 @@ def address_details(*, address: str, comuna: str, data_dir: str | None = None):
         fields["construction_year"] = role["year"]
     if role["kind"] in {"depto", "casa"}:
         fields["property_type"] = "apartment" if role["kind"] == "depto" else "house"
-    # No linked source for rooms, baths, parking or land. Missing is unknown,
+    extra = _extra_facts(Path(configured), role)
+    land = extra.get("land_area_m2")
+    if (
+        role["kind"] == "casa"
+        and isinstance(land, (float, int))
+        and math.isfinite(land)
+        and land > 0
+    ):
+        fields["land_area_m2"] = land
+    # No linked source for rooms, baths or parking. Missing is unknown,
     # never zero, and no nearest listing or neighbouring unit supplies attributes.
     return {
         **base,
         "status": "resolved",
         "fields": fields,
         "source": "Catastro SII",
-        "missing_fields": ["bedrooms", "bathrooms", "parking", "land_area_m2"],
-        "message": "Datos de la unidad identificada en Catastro SII. Baños, dormitorios, estacionamientos y terreno no constan en esta fuente; complétalos si los conoces.",
+        "source_period": extra.get("source_period"),
+        "missing_fields": ["bedrooms", "bathrooms", "parking"]
+        + ([] if "land_area_m2" in fields else ["land_area_m2"]),
+        "message": "Encontramos datos de esta propiedad en el catastro.",
     }

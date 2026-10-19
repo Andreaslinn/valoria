@@ -88,26 +88,49 @@ flag apagado antes de abrir archivos. Consulta únicamente el índice catastral 
 solo lectura; no requiere cargar cierres ni ejecutar una tasación.
 
 Solo una unidad inequívoca permite completar superficie cerrada y tipo de
-propiedad; también se muestra el año de construcción disponible. Varios roles
+propiedad; también se muestra el año de construcción disponible. El terreno
+de casas se completa desde el archivo complementario `address-details.sqlite`,
+con unión por el mismo rol **y** source ID del índice. Varios roles
 en el edificio requieren completar el departamento/torre: no se elige la primera
 unidad, no se promedian áreas ni se toman atributos de un aviso cercano. La
 respuesta conserva candidatos anónimos y no expone roles o direcciones ajenas.
 
-El índice actual no contiene baños, dormitorios, estacionamientos ni terreno;
-los avisos no están enlazados de forma fiable a esa unidad. Esos datos permanecen
+El índice base había omitido el terreno que sí existe en `sii.predio.m2_terreno`.
+La exportación complementaria corrige esa omisión sin reescribir el índice ni
+el pool de cierres. Baños, dormitorios y estacionamientos no constan en los
+datos catastrales disponibles ni tienen un aviso enlazado fiable. Permanecen
 desconocidos y editables, nunca se rellenan con cero. Los datos importados desde
 una publicación y las correcciones manuales se conservan. Al cambiar dirección
-o comuna se retiran el área/tipo autocompletados anteriores; las respuestas de
+o comuna se retiran las superficies/tipo autocompletados anteriores; las respuestas de
 consultas anteriores se descartan. No se consulta sin comuna o dirección.
 
-El campo se etiqueta **Superficie cerrada SII** mientras proviene del catastro,
-con una explicación de que puede diferir de la útil. Se envía como superficie
+El campo de construcción muestra su procedencia **SII** y la base de superficie
+cerrada. Se envía como superficie
 construida y `m2`, dejando `usable_area_m2=null` en lugar de fingir que es útil.
 Si se edita manualmente, vuelve a la base de superficie del formulario habitual.
 El año se muestra como dato de fuente y no modifica el contrato del canónico.
 
-La ampliación pasa 153 pruebas de regresión/API/SII y TypeScript en ambas
+La ampliación actual pasa 160 pruebas de regresión/API/SII y TypeScript en ambas
 interfaces. Se comprobó en Tasar local el llenado desde dirección, conservación
 de m² y baños manuales, retirada de m² ante ambigüedad, cambio automático a casa
 y tasación completa desde los datos rellenados. El informe agregado de la
-ampliación está en `reports/sii/address_autofill_20261019/report.md`.
+ampliación inicial está en `reports/sii/address_autofill_20261019/report.md`.
+
+La revisión de presentación usa una tarjeta de propiedad con tipo y año visibles,
+superficies editables con origen por campo y una sección para completar datos
+desconocidos. Los campos se apilan en contenedores estrechos para mostrar valores
+completos. Se retiraron los párrafos pequeños repetidos bajo la dirección.
+La revisión y cobertura están en `reports/sii/address_facts_20261020/report.md`.
+
+Para preparar el archivo complementario únicamente desde el SII local, configurar
+`SII_DATABASE_URL` con el destino local documentado y ejecutar:
+
+```powershell
+python -m scripts.export_sii_address_facts --index <directorio-privado>/address-index.sqlite --output <directorio-privado>/address-details.sqlite
+```
+
+La exportación exige el guard de base local, usa `REPEATABLE READ READ ONLY`,
+selecciona las versiones exactas del índice y rechaza sobrescribir una salida
+existente. El endpoint no conecta a Postgres. Si falta el archivo opcional o no
+coincide la versión, el terreno permanece desconocido. No se hereda terreno
+común de un departamento ni se convierte cero o valores inválidos en datos.

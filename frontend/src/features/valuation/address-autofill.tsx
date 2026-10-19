@@ -2,12 +2,15 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api/client";
 import type { PropertyType } from "@/types/valuation";
+import { Check, MapPin, CalendarDays, Building2, LoaderCircle } from "lucide-react";
+import "./address-autofill.css";
 
 type AddressData = {
   status: "resolved" | "ambiguous" | "unavailable";
-  fields: { closed_area_m2?: number | null; construction_year?: number | null; property_type?: PropertyType | null };
+  fields: { closed_area_m2?: number | null; land_area_m2?: number | null; construction_year?: number | null; property_type?: PropertyType | null };
   message: string;
   source?: string | null;
+  source_period?: string | null;
 };
 export function useAddressDetails(enabled: boolean, address: string, comuna: string) {
   const key = JSON.stringify([comuna, address.trim()]);
@@ -29,15 +32,18 @@ export function useAddressDetails(enabled: boolean, address: string, comuna: str
 }
 
 export function AddressAutofillNote({ lookup }: { lookup: ReturnType<typeof useAddressDetails> }) {
-  if (lookup.needsCommune) return <p className="sii-address-note" role="status">Selecciona la comuna para autocompletar desde la dirección.</p>;
-  if (lookup.loading) return <p className="sii-address-note" role="status">Buscando datos de la dirección…</p>;
+  if (lookup.needsCommune) return <div className="address-hint" role="status"><MapPin size={20}/><p>Elige la comuna para buscar los datos de tu propiedad.</p></div>;
+  if (lookup.loading) return <div className="address-hint address-hint--loading" role="status"><LoaderCircle size={20}/><p>Buscando tu propiedad…</p></div>;
   if (!lookup.data) return null;
   const data = lookup.data;
-  return <div className="sii-address-note" role="status"><p>{data.message}</p>
-    {data.status === "resolved" && <>
-      {typeof data.fields.closed_area_m2 === "number" && <p>Superficie cerrada SII: {data.fields.closed_area_m2} m². Se rellena si el campo está vacío; tus datos se conservan.</p>}
-      {data.fields.construction_year != null && <p>Año de construcción: {data.fields.construction_year} · {data.source}.</p>}
-      <p>Revisa los datos antes de tasar. La superficie cerrada puede diferir de la útil.</p>
-    </>}
-  </div>;
+  if(data.status!=="resolved") return <div className="address-hint address-hint--attention" role="status"><MapPin size={22}/><div><strong>{data.status==="ambiguous"?"Necesitamos identificar la unidad":"Completa los datos manualmente"}</strong><p>{data.message}</p></div></div>;
+  const count=Object.values(data.fields).filter(value=>value!=null).length;
+  return <section className="address-match" aria-label="Datos encontrados de la propiedad" role="status">
+    <header><span className="address-match-icon"><Check size={22}/></span><div><h3>Propiedad encontrada</h3><p>{data.source??"Catastro SII"}{data.source_period?` · ${data.source_period}`:""}</p></div><span className="address-count">{count} datos</span></header>
+    <div className="address-facts">
+      <div><span><Building2 size={16}/> Tipo de propiedad</span><strong>{data.fields.property_type==="house"?"Casa":data.fields.property_type==="apartment"?"Departamento":"Sin dato"}</strong></div>
+      <div><span><CalendarDays size={16}/> Año de construcción</span><strong>{data.fields.construction_year??"Sin dato"}</strong></div>
+    </div>
+    <p className="address-match-footer">Puedes corregirlos.</p>
+  </section>;
 }

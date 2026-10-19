@@ -27,6 +27,7 @@ class AddressDetailsRequest(BaseModel):
 
 class AddressFieldsOut(BaseModel):
     closed_area_m2: float | None = None
+    land_area_m2: float | None = None
     construction_year: int | None = None
     property_type: str | None = None
 
@@ -40,6 +41,7 @@ class AddressDetailsOut(BaseModel):
     status: str
     fields: AddressFieldsOut = Field(default_factory=AddressFieldsOut)
     source: str | None = None
+    source_period: str | None = None
     message: str
     missing_fields: list[str] = Field(default_factory=list)
     candidates: list[AddressCandidateOut] = Field(default_factory=list)
