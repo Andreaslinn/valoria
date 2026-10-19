@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
+from starlette.concurrency import run_in_threadpool
 
 from api.deps import AppSettings, CurrentUser, DbSession, ValuationServiceDep
+from api.sii_closing_contract import SiiClosingOpinionOut
+from config.valuation_flags import sii_closing_layer_enabled
 from core.exceptions import InsufficientDataError, UFServiceError, ValidationError
 from infrastructure.db.models import UsageLogORM
 from services.product_usage import sanitize_properties
@@ -18,6 +22,9 @@ _log = logging.getLogger(__name__)
 
 
 class ValuationRequest(BaseModel):
+    # Legacy release ignored this field. Preserve that behavior for every input
+    # while off; validate the optional address only inside the enabled layer.
+    address: Any = None
     target_listing_id: int | None = Field(default=None, gt=0)
     comuna: str
     property_type: str | None = None
@@ -152,6 +159,15 @@ class ValuationConsensusAuditOut(BaseModel):
 
 
 class ValuationResponse(BaseModel):
+    sii_closing_opinion: SiiClosingOpinionOut | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_inactive_sii(self, handler):
+        result = handler(self)
+        if self.sii_closing_opinion is None:
+            result.pop("sii_closing_opinion", None)
+        return result
+
     valuation_debug: dict = Field(default_factory=dict)
     base_estimated_price_uf: float | None = None
     base_estimated_price_clp: int | None = None
@@ -247,6 +263,25 @@ async def valuate(
             detail="Error inesperado al tasar propiedad",
         ) from e
     response = ValuationResponse.model_validate(result, from_attributes=True)
+    if sii_closing_layer_enabled() and isinstance(payload.address, str) and payload.address.strip():
+        from services.sii.closing_opinion import build_opinion
+
+        try:
+            opinion = await run_in_threadpool(
+                build_opinion,
+                address=payload.address,
+                comuna=payload.comuna,
+                property_type=payload.property_type,
+                area=payload.usable_area_m2 or payload.built_area_m2 or payload.m2,
+            )
+            response.sii_closing_opinion = SiiClosingOpinionOut.model_validate(opinion)
+        except Exception:
+            _log.warning("SII second opinion unavailable; canonical result preserved")
+            response.sii_closing_opinion = SiiClosingOpinionOut(
+                status="unavailable",
+                reason_code="data_unavailable",
+                message="La segunda opinión SII no está disponible en este momento.",
+            )
     try:
         await _record_valuation_completed_event(
             session=session,

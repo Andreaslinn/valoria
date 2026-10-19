@@ -7,9 +7,16 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from api.deps import CurrentUser, DbSession
+from config.valuation_flags import sii_closing_layer_enabled
 from services.recent_user_activity import RecentUserActivityService
 
 router = APIRouter(prefix="/tasar", tags=["tasar"])
+
+
+@router.get("/capabilities")
+def capabilities() -> dict[str, bool]:
+    """Public UI capability only; no SII data or application settings exposed."""
+    return {"sii_closing_layer": sii_closing_layer_enabled()}
 
 
 class RecentUserActivityEventOut(BaseModel):

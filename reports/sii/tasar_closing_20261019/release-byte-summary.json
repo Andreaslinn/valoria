@@ -1,0 +1,10 @@
+{
+  "release_commit": "24b56dc6fe626d19834bcd6707a9b77d1d3d44c7",
+  "matched_cases": 1142,
+  "byte_equal": {
+    "flag_off_address_present": 1142,
+    "flag_on_no_address": 1142
+  },
+  "canonical_snapshot": "local verified 2026-10-19",
+  "rows_published": false
+}

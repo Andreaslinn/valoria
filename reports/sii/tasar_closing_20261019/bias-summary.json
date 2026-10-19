@@ -1,0 +1,90 @@
+{
+  "paired_n": 1142,
+  "by_commune": [
+    {
+      "comuna": 13101,
+      "n": 139,
+      "canonical_signed_median_pct": 28.889580093312617,
+      "knn_signed_median_pct": 0.343946230791059,
+      "offer_close_ratio_proxy": 1.2888958009331262,
+      "canonical_mdape_pct": 32.24243608495379,
+      "canonical_adjusted_mdape_pct": 32.33056732403543,
+      "canonical_adjusted_p95_pct": 56.73860380836746
+    },
+    {
+      "comuna": 14157,
+      "n": 141,
+      "canonical_signed_median_pct": 5.162941176470581,
+      "knn_signed_median_pct": 0.0,
+      "offer_close_ratio_proxy": 1.0516294117647058,
+      "canonical_mdape_pct": 30.643595041322325,
+      "canonical_adjusted_mdape_pct": 32.05029925899932,
+      "canonical_adjusted_p95_pct": 112.55862410599775
+    },
+    {
+      "comuna": 15103,
+      "n": 139,
+      "canonical_signed_median_pct": 39.57897623400366,
+      "knn_signed_median_pct": -2.518158275200977,
+      "offer_close_ratio_proxy": 1.3957897623400366,
+      "canonical_mdape_pct": 40.331083333333325,
+      "canonical_adjusted_mdape_pct": 19.201129839218854,
+      "canonical_adjusted_p95_pct": 92.52842661783387
+    },
+    {
+      "comuna": 15105,
+      "n": 146,
+      "canonical_signed_median_pct": 14.405578975295974,
+      "knn_signed_median_pct": -3.178703895972179,
+      "offer_close_ratio_proxy": 1.1440557897529597,
+      "canonical_mdape_pct": 16.817663247640958,
+      "canonical_adjusted_mdape_pct": 14.686487396099684,
+      "canonical_adjusted_p95_pct": 97.78260629863439
+    },
+    {
+      "comuna": 15108,
+      "n": 143,
+      "canonical_signed_median_pct": 5.370666666666657,
+      "knn_signed_median_pct": -3.416666666666668,
+      "offer_close_ratio_proxy": 1.0537066666666666,
+      "canonical_mdape_pct": 19.664326375711582,
+      "canonical_adjusted_mdape_pct": 19.23089082710994,
+      "canonical_adjusted_p95_pct": 205.49722061473253
+    },
+    {
+      "comuna": 15128,
+      "n": 140,
+      "canonical_signed_median_pct": -8.015207475395785,
+      "knn_signed_median_pct": -2.017031715609691,
+      "offer_close_ratio_proxy": 0.9198479252460421,
+      "canonical_mdape_pct": 21.579951904897946,
+      "canonical_adjusted_mdape_pct": 19.540193110596135,
+      "canonical_adjusted_p95_pct": 144.33472867046584
+    },
+    {
+      "comuna": 15160,
+      "n": 148,
+      "canonical_signed_median_pct": 19.92649591018385,
+      "knn_signed_median_pct": -1.2118979661985052,
+      "offer_close_ratio_proxy": 1.1992649591018385,
+      "canonical_mdape_pct": 24.19157527223591,
+      "canonical_adjusted_mdape_pct": 18.50593384528354,
+      "canonical_adjusted_p95_pct": 92.87520853964159
+    },
+    {
+      "comuna": 16106,
+      "n": 146,
+      "canonical_signed_median_pct": 10.484857142857141,
+      "knn_signed_median_pct": -3.709706170365151,
+      "offer_close_ratio_proxy": 1.1048485714285714,
+      "canonical_mdape_pct": 21.427411030443643,
+      "canonical_adjusted_mdape_pct": 22.101321573108358,
+      "canonical_adjusted_p95_pct": 92.41425224588828
+    }
+  ],
+  "signed_error": "100*(prediction/actual-1); positive means overvaluation",
+  "ratio_definition": "median(canonical_value_uf/actual_uf), within commune, same paired holdout",
+  "adjusted_value": "canonical_value_uf/offer_close_ratio_proxy",
+  "limitation": "Ex-post descriptive proxy, not linked asking/closing prices; current asking stock vs earlier closings. Cannot causally isolate algorithm effects. Never used in serving or frozen confidence rule.",
+  "input_sha256": "0f571e24179db710a5d42e2bbafa984cf0c557bf1bce87e00a417e220260be34"
+}

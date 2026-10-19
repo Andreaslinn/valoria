@@ -12,6 +12,7 @@ import { createPatrimonyProperty } from "@/lib/api/patrimony";
 import { downloadValuationReport } from "@/lib/api/reports";
 import type { Comparable, ValuationRequest, ValuationResponse } from "@/types/valuation";
 
+import { SiiClosingOpinion } from "./SiiClosingOpinion";
 import { ComparableCard } from "./ComparableCard";
 import { getComparablePresentation } from "./comparables";
 import { valuationEngineDisplayName } from "./engine-names";
@@ -79,6 +80,7 @@ export function ValuationResult({ onEdit, payload, result }: { onEdit: () => voi
       {saveError ? <div className="mt-4"><StatusNote tone="warning">{saveError}</StatusNote></div> : null}
       {downloadState === "error" ? <div className="mt-4"><StatusNote tone="warning">No fue posible generar el informe.</StatusNote></div> : null}
     </Card>
+    <SiiClosingOpinion opinion={result.sii_closing_opinion} />
     <EvidenceSection payload={payload} result={result} warnings={warnings} />
     <SignalsSection result={result} warnings={warnings} />
     <ComparablesSection availableCount={comparablePresentation.availableCount} comparables={visibleComparables} expanded={showAllComparables} onToggle={() => setShowAllComparables((current) => !current)} totalUsed={comparablePresentation.totalUsed} />

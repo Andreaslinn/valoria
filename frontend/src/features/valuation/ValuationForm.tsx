@@ -11,10 +11,12 @@ import type { PropertyType, ValuationRequest } from "@/types/valuation";
 
 import type { ValuationFormPrefill } from "./prefill";
 
-type FormValues = { propertyType: PropertyType; comuna: string; builtAreaM2: string; landAreaM2: string; dormitorios: string; banos: string; estacionamientos: string; publishedPriceUf: string; publishedPriceClp: string };
+import { useSiiClosingCapability } from "./SiiClosingOpinion";
+
+type FormValues = { address: string; propertyType: PropertyType; comuna: string; builtAreaM2: string; landAreaM2: string; dormitorios: string; banos: string; estacionamientos: string; publishedPriceUf: string; publishedPriceClp: string };
 type Props = { importedPrefill?: ValuationFormPrefill | null; isSubmitting: boolean; onSubmit: (payload: ValuationRequest) => Promise<void> };
 
-const initialValues: FormValues = { propertyType: "apartment", comuna: "", builtAreaM2: "", landAreaM2: "", dormitorios: "", banos: "", estacionamientos: "", publishedPriceUf: "", publishedPriceClp: "" };
+const initialValues: FormValues = { address: "", propertyType: "apartment", comuna: "", builtAreaM2: "", landAreaM2: "", dormitorios: "", banos: "", estacionamientos: "", publishedPriceUf: "", publishedPriceClp: "" };
 const propertyTypes: Array<{ label: string; value: PropertyType }> = [{ label: "Departamento", value: "apartment" }, { label: "Casa", value: "house" }, { label: "Oficina", value: "office" }];
 const betaComunas = [
   { label: "Santiago", value: "santiago" },
@@ -35,6 +37,7 @@ const betaComunas = [
 const selectClassName = "min-h-11 w-full rounded-lg border border-line bg-slate-950/70 px-3 text-sm text-ink outline-none transition focus:border-brand-500/70 focus:ring-4 focus:ring-brand-100";
 
 export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props) {
+  const siiEnabled = useSiiClosingCapability();
   const [values, setValues] = useState<FormValues>(initialValues);
   const [formError, setFormError] = useState<string | null>(null);
   const [priceOpen, setPriceOpen] = useState(false);
@@ -44,6 +47,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
     if (!importedPrefill) return;
     setValues((current) => ({
       ...current,
+      address: "",
       propertyType: importedPrefill.propertyType ?? current.propertyType,
       comuna: comunaValue(importedPrefill.comuna) ?? current.comuna,
       builtAreaM2: textNumber(importedPrefill.builtAreaM2 ?? importedPrefill.usableAreaM2) ?? current.builtAreaM2,
@@ -64,7 +68,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
     if (!values.comuna.trim()) return setFormError("Ingresa la comuna de la propiedad.");
     if (!builtArea || builtArea <= 0) return setFormError("Ingresa una superficie útil o construida mayor a 0.");
     if (isHouse && (!landArea || landArea <= 0)) return setFormError("Para casas, ingresa la superficie de terreno.");
-    await onSubmit({ comuna: values.comuna, property_type: values.propertyType, m2: builtArea, built_area_m2: builtArea, land_area_m2: isHouse ? landArea : null, usable_area_m2: values.propertyType === "apartment" ? builtArea : null, dormitorios: integerOrNull(values.dormitorios), banos: integerOrNull(values.banos), estacionamientos: integerOrNull(values.estacionamientos), precio_publicado_uf: numberOrNull(values.publishedPriceUf), precio_publicado_clp: integerOrNull(values.publishedPriceClp) });
+    await onSubmit({ comuna: values.comuna, property_type: values.propertyType, m2: builtArea, built_area_m2: builtArea, land_area_m2: isHouse ? landArea : null, usable_area_m2: values.propertyType === "apartment" ? builtArea : null, dormitorios: integerOrNull(values.dormitorios), banos: integerOrNull(values.banos), estacionamientos: integerOrNull(values.estacionamientos), precio_publicado_uf: numberOrNull(values.publishedPriceUf), precio_publicado_clp: integerOrNull(values.publishedPriceClp), ...(siiEnabled && values.address.trim() ? { address: values.address.trim() } : {}) });
   }
 
   return <Card className="h-fit p-5 sm:p-6">
@@ -76,6 +80,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
         <SelectField label="Tipo de propiedad" value={values.propertyType} onChange={(value) => setValues((current) => ({ ...current, propertyType: value as PropertyType }))}>{propertyTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</SelectField>
         <SelectField label="Comuna" value={values.comuna} onChange={(value) => setValues((current) => ({ ...current, comuna: value }))} required><option value="">Selecciona una comuna</option>{comunaOptionsFor(values.comuna).map((comuna) => <option key={comuna.value} value={comuna.value}>{comuna.label}</option>)}</SelectField>
       </div>
+      {siiEnabled ? <div><Input label="Dirección (opcional)" name="address" value={values.address} onChange={(event) => setValues(current => ({...current,address:event.target.value}))} placeholder="Calle, número y departamento" /><p className="sii-address-note">Para consultar cierres SII junto a la estimación actual.</p></div> : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <Input label="Superficie útil" min="1" name="builtAreaM2" onChange={(event) => setValues((current) => ({ ...current, builtAreaM2: event.target.value }))} required type="number" value={values.builtAreaM2} />
         <Input disabled={!isHouse} label={isHouse ? "Superficie total / terreno" : "Superficie total"} min="1" name="landAreaM2" onChange={(event) => setValues((current) => ({ ...current, landAreaM2: event.target.value }))} placeholder={isHouse ? "300" : "No aplica"} type="number" value={values.landAreaM2} />
