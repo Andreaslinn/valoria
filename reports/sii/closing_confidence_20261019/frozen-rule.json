@@ -1,0 +1,331 @@
+{
+  "protocol": {
+    "version": "sii-confidence-2025h2-v1",
+    "validation_start": "2025-07-01",
+    "validation_end_exclusive": "2026-01-01",
+    "pool_end_exclusive": "2025-07-01",
+    "location": "building>=5; else block_including_building>=5; else commune",
+    "age_bands": [
+      "0-9",
+      "10-19",
+      "20-39",
+      "40+"
+    ],
+    "relative_iqr_upper_bounds": [
+      0.1,
+      0.2,
+      0.35
+    ],
+    "relative_iqr": "(P75-P25)/median",
+    "minimum_validation_cases_per_cell": 30,
+    "maximum_validation_mdape_pct": 10.0,
+    "rule": "trust iff successful prediction and fixed cell has n>=30 and 2025H2 MdAPE<=10%; otherwise abstain",
+    "selection": "No search over boundaries, no commune-specific rules, no holdout input"
+  },
+  "allowed_cells": [
+    "block5/0-9/0-10",
+    "block5/0-9/10-20",
+    "block5/0-9/20-35",
+    "block5/10-19/0-10",
+    "block5/10-19/10-20",
+    "building5/0-9/0-10",
+    "building5/0-9/10-20",
+    "building5/10-19/0-10",
+    "building5/20-39/10-20",
+    "commune/10-19/0-10"
+  ],
+  "validation_cells": [
+    {
+      "cell": "block5/0-9/0-10",
+      "n": 73,
+      "mdape_pct": 7.089807096769918,
+      "trusted": true
+    },
+    {
+      "cell": "block5/0-9/10-20",
+      "n": 75,
+      "mdape_pct": 9.523237299846787,
+      "trusted": true
+    },
+    {
+      "cell": "block5/0-9/20-35",
+      "n": 97,
+      "mdape_pct": 7.8947368421052655,
+      "trusted": true
+    },
+    {
+      "cell": "block5/0-9/35+",
+      "n": 44,
+      "mdape_pct": 15.264946858667372,
+      "trusted": false
+    },
+    {
+      "cell": "block5/10-19/0-10",
+      "n": 31,
+      "mdape_pct": 6.6544566544566415,
+      "trusted": true
+    },
+    {
+      "cell": "block5/10-19/10-20",
+      "n": 68,
+      "mdape_pct": 7.336497890295352,
+      "trusted": true
+    },
+    {
+      "cell": "block5/10-19/20-35",
+      "n": 91,
+      "mdape_pct": 17.26321722581028,
+      "trusted": false
+    },
+    {
+      "cell": "block5/10-19/35+",
+      "n": 86,
+      "mdape_pct": 14.36674983473013,
+      "trusted": false
+    },
+    {
+      "cell": "block5/20-39/0-10",
+      "n": 17,
+      "mdape_pct": 12.069175496285467,
+      "trusted": false
+    },
+    {
+      "cell": "block5/20-39/10-20",
+      "n": 58,
+      "mdape_pct": 10.850906953659978,
+      "trusted": false
+    },
+    {
+      "cell": "block5/20-39/20-35",
+      "n": 83,
+      "mdape_pct": 12.26660558863949,
+      "trusted": false
+    },
+    {
+      "cell": "block5/20-39/35+",
+      "n": 75,
+      "mdape_pct": 17.10769230769231,
+      "trusted": false
+    },
+    {
+      "cell": "block5/40+/0-10",
+      "n": 11,
+      "mdape_pct": 7.790490301413033,
+      "trusted": false
+    },
+    {
+      "cell": "block5/40+/10-20",
+      "n": 54,
+      "mdape_pct": 10.193121693121698,
+      "trusted": false
+    },
+    {
+      "cell": "block5/40+/20-35",
+      "n": 50,
+      "mdape_pct": 12.531091293128826,
+      "trusted": false
+    },
+    {
+      "cell": "block5/40+/35+",
+      "n": 51,
+      "mdape_pct": 17.473517159293795,
+      "trusted": false
+    },
+    {
+      "cell": "building5/0-9/0-10",
+      "n": 2349,
+      "mdape_pct": 4.549296856989171,
+      "trusted": true
+    },
+    {
+      "cell": "building5/0-9/10-20",
+      "n": 1791,
+      "mdape_pct": 6.804454584552532,
+      "trusted": true
+    },
+    {
+      "cell": "building5/0-9/20-35",
+      "n": 510,
+      "mdape_pct": 10.275614221224933,
+      "trusted": false
+    },
+    {
+      "cell": "building5/0-9/35+",
+      "n": 250,
+      "mdape_pct": 19.09644900325328,
+      "trusted": false
+    },
+    {
+      "cell": "building5/10-19/0-10",
+      "n": 66,
+      "mdape_pct": 9.437663670059386,
+      "trusted": true
+    },
+    {
+      "cell": "building5/10-19/10-20",
+      "n": 201,
+      "mdape_pct": 11.161731207289293,
+      "trusted": false
+    },
+    {
+      "cell": "building5/10-19/20-35",
+      "n": 295,
+      "mdape_pct": 14.146939264909264,
+      "trusted": false
+    },
+    {
+      "cell": "building5/10-19/35+",
+      "n": 178,
+      "mdape_pct": 16.30475537096845,
+      "trusted": false
+    },
+    {
+      "cell": "building5/20-39/0-10",
+      "n": 16,
+      "mdape_pct": 12.418305389308326,
+      "trusted": false
+    },
+    {
+      "cell": "building5/20-39/10-20",
+      "n": 41,
+      "mdape_pct": 8.8485115526594,
+      "trusted": true
+    },
+    {
+      "cell": "building5/20-39/20-35",
+      "n": 54,
+      "mdape_pct": 12.634041462805477,
+      "trusted": false
+    },
+    {
+      "cell": "building5/20-39/35+",
+      "n": 54,
+      "mdape_pct": 12.398379001851378,
+      "trusted": false
+    },
+    {
+      "cell": "building5/40+/0-10",
+      "n": 2,
+      "mdape_pct": 3.4422143022817986,
+      "trusted": false
+    },
+    {
+      "cell": "building5/40+/10-20",
+      "n": 10,
+      "mdape_pct": 10.902651227774719,
+      "trusted": false
+    },
+    {
+      "cell": "building5/40+/20-35",
+      "n": 13,
+      "mdape_pct": 28.028309866070302,
+      "trusted": false
+    },
+    {
+      "cell": "building5/40+/35+",
+      "n": 14,
+      "mdape_pct": 21.84433042144306,
+      "trusted": false
+    },
+    {
+      "cell": "commune/0-9/0-10",
+      "n": 209,
+      "mdape_pct": 11.875000000000002,
+      "trusted": false
+    },
+    {
+      "cell": "commune/0-9/10-20",
+      "n": 686,
+      "mdape_pct": 15.847309235511991,
+      "trusted": false
+    },
+    {
+      "cell": "commune/0-9/20-35",
+      "n": 553,
+      "mdape_pct": 14.981680591699774,
+      "trusted": false
+    },
+    {
+      "cell": "commune/0-9/35+",
+      "n": 275,
+      "mdape_pct": 17.470224719101125,
+      "trusted": false
+    },
+    {
+      "cell": "commune/10-19/0-10",
+      "n": 47,
+      "mdape_pct": 9.987249478482486,
+      "trusted": true
+    },
+    {
+      "cell": "commune/10-19/10-20",
+      "n": 346,
+      "mdape_pct": 10.660765073947664,
+      "trusted": false
+    },
+    {
+      "cell": "commune/10-19/20-35",
+      "n": 440,
+      "mdape_pct": 13.343028380045835,
+      "trusted": false
+    },
+    {
+      "cell": "commune/10-19/35+",
+      "n": 264,
+      "mdape_pct": 15.975751000537203,
+      "trusted": false
+    },
+    {
+      "cell": "commune/20-39/0-10",
+      "n": 45,
+      "mdape_pct": 15.387096774193553,
+      "trusted": false
+    },
+    {
+      "cell": "commune/20-39/10-20",
+      "n": 345,
+      "mdape_pct": 11.565656565656578,
+      "trusted": false
+    },
+    {
+      "cell": "commune/20-39/20-35",
+      "n": 534,
+      "mdape_pct": 14.866735403132864,
+      "trusted": false
+    },
+    {
+      "cell": "commune/20-39/35+",
+      "n": 768,
+      "mdape_pct": 21.78151839844412,
+      "trusted": false
+    },
+    {
+      "cell": "commune/40+/0-10",
+      "n": 13,
+      "mdape_pct": 22.05732620320855,
+      "trusted": false
+    },
+    {
+      "cell": "commune/40+/10-20",
+      "n": 188,
+      "mdape_pct": 19.28150540191411,
+      "trusted": false
+    },
+    {
+      "cell": "commune/40+/20-35",
+      "n": 522,
+      "mdape_pct": 20.715818033826636,
+      "trusted": false
+    },
+    {
+      "cell": "commune/40+/35+",
+      "n": 1267,
+      "mdape_pct": 23.91128473024825,
+      "trusted": false
+    }
+  ],
+  "frozen_at_utc": "2026-10-19T16:40:19.551924+00:00",
+  "input_sha256": "15e133ed4b3df931a34b85e579fa57c61449da5e1b4a2736f4731f032ba7e80d",
+  "protocol_sha256": "4eacb052844f615cd7488511cdb2fe93a20559195fd59388344864933b1689a0",
+  "knn_sha256": "0e29cf44711c2cab8da612ca42ade263ca4f6aa10c4914c57a8ccd75423bd54f"
+}

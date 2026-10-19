@@ -1,0 +1,28 @@
+{
+  "protocol": {
+    "version": "sii-confidence-2025h2-v1",
+    "validation_start": "2025-07-01",
+    "validation_end_exclusive": "2026-01-01",
+    "pool_end_exclusive": "2025-07-01",
+    "location": "building>=5; else block_including_building>=5; else commune",
+    "age_bands": [
+      "0-9",
+      "10-19",
+      "20-39",
+      "40+"
+    ],
+    "relative_iqr_upper_bounds": [
+      0.1,
+      0.2,
+      0.35
+    ],
+    "relative_iqr": "(P75-P25)/median",
+    "minimum_validation_cases_per_cell": 30,
+    "maximum_validation_mdape_pct": 10.0,
+    "rule": "trust iff successful prediction and fixed cell has n>=30 and 2025H2 MdAPE<=10%; otherwise abstain",
+    "selection": "No search over boundaries, no commune-specific rules, no holdout input"
+  },
+  "registered_at_utc": "2026-10-19T16:40:08.984277+00:00",
+  "input_sha256": "15e133ed4b3df931a34b85e579fa57c61449da5e1b4a2736f4731f032ba7e80d",
+  "knn_sha256": "0e29cf44711c2cab8da612ca42ade263ca4f6aa10c4914c57a8ccd75423bd54f"
+}

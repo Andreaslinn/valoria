@@ -1,0 +1,201 @@
+"""Run through python -B stdin in the existing API container; no writes."""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+from dataclasses import asdict
+from datetime import date
+from pathlib import Path
+from types import SimpleNamespace
+
+import psycopg
+from psycopg.rows import dict_row
+
+from domain.geocoding.quality import apply_geocoding_guardrails
+from domain.valuation.product_classification import classify_product
+from infrastructure.db.mappers import listing_from_orm
+
+
+def main():
+    parser = argparse.ArgumentParser(__doc__)
+    parser.add_argument("--production-readonly", action="store_true", required=True)
+    parser.add_argument("--as-of", type=date.fromisoformat, required=True)
+    args = parser.parse_args()
+    if os.environ.get("SII_BASELINE_READONLY", "false").lower() != "true":
+        raise SystemExit("SII_BASELINE_READONLY=true required before reading connection settings")
+    communes = [
+        "santiago",
+        "estacion_central",
+        "providencia",
+        "nunoa",
+        "las_condes",
+        "la_florida",
+        "vitacura",
+        "san_miguel",
+    ]
+    dsn = re.sub(
+        r"^postgres(?:ql)?\+(?:asyncpg|psycopg)://", "postgresql://", os.environ["DATABASE_URL"]
+    )
+    with psycopg.connect(
+        dsn,
+        row_factory=dict_row,
+        connect_timeout=10,
+        options="-c default_transaction_read_only=on -c statement_timeout=20000 -c lock_timeout=1000 -c timezone=UTC",
+        application_name="sii_canonical_baseline_readonly",
+    ) as c:
+        c.read_only = True
+        c.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        control = c.execute(
+            "SELECT current_setting('transaction_read_only') AS ro,transaction_timestamp() AS as_of"
+        ).fetchone()
+        assert control["ro"] == "on"
+        select = """SELECT id,property_id,source,external_id,title,url,comuna,property_type,
+            m2,built_area_m2,land_area_m2,usable_area_m2,bedrooms,bathrooms,parking,lat,lon,
+            geocode_precision,price_clp,price_uf,price_currency,price_uf_confidence,price_uf_source,
+            price_recovery_method,status,fingerprint,raw_metadata,scraped_at,last_seen_at,
+            last_refresh_attempted_at,last_refresh_status
+            FROM listings WHERE status='active' AND comuna=%s AND property_type=%s"""
+        rows = []
+        for commune in communes:
+            for kind in ("apartment", "house"):
+                # Match the current repository filters and its unspecified database
+                # order; do not introduce a new price/ID ranking for score ties.
+                rows.extend(c.execute(select, (commune, kind)).fetchall())
+        uf = c.execute(
+            "SELECT date,value_clp,source,fetched_at FROM uf_rates WHERE date=%s", (args.as_of,)
+        ).fetchone()
+        calendar_uf = c.execute(
+            "SELECT date,value,source,fetched_at FROM public.ingestion_uf_calendar WHERE date=%s",
+            (args.as_of,),
+        ).fetchone()
+        c.rollback()
+    groups = {}
+    for row in rows:
+        listing = listing_from_orm(SimpleNamespace(**row))
+        groups.setdefault((listing.comuna, listing.property_type), []).append(listing)
+    entities = []
+    shadow = []
+    # Mapper enrichment occurs before removing text/contact payloads. The price engine
+    # receives only the projection used for native UF provenance, time and geo signals.
+    keys = {
+        "price_uf",
+        "price_uf_source",
+        "price_recovery_method",
+        "price_conversion_source",
+        "currency_original",
+        "price_currency",
+        "currency",
+        "updated_at",
+        "last_updated_at",
+        "scraped_at",
+        "geo_signals",
+        "geo_microzone_tokens",
+        "nearby_metro",
+        "nearby_avenue",
+        "neighborhood_hint",
+        "intersection_hint",
+        "microzone_confidence",
+        "microzone_reason",
+        "geocode_source",
+        "geocode_precision",
+        "coordinates_precision",
+        "geocoding",
+        "latitude",
+        "longitude",
+    }
+    product_hints = {
+        "standard_residential": "residencial",
+        "unknown": "",
+        "land_or_site": "venta sitio",
+        "demolition_candidate": "para demoler",
+        "needs_remodeling": "requiere remodelacion",
+        "commercial_use": "local comercial",
+        "investment_or_income": "ideal inversion",
+        "multi_unit": "dos casas",
+    }
+    for group in groups.values():
+        guarded = apply_geocoding_guardrails(group)
+        if calendar_uf:
+            from decimal import Decimal
+
+            from core.entities.listing import Property
+            from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine
+            from domain.valuation.engines.contracts import EngineContext, EngineRequest
+
+            for area in (35, 60, 100, 150):
+                item = guarded[0]
+                target = Property(
+                    id=None,
+                    comuna=item.comuna,
+                    m2=area,
+                    bedrooms=0,
+                    bathrooms=0,
+                    parking=0,
+                    property_type=item.property_type,
+                    built_area_m2=area,
+                    usable_area_m2=area if item.property_type == "apartment" else None,
+                )
+                result = ComparablesCanonicalEngine(
+                    name="comparables_canonical_outliers", variant="outliers"
+                ).valuate(
+                    EngineRequest(published_price_provided=False),
+                    EngineContext(
+                        target=target,
+                        candidates=guarded,
+                        uf_to_clp=Decimal(str(calendar_uf["value"])),
+                    ),
+                )
+                shadow.append(
+                    {
+                        "comuna": item.comuna,
+                        "kind": item.property_type,
+                        "area": area,
+                        "status": result.status,
+                        "value_uf": str(result.estimated_price_uf)
+                        if result.estimated_price_uf is not None
+                        else None,
+                    }
+                )
+        for item in guarded:
+            value = asdict(item)
+            value["raw_metadata"] = {k: v for k, v in item.raw_metadata.items() if k in keys}
+            evidence = classify_product(item)
+            # The robust reference pool consumes product class even in the outliers
+            # variant. Retain that class using generic text, not source descriptions.
+            value["raw_metadata"]["product_class_hint"] = product_hints[evidence.product_class]
+            # Source URLs, external IDs and descriptive titles are not needed for
+            # monetary estimates once mapper/type enrichment is complete.
+            value["title"] = ""
+            value["url"] = None
+            value["external_id"] = None
+            entities.append(value)
+    paths = [
+        "services/valuation.py",
+        "domain/valuation/engines/canonical_comparables.py",
+        "domain/valuation/scoring.py",
+        "domain/valuation/robust_price_m2.py",
+    ]
+    hashes = {
+        p: hashlib.sha256(Path(p).read_bytes().replace(b"\r\n", b"\n")).hexdigest() for p in paths
+    }
+    print(
+        json.dumps(
+            {
+                "as_of_utc": str(control["as_of"]),
+                "transaction_read_only": True,
+                "uf": uf,
+                "calendar_uf": calendar_uf,
+                "code_sha256": hashes,
+                "rows": entities,
+                "full_input_shadow_checks": shadow,
+            },
+            default=str,
+            ensure_ascii=False,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -86,3 +86,7 @@ was changed, so flag-off and no-address behavior follow the identical path.
 Validation: 105 selected unit/regression tests passed, Ruff and diff checks
 passed. The full project suite was not run. Focused tests include real canonical
 service paths and endpoint contracts as well as the new offline estimator.
+
+The follow-up canonical comparison and confidence rule, fitted only on 2025H2,
+are documented in [sii_closing_confidence.md](sii_closing_confidence.md). Their
+aggregate report is `reports/sii/closing_confidence_20261019/report.md`.
