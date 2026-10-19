@@ -1,0 +1,2389 @@
+{
+  "enabled": true,
+  "status": "ok",
+  "jobs": {
+    "sii_f2890_fetch": {
+      "job": "sii_f2890_fetch",
+      "started_at": "2026-10-19 15:25:12.545898+00:00",
+      "finished_at": "2026-10-19 15:25:12.952694+00:00",
+      "successful": true,
+      "counters": {
+        "sha256": "eae2fbd4acd72eb9f4840e8f33b4053363a1216bdeb111fad590364960279cb9",
+        "version": "F2890_01-10-2026.zip",
+        "rows_new": 0,
+        "files_new": 0
+      },
+      "error": null
+    },
+    "sii_catastro_import": {
+      "job": "sii_catastro_import",
+      "started_at": "2026-10-19 15:25:03.256595+00:00",
+      "finished_at": "2026-10-19 15:25:12.469063+00:00",
+      "successful": true,
+      "counters": {
+        "comunas": {
+          "13101": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "13101": 368523,
+              "13134": 89509,
+              "13135": 119634
+            },
+            "comuna_archivo": 13101,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "SANTIAGO"
+          },
+          "14157": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "14157": 113683
+            },
+            "comuna_archivo": 14157,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "ESTACION CENTRAL"
+          },
+          "14158": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "14158": 63478
+            },
+            "comuna_archivo": 14158,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "HUECHURABA"
+          },
+          "15103": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "15103": 251802
+            },
+            "comuna_archivo": 15103,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "PROVIDENCIA"
+          },
+          "15105": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "15105": 301025
+            },
+            "comuna_archivo": 15105,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "ÑUÑOA"
+          },
+          "15108": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "15108": 486960
+            },
+            "comuna_archivo": 15108,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "LAS CONDES"
+          },
+          "15128": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "15128": 253243
+            },
+            "comuna_archivo": 15128,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "LA FLORIDA"
+          },
+          "15132": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "15132": 70561
+            },
+            "comuna_archivo": 15132,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "LA REINA"
+          },
+          "15160": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "15160": 154333
+            },
+            "comuna_archivo": 15160,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "VITACURA"
+          },
+          "15161": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "15161": 101009
+            },
+            "comuna_archivo": 15161,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "LO BARNECHEA"
+          },
+          "16106": {
+            "semestre": "2026-2",
+            "codigos_filas": {
+              "16106": 139410
+            },
+            "comuna_archivo": 16106,
+            "nombre_en_fila": null,
+            "nombre_tabla_oficial": "SAN MIGUEL"
+          }
+        },
+        "rows_new": 0,
+        "files_new": 0,
+        "files_unchanged": 22
+      },
+      "error": null
+    },
+    "sii_rebuild": {
+      "job": "sii_rebuild",
+      "started_at": "2026-10-19 15:25:13.005944+00:00",
+      "finished_at": "2026-10-19 15:29:35.137784+00:00",
+      "successful": true,
+      "counters": {
+        "geo": {
+          "status": "pending_local_osm_extract",
+          "rows_new": 0,
+          "public_nominatim_requests": 0
+        },
+        "rows_new": 0,
+        "rows_current": 2366069
+      },
+      "error": null
+    }
+  },
+  "f2890": {
+    "nombre": "F2890_01-10-2026.zip",
+    "fecha": "2026-10-01",
+    "hash": "eae2fbd4acd72eb9f4840e8f33b4053363a1216bdeb111fad590364960279cb9",
+    "filas": 9199555,
+    "filas_seleccionadas": 2366069,
+    "cargado_en": "2026-10-17 17:16:42.760750+00:00"
+  },
+  "catastro": [
+    {
+      "comuna": 13101,
+      "semestre": "2026-2",
+      "hash": "129a7cddd7c99ca1afb01b8d7463ffedbcd93f80ebe3cb95863f45ef7f158756",
+      "filas": 424331,
+      "nombre": "BRTMPCATASN_2026_2_13101",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_13101",
+      "lineas_hash": "f9a6af70e31378948a667c857271fcd8b2286c32200e4ae4fde73983fbd27be7",
+      "role_source": 1
+    },
+    {
+      "comuna": 14157,
+      "semestre": "2026-2",
+      "hash": "fdb462c0f39ab198867f8e7ca01030de6b8b082d064e8f768f512dc16621d8a2",
+      "filas": 99114,
+      "nombre": "BRTMPCATASN_2026_2_14157",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_14157",
+      "lineas_hash": "1f38886f7be160482566f634b22e1d5591c999ad4e291fb43e51de95894e4b7c",
+      "role_source": 2
+    },
+    {
+      "comuna": 14158,
+      "semestre": "2026-2",
+      "hash": "decae9f8baafd2680fedcee8b442e6825d04705b64964b8be47d2a08a057f807",
+      "filas": 46419,
+      "nombre": "BRTMPCATASN_2026_2_14158",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_14158",
+      "lineas_hash": "1c65f672f9d334f3f9001aac284447493a39d66d289ba0d5890d74e408cbc69b",
+      "role_source": 3
+    },
+    {
+      "comuna": 15103,
+      "semestre": "2026-2",
+      "hash": "78e798b15b289c642dc51c15936bf902d97f15702bdeb5e112a850fcb0ce0e5b",
+      "filas": 219101,
+      "nombre": "BRTMPCATASN_2026_2_15103",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_15103",
+      "lineas_hash": "066707e31fbf6a1771e9e335b96de270ba41d1db06e5d5e2f926f53c2619e9b7",
+      "role_source": 4
+    },
+    {
+      "comuna": 15105,
+      "semestre": "2026-2",
+      "hash": "ac8e5e627ab398c86d54cde34f344e4130e4ec0cf188871e0911efa8feb83cd2",
+      "filas": 263270,
+      "nombre": "BRTMPCATASN_2026_2_15105",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_15105",
+      "lineas_hash": "e6e0ea5feece7e446c12291eb9d6a07361327b529174565947d5286d857594ed",
+      "role_source": 5
+    },
+    {
+      "comuna": 15108,
+      "semestre": "2026-2",
+      "hash": "08932fb33265647bce90870d984d1f4b0787ea8496b467e8ea7b9b136f184334",
+      "filas": 395889,
+      "nombre": "BRTMPCATASN_2026_2_15108",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_15108",
+      "lineas_hash": "c0fc893bac4f0a9f670f5209d6e74642d5a0fcd020cd41905a9a2f988f0bda6d",
+      "role_source": 6
+    },
+    {
+      "comuna": 15128,
+      "semestre": "2026-2",
+      "hash": "ac7e6568cf5d8064da820e0ea3bdfb3a19701e707925e03301626d332846b71a",
+      "filas": 186772,
+      "nombre": "BRTMPCATASN_2026_2_15128",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_15128",
+      "lineas_hash": "001424bab30e097866ca465c2f1cda106ebafd35df2a69d456efa5e5bab05e09",
+      "role_source": 7
+    },
+    {
+      "comuna": 15132,
+      "semestre": "2026-2",
+      "hash": "d93f48f21081849c91e1832558583158e37d3c1c16805ee0156d7b0dce76076b",
+      "filas": 42601,
+      "nombre": "BRTMPCATASN_2026_2_15132",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_15132",
+      "lineas_hash": "4fe67dfa4daaaf17b6f2012ff7bffddd3c66fec4c89975764bf8e2e56d7a3a7e",
+      "role_source": 8
+    },
+    {
+      "comuna": 15160,
+      "semestre": "2026-2",
+      "hash": "62428dac31e5fcfd8a24b5388ba3f129a136c3d2c422a9315f293ac727b81510",
+      "filas": 115264,
+      "nombre": "BRTMPCATASN_2026_2_15160",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_15160",
+      "lineas_hash": "b42c2ae2477542bb8048f03f624b45e432784780772991999c11799e6d30e2b7",
+      "role_source": 9
+    },
+    {
+      "comuna": 15161,
+      "semestre": "2026-2",
+      "hash": "11395c9dcba98a0d5b4d1b8b14e020b588ef5b3b463e093b1bfcf9c521385ec2",
+      "filas": 74676,
+      "nombre": "BRTMPCATASN_2026_2_15161",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_15161",
+      "lineas_hash": "e52c9489bf071b5e9e8738fcad17c5e5dcd8c2af91c64abf541553dfaa22244a",
+      "role_source": 10
+    },
+    {
+      "comuna": 16106,
+      "semestre": "2026-2",
+      "hash": "ee7dfa3546e7075419c477698b4937ad7c9815357eab358d4c4a118b1546c37f",
+      "filas": 117147,
+      "nombre": "BRTMPCATASN_2026_2_16106",
+      "lineas_nombre": "BRTMPCATASNL_2026_2_16106",
+      "lineas_hash": "f7b080c69c516f51f901f36dae67fa48664806fe5a89a747aae5321b7104fda6",
+      "role_source": 11
+    }
+  ],
+  "counts": {
+    "source_file": 23,
+    "predio": 1984584,
+    "linea_construccion": 2513170,
+    "transferencia_raw": 2366069,
+    "transferencia": 2366069,
+    "geo_predio": 0
+  },
+  "benchmark": {
+    "desde_fi": "2024-01-01",
+    "santiago_sii": 13101,
+    "deptos_8_comunas": 55177,
+    "esperado": 55156,
+    "conteo_cumple": true,
+    "medianas_cumplen": true,
+    "join_cumple": true,
+    "join_comunas_evaluadas": [
+      13101,
+      14157,
+      15103,
+      15105,
+      15108,
+      15128,
+      15132,
+      15160,
+      15161,
+      16106
+    ],
+    "join_brechas_fuente": [
+      {
+        "comuna": 14158,
+        "manzanas_ausentes": [
+          3115,
+          3116
+        ],
+        "criterio_aceptacion": false
+      }
+    ],
+    "deptos_8_comunas_sobre_300": 9
+  },
+  "por_comuna": [
+    {
+      "comuna": 13101,
+      "observaciones": 27831,
+      "deduplicadas": 27254,
+      "join_pct": "93.5752550084391282",
+      "deptos": 11395,
+      "casas": 389,
+      "deptos_sobre_300": 4,
+      "mediana_depto_uf_m2_h": 55.12820512820513,
+      "mediana_depto_uf_m2_cerrado": 56.30452608967259,
+      "mediana_casa_uf_m2_cerrado": 42.57279671515112,
+      "nombre_tabla_oficial": "SANTIAGO",
+      "mediana_esperada": 55.1,
+      "desviacion_pct": 0.05118898040858966,
+      "mediana_cumple": true,
+      "geo": {
+        "comuna": 13101,
+        "predios": 276770,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 13134,
+      "observaciones": 8310,
+      "deduplicadas": 8197,
+      "join_pct": "87.7028181041844577",
+      "deptos": 2516,
+      "casas": 409,
+      "deptos_sobre_300": 0,
+      "mediana_depto_uf_m2_h": 56.583288359604964,
+      "mediana_depto_uf_m2_cerrado": 57.284640771584314,
+      "mediana_casa_uf_m2_cerrado": 34.51308655955098,
+      "nombre_tabla_oficial": "SANTIAGO OESTE",
+      "geo": {
+        "comuna": 13134,
+        "predios": 64529,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 13135,
+      "observaciones": 9426,
+      "deduplicadas": 9314,
+      "join_pct": "97.0474554434185098",
+      "deptos": 3559,
+      "casas": 636,
+      "deptos_sobre_300": 1,
+      "mediana_depto_uf_m2_h": 68.37865384615385,
+      "mediana_depto_uf_m2_cerrado": 68.72340425531915,
+      "mediana_casa_uf_m2_cerrado": 36.21266620197938,
+      "nombre_tabla_oficial": "SANTIAGO SUR",
+      "geo": {
+        "comuna": 13135,
+        "predios": 83032,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 14157,
+      "observaciones": 8436,
+      "deduplicadas": 8426,
+      "join_pct": "99.9881319724661761",
+      "deptos": 3147,
+      "casas": 767,
+      "deptos_sobre_300": 3,
+      "mediana_depto_uf_m2_h": 47.82608695652174,
+      "mediana_depto_uf_m2_cerrado": 47.82608695652174,
+      "mediana_casa_uf_m2_cerrado": 30.068846626913256,
+      "nombre_tabla_oficial": "ESTACION CENTRAL",
+      "mediana_esperada": 47.8,
+      "desviacion_pct": 0.05457522284884053,
+      "mediana_cumple": true,
+      "geo": {
+        "comuna": 14157,
+        "predios": 99114,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 14158,
+      "observaciones": 6706,
+      "deduplicadas": 6564,
+      "join_pct": "81.5965874466788544",
+      "deptos": 788,
+      "casas": 1218,
+      "deptos_sobre_300": 0,
+      "mediana_depto_uf_m2_h": 56.44443901035673,
+      "mediana_depto_uf_m2_cerrado": 57.07936507936508,
+      "mediana_casa_uf_m2_cerrado": 53.51862789641072,
+      "nombre_tabla_oficial": "HUECHURABA",
+      "geo": {
+        "comuna": 14158,
+        "predios": 46419,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 15103,
+      "observaciones": 22140,
+      "deduplicadas": 21751,
+      "join_pct": "94.1382005425037929",
+      "deptos": 5015,
+      "casas": 628,
+      "deptos_sobre_300": 0,
+      "mediana_depto_uf_m2_h": 76.92307692307692,
+      "mediana_depto_uf_m2_cerrado": 76.92307692307692,
+      "mediana_casa_uf_m2_cerrado": 64.11417350665477,
+      "nombre_tabla_oficial": "PROVIDENCIA",
+      "mediana_esperada": 76.9,
+      "desviacion_pct": 0.030009002700803755,
+      "mediana_cumple": true,
+      "geo": {
+        "comuna": 15103,
+        "predios": 219101,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 15105,
+      "observaciones": 39441,
+      "deduplicadas": 38925,
+      "join_pct": "98.3044315992292871",
+      "deptos": 13576,
+      "casas": 1337,
+      "deptos_sobre_300": 1,
+      "mediana_depto_uf_m2_h": 80.31202380952381,
+      "mediana_depto_uf_m2_cerrado": 80.31202380952381,
+      "mediana_casa_uf_m2_cerrado": 51.470588235294116,
+      "nombre_tabla_oficial": "ÑUÑOA",
+      "mediana_esperada": 80.3,
+      "desviacion_pct": 0.014973610864021936,
+      "mediana_cumple": true,
+      "geo": {
+        "comuna": 15105,
+        "predios": 263270,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 15108,
+      "observaciones": 39196,
+      "deduplicadas": 38786,
+      "join_pct": "98.2828855772701490",
+      "deptos": 7277,
+      "casas": 2585,
+      "deptos_sobre_300": 1,
+      "mediana_depto_uf_m2_h": 87.69491525423729,
+      "mediana_depto_uf_m2_cerrado": 87.69491525423729,
+      "mediana_casa_uf_m2_cerrado": 90.66666666666667,
+      "nombre_tabla_oficial": "LAS CONDES",
+      "mediana_esperada": 87.7,
+      "desviacion_pct": -0.0057978857043505805,
+      "mediana_cumple": true,
+      "geo": {
+        "comuna": 15108,
+        "predios": 395889,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 15128,
+      "observaciones": 28413,
+      "deduplicadas": 28373,
+      "join_pct": "98.3646424417580094",
+      "deptos": 9492,
+      "casas": 3843,
+      "deptos_sobre_300": 0,
+      "mediana_depto_uf_m2_h": 73.20845790816327,
+      "mediana_depto_uf_m2_cerrado": 73.20845790816327,
+      "mediana_casa_uf_m2_cerrado": 37.19423076923077,
+      "nombre_tabla_oficial": "LA FLORIDA",
+      "mediana_esperada": 73.2,
+      "desviacion_pct": 0.011554519348733194,
+      "mediana_cumple": true,
+      "geo": {
+        "comuna": 15128,
+        "predios": 186772,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 15132,
+      "observaciones": 3818,
+      "deduplicadas": 3775,
+      "join_pct": "99.8940397350993377",
+      "deptos": 538,
+      "casas": 1231,
+      "deptos_sobre_300": 0,
+      "mediana_depto_uf_m2_h": 79.0,
+      "mediana_depto_uf_m2_cerrado": 79.0,
+      "mediana_casa_uf_m2_cerrado": 72.80575539568345,
+      "nombre_tabla_oficial": "LA REINA",
+      "geo": {
+        "comuna": 15132,
+        "predios": 42601,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 15160,
+      "observaciones": 14068,
+      "deduplicadas": 13847,
+      "join_pct": "99.2706001299920560",
+      "deptos": 2210,
+      "casas": 1198,
+      "deptos_sobre_300": 0,
+      "mediana_depto_uf_m2_h": 96.00494865094798,
+      "mediana_depto_uf_m2_cerrado": 96.0306636161659,
+      "mediana_casa_uf_m2_cerrado": 106.19302706547387,
+      "nombre_tabla_oficial": "VITACURA",
+      "mediana_esperada": 95.9,
+      "desviacion_pct": 0.109435506723643,
+      "mediana_cumple": true,
+      "geo": {
+        "comuna": 15160,
+        "predios": 115264,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 15161,
+      "observaciones": 10134,
+      "deduplicadas": 10003,
+      "join_pct": "96.9709087273817855",
+      "deptos": 1512,
+      "casas": 1597,
+      "deptos_sobre_300": 0,
+      "mediana_depto_uf_m2_h": 89.86553131806481,
+      "mediana_depto_uf_m2_cerrado": 89.86553131806481,
+      "mediana_casa_uf_m2_cerrado": 91.05263157894737,
+      "nombre_tabla_oficial": "LO BARNECHEA",
+      "geo": {
+        "comuna": 15161,
+        "predios": 74676,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    },
+    {
+      "comuna": 16106,
+      "observaciones": 8207,
+      "deduplicadas": 8197,
+      "join_pct": "99.8170062217884592",
+      "deptos": 3065,
+      "casas": 483,
+      "deptos_sobre_300": 0,
+      "mediana_depto_uf_m2_h": 51.07179023266312,
+      "mediana_depto_uf_m2_cerrado": 51.07179023266312,
+      "mediana_casa_uf_m2_cerrado": 34.48275862068966,
+      "nombre_tabla_oficial": "SAN MIGUEL",
+      "mediana_esperada": 51.1,
+      "desviacion_pct": -0.05520502414262385,
+      "mediana_cumple": true,
+      "geo": {
+        "comuna": 16106,
+        "predios": 117147,
+        "geocodificados": 0,
+        "osm_exacto": 0,
+        "interpolado": 0,
+        "errata_corregida": 0,
+        "osm_exacto_pct": 0.0,
+        "interpolado_pct": 0.0,
+        "errata_corregida_pct": 0.0
+      }
+    }
+  ],
+  "santiago_completo_por_comuna_ine": {
+    "comuna_ine": 13101,
+    "observaciones": 45567,
+    "deduplicadas": 44765,
+    "join_pct": "93.2223835585837150",
+    "deptos": 17470,
+    "casas": 1434,
+    "deptos_sobre_300": 5,
+    "mediana_depto_uf_m2_h": 57.89473684210526,
+    "mediana_depto_uf_m2_cerrado": 58.894444444444446,
+    "mediana_casa_uf_m2_cerrado": 38.01620686800514
+  },
+  "exclusiones": [
+    {
+      "comuna": 13101,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 517,
+      "ejemplos": [
+        "13101-367-5",
+        "13101-367-45",
+        "13101-367-84",
+        "13101-367-105",
+        "13101-367-147"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "duplicado_rol_fecha",
+      "n": 577,
+      "ejemplos": [
+        "13101-13-350",
+        "13101-13-694",
+        "13101-13-744",
+        "13101-16-238",
+        "13101-16-268"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "lote_10_deptos",
+      "n": 721,
+      "ejemplos": [
+        "13101-140-833",
+        "13101-140-834",
+        "13101-140-835",
+        "13101-140-838",
+        "13101-140-840"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "m2_fuera_20_300",
+      "n": 205,
+      "ejemplos": [
+        "13101-14-253",
+        "13101-122-198",
+        "13101-124-78",
+        "13101-124-78",
+        "13101-124-83"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 235,
+      "ejemplos": [
+        "13101-49-159",
+        "13101-49-251",
+        "13101-111-223",
+        "13101-122-454",
+        "13101-122-516"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 740,
+      "ejemplos": [
+        "13101-2-313",
+        "13101-13-350",
+        "13101-13-350",
+        "13101-44-169",
+        "13101-44-176"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "sin_catastro",
+      "n": 1752,
+      "ejemplos": [
+        "13101-201-310",
+        "13101-201-322",
+        "13101-201-323",
+        "13101-201-329",
+        "13101-233-580"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "sin_m2",
+      "n": 4,
+      "ejemplos": [
+        "13101-1-99",
+        "13101-46-28",
+        "13101-478-144",
+        "13101-607-32"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "sin_monto",
+      "n": 1278,
+      "ejemplos": [
+        "13101-2-330",
+        "13101-13-744",
+        "13101-13-878",
+        "13101-33-115",
+        "13101-44-240"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 14,
+      "ejemplos": [
+        "13101-2-11",
+        "13101-37-39",
+        "13101-103-260",
+        "13101-124-75",
+        "13101-134-129"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "tipo_no_comparable",
+      "n": 11393,
+      "ejemplos": [
+        "13101-1-22",
+        "13101-1-83",
+        "13101-1-114",
+        "13101-1-123",
+        "13101-2-61"
+      ]
+    },
+    {
+      "comuna": 13101,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 278,
+      "ejemplos": [
+        "13101-2-30",
+        "13101-2-204",
+        "13101-2-214",
+        "13101-2-310",
+        "13101-6-5"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 634,
+      "ejemplos": [
+        "13134-301-31",
+        "13134-301-33",
+        "13134-301-37",
+        "13134-301-51",
+        "13134-301-67"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "duplicado_rol_fecha",
+      "n": 113,
+      "ejemplos": [
+        "13134-20-49",
+        "13134-23-122",
+        "13134-23-155",
+        "13134-24-260",
+        "13134-24-272"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "lote_10_deptos",
+      "n": 396,
+      "ejemplos": [
+        "13134-234-19",
+        "13134-234-20",
+        "13134-234-21",
+        "13134-234-22",
+        "13134-234-25"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "m2_fuera_20_300",
+      "n": 67,
+      "ejemplos": [
+        "13134-24-21",
+        "13134-234-18",
+        "13134-234-22",
+        "13134-234-26",
+        "13134-234-30"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 73,
+      "ejemplos": [
+        "13134-22-184",
+        "13134-22-192",
+        "13134-77-432",
+        "13134-77-447",
+        "13134-77-452"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 237,
+      "ejemplos": [
+        "13134-20-59",
+        "13134-20-353",
+        "13134-22-148",
+        "13134-23-149",
+        "13134-24-21"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "sin_catastro",
+      "n": 1008,
+      "ejemplos": [
+        "13134-38-556",
+        "13134-52-72",
+        "13134-52-77",
+        "13134-52-81",
+        "13134-52-84"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "sin_monto",
+      "n": 341,
+      "ejemplos": [
+        "13134-20-199",
+        "13134-20-429",
+        "13134-22-273",
+        "13134-22-350",
+        "13134-22-351"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 13,
+      "ejemplos": [
+        "13134-20-477",
+        "13134-47-324",
+        "13134-47-325",
+        "13134-163-104",
+        "13134-205-65"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "tipo_no_comparable",
+      "n": 2780,
+      "ejemplos": [
+        "13134-20-164",
+        "13134-20-172",
+        "13134-20-184",
+        "13134-20-199",
+        "13134-20-208"
+      ]
+    },
+    {
+      "comuna": 13134,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 276,
+      "ejemplos": [
+        "13134-25-6",
+        "13134-26-2",
+        "13134-29-6",
+        "13134-30-31",
+        "13134-34-27"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 393,
+      "ejemplos": [
+        "13135-2831-50",
+        "13135-2831-60",
+        "13135-2831-65",
+        "13135-2831-100",
+        "13135-2831-150"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "duplicado_rol_fecha",
+      "n": 112,
+      "ejemplos": [
+        "13135-2771-464",
+        "13135-2771-634",
+        "13135-2771-745",
+        "13135-2772-71",
+        "13135-2772-486"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "lote_10_deptos",
+      "n": 335,
+      "ejemplos": [
+        "13135-3389-568",
+        "13135-3389-569",
+        "13135-3389-571",
+        "13135-3389-572",
+        "13135-3389-573"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "m2_fuera_20_300",
+      "n": 34,
+      "ejemplos": [
+        "13135-2821-77",
+        "13135-2821-141",
+        "13135-2821-154",
+        "13135-2821-180",
+        "13135-2888-32"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 42,
+      "ejemplos": [
+        "13135-2771-145",
+        "13135-2771-238",
+        "13135-2771-278",
+        "13135-2772-598",
+        "13135-2772-602"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 258,
+      "ejemplos": [
+        "13135-2771-448",
+        "13135-2771-464",
+        "13135-2771-464",
+        "13135-2773-101",
+        "13135-2796-253"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "sin_catastro",
+      "n": 276,
+      "ejemplos": [
+        "13135-2786-10",
+        "13135-2808-260",
+        "13135-2808-263",
+        "13135-2808-264",
+        "13135-2808-268"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "sin_m2",
+      "n": 3,
+      "ejemplos": [
+        "13135-3079-34",
+        "13135-3079-34",
+        "13135-3186-15"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "sin_monto",
+      "n": 454,
+      "ejemplos": [
+        "13135-2771-590",
+        "13135-2771-634",
+        "13135-2771-634",
+        "13135-2771-745",
+        "13135-2771-753"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 6,
+      "ejemplos": [
+        "13135-3044-5",
+        "13135-3081-18",
+        "13135-3104-18",
+        "13135-3643-36",
+        "13135-3707-74"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "tipo_no_comparable",
+      "n": 3602,
+      "ejemplos": [
+        "13135-2771-502",
+        "13135-2771-507",
+        "13135-2771-528",
+        "13135-2771-530",
+        "13135-2771-536"
+      ]
+    },
+    {
+      "comuna": 13135,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 255,
+      "ejemplos": [
+        "13135-2772-157",
+        "13135-2782-28",
+        "13135-2783-25",
+        "13135-2784-9",
+        "13135-2786-9"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 4,
+      "ejemplos": [
+        "14157-597-12",
+        "14157-597-13",
+        "14157-597-48",
+        "14157-597-50"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "duplicado_rol_fecha",
+      "n": 10,
+      "ejemplos": [
+        "14157-395-205",
+        "14157-506-254",
+        "14157-543-294",
+        "14157-544-815",
+        "14157-605-272"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "lote_10_deptos",
+      "n": 1186,
+      "ejemplos": [
+        "14157-505-208",
+        "14157-505-209",
+        "14157-505-210",
+        "14157-505-211",
+        "14157-505-212"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "m2_fuera_20_300",
+      "n": 33,
+      "ejemplos": [
+        "14157-509-68",
+        "14157-528-99",
+        "14157-528-99",
+        "14157-528-191",
+        "14157-528-224"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 81,
+      "ejemplos": [
+        "14157-507-299",
+        "14157-507-299",
+        "14157-507-404",
+        "14157-507-405",
+        "14157-514-46"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 156,
+      "ejemplos": [
+        "14157-497-443",
+        "14157-497-505",
+        "14157-498-464",
+        "14157-504-56",
+        "14157-506-139"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "sin_catastro",
+      "n": 1,
+      "ejemplos": [
+        "14157-1025-7"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "sin_m2",
+      "n": 1,
+      "ejemplos": [
+        "14157-645-34"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "sin_monto",
+      "n": 258,
+      "ejemplos": [
+        "14157-251-19",
+        "14157-251-149",
+        "14157-251-366",
+        "14157-251-651",
+        "14157-251-689"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 10,
+      "ejemplos": [
+        "14157-640-33",
+        "14157-1775-21",
+        "14157-2221-15",
+        "14157-2604-18",
+        "14157-3465-64"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "tipo_no_comparable",
+      "n": 2639,
+      "ejemplos": [
+        "14157-251-16",
+        "14157-251-19",
+        "14157-251-19",
+        "14157-251-20",
+        "14157-251-26"
+      ]
+    },
+    {
+      "comuna": 14157,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 452,
+      "ejemplos": [
+        "14157-343-15",
+        "14157-344-12",
+        "14157-344-14",
+        "14157-344-17",
+        "14157-344-31"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 241,
+      "ejemplos": [
+        "14158-5-4",
+        "14158-5-5",
+        "14158-5-6",
+        "14158-60-129",
+        "14158-60-131"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "duplicado_rol_fecha",
+      "n": 142,
+      "ejemplos": [
+        "14158-16-27",
+        "14158-21-11",
+        "14158-23-44",
+        "14158-24-121",
+        "14158-26-24"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "lote_10_deptos",
+      "n": 131,
+      "ejemplos": [
+        "14158-4446-1",
+        "14158-4446-2",
+        "14158-4446-4",
+        "14158-4446-5",
+        "14158-4446-6"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 13,
+      "ejemplos": [
+        "14158-5-4",
+        "14158-5-5",
+        "14158-5-6",
+        "14158-102-201",
+        "14158-112-33"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 81,
+      "ejemplos": [
+        "14158-13-39",
+        "14158-13-48",
+        "14158-13-101",
+        "14158-64-183",
+        "14158-64-198"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "sin_catastro",
+      "n": 1208,
+      "ejemplos": [
+        "14158-33-1",
+        "14158-3110-6",
+        "14158-3115-1",
+        "14158-3115-2",
+        "14158-3115-3"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "sin_monto",
+      "n": 259,
+      "ejemplos": [
+        "14158-13-158",
+        "14158-13-228",
+        "14158-13-264",
+        "14158-13-296",
+        "14158-13-328"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 7,
+      "ejemplos": [
+        "14158-3-12",
+        "14158-4002-1",
+        "14158-4045-3",
+        "14158-4326-8",
+        "14158-4331-16"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "tipo_no_comparable",
+      "n": 2761,
+      "ejemplos": [
+        "14158-13-141",
+        "14158-13-142",
+        "14158-13-143",
+        "14158-13-144",
+        "14158-13-144"
+      ]
+    },
+    {
+      "comuna": 14158,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 222,
+      "ejemplos": [
+        "14158-16-27",
+        "14158-23-44",
+        "14158-40-11",
+        "14158-55-125",
+        "14158-55-238"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 4,
+      "ejemplos": [
+        "15103-4309-417",
+        "15103-4309-418",
+        "15103-4309-419",
+        "15103-4309-466"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "duplicado_rol_fecha",
+      "n": 389,
+      "ejemplos": [
+        "15103-19-272",
+        "15103-19-276",
+        "15103-20-603",
+        "15103-22-372",
+        "15103-25-15"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "lote_10_deptos",
+      "n": 620,
+      "ejemplos": [
+        "15103-17-960",
+        "15103-17-961",
+        "15103-17-962",
+        "15103-17-963",
+        "15103-17-964"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "m2_fuera_20_300",
+      "n": 14,
+      "ejemplos": [
+        "15103-17-393",
+        "15103-17-449",
+        "15103-130-177",
+        "15103-130-204",
+        "15103-130-204"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 19,
+      "ejemplos": [
+        "15103-12-200",
+        "15103-12-233",
+        "15103-287-18",
+        "15103-521-96",
+        "15103-521-190"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 761,
+      "ejemplos": [
+        "15103-12-94",
+        "15103-12-243",
+        "15103-16-412",
+        "15103-17-393",
+        "15103-19-185"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "sin_catastro",
+      "n": 1276,
+      "ejemplos": [
+        "15103-23-18",
+        "15103-405-1",
+        "15103-405-2",
+        "15103-405-3",
+        "15103-405-4"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "sin_m2",
+      "n": 3,
+      "ejemplos": [
+        "15103-517-73",
+        "15103-864-62",
+        "15103-917-20"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "sin_monto",
+      "n": 1749,
+      "ejemplos": [
+        "15103-12-331",
+        "15103-12-505",
+        "15103-12-637",
+        "15103-12-872",
+        "15103-16-538"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 10,
+      "ejemplos": [
+        "15103-406-19",
+        "15103-623-186",
+        "15103-644-197",
+        "15103-854-154",
+        "15103-929-119"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "tipo_no_comparable",
+      "n": 13554,
+      "ejemplos": [
+        "15103-12-82",
+        "15103-12-221",
+        "15103-12-405",
+        "15103-12-406",
+        "15103-12-413"
+      ]
+    },
+    {
+      "comuna": 15103,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 236,
+      "ejemplos": [
+        "15103-12-65",
+        "15103-12-65",
+        "15103-12-200",
+        "15103-12-233",
+        "15103-12-357"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "duplicado_rol_fecha",
+      "n": 516,
+      "ejemplos": [
+        "15105-4-333",
+        "15105-4-423",
+        "15105-4-552",
+        "15105-4-583",
+        "15105-4-584"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "lote_10_deptos",
+      "n": 2053,
+      "ejemplos": [
+        "15105-59-1",
+        "15105-59-2",
+        "15105-59-3",
+        "15105-59-4",
+        "15105-59-5"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "m2_fuera_20_300",
+      "n": 1,
+      "ejemplos": [
+        "15105-6303-96"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 66,
+      "ejemplos": [
+        "15105-2-508",
+        "15105-2-511",
+        "15105-2-518",
+        "15105-2-521",
+        "15105-10-172"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 1371,
+      "ejemplos": [
+        "15105-4-397",
+        "15105-5-375",
+        "15105-5-383",
+        "15105-9-198",
+        "15105-9-536"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "sin_catastro",
+      "n": 662,
+      "ejemplos": [
+        "15105-43-47",
+        "15105-43-47",
+        "15105-1262-407",
+        "15105-3000-2",
+        "15105-3001-619"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "sin_monto",
+      "n": 2267,
+      "ejemplos": [
+        "15105-3-52",
+        "15105-3-96",
+        "15105-3-438",
+        "15105-4-552",
+        "15105-4-583"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 6,
+      "ejemplos": [
+        "15105-1219-483",
+        "15105-5708-1",
+        "15105-6132-36",
+        "15105-6132-185",
+        "15105-6406-199"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "tipo_no_comparable",
+      "n": 19750,
+      "ejemplos": [
+        "15105-3-52",
+        "15105-3-76",
+        "15105-3-80",
+        "15105-3-96",
+        "15105-3-111"
+      ]
+    },
+    {
+      "comuna": 15105,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 437,
+      "ejemplos": [
+        "15105-13-17",
+        "15105-13-379",
+        "15105-23-155",
+        "15105-27-455",
+        "15105-32-102"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 16,
+      "ejemplos": [
+        "15108-354-37",
+        "15108-354-38",
+        "15108-354-39",
+        "15108-910-726",
+        "15108-910-727"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "duplicado_rol_fecha",
+      "n": 410,
+      "ejemplos": [
+        "15108-199-13",
+        "15108-199-93",
+        "15108-199-95",
+        "15108-199-97",
+        "15108-199-212"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "lote_10_deptos",
+      "n": 186,
+      "ejemplos": [
+        "15108-719-435",
+        "15108-719-436",
+        "15108-719-438",
+        "15108-719-439",
+        "15108-719-440"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "m2_fuera_20_300",
+      "n": 76,
+      "ejemplos": [
+        "15108-223-191",
+        "15108-225-4",
+        "15108-225-13",
+        "15108-225-16",
+        "15108-245-98"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 40,
+      "ejemplos": [
+        "15108-228-165",
+        "15108-304-721",
+        "15108-304-725",
+        "15108-335-62",
+        "15108-335-72"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 1424,
+      "ejemplos": [
+        "15108-200-323",
+        "15108-200-411",
+        "15108-203-481",
+        "15108-203-639",
+        "15108-206-102"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "sin_catastro",
+      "n": 669,
+      "ejemplos": [
+        "15108-231-32",
+        "15108-319-341",
+        "15108-319-341",
+        "15108-331-1",
+        "15108-331-10"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "sin_m2",
+      "n": 1,
+      "ejemplos": [
+        "15108-314-5"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "sin_monto",
+      "n": 3667,
+      "ejemplos": [
+        "15108-200-176",
+        "15108-200-240",
+        "15108-200-261",
+        "15108-200-419",
+        "15108-200-487"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 12,
+      "ejemplos": [
+        "15108-277-244",
+        "15108-464-86",
+        "15108-502-181",
+        "15108-586-12",
+        "15108-609-4"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "tipo_no_comparable",
+      "n": 26572,
+      "ejemplos": [
+        "15108-139-44",
+        "15108-139-113",
+        "15108-139-132",
+        "15108-139-178",
+        "15108-199-3"
+      ]
+    },
+    {
+      "comuna": 15108,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 312,
+      "ejemplos": [
+        "15108-205-100",
+        "15108-205-174",
+        "15108-209-230",
+        "15108-217-242",
+        "15108-220-189"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 34,
+      "ejemplos": [
+        "15128-479-19",
+        "15128-479-20",
+        "15128-479-21",
+        "15128-479-46",
+        "15128-479-47"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "duplicado_rol_fecha",
+      "n": 40,
+      "ejemplos": [
+        "15128-59-506",
+        "15128-111-142",
+        "15128-111-472",
+        "15128-111-543",
+        "15128-131-115"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "lote_10_deptos",
+      "n": 1839,
+      "ejemplos": [
+        "15128-31-1",
+        "15128-31-2",
+        "15128-31-3",
+        "15128-31-4",
+        "15128-31-5"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "m2_fuera_20_300",
+      "n": 78,
+      "ejemplos": [
+        "15128-5-359",
+        "15128-100-441",
+        "15128-100-452",
+        "15128-100-463",
+        "15128-100-476"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 114,
+      "ejemplos": [
+        "15128-7-11",
+        "15128-7-13",
+        "15128-7-78",
+        "15128-7-79",
+        "15128-100-502"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 1053,
+      "ejemplos": [
+        "15128-2-90",
+        "15128-2-353",
+        "15128-2-378",
+        "15128-2-393",
+        "15128-2-395"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "sin_catastro",
+      "n": 464,
+      "ejemplos": [
+        "15128-31-496",
+        "15128-31-497",
+        "15128-31-500",
+        "15128-31-501",
+        "15128-31-502"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "sin_m2",
+      "n": 2,
+      "ejemplos": [
+        "15128-1921-76",
+        "15128-2510-8"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "sin_monto",
+      "n": 1019,
+      "ejemplos": [
+        "15128-2-185",
+        "15128-2-528",
+        "15128-2-538",
+        "15128-2-597",
+        "15128-2-608"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 15,
+      "ejemplos": [
+        "15128-541-5",
+        "15128-571-6",
+        "15128-776-41",
+        "15128-796-31",
+        "15128-869-5"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "tipo_no_comparable",
+      "n": 10946,
+      "ejemplos": [
+        "15128-2-13",
+        "15128-2-165",
+        "15128-2-185",
+        "15128-2-191",
+        "15128-2-192"
+      ]
+    },
+    {
+      "comuna": 15128,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 850,
+      "ejemplos": [
+        "15128-2-378",
+        "15128-5-37",
+        "15128-32-57",
+        "15128-51-528",
+        "15128-59-506"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "duplicado_rol_fecha",
+      "n": 43,
+      "ejemplos": [
+        "15132-40-13",
+        "15132-100-603",
+        "15132-100-924",
+        "15132-110-450",
+        "15132-110-491"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "m2_fuera_20_300",
+      "n": 1,
+      "ejemplos": [
+        "15132-100-342"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 2,
+      "ejemplos": [
+        "15132-1122-4",
+        "15132-1122-10"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 54,
+      "ejemplos": [
+        "15132-100-355",
+        "15132-100-483",
+        "15132-100-603",
+        "15132-100-603",
+        "15132-101-97"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "sin_catastro",
+      "n": 4,
+      "ejemplos": [
+        "15132-500-126",
+        "15132-600-47",
+        "15132-6550-32",
+        "15132-7055-10"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "sin_monto",
+      "n": 100,
+      "ejemplos": [
+        "15132-100-391",
+        "15132-100-762",
+        "15132-100-779",
+        "15132-100-924",
+        "15132-101-246"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 2,
+      "ejemplos": [
+        "15132-3003-189",
+        "15132-5055-237"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "tipo_no_comparable",
+      "n": 1824,
+      "ejemplos": [
+        "15132-1-5",
+        "15132-6-7",
+        "15132-64-84",
+        "15132-64-384",
+        "15132-64-388"
+      ]
+    },
+    {
+      "comuna": 15132,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 135,
+      "ejemplos": [
+        "15132-20-19",
+        "15132-40-37",
+        "15132-40-37",
+        "15132-64-54",
+        "15132-64-149"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 9,
+      "ejemplos": [
+        "15160-431-265",
+        "15160-431-266",
+        "15160-431-306",
+        "15160-1853-1",
+        "15160-1853-2"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "duplicado_rol_fecha",
+      "n": 221,
+      "ejemplos": [
+        "15160-111-156",
+        "15160-111-278",
+        "15160-115-476",
+        "15160-115-503",
+        "15160-115-604"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "lote_10_deptos",
+      "n": 39,
+      "ejemplos": [
+        "15160-475-410",
+        "15160-475-411",
+        "15160-475-412",
+        "15160-475-413",
+        "15160-475-414"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "m2_fuera_20_300",
+      "n": 40,
+      "ejemplos": [
+        "15160-473-451",
+        "15160-531-58",
+        "15160-1185-266",
+        "15160-1285-22",
+        "15160-3005-413"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 11,
+      "ejemplos": [
+        "15160-951-127",
+        "15160-1439-4",
+        "15160-3329-4",
+        "15160-3401-403",
+        "15160-3431-73"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 435,
+      "ejemplos": [
+        "15160-115-119",
+        "15160-115-124",
+        "15160-115-148",
+        "15160-401-124",
+        "15160-401-153"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "sin_catastro",
+      "n": 104,
+      "ejemplos": [
+        "15160-431-518",
+        "15160-431-519",
+        "15160-497-15",
+        "15160-497-20",
+        "15160-497-22"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "sin_m2",
+      "n": 2,
+      "ejemplos": [
+        "15160-923-10",
+        "15160-1439-16"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "sin_monto",
+      "n": 1284,
+      "ejemplos": [
+        "15160-111-156",
+        "15160-111-278",
+        "15160-115-255",
+        "15160-115-265",
+        "15160-115-267"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 3,
+      "ejemplos": [
+        "15160-927-395",
+        "15160-1169-267",
+        "15160-3401-324"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "tipo_no_comparable",
+      "n": 9892,
+      "ejemplos": [
+        "15160-111-120",
+        "15160-111-125",
+        "15160-111-137",
+        "15160-111-278",
+        "15160-111-278"
+      ]
+    },
+    {
+      "comuna": 15160,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 79,
+      "ejemplos": [
+        "15160-115-124",
+        "15160-401-529",
+        "15160-403-15",
+        "15160-405-724",
+        "15160-405-744"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 26,
+      "ejemplos": [
+        "15161-3688-76",
+        "15161-3688-77",
+        "15161-3688-78",
+        "15161-3779-57",
+        "15161-3779-58"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "duplicado_rol_fecha",
+      "n": 131,
+      "ejemplos": [
+        "15161-2377-154",
+        "15161-2377-339",
+        "15161-2377-369",
+        "15161-2377-370",
+        "15161-2377-387"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "lote_10_deptos",
+      "n": 39,
+      "ejemplos": [
+        "15161-3012-156",
+        "15161-3012-157",
+        "15161-3012-158",
+        "15161-3012-159",
+        "15161-3012-160"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "m2_fuera_20_300",
+      "n": 54,
+      "ejemplos": [
+        "15161-3102-2",
+        "15161-3485-398",
+        "15161-3512-132",
+        "15161-3538-468",
+        "15161-3538-469"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 10,
+      "ejemplos": [
+        "15161-3457-30",
+        "15161-3457-31",
+        "15161-3500-406",
+        "15161-3500-407",
+        "15161-3557-39"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 261,
+      "ejemplos": [
+        "15161-2371-46",
+        "15161-2371-90",
+        "15161-2371-102",
+        "15161-2371-143",
+        "15161-2371-281"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "sin_catastro",
+      "n": 303,
+      "ejemplos": [
+        "15161-3001-1",
+        "15161-3001-5",
+        "15161-3001-9",
+        "15161-3001-10",
+        "15161-3001-12"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "sin_m2",
+      "n": 8,
+      "ejemplos": [
+        "15161-2830-17",
+        "15161-3016-206",
+        "15161-3016-207",
+        "15161-3024-62",
+        "15161-3080-5"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "sin_monto",
+      "n": 718,
+      "ejemplos": [
+        "15161-2371-322",
+        "15161-2371-376",
+        "15161-2371-442",
+        "15161-2371-443",
+        "15161-2371-472"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "tipo_no_comparable",
+      "n": 6208,
+      "ejemplos": [
+        "15161-2371-309",
+        "15161-2371-310",
+        "15161-2371-322",
+        "15161-2371-325",
+        "15161-2371-333"
+      ]
+    },
+    {
+      "comuna": 15161,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 84,
+      "ejemplos": [
+        "15161-2365-20",
+        "15161-2367-3",
+        "15161-2369-26",
+        "15161-2371-81",
+        "15161-2371-82"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "bloque_3_casas_misma_manzana",
+      "n": 8,
+      "ejemplos": [
+        "16106-5548-51",
+        "16106-5548-58",
+        "16106-5548-77",
+        "16106-5548-140",
+        "16106-5548-160"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "duplicado_rol_fecha",
+      "n": 10,
+      "ejemplos": [
+        "16106-354-318",
+        "16106-652-535",
+        "16106-3853-682",
+        "16106-5354-2",
+        "16106-5554-20"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "lote_10_deptos",
+      "n": 326,
+      "ejemplos": [
+        "16106-3443-345",
+        "16106-3443-346",
+        "16106-3443-347",
+        "16106-3443-348",
+        "16106-3443-349"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "m2_fuera_20_300",
+      "n": 42,
+      "ejemplos": [
+        "16106-2940-235",
+        "16106-3861-445",
+        "16106-3861-457",
+        "16106-3861-466",
+        "16106-3861-469"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "monto_repetido_en_grupo",
+      "n": 38,
+      "ejemplos": [
+        "16106-2154-208",
+        "16106-2740-66",
+        "16106-2740-262",
+        "16106-2740-307",
+        "16106-2740-377"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "paquete_estac_bodega_sin_monto",
+      "n": 273,
+      "ejemplos": [
+        "16106-354-29",
+        "16106-354-211",
+        "16106-354-354",
+        "16106-354-354",
+        "16106-360-113"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "sin_catastro",
+      "n": 15,
+      "ejemplos": [
+        "16106-652-744",
+        "16106-1960-269",
+        "16106-2746-16",
+        "16106-3440-8",
+        "16106-3440-8"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "sin_m2",
+      "n": 3,
+      "ejemplos": [
+        "16106-3440-129",
+        "16106-4751-31",
+        "16106-5339-13"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "sin_monto",
+      "n": 476,
+      "ejemplos": [
+        "16106-354-109",
+        "16106-354-167",
+        "16106-354-288",
+        "16106-354-418",
+        "16106-354-418"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "sin_uf_fecha_exacta",
+      "n": 6,
+      "ejemplos": [
+        "16106-1960-100",
+        "16106-2956-45",
+        "16106-3552-563",
+        "16106-4840-37",
+        "16106-5837-13"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "tipo_no_comparable",
+      "n": 3744,
+      "ejemplos": [
+        "16106-354-88",
+        "16106-354-109",
+        "16106-354-120",
+        "16106-354-137",
+        "16106-354-148"
+      ]
+    },
+    {
+      "comuna": 16106,
+      "motivo": "uf_m2_fuera_15_500",
+      "n": 241,
+      "ejemplos": [
+        "16106-640-5",
+        "16106-643-27",
+        "16106-643-28",
+        "16106-645-8",
+        "16106-652-63"
+      ]
+    }
+  ],
+  "disk": {
+    "raw_and_auxiliary_bytes": 563126980,
+    "table_and_index_bytes": 3916480512,
+    "total_bytes": 4479607492,
+    "over_10_gb": false
+  },
+  "price_label": "precio de transacción declarado"
+}

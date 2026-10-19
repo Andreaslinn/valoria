@@ -1,0 +1,205 @@
+# SII ingestion, phase 1 (local only)
+
+The data represents **precio de transacción declarado**. F2890 does not identify
+the deed or type of legal act; grouping by SII commune, block, FE and FI is a proxy,
+not proof that observations belong to the same deed. There is no valuation,
+listing-to-role matching, product endpoint, or connection to SII Mapas here.
+
+## Base and isolation
+
+Base: `29eaa0b3f3543c57e1e596eda2fb64e527d3f65a` on
+`release/canonical-only-reproducible-20261013`, checked against GitHub refs and
+the local 2026-10-17 production audit. No live production inspection was made.
+
+All jobs, the independent Alembic tree, and the SII health reader use only
+`SII_DATABASE_URL`. They never import application settings, consult `DATABASE_URL`,
+or read `.env`. Only `.env.local` and explicit `SII_*` environment variables are used.
+URLs must use `postgresql+psycopg`, loopback, an explicit port other than 5432,
+database `valoria_sii_local`, and no URL query options. Invalid targets fail before I/O.
+The only application change is a conditional SII section on the existing `/health`.
+The default is `SII_INGEST_ENABLED=false`; disabled jobs do not connect or fetch.
+
+## Run locally (PowerShell)
+
+```powershell
+Copy-Item .env.sii.example .env.local
+docker compose -f docker-compose.sii-local.yml -p valoria-sii-local up -d
+$env:SII_INGEST_ENABLED='true'
+python -m alembic -c sii_migrations.ini upgrade head
+python -m scripts.sii_ingest sii_f2890_fetch
+# Manually put the uncompressed N and NL files in data/sii/inbox, then:
+python -m scripts.sii_ingest sii_catastro_import
+python -m scripts.sii_ingest sii_rebuild
+python -m scripts.sii_ingest health
+```
+
+The local database must already contain the existing `public.ingestion_uf_calendar`
+before rebuilding. SII reads it by exact date and never populates or alters it.
+For this validation, the user expressly authorized creating that existing table in
+the newly created local database and replaying cached official HTML with the
+existing `services.ingestion_uf.parse_calendar` parser. That bootstrap is not an
+SII migration or a new UF source. No runtime bootstrap or network fallback is added.
+
+Optional offline replay:
+`python -m scripts.sii_ingest sii_f2890_fetch --f2890-zip path/to/F2890_01-10-2026.zip`.
+The fetcher discovers the current ZIP from the public transparency page, validates
+its SII URL, uses ETag conditional requests where available, and deduplicates by
+SHA-256. When no remote checksum/validator exists, the download must be read to
+determine its hash. Identical content is not re-imported. No SII login is used.
+
+Weekly local scheduler: `python -m scripts.sii_ingest schedule` (Sunday 03:00,
+America/Santiago). It schedules only `sii_f2890_fetch`; imports and rebuilding are
+explicit manual jobs. No existing worker, system timer, CI or deployment is changed.
+One Postgres advisory lock serializes all SII writers. Runs, including failures,
+are recorded in `sii.job_run`. The scheduler must be run by the local operator;
+this change does not install an unattended service.
+
+The bulk rebuild uses session-local 64 MB work memory, serial execution and hash
+joins to avoid random index probes over millions of freshly imported roles.
+These settings end with its transaction and do not change server or application settings.
+
+## Sources, versions and identity
+
+Official layout: <https://www.sii.cl/bbrr/descargas/estructura_detalle_catastral.pdf>.
+Non-agricultural roles contain 19 fields and construction lines 11, latin-1,
+pipe-separated without a header; a single trailing pipe is accepted. `CA` means
+open construction. Surface is an integer with no decimal scaling. Wrong layouts
+or unexpected commune codes abort the entire file transaction and leave it in inbox.
+Import commits each file before moving it to `processed/<sha256>/`; hash identity
+recovers safely from interruption between commit and move. No catastro download
+or authentication code exists.
+
+Every F2890 and catastro version has a source row and preserved raw bytes on disk. Role and line
+snapshots retain their source IDs; the latest **complete** N/NL semester pair is
+selected per input commune, so an incomplete next semester cannot mix snapshots.
+The common NL source is recorded once on the N source-file record, rather than
+repeating a construction-file foreign key on millions of role rows.
+F2890 raw rows for the requested codes are append-only (UPDATE, DELETE and TRUNCATE
+are blocked by a database trigger). The national ZIP preserves all other communes.
+Parsed dates, amounts and incomplete roles never replace original field strings:
+the original line, original field map and explicit parse errors remain available.
+
+The Santiago ZIP contains three separate SII sectors: 13101 (Santiago Centro),
+13134 (Santiago Oeste), 13135 (Santiago Sur). Their block numbers can repeat, so
+every role join and operation grouping retains the **original SII code**.
+`predio.comuna_ine` and `transferencia.comuna_ine` group these three as INE 13101.
+The requested benchmark uses only SII 13101; the report separately presents
+Santiago's complete INE aggregate. The other requested SII codes are mapped to
+INE only in this separate grouping column; SII role identity is unchanged.
+INE mapping reference:
+<https://geoarchivos.ine.cl/File/geo/metodologia-de-georeferenciacion-de-permisos-de-edificacion.pdf>.
+Input rows contain commune **codes**, not names; reports label the official name
+as `nombre_tabla_oficial`, not as a name read from the row.
+
+## Derived rules
+
+`predio` retains current-snapshot total H surface, open H surface, closed surface
+(`H - open H`), land, tax assessment, contribution, raw/parsed address, and minimum
+construction year. Type follows destination/address, with `DP`, `DEPTO`, `DPTO`
+or `DEP` tokens for apartments. Auxiliary tokens can classify parking/storage.
+
+The declared UF amount takes precedence when positive. Otherwise, positive CLP is
+divided by the persistent UF on FE; FI is used only if FE is absent. A missing exact
+UF day is an explicit exclusion. Invalid dates are retained and excluded; an invalid
+FE is not silently replaced with FI for CLP conversion. Both UF/m² denominators
+are stored; comparison eligibility uses constructed H surface, never closed surface
+to retune the reference filter.
+
+Deduplication selects the largest converted amount per (SII role, FE, FI) before
+operation statistics. Ties keep the earliest original file row. All duplicates
+remain visible with an exclusion reason. Filters record **all** applicable reasons:
+missing amount/calendar/catastro/date, invalid fields, non-house/apartment type,
+apartment H surface outside 20–300, UF/H-m² outside 15–500, repeated amounts only
+when every row in (SII commune, block, FE, FI) has the same positive converted
+amount, apartment + unpriced parking/storage package,
+10+ apartments in that operation group, and 3+ distinct houses in the same SII
+block on the same FE (or FI when FE is absent). Packages are marked and retained.
+An auxiliary is unpriced only when its raw UF is not positive and its raw CLP is
+not positive. Missing calendar coverage for a positively priced auxiliary does
+not mark the apartment as a package. The regression for role `15103-854-86`
+is covered by a unit test of the actual aggregation SQL and a full Postgres rebuild test.
+The derived transfer table represents the current F2890 version; rebuilding can
+replace this cache while all raw versions and catastro snapshots remain intact.
+It is built in a new SII table, with primary key and every foreign key validated
+in bulk before an atomic swap. No integrity trigger on raw observations is disabled.
+Future dependent tables should reference immutable raw IDs, not the replaceable cache.
+
+The eight-commune reference in `research/sii-cross-reference:research/sii_cross/join6.py`
+uses **FI >= 2024-01-01**. The report makes that window explicit; all older history
+is still ingested. That reference used a 300 UF/m² ceiling, several DP aliases,
+and excluded repeated amounts only when all observations in the operation group
+were positively priced and identical. Its CLP conversion used FE only when
+2024-01-01 <= FE <= FI, otherwise FI. As revised on 2026-10-19, this phase accepts
+the same four apartment tokens and all-identical-positive group rule. It retains
+the requested 500 ceiling and exact FE with FI only when FE is absent. Rows above
+300 UF/m² are counted separately. Rebuilt rows record `reglas_version='sii-phase1-v2'`.
+
+Huechuraba (SII 14158) is a documented source gap: blocks 3115/3116 are absent
+from the supplied N file. Its join percentage remains visible, but is explicitly
+excluded from phase-1 acceptance per the 2026-10-19 instruction. No role codes or
+block numbers are remapped to increase that coverage. The eight-commune count,
+eight medians, second-run idempotence and green test suite remain the exit criteria.
+
+## Offline geocoding
+
+Optional `data/sii/osm/addresses.csv`, UTF-8, exact header:
+
+```csv
+comuna,calle,numero,lat,lon,osm_id
+15108,BRASILIA,750,-33.42,-70.57,node/123
+```
+
+Prepare this **locally** from an OSM extract or local Nominatim, assigning original
+SII sector codes via a local boundary join. This job makes **zero** public Nominatim
+requests. Attribution: © OpenStreetMap contributors, ODbL,
+<https://www.openstreetmap.org/copyright>.
+
+Exact street + number matches must be unambiguous. Interpolation needs same-parity
+bracketing exact anchors on the same catastro block/street, number gap <=200 and
+anchor distance <=300 m. The final fallback requires the same number, original SII
+sector, a unique best `difflib` street similarity >=0.8, and records the correction.
+`precision_m` is an explicit heuristic (15 m exact, >=30 m interpolated/corrected),
+not a measured accuracy guarantee. The OSM source hash and evidence are persisted.
+Without an extract, the job reports `pending_local_osm_extract` and leaves unknown
+locations absent. No coordinates are fabricated. Coverage uses active catastro
+roles as denominator and is reported by method. Supplying an OSM address file
+and rebuilding replaces the derived geocoding cache without changing source roles.
+Without that file, existing locations for the active catastro remain available
+with their original evidence; locations from replaced catastro versions are removed.
+
+## Verification and rollback
+
+```powershell
+# Run existing tests with explicitly generated SQLite URLs, never a real .env:
+$env:DATABASE_URL='sqlite+aiosqlite:///:memory:'
+$env:SYNC_DATABASE_URL='sqlite:///:memory:'
+$env:JWT_SECRET_KEY='00000000000000000000000000000000'
+$env:SII_INGEST_ENABLED='false'
+python -m pytest -q
+```
+
+Postgres integration tests are opt-in, on a **separate disposable instance at port
+55433**, database `valoria_sii_local`. They reject the loaded instance at 55432.
+Set `SII_TEST_POSTGRES=true` and `SII_DATABASE_URL` to that disposable instance;
+run `pytest tests/integration/test_sii_postgres.py tests/unit/test_sii_ingest.py -q`.
+Each test recreates only its SII schema and uses synthetic calendar fixtures.
+
+Rollback: with SII temporarily enabled against the chosen local instance,
+`python -m alembic -c sii_migrations.ini downgrade base`. This explicitly removes
+only the new SII schema, preserving source files and existing public tables.
+The independent marker is `sii.alembic_version`; it does not
+alter the application's Alembic version or history. The tests populate the SII
+tables, downgrade, verify the existing calendar unchanged, then upgrade again.
+
+Idempotence counts concern source/data rows; each invocation intentionally appends
+a job-run audit record. A second unchanged fetch/import/rebuild must create zero
+new data rows. Health reports current file hashes/semesters, jobs, counts, exclusions,
+per-commune statistics, and raw+table/index bytes, flagging totals above 10 GB.
+Database temporary files, WAL, replicas/backups and Docker's allocated disk image
+are not included in that logical footprint and require additional free headroom.
+
+Phase 2 can build the property timeline over stable SII roles and provenance IDs.
+It still needs an explicit policy for legal-operation proxies, historical catastro
+changes, unresolved addresses, original-versus-corrected address evidence, and
+outlier/eligibility presentation. No timeline, comparable search, model or product
+API is implemented in this phase.

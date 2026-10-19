@@ -8,6 +8,8 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.sii.example
+data/sii/
 .streamlit/secrets.toml
 users.json
 .pycache_compile/
@@ -33,6 +35,8 @@ htmlcov/
 *.sqlite
 *.sqlite3
 *.sql
+!services/sii/rebuild.sql
+!sii_migrations/schema.sql
 
 # Runtime artifacts
 .local/
@@ -45,6 +49,8 @@ portal.env
 audit_export/
 releases/
 reports/*
+!reports/sii/
+!reports/sii/**
 !reports/valuation_engine_rebuild/
 !reports/valuation_engine_rebuild/*.md
 !reports/valuation_engine_rebuild/*.json

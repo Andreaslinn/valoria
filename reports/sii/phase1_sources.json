@@ -1,0 +1,468 @@
+{
+  "files": [
+    {
+      "id": 25,
+      "tipo": "F2890",
+      "nombre": "F2890_01-10-2026.zip",
+      "semestre": null,
+      "fecha": "2026-10-01",
+      "comuna": null,
+      "hash": "eae2fbd4acd72eb9f4840e8f33b4053363a1216bdeb111fad590364960279cb9",
+      "filas": 9199555,
+      "filas_seleccionadas": 2366069,
+      "line_source_file_id": null
+    },
+    {
+      "id": 1,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_13101",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 13101,
+      "hash": "129a7cddd7c99ca1afb01b8d7463ffedbcd93f80ebe3cb95863f45ef7f158756",
+      "filas": 424331,
+      "filas_seleccionadas": 424331,
+      "line_source_file_id": 12
+    },
+    {
+      "id": 2,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_14157",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 14157,
+      "hash": "fdb462c0f39ab198867f8e7ca01030de6b8b082d064e8f768f512dc16621d8a2",
+      "filas": 99114,
+      "filas_seleccionadas": 99114,
+      "line_source_file_id": 13
+    },
+    {
+      "id": 3,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_14158",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 14158,
+      "hash": "decae9f8baafd2680fedcee8b442e6825d04705b64964b8be47d2a08a057f807",
+      "filas": 46419,
+      "filas_seleccionadas": 46419,
+      "line_source_file_id": 14
+    },
+    {
+      "id": 4,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_15103",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15103,
+      "hash": "78e798b15b289c642dc51c15936bf902d97f15702bdeb5e112a850fcb0ce0e5b",
+      "filas": 219101,
+      "filas_seleccionadas": 219101,
+      "line_source_file_id": 15
+    },
+    {
+      "id": 5,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_15105",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15105,
+      "hash": "ac8e5e627ab398c86d54cde34f344e4130e4ec0cf188871e0911efa8feb83cd2",
+      "filas": 263270,
+      "filas_seleccionadas": 263270,
+      "line_source_file_id": 16
+    },
+    {
+      "id": 6,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_15108",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15108,
+      "hash": "08932fb33265647bce90870d984d1f4b0787ea8496b467e8ea7b9b136f184334",
+      "filas": 395889,
+      "filas_seleccionadas": 395889,
+      "line_source_file_id": 17
+    },
+    {
+      "id": 7,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_15128",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15128,
+      "hash": "ac7e6568cf5d8064da820e0ea3bdfb3a19701e707925e03301626d332846b71a",
+      "filas": 186772,
+      "filas_seleccionadas": 186772,
+      "line_source_file_id": 18
+    },
+    {
+      "id": 8,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_15132",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15132,
+      "hash": "d93f48f21081849c91e1832558583158e37d3c1c16805ee0156d7b0dce76076b",
+      "filas": 42601,
+      "filas_seleccionadas": 42601,
+      "line_source_file_id": 19
+    },
+    {
+      "id": 9,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_15160",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15160,
+      "hash": "62428dac31e5fcfd8a24b5388ba3f129a136c3d2c422a9315f293ac727b81510",
+      "filas": 115264,
+      "filas_seleccionadas": 115264,
+      "line_source_file_id": 20
+    },
+    {
+      "id": 10,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_15161",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15161,
+      "hash": "11395c9dcba98a0d5b4d1b8b14e020b588ef5b3b463e093b1bfcf9c521385ec2",
+      "filas": 74676,
+      "filas_seleccionadas": 74676,
+      "line_source_file_id": 21
+    },
+    {
+      "id": 11,
+      "tipo": "N",
+      "nombre": "BRTMPCATASN_2026_2_16106",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 16106,
+      "hash": "ee7dfa3546e7075419c477698b4937ad7c9815357eab358d4c4a118b1546c37f",
+      "filas": 117147,
+      "filas_seleccionadas": 117147,
+      "line_source_file_id": 22
+    },
+    {
+      "id": 12,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_13101",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 13101,
+      "hash": "f9a6af70e31378948a667c857271fcd8b2286c32200e4ae4fde73983fbd27be7",
+      "filas": 577666,
+      "filas_seleccionadas": 577666,
+      "line_source_file_id": null
+    },
+    {
+      "id": 13,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_14157",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 14157,
+      "hash": "1f38886f7be160482566f634b22e1d5591c999ad4e291fb43e51de95894e4b7c",
+      "filas": 113683,
+      "filas_seleccionadas": 113683,
+      "line_source_file_id": null
+    },
+    {
+      "id": 14,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_14158",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 14158,
+      "hash": "1c65f672f9d334f3f9001aac284447493a39d66d289ba0d5890d74e408cbc69b",
+      "filas": 63478,
+      "filas_seleccionadas": 63478,
+      "line_source_file_id": null
+    },
+    {
+      "id": 15,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_15103",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15103,
+      "hash": "066707e31fbf6a1771e9e335b96de270ba41d1db06e5d5e2f926f53c2619e9b7",
+      "filas": 251802,
+      "filas_seleccionadas": 251802,
+      "line_source_file_id": null
+    },
+    {
+      "id": 16,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_15105",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15105,
+      "hash": "e6e0ea5feece7e446c12291eb9d6a07361327b529174565947d5286d857594ed",
+      "filas": 301025,
+      "filas_seleccionadas": 301025,
+      "line_source_file_id": null
+    },
+    {
+      "id": 17,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_15108",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15108,
+      "hash": "c0fc893bac4f0a9f670f5209d6e74642d5a0fcd020cd41905a9a2f988f0bda6d",
+      "filas": 486960,
+      "filas_seleccionadas": 486960,
+      "line_source_file_id": null
+    },
+    {
+      "id": 18,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_15128",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15128,
+      "hash": "001424bab30e097866ca465c2f1cda106ebafd35df2a69d456efa5e5bab05e09",
+      "filas": 253243,
+      "filas_seleccionadas": 253243,
+      "line_source_file_id": null
+    },
+    {
+      "id": 19,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_15132",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15132,
+      "hash": "4fe67dfa4daaaf17b6f2012ff7bffddd3c66fec4c89975764bf8e2e56d7a3a7e",
+      "filas": 70561,
+      "filas_seleccionadas": 70561,
+      "line_source_file_id": null
+    },
+    {
+      "id": 20,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_15160",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15160,
+      "hash": "b42c2ae2477542bb8048f03f624b45e432784780772991999c11799e6d30e2b7",
+      "filas": 154333,
+      "filas_seleccionadas": 154333,
+      "line_source_file_id": null
+    },
+    {
+      "id": 21,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_15161",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 15161,
+      "hash": "e52c9489bf071b5e9e8738fcad17c5e5dcd8c2af91c64abf541553dfaa22244a",
+      "filas": 101009,
+      "filas_seleccionadas": 101009,
+      "line_source_file_id": null
+    },
+    {
+      "id": 22,
+      "tipo": "NL",
+      "nombre": "BRTMPCATASNL_2026_2_16106",
+      "semestre": "2026-2",
+      "fecha": null,
+      "comuna": 16106,
+      "hash": "f7b080c69c516f51f901f36dae67fa48664806fe5a89a747aae5321b7104fda6",
+      "filas": 139410,
+      "filas_seleccionadas": 139410,
+      "line_source_file_id": null
+    }
+  ],
+  "codes_read_from_role_files": [
+    {
+      "nombre": "BRTMPCATASN_2026_2_13101",
+      "comuna": 13101,
+      "roles": 276770
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_13101",
+      "comuna": 13134,
+      "roles": 64529
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_13101",
+      "comuna": 13135,
+      "roles": 83032
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_14157",
+      "comuna": 14157,
+      "roles": 99114
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_14158",
+      "comuna": 14158,
+      "roles": 46419
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_15103",
+      "comuna": 15103,
+      "roles": 219101
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_15105",
+      "comuna": 15105,
+      "roles": 263270
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_15108",
+      "comuna": 15108,
+      "roles": 395889
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_15128",
+      "comuna": 15128,
+      "roles": 186772
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_15132",
+      "comuna": 15132,
+      "roles": 42601
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_15160",
+      "comuna": 15160,
+      "roles": 115264
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_15161",
+      "comuna": 15161,
+      "roles": 74676
+    },
+    {
+      "nombre": "BRTMPCATASN_2026_2_16106",
+      "comuna": 16106,
+      "roles": 117147
+    }
+  ],
+  "raw_parse_errors": [
+    {
+      "error": "fe_invalida",
+      "n": 36
+    },
+    {
+      "error": "manzana_invalido",
+      "n": 63
+    },
+    {
+      "error": "predio_invalido",
+      "n": 63
+    }
+  ],
+  "raw_error_examples": [
+    {
+      "id": 1414915,
+      "source_file_id": 25,
+      "fila": 1892933,
+      "comuna": 14157,
+      "manzana": 3425,
+      "predio": 48,
+      "campos": {
+        "COMUNA": "ESTACION CENTRAL",
+        "PREDIO": "48",
+        "MANZANA": "3425",
+        "MONTO_UF": "",
+        "MONTO_PESOS": "",
+        "FECHA_ESCRITURA": "21210",
+        "FECHA_INSCRIPCION": "20030124"
+      },
+      "errores_parseo": [
+        "fe_invalida"
+      ]
+    },
+    {
+      "id": 1559501,
+      "source_file_id": 25,
+      "fila": 2442330,
+      "comuna": 15128,
+      "manzana": 1415,
+      "predio": 24,
+      "campos": {
+        "COMUNA": "LA FLORIDA",
+        "PREDIO": "24",
+        "MANZANA": "1415",
+        "MONTO_UF": "",
+        "MONTO_PESOS": "30000000",
+        "FECHA_ESCRITURA": "20724",
+        "FECHA_INSCRIPCION": "20020911"
+      },
+      "errores_parseo": [
+        "fe_invalida"
+      ]
+    },
+    {
+      "id": 1811093,
+      "source_file_id": 25,
+      "fila": 3023103,
+      "comuna": 15108,
+      "manzana": 324,
+      "predio": 418,
+      "campos": {
+        "COMUNA": "LAS CONDES",
+        "PREDIO": "418",
+        "MANZANA": "324",
+        "MONTO_UF": "",
+        "MONTO_PESOS": "",
+        "FECHA_ESCRITURA": "20723",
+        "FECHA_INSCRIPCION": "20020823"
+      },
+      "errores_parseo": [
+        "fe_invalida"
+      ]
+    },
+    {
+      "id": 1811181,
+      "source_file_id": 25,
+      "fila": 3023191,
+      "comuna": 15108,
+      "manzana": 324,
+      "predio": 469,
+      "campos": {
+        "COMUNA": "LAS CONDES",
+        "PREDIO": "469",
+        "MANZANA": "324",
+        "MONTO_UF": "",
+        "MONTO_PESOS": "",
+        "FECHA_ESCRITURA": "20626",
+        "FECHA_INSCRIPCION": "20020917"
+      },
+      "errores_parseo": [
+        "fe_invalida"
+      ]
+    },
+    {
+      "id": 1930409,
+      "source_file_id": 25,
+      "fila": 3142419,
+      "comuna": 15108,
+      "manzana": 687,
+      "predio": 89,
+      "campos": {
+        "COMUNA": "LAS CONDES",
+        "PREDIO": "89",
+        "MANZANA": "687",
+        "MONTO_UF": "",
+        "MONTO_PESOS": "66696920",
+        "FECHA_ESCRITURA": "21231",
+        "FECHA_INSCRIPCION": "20030219"
+      },
+      "errores_parseo": [
+        "fe_invalida"
+      ]
+    }
+  ],
+  "existing_calendar": {
+    "dias": 5061,
+    "desde": "2013-01-01",
+    "hasta": "2026-11-09"
+  }
+}
