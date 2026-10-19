@@ -95,8 +95,8 @@ as `nombre_tabla_oficial`, not as a name read from the row.
 
 `predio` retains current-snapshot total H surface, open H surface, closed surface
 (`H - open H`), land, tax assessment, contribution, raw/parsed address, and minimum
-construction year. Type follows destination/address, with a literal `DP` token
-for apartments as requested. Auxiliary tokens can classify parking/storage.
+construction year. Type follows destination/address, with `DP`, `DEPTO`, `DPTO`
+or `DEP` tokens for apartments. Auxiliary tokens can classify parking/storage.
 
 The declared UF amount takes precedence when positive. Otherwise, positive CLP is
 divided by the persistent UF on FE; FI is used only if FE is absent. A missing exact
@@ -109,10 +109,15 @@ Deduplication selects the largest converted amount per (SII role, FE, FI) before
 operation statistics. Ties keep the earliest original file row. All duplicates
 remain visible with an exclusion reason. Filters record **all** applicable reasons:
 missing amount/calendar/catastro/date, invalid fields, non-house/apartment type,
-apartment H surface outside 20–300, UF/H-m² outside 15–500, repeated positive amounts
-in (SII commune, block, FE, FI), apartment + unpriced parking/storage package,
+apartment H surface outside 20–300, UF/H-m² outside 15–500, repeated amounts only
+when every row in (SII commune, block, FE, FI) has the same positive converted
+amount, apartment + unpriced parking/storage package,
 10+ apartments in that operation group, and 3+ distinct houses in the same SII
 block on the same FE (or FI when FE is absent). Packages are marked and retained.
+An auxiliary is unpriced only when its raw UF is not positive and its raw CLP is
+not positive. Missing calendar coverage for a positively priced auxiliary does
+not mark the apartment as a package. The regression for role `15103-854-86`
+is covered by a unit test of the actual aggregation SQL and a full Postgres rebuild test.
 The derived transfer table represents the current F2890 version; rebuilding can
 replace this cache while all raw versions and catastro snapshots remain intact.
 It is built in a new SII table, with primary key and every foreign key validated
@@ -124,9 +129,16 @@ uses **FI >= 2024-01-01**. The report makes that window explicit; all older hist
 is still ingested. That reference used a 300 UF/m² ceiling, several DP aliases,
 and excluded repeated amounts only when all observations in the operation group
 were positively priced and identical. Its CLP conversion used FE only when
-2024-01-01 <= FE <= FI, otherwise FI. This phase follows the requested 500 ceiling,
-literal DP token, any repeated positive amount, and exact FE with FI only when FE
-is absent. The validation report measures the resulting benchmark differences.
+2024-01-01 <= FE <= FI, otherwise FI. As revised on 2026-10-19, this phase accepts
+the same four apartment tokens and all-identical-positive group rule. It retains
+the requested 500 ceiling and exact FE with FI only when FE is absent. Rows above
+300 UF/m² are counted separately. Rebuilt rows record `reglas_version='sii-phase1-v2'`.
+
+Huechuraba (SII 14158) is a documented source gap: blocks 3115/3116 are absent
+from the supplied N file. Its join percentage remains visible, but is explicitly
+excluded from phase-1 acceptance per the 2026-10-19 instruction. No role codes or
+block numbers are remapped to increase that coverage. The eight-commune count,
+eight medians, second-run idempotence and green test suite remain the exit criteria.
 
 ## Offline geocoding
 

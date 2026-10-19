@@ -46,20 +46,20 @@ def pg(monkeypatch, tmp_path):
         yield conn, settings, config
 
 
-def seed(conn):
+def seed(conn, comuna=15108):
     ids = []
     for kind in ("N", "NL", "F2890"):
         ids.append(
             conn.execute(
                 """INSERT INTO sii.source_file(tipo,nombre,hash,ruta,comuna,semestre,fecha)
-            VALUES (%s,%s,%s,'fixture',15108,'2026-2','2026-10-01') RETURNING id""",
-                (kind, kind, "0" * 64),
+            VALUES (%s,%s,%s,'fixture',%s,'2026-2','2026-10-01') RETURNING id""",
+                (kind, kind, "0" * 64, comuna),
             ).fetchone()[0]
         )
     return ids
 
 
-def parcel(conn, ids, block, number, kind="depto", surface=100, opened=10):
+def parcel(conn, ids, block, number, kind="depto", surface=100, opened=10, comuna=15108):
     destino = {"depto": "H", "casa": "H", "estac": "Z", "bodega": "L"}[kind]
     raw_address = (
         "CALLE 100" + {"depto": " DP 1", "casa": "", "estac": " BOX 1", "bodega": " BOD 1"}[kind]
@@ -67,24 +67,26 @@ def parcel(conn, ids, block, number, kind="depto", surface=100, opened=10):
     conn.execute(
         """INSERT INTO sii.predio(source_file_id,comuna,manzana,predio,direccion_raw,calle,numero,
         destino,tipo,m2_terreno,avaluo,contribucion,semestre,raw_line)
-        VALUES(%s,15108,%s,%s,%s,'CALLE','100',%s,%s,100,100000,10,'2026-2','fixture')""",
-        (ids[0], block, number, raw_address, destino, kind),
+        VALUES(%s,%s,%s,%s,%s,'CALLE','100',%s,%s,100,100000,10,'2026-2','fixture')""",
+        (ids[0], comuna, block, number, raw_address, destino, kind),
     )
     for line, area, is_open in ((1, surface - opened, False), (2, opened, True)):
         conn.execute(
             """INSERT INTO sii.linea_construccion(source_file_id,comuna,manzana,predio,n_linea,
             destino,material,calidad,anio,m2,abierta,condicion,pisos,raw_line)
-            VALUES(%s,15108,%s,%s,%s,'H','B','2',2020,%s,%s,%s,1,'fixture')""",
-            (ids[1], block, number, line, area, is_open, "CA" if is_open else ""),
+            VALUES(%s,%s,%s,%s,%s,'H','B','2',2020,%s,%s,%s,1,'fixture')""",
+            (ids[1], comuna, block, number, line, area, is_open, "CA" if is_open else ""),
         )
 
 
-def transfer(conn, ids, block, number, uf=5000, clp=None, fe="2026-01-01", fi="2026-01-02"):
+def transfer(
+    conn, ids, block, number, uf=5000, clp=None, fe="2026-01-01", fi="2026-01-02", comuna=15108
+):
     fila = conn.execute("SELECT count(*)+2 FROM sii.transferencia_raw").fetchone()[0]
     return conn.execute(
         """INSERT INTO sii.transferencia_raw(source_file_id,fila,comuna,manzana,predio,
-        fi,fe,clp,uf,raw_line,campos) VALUES(%s,%s,15108,%s,%s,%s,%s,%s,%s,'fixture','{}') RETURNING id""",
-        (ids[2], fila, block, number, fi, fe, clp, uf),
+        fi,fe,clp,uf,raw_line,campos) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,'fixture','{}') RETURNING id""",
+        (ids[2], fila, comuna, block, number, fi, fe, clp, uf),
     ).fetchone()[0]
 
 
@@ -149,6 +151,50 @@ def test_duplicate_ranking_happens_before_operation_filters(pg):
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
         conn.execute("DELETE FROM sii.transferencia_raw")
     assert conn.execute("SELECT count(*) FROM sii.transferencia_raw").fetchone()[0] == 2
+
+
+def test_priced_parking_without_historic_uf_restores_providencia_apartment(pg):
+    conn, _, _ = pg
+    ids = seed(conn, comuna=15103)
+    parcel(conn, ids, 854, 86, surface=58, opened=0, comuna=15103)
+    parcel(conn, ids, 854, 154, kind="estac", surface=0, opened=0, comuna=15103)
+    apartment = transfer(
+        conn, ids, 854, 86, uf=2024, fe="1997-11-12", fi="2025-07-29", comuna=15103
+    )
+    transfer(conn, ids, 854, 154, uf=None, clp=1, fe="1997-11-12", fi="2025-07-29", comuna=15103)
+    rebuild()
+    assert conn.execute(
+        "SELECT rol,cierre_comparable,paquete,motivos_exclusion FROM sii.transferencia WHERE raw_id=%s",
+        (apartment,),
+    ).fetchone() == ("15103-854-86", True, False, [])
+
+
+def test_aliases_partial_repeats_and_500_ceiling(pg):
+    conn, _, _ = pg
+    ids = seed(conn)
+    for block, token in enumerate(("DP", "DEPTO", "DPTO", "DEP"), 1):
+        parcel(conn, ids, block, 1, kind="casa")
+        conn.execute(
+            "UPDATE sii.predio SET direccion_raw=%s WHERE manzana=%s",
+            (f"CALLE 100 {token} 1", block),
+        )
+        transfer(conn, ids, block, 1, uf=40000)  # 400 UF/m² remains comparable.
+    for number, amount in enumerate((5000, 5000, 6000), 1):
+        parcel(conn, ids, 10, number)
+        transfer(conn, ids, 10, number, uf=amount)
+    rebuild()
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM sii.transferencia WHERE tipo='depto' AND cierre_comparable"
+        ).fetchone()[0]
+        == 7
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM sii.transferencia WHERE cierre_comparable AND uf_m2_h>300"
+        ).fetchone()[0]
+        == 4
+    )
 
 
 def test_repeated_packages_apartment_lots_and_house_block_scope(pg):

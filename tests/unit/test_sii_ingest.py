@@ -1,5 +1,7 @@
+import sqlite3
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -76,6 +78,51 @@ def test_address_street_with_number_and_explicit_dp_token():
     assert property_type("H", "CALLE 123 DPA 42") == "casa"
     assert property_type("Z", "CALLE 123") == "estac"
     assert property_type("L", "CALLE 123") == "bodega"
+    for token in ("DP", "DEPTO", "DPTO", "DEP"):
+        assert property_type("H", f"CALLE 123 {token} 42 BOD 1") == "depto"
+        assert address(f"CALLE 123 {token} 42") == ("CALLE", "123", "42")
+
+
+def operation_sql(name):
+    """Run the actual portable aggregation SQL against small in-memory fixtures."""
+    sql = (Path(__file__).parents[2] / "services/sii/rebuild.sql").read_text(encoding="utf8")
+    statement = sql[sql.index(f"CREATE TEMP TABLE {name} ON COMMIT DROP AS") :]
+    return statement[: statement.index(";") + 1].replace(" ON COMMIT DROP", "")
+
+
+def test_priced_aux_missing_uf_does_not_package_15103_854_86():
+    with sqlite3.connect(":memory:") as conn:
+        conn.execute("""CREATE TABLE winners(comuna,manzana,predio,fe,fi,tipo,monto_uf,uf,clp)""")
+        conn.executemany(
+            "INSERT INTO winners VALUES(15103,854,?,'1997-11-12','2025-07-29',?,?,?,?)",
+            [
+                (86, "depto", 2024, 2024, None),
+                (154, "estac", None, None, 1),
+            ],
+        )
+        conn.execute(operation_sql("operation_stats"))
+        assert conn.execute("SELECT deptos,aux_sin_monto FROM operation_stats").fetchone() == (1, 0)
+
+
+def test_repeated_amount_requires_every_group_row_positive_and_identical():
+    for amounts, excluded in (
+        ([5000, 5000], 2),
+        ([5000, 5000, 6000], 0),
+        ([5000, 5000, None], 0),
+        ([0, 0], 0),
+        ([5000], 0),
+    ):
+        with sqlite3.connect(":memory:") as conn:
+            conn.execute("CREATE TABLE winners(comuna,manzana,fe,fi,monto_uf)")
+            conn.executemany(
+                "INSERT INTO winners VALUES(15103,854,'2026-01-01','2026-01-02',?)",
+                [(v,) for v in amounts],
+            )
+            conn.execute(operation_sql("repeated"))
+            assert (
+                conn.execute("SELECT coalesce(sum(cantidad),0) FROM repeated").fetchone()[0]
+                == excluded
+            )
 
 
 def test_exact_amount_and_dates():

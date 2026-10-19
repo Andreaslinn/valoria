@@ -1,7 +1,7 @@
 -- Latest complete role/line pair by semester. Incomplete new imports do not replace
 -- the previous complete snapshot. SII sector codes remain part of every join.
 UPDATE sii.predio SET tipo='depto' WHERE destino='H' AND tipo<>'depto'
- AND direccion_raw ~* '(^|[^A-Z0-9])DP([^A-Z0-9]|$)';
+ AND direccion_raw ~* '(^|[^A-Z0-9])(DP|DEPTO|DPTO|DEP)([^A-Z0-9]|$)';
 CREATE TEMP TABLE active_catastro ON COMMIT DROP AS
 SELECT DISTINCT ON (s.comuna) s.comuna,s.id AS role_source,nl.id AS line_source,s.semestre
 FROM sii.source_file s
@@ -70,12 +70,15 @@ ANALYZE winners;
 CREATE TEMP TABLE operation_stats ON COMMIT DROP AS
 SELECT comuna,manzana,fe,fi,
  count(*) FILTER (WHERE tipo='depto') AS deptos,
- count(*) FILTER (WHERE tipo IN ('estac','bodega') AND coalesce(monto_uf,0)<=0) AS aux_sin_monto
+ count(*) FILTER (WHERE tipo IN ('estac','bodega')
+  AND coalesce(uf,0)<=0 AND coalesce(clp,0)<=0) AS aux_sin_monto
 FROM winners GROUP BY comuna,manzana,fe,fi;
 ANALYZE operation_stats;
 CREATE TEMP TABLE repeated ON COMMIT DROP AS
-SELECT comuna,manzana,fe,fi,monto_uf,count(*) AS cantidad
-FROM winners WHERE monto_uf>0 GROUP BY comuna,manzana,fe,fi,monto_uf HAVING count(*)>1;
+SELECT comuna,manzana,fe,fi,max(monto_uf) AS monto_uf,count(*) AS cantidad
+FROM winners GROUP BY comuna,manzana,fe,fi
+HAVING count(*)>1 AND count(*) FILTER (WHERE monto_uf>0)=count(*)
+ AND count(DISTINCT monto_uf)=1;
 ANALYZE repeated;
 CREATE TEMP TABLE house_blocks ON COMMIT DROP AS
 SELECT comuna,manzana,fecha,count(DISTINCT predio) AS casas
@@ -122,10 +125,10 @@ CREATE TABLE sii.transferencia_build
  (LIKE sii.transferencia INCLUDING DEFAULTS INCLUDING GENERATED INCLUDING CONSTRAINTS);
 INSERT INTO sii.transferencia_build(raw_id,source_file_id,predio_source_file_id,comuna,manzana,predio,
  fi,fe,fecha,tipo,semestre,monto_uf,monto_clp,uf_usada,uf_fecha,m2_h,m2_cerrado,
- uf_m2_h,uf_m2_cerrado,paquete,cierre_comparable,motivo_exclusion,motivos_exclusion)
+ uf_m2_h,uf_m2_cerrado,paquete,cierre_comparable,motivo_exclusion,motivos_exclusion,reglas_version)
 SELECT id,source_file_id,predio_source_file_id,comuna,manzana,predio,fi,fe,fecha,tipo,semestre,
  monto_uf,clp,uf_usada,uf_fecha,m2_h,m2_cerrado,uf_m2_h,uf_m2_cerrado,coalesce(paquete,false),
- cardinality(motivos)=0,motivos[1],motivos FROM decisions;
+ cardinality(motivos)=0,motivos[1],motivos,'sii-phase1-v2' FROM decisions;
 ALTER TABLE sii.transferencia_build ADD PRIMARY KEY(raw_id);
 ALTER TABLE sii.transferencia_build ADD CONSTRAINT bulk_raw_fk
  FOREIGN KEY(raw_id) REFERENCES sii.transferencia_raw(id) NOT VALID;

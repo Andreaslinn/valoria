@@ -60,7 +60,7 @@ def address(raw: str) -> tuple[str, str | None, str | None]:
     text = normalize(raw)
     # A unit marker has priority over the first street number (e.g. 11 SEPTIEMBRE).
     unit_match = re.search(
-        r"\b(DP|DEPTO|DEPARTAMENTO|CASA|EST|ESTAC|BD|BOD|BODEGA)\s+([A-Z0-9]+)", text
+        r"\b(DP|DEPTO|DPTO|DEP|DEPARTAMENTO|CASA|EST|ESTAC|BD|BOD|BODEGA)\s+([A-Z0-9]+)", text
     )
     unit = unit_match.group(2) if unit_match else None
     base = text[: unit_match.start()].strip() if unit_match else text
@@ -70,7 +70,7 @@ def address(raw: str) -> tuple[str, str | None, str | None]:
 
 def property_type(destino: str, raw: str) -> str:
     tokens = set(normalize(raw).split())
-    if destino == "H" and "DP" in tokens:
+    if destino == "H" and tokens & {"DP", "DEPTO", "DPTO", "DEP"}:
         return "depto"
     if destino == "Z" or tokens & {"BX", "BOX", "EST", "ESTAC", "ESTACIONAMIENTO"}:
         return "estac"
