@@ -134,3 +134,27 @@ selecciona las versiones exactas del índice y rechaza sobrescribir una salida
 existente. El endpoint no conecta a Postgres. Si falta el archivo opcional o no
 coincide la versión, el terreno permanece desconocido. No se hereda terreno
 común de un departamento ni se convierte cero o valores inválidos en datos.
+
+## Búsqueda exacta por rol
+
+Ambas interfaces permiten elegir «Por dirección» o «Por rol». El rol se busca
+en la comuna seleccionada, como manzana-predio (por ejemplo `1234-56`) o con
+prefijo de código SII de comuna. Se admiten ceros iniciales, espacios y separador
+guion o barra. Un prefijo de otra comuna se rechaza; nunca se busca una propiedad
+vecina ni se interpreta un rol incompleto como una dirección.
+
+`POST /api/v1/tasar/rol-details` requiere autenticación y el mismo flag; devuelve
+404 antes de abrir archivos si está apagado. La búsqueda usa la clave exacta del
+índice de solo lectura. Comparte el contrato de atributos y el tratamiento de
+correcciones manuales con la búsqueda por dirección. Solo en esta consulta
+explícita por rol se devuelve `subject_address`: la dirección del inmueble pedido,
+sin exponer direcciones de candidatos o comparables.
+
+Al tasar por rol se envía `sii_rol`, que identifica directamente la unidad para
+la segunda opinión y su exclusión del pool. Si un cliente envía ambos criterios,
+el rol tiene prioridad. El motor canónico conserva sus entradas y cálculo. Con
+flag apagado, `sii_rol` se ignora incluso si tiene un tipo inválido; sin dirección
+ni rol, la respuesta conserva exactamente los bytes de la release.
+
+La ampliación pasa 181 pruebas y TypeScript en ambas interfaces. El informe
+agregado está en `reports/sii/role_lookup_20261020/report.md`.

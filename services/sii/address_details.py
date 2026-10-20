@@ -28,7 +28,9 @@ def _extra_facts(root: Path, role: dict):
         return {}
 
 
-def address_details(*, address: str, comuna: str, data_dir: str | None = None):
+def address_details(
+    *, address: str = "", comuna: str, data_dir: str | None = None, rol: str | None = None
+):
     from services.sii.closing_opinion import SLUGS, _candidates
 
     code = SLUGS.get(comuna.strip().lower())
@@ -49,7 +51,12 @@ def address_details(*, address: str, comuna: str, data_dir: str | None = None):
     try:
         index = AddressIndex(Path(configured) / "address-index.sqlite")
         try:
-            result = index.resolve(code, address)
+            if rol is not None:
+                from services.sii.role_lookup import resolve_role
+
+                result = resolve_role(index, code, rol)
+            else:
+                result = index.resolve(code, address)
         finally:
             index.close()
     except (OSError, ValueError, sqlite3.Error):
@@ -59,6 +66,10 @@ def address_details(*, address: str, comuna: str, data_dir: str | None = None):
             "message": "No pudimos consultar el catastro. Puedes completar los datos manualmente.",
         }
     if result["status"] == "unresolved":
+        if rol is not None:
+            from services.sii.role_lookup import role_message
+
+            return {**base, "status": "unavailable", "message": role_message(result["reason"])}
         return {
             **base,
             "status": "unavailable",
@@ -110,4 +121,7 @@ def address_details(*, address: str, comuna: str, data_dir: str | None = None):
         "missing_fields": ["bedrooms", "bathrooms", "parking"]
         + ([] if "land_area_m2" in fields else ["land_area_m2"]),
         "message": "Encontramos datos de esta propiedad en el catastro.",
+        # The address belongs to the exact subject explicitly requested by rol,
+        # never a comparable, candidate or neighbouring property.
+        **({"subject_address": role["raw"]} if rol is not None else {}),
     }

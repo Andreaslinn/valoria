@@ -25,6 +25,11 @@ class AddressDetailsRequest(BaseModel):
     comuna: str = Field(min_length=1, max_length=64)
 
 
+class RoleDetailsRequest(BaseModel):
+    rol: str = Field(min_length=1, max_length=64)
+    comuna: str = Field(min_length=1, max_length=64)
+
+
 class AddressFieldsOut(BaseModel):
     closed_area_m2: float | None = None
     land_area_m2: float | None = None
@@ -42,6 +47,7 @@ class AddressDetailsOut(BaseModel):
     fields: AddressFieldsOut = Field(default_factory=AddressFieldsOut)
     source: str | None = None
     source_period: str | None = None
+    subject_address: str | None = None
     message: str
     missing_fields: list[str] = Field(default_factory=list)
     candidates: list[AddressCandidateOut] = Field(default_factory=list)
@@ -58,6 +64,17 @@ async def lookup_address_details(payload: AddressDetailsRequest, current_user: C
         return await run_in_threadpool(address_details, address=payload.address, comuna=payload.comuna)
     except Exception:
         return {"status": "unavailable", "message": "No pudimos consultar el catastro. Puedes completar los datos manualmente."}
+
+
+@router.post("/rol-details", response_model=AddressDetailsOut)
+async def lookup_role_details(payload: RoleDetailsRequest, current_user: CurrentUser):
+    if not sii_closing_layer_enabled():
+        raise HTTPException(status_code=404, detail="Búsqueda por rol no habilitada")
+    from services.sii.address_details import address_details
+    try:
+        return await run_in_threadpool(address_details, rol=payload.rol, comuna=payload.comuna)
+    except Exception:
+        return {"status":"unavailable", "message":"No pudimos consultar el rol. Puedes completar los datos manualmente."}
 
 
 class RecentUserActivityEventOut(BaseModel):

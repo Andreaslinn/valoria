@@ -12,12 +12,12 @@ import type { PropertyType, ValuationRequest } from "@/types/valuation";
 import type { ValuationFormPrefill } from "./prefill";
 
 import { useSiiClosingCapability } from "./SiiClosingOpinion";
-import { AddressAutofillNote, useAddressDetails } from "./address-autofill";
+import { AddressAutofillNote, PropertySearch, useAddressDetails, type SearchMode } from "./address-autofill";
 
-type FormValues = { address: string; propertyType: PropertyType; comuna: string; builtAreaM2: string; landAreaM2: string; dormitorios: string; banos: string; estacionamientos: string; publishedPriceUf: string; publishedPriceClp: string };
+type FormValues = { rol: string; address: string; propertyType: PropertyType; comuna: string; builtAreaM2: string; landAreaM2: string; dormitorios: string; banos: string; estacionamientos: string; publishedPriceUf: string; publishedPriceClp: string };
 type Props = { importedPrefill?: ValuationFormPrefill | null; isSubmitting: boolean; onSubmit: (payload: ValuationRequest) => Promise<void> };
 
-const initialValues: FormValues = { address: "", propertyType: "apartment", comuna: "", builtAreaM2: "", landAreaM2: "", dormitorios: "", banos: "", estacionamientos: "", publishedPriceUf: "", publishedPriceClp: "" };
+const initialValues: FormValues = { rol: "", address: "", propertyType: "apartment", comuna: "", builtAreaM2: "", landAreaM2: "", dormitorios: "", banos: "", estacionamientos: "", publishedPriceUf: "", publishedPriceClp: "" };
 const propertyTypes: Array<{ label: string; value: PropertyType }> = [{ label: "Departamento", value: "apartment" }, { label: "Casa", value: "house" }, { label: "Oficina", value: "office" }];
 const betaComunas = [
   { label: "Santiago", value: "santiago" },
@@ -39,12 +39,13 @@ const selectClassName = "min-h-11 w-full rounded-lg border border-line bg-slate-
 
 export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props) {
   const siiEnabled = useSiiClosingCapability();
+  const [searchMode,setSearchMode]=useState<SearchMode>("address");
   const [values, setValues] = useState<FormValues>(initialValues);
   const [formError, setFormError] = useState<string | null>(null);
   const [priceOpen, setPriceOpen] = useState(false);
   const isHouse = values.propertyType === "house";
   const autoArea = useRef<string|null>(null), autoLand = useRef<string|null>(null), typeEdited = useRef(false), autoType = useRef(false);
-  const lookup = useAddressDetails(siiEnabled&&!isSubmitting, values.address, values.comuna);
+  const lookup = useAddressDetails(siiEnabled&&!isSubmitting, searchMode==="rol"?values.rol:values.address, values.comuna, searchMode);
   useEffect(() => {
     const data=lookup.data;if(data?.status!=="resolved")return;
     const area=data.fields.closed_area_m2;
@@ -58,11 +59,11 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
     setValues(v=>({...v,...(fillArea&&v.builtAreaM2===""?{builtAreaM2:String(area)}:{}),...(fillLand&&v.landAreaM2===""?{landAreaM2:String(land)}:{}),...(fillType?{propertyType:fillType}:{})}));
   },[lookup.data]);
   function update(key:keyof FormValues,value:string) {
-    const clearArea=(key==="address"||key==="comuna")&&autoArea.current!==null;
-    const clearLand=(key==="address"||key==="comuna")&&autoLand.current!==null;
+    const clearArea=(key==="address"||key==="rol"||key==="comuna")&&autoArea.current!==null;
+    const clearLand=(key==="address"||key==="rol"||key==="comuna")&&autoLand.current!==null;
     if(clearLand||key==="landAreaM2")autoLand.current=null;
     if(clearArea||key==="builtAreaM2")autoArea.current=null;
-    const clearType=(key==="address"||key==="comuna")&&autoType.current;
+    const clearType=(key==="address"||key==="rol"||key==="comuna")&&autoType.current;
     if(clearType)autoType.current=false;
     setValues(v=>({...v,...(clearArea?{builtAreaM2:""}:{}),...(clearLand?{landAreaM2:""}:{}),...(clearType?{propertyType:"apartment" as PropertyType}:{}),[key]:value}));
   }
@@ -72,7 +73,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
     autoArea.current=null;autoLand.current=null;autoType.current=false;typeEdited.current=true;
     setValues((current) => ({
       ...current,
-      address: "",
+      rol: "", address: "",
       propertyType: importedPrefill.propertyType ?? current.propertyType,
       comuna: comunaValue(importedPrefill.comuna) ?? current.comuna,
       builtAreaM2: textNumber(importedPrefill.builtAreaM2 ?? importedPrefill.usableAreaM2) ?? current.builtAreaM2,
@@ -93,7 +94,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
     if (!values.comuna.trim()) return setFormError("Ingresa la comuna de la propiedad.");
     if (!builtArea || builtArea <= 0) return setFormError("Ingresa una superficie útil o construida mayor a 0.");
     if (isHouse && (!landArea || landArea <= 0)) return setFormError("Para casas, ingresa la superficie de terreno.");
-    await onSubmit({ comuna: values.comuna, property_type: values.propertyType, m2: builtArea, built_area_m2: builtArea, land_area_m2: isHouse ? landArea : null, usable_area_m2: values.propertyType === "apartment" && autoArea.current===null ? builtArea : null, dormitorios: integerOrNull(values.dormitorios), banos: integerOrNull(values.banos), estacionamientos: integerOrNull(values.estacionamientos), precio_publicado_uf: numberOrNull(values.publishedPriceUf), precio_publicado_clp: integerOrNull(values.publishedPriceClp), ...(siiEnabled && values.address.trim() ? { address: values.address.trim() } : {}) });
+    await onSubmit({ comuna: values.comuna, property_type: values.propertyType, m2: builtArea, built_area_m2: builtArea, land_area_m2: isHouse ? landArea : null, usable_area_m2: values.propertyType === "apartment" && autoArea.current===null ? builtArea : null, dormitorios: integerOrNull(values.dormitorios), banos: integerOrNull(values.banos), estacionamientos: integerOrNull(values.estacionamientos), precio_publicado_uf: numberOrNull(values.publishedPriceUf), precio_publicado_clp: integerOrNull(values.publishedPriceClp), ...(siiEnabled && searchMode==="rol" && values.rol.trim() ? {sii_rol:values.rol.trim()} : siiEnabled && searchMode==="address" && values.address.trim() ? { address: values.address.trim() } : {}) });
   }
 
   return <Card className="h-fit p-5 sm:p-6">
@@ -105,7 +106,7 @@ export function ValuationForm({ importedPrefill, isSubmitting, onSubmit }: Props
         <SelectField label="Tipo de propiedad" value={values.propertyType} onChange={(value) => {typeEdited.current=true;autoType.current=false;setValues((current) => ({ ...current, propertyType: value as PropertyType }));}}>{propertyTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</SelectField>
         <SelectField label="Comuna" value={values.comuna} onChange={(value) => update("comuna",value)} required><option value="">Selecciona una comuna</option>{comunaOptionsFor(values.comuna).map((comuna) => <option key={comuna.value} value={comuna.value}>{comuna.label}</option>)}</SelectField>
       </div>
-      {siiEnabled ? <div><Input label="Dirección de la propiedad" name="address" value={values.address} onChange={(event) => update("address",event.target.value)} placeholder="Calle, número y departamento" /></div> : null}
+      {siiEnabled&&<PropertySearch mode={searchMode} onModeChange={mode=>{if(mode===searchMode)return;setSearchMode(mode);update(mode==="rol"?"rol":"address",mode==="rol"?values.rol:values.address);}} address={values.address} onAddressChange={value=>update("address",value)} rol={values.rol} onRoleChange={value=>update("rol",value)}/>}
       <AddressAutofillNote lookup={lookup}/>
       <div className="grid gap-4 sm:grid-cols-2">
         <Input label={autoArea.current!==null?"Construcción · SII":"Superficie útil"} min="1" name="builtAreaM2" onChange={(event) => update("builtAreaM2",event.target.value)} required type="number" value={values.builtAreaM2} />

@@ -13,6 +13,7 @@ export type PropertyType = "apartment" | "house" | "office";
 
 export type ValuationRequest = {
   address?: string;
+  sii_rol?: string;
   comuna: string;
   property_type?: PropertyType;
   m2: number;

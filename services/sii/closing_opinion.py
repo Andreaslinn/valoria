@@ -65,6 +65,7 @@ def build_opinion(
     area: float,
     as_of: date | None = None,
     data_dir: str | None = None,
+    rol: str | None = None,
 ):
     as_of = as_of or date.today()
     code = SLUGS.get(comuna.strip().lower())
@@ -81,7 +82,7 @@ def build_opinion(
         return unavailable(
             "data_unavailable", "No hay datos SII disponibles para calcular la segunda opinión."
         )
-    if not isinstance(address, str) or not address.strip() or len(address) > 512:
+    if rol is None and (not isinstance(address, str) or not address.strip() or len(address) > 512):
         return unavailable("invalid_address", "Revisa la dirección e incluye calle y número.")
     root = Path(configured)
     index_path, closings_path = root / "address-index.sqlite", root / "closings.json"
@@ -94,7 +95,12 @@ def build_opinion(
         )
         index = AddressIndex(index_path)
         try:
-            resolution = index.resolve(code, address)
+            if rol is not None:
+                from services.sii.role_lookup import resolve_role
+
+                resolution = resolve_role(index, code, rol)
+            else:
+                resolution = index.resolve(code, address)
         finally:
             index.close()
     except (OSError, ValueError, KeyError, sqlite3.Error):
@@ -112,6 +118,10 @@ def build_opinion(
             "candidate_count": count,
         }
     if resolution["status"] == "unresolved":
+        if rol is not None:
+            from services.sii.role_lookup import role_message
+
+            return unavailable(resolution["reason"], role_message(resolution["reason"]))
         return unavailable(
             "address_not_resolved",
             "No se pudo resolver la dirección en el catastro. Revisa calle, número y departamento.",

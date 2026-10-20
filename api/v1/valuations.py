@@ -25,6 +25,7 @@ class ValuationRequest(BaseModel):
     # Legacy release ignored this field. Preserve that behavior for every input
     # while off; validate the optional address only inside the enabled layer.
     address: Any = None
+    sii_rol: Any = None
     target_listing_id: int | None = Field(default=None, gt=0)
     comuna: str
     property_type: str | None = None
@@ -263,16 +264,19 @@ async def valuate(
             detail="Error inesperado al tasar propiedad",
         ) from e
     response = ValuationResponse.model_validate(result, from_attributes=True)
-    if sii_closing_layer_enabled() and isinstance(payload.address, str) and payload.address.strip():
+    has_address = isinstance(payload.address, str) and bool(payload.address.strip())
+    has_role = isinstance(payload.sii_rol, str) and bool(payload.sii_rol.strip())
+    if sii_closing_layer_enabled() and (has_address or has_role):
         from services.sii.closing_opinion import build_opinion
 
         try:
             opinion = await run_in_threadpool(
                 build_opinion,
-                address=payload.address,
+                address=payload.address if has_address else "",
                 comuna=payload.comuna,
                 property_type=payload.property_type,
                 area=payload.usable_area_m2 or payload.built_area_m2 or payload.m2,
+                **({"rol": payload.sii_rol} if has_role else {}),
             )
             response.sii_closing_opinion = SiiClosingOpinionOut.model_validate(opinion)
         except Exception:
