@@ -106,3 +106,13 @@ reports/**/*_latest.json
 *storage_state*.json
 *cookie*.json
 private/
+
+# SII confidence audit: row-level evidence is local only.
+**/validation-records-local.json
+**/holdout-records-local.json
+**/comparison-records-local.json
+**/canonical-pool*-local.json
+**/training-through-2025-local.json
+**/sii-tasar-cases-local.json
+**/tasar-api-records-local.json
+**/address-details.sqlite

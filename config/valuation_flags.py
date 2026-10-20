@@ -3,6 +3,12 @@ from __future__ import annotations
 
 import os
 
+
+def sii_closing_layer_enabled() -> bool:
+    """Second SII opinion; off by default, never enables ingestion or deployment."""
+    return os.getenv("sii_closing_layer", "false").strip().lower() == "true"  # noqa: SIM112 -- requested flag name
+
+
 VALUATION_CANONICAL_PRICE_ENABLED_ENV = "VALUATION_CANONICAL_PRICE_ENABLED"
 VALUATION_CANONICAL_PRICE_SEGMENTED_ENV = "VALUATION_CANONICAL_PRICE_SEGMENTED"
 VALORIA_USE_CONSENSUS_ENV = "VALORIA_USE_CONSENSUS"

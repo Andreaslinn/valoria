@@ -1,7 +1,20 @@
+export type SiiClosingOpinion = {
+  status: "available" | "unavailable" | "ambiguous";
+  confidence_label?: "Confianza alta" | "Referencial" | null;
+  value_uf?: number | null; p25_uf?: number | null; p75_uf?: number | null;
+  comparable_count: number; closing_dates: string[];
+  date_min?: string | null; date_max?: string | null;
+  area_m2?: number | null; area_basis?: string | null;
+  message: string; scope_message?: string | null; reason_code?: string | null;
+  candidates: Array<{ id: string; label: string }>; candidate_count: number;
+};
+
 export type PropertyType = "apartment" | "house" | "office";
 
 export type ValuationRequest = {
   target_listing_id?: number;
+  address?: string;
+  sii_rol?: string;
   comuna: string;
   property_type?: PropertyType;
   m2: number;
@@ -104,6 +117,7 @@ export type ValuationConsensusAudit = {
 };
 
 export type ValuationResponse = {
+  sii_closing_opinion?: SiiClosingOpinion;
   base_estimated_price_uf?: number | null;
   base_estimated_price_clp?: number | null;
   estimated_price_uf: number | null;

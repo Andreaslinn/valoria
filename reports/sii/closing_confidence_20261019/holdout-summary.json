@@ -1,0 +1,498 @@
+{
+  "stage": "2026",
+  "rule_sha256": "62e2647548487f63018a100c2f2b3c6231fd6ae212262f9307fb0cb7574b5f34",
+  "input_sha256": "c83a108b5738fd730050e58d21b9cc00326d680f9fed49ef15db162f21e9b329",
+  "segments": [
+    {
+      "cell": "block5/0-9/0-10",
+      "n": 40,
+      "predicted": 40,
+      "mdape_pct": 4.736085823789554,
+      "p95_ape_pct": 77.43365316132777
+    },
+    {
+      "cell": "block5/0-9/10-20",
+      "n": 65,
+      "predicted": 65,
+      "mdape_pct": 10.024679563729011,
+      "p95_ape_pct": 32.74048098868104
+    },
+    {
+      "cell": "block5/0-9/20-35",
+      "n": 55,
+      "predicted": 55,
+      "mdape_pct": 10.04964645704829,
+      "p95_ape_pct": 119.33238249730175
+    },
+    {
+      "cell": "block5/0-9/35+",
+      "n": 33,
+      "predicted": 33,
+      "mdape_pct": 14.043004761904754,
+      "p95_ape_pct": 64.90685403275111
+    },
+    {
+      "cell": "block5/10-19/0-10",
+      "n": 31,
+      "predicted": 31,
+      "mdape_pct": 5.081826012058577,
+      "p95_ape_pct": 118.20690925967388
+    },
+    {
+      "cell": "block5/10-19/10-20",
+      "n": 117,
+      "predicted": 117,
+      "mdape_pct": 8.203991130820398,
+      "p95_ape_pct": 63.46972176759404
+    },
+    {
+      "cell": "block5/10-19/20-35",
+      "n": 122,
+      "predicted": 122,
+      "mdape_pct": 10.392673756904468,
+      "p95_ape_pct": 69.09697934766952
+    },
+    {
+      "cell": "block5/10-19/35+",
+      "n": 78,
+      "predicted": 78,
+      "mdape_pct": 13.789508290948193,
+      "p95_ape_pct": 53.5164562128357
+    },
+    {
+      "cell": "block5/20-39/0-10",
+      "n": 32,
+      "predicted": 32,
+      "mdape_pct": 10.858664716984013,
+      "p95_ape_pct": 68.27962945240505
+    },
+    {
+      "cell": "block5/20-39/10-20",
+      "n": 116,
+      "predicted": 116,
+      "mdape_pct": 10.815479566929941,
+      "p95_ape_pct": 74.5011685078605
+    },
+    {
+      "cell": "block5/20-39/20-35",
+      "n": 119,
+      "predicted": 119,
+      "mdape_pct": 11.489362547699555,
+      "p95_ape_pct": 47.99157603794897
+    },
+    {
+      "cell": "block5/20-39/35+",
+      "n": 154,
+      "predicted": 154,
+      "mdape_pct": 17.342770154701284,
+      "p95_ape_pct": 141.4568211726129
+    },
+    {
+      "cell": "block5/40+/0-10",
+      "n": 14,
+      "predicted": 14,
+      "mdape_pct": 11.828969124346223,
+      "p95_ape_pct": 22.212739291052944
+    },
+    {
+      "cell": "block5/40+/10-20",
+      "n": 74,
+      "predicted": 74,
+      "mdape_pct": 11.732173785544749,
+      "p95_ape_pct": 51.04724845209742
+    },
+    {
+      "cell": "block5/40+/20-35",
+      "n": 68,
+      "predicted": 68,
+      "mdape_pct": 15.545766890749597,
+      "p95_ape_pct": 111.38779785495842
+    },
+    {
+      "cell": "block5/40+/35+",
+      "n": 96,
+      "predicted": 96,
+      "mdape_pct": 18.41641739587328,
+      "p95_ape_pct": 134.01339932013957
+    },
+    {
+      "cell": "building5/0-9/0-10",
+      "n": 1976,
+      "predicted": 1976,
+      "mdape_pct": 4.738633763564931,
+      "p95_ape_pct": 19.955645368970544
+    },
+    {
+      "cell": "building5/0-9/10-20",
+      "n": 1571,
+      "predicted": 1571,
+      "mdape_pct": 6.886792452830193,
+      "p95_ape_pct": 27.97246872815412
+    },
+    {
+      "cell": "building5/0-9/20-35",
+      "n": 478,
+      "predicted": 478,
+      "mdape_pct": 9.158258739727621,
+      "p95_ape_pct": 37.99615075324673
+    },
+    {
+      "cell": "building5/0-9/35+",
+      "n": 215,
+      "predicted": 215,
+      "mdape_pct": 19.019539831194354,
+      "p95_ape_pct": 69.8614270902648
+    },
+    {
+      "cell": "building5/10-19/0-10",
+      "n": 81,
+      "predicted": 81,
+      "mdape_pct": 8.367497886728648,
+      "p95_ape_pct": 49.61761300840335
+    },
+    {
+      "cell": "building5/10-19/10-20",
+      "n": 316,
+      "predicted": 316,
+      "mdape_pct": 9.496952914624718,
+      "p95_ape_pct": 64.15464919970742
+    },
+    {
+      "cell": "building5/10-19/20-35",
+      "n": 475,
+      "predicted": 475,
+      "mdape_pct": 13.78299120234605,
+      "p95_ape_pct": 59.19418254846743
+    },
+    {
+      "cell": "building5/10-19/35+",
+      "n": 233,
+      "predicted": 233,
+      "mdape_pct": 15.91369916875578,
+      "p95_ape_pct": 56.68414074861679
+    },
+    {
+      "cell": "building5/20-39/0-10",
+      "n": 20,
+      "predicted": 20,
+      "mdape_pct": 8.025258181985217,
+      "p95_ape_pct": 116.3197320938593
+    },
+    {
+      "cell": "building5/20-39/10-20",
+      "n": 97,
+      "predicted": 97,
+      "mdape_pct": 9.75528483359498,
+      "p95_ape_pct": 116.14194017495102
+    },
+    {
+      "cell": "building5/20-39/20-35",
+      "n": 120,
+      "predicted": 120,
+      "mdape_pct": 11.234535869572504,
+      "p95_ape_pct": 64.61121122089708
+    },
+    {
+      "cell": "building5/20-39/35+",
+      "n": 143,
+      "predicted": 143,
+      "mdape_pct": 15.789473684210531,
+      "p95_ape_pct": 60.65558839514466
+    },
+    {
+      "cell": "building5/40+/0-10",
+      "n": 3,
+      "predicted": 3,
+      "mdape_pct": 7.035690320643296,
+      "p95_ape_pct": 20.873015501214955
+    },
+    {
+      "cell": "building5/40+/10-20",
+      "n": 24,
+      "predicted": 24,
+      "mdape_pct": 13.846971888334375,
+      "p95_ape_pct": 148.01648436279936
+    },
+    {
+      "cell": "building5/40+/20-35",
+      "n": 21,
+      "predicted": 21,
+      "mdape_pct": 13.348692061749745,
+      "p95_ape_pct": 81.16617166666667
+    },
+    {
+      "cell": "building5/40+/35+",
+      "n": 42,
+      "predicted": 42,
+      "mdape_pct": 15.362962962962962,
+      "p95_ape_pct": 81.64347779039205
+    },
+    {
+      "cell": "commune/0-9/0-10",
+      "n": 69,
+      "predicted": 69,
+      "mdape_pct": 9.995257361336375,
+      "p95_ape_pct": 163.90555918503776
+    },
+    {
+      "cell": "commune/0-9/10-20",
+      "n": 234,
+      "predicted": 234,
+      "mdape_pct": 11.138079827400215,
+      "p95_ape_pct": 65.85572364461439
+    },
+    {
+      "cell": "commune/0-9/20-35",
+      "n": 271,
+      "predicted": 271,
+      "mdape_pct": 12.274368231046928,
+      "p95_ape_pct": 67.49223557242577
+    },
+    {
+      "cell": "commune/0-9/35+",
+      "n": 173,
+      "predicted": 173,
+      "mdape_pct": 22.1950677627194,
+      "p95_ape_pct": 97.5233863076765
+    },
+    {
+      "cell": "commune/10-19/0-10",
+      "n": 52,
+      "predicted": 52,
+      "mdape_pct": 9.245845895780423,
+      "p95_ape_pct": 46.18318335241092
+    },
+    {
+      "cell": "commune/10-19/10-20",
+      "n": 284,
+      "predicted": 284,
+      "mdape_pct": 11.260410177277468,
+      "p95_ape_pct": 93.83655827161888
+    },
+    {
+      "cell": "commune/10-19/20-35",
+      "n": 396,
+      "predicted": 396,
+      "mdape_pct": 11.215102618622026,
+      "p95_ape_pct": 80.51182265627413
+    },
+    {
+      "cell": "commune/10-19/35+",
+      "n": 224,
+      "predicted": 224,
+      "mdape_pct": 17.00769647974466,
+      "p95_ape_pct": 74.68650951427753
+    },
+    {
+      "cell": "commune/20-39/0-10",
+      "n": 61,
+      "predicted": 61,
+      "mdape_pct": 9.923112767940356,
+      "p95_ape_pct": 84.06602681818183
+    },
+    {
+      "cell": "commune/20-39/10-20",
+      "n": 343,
+      "predicted": 343,
+      "mdape_pct": 10.814652409397919,
+      "p95_ape_pct": 108.58322826904192
+    },
+    {
+      "cell": "commune/20-39/20-35",
+      "n": 604,
+      "predicted": 604,
+      "mdape_pct": 13.653113447053943,
+      "p95_ape_pct": 141.96009101079622
+    },
+    {
+      "cell": "commune/20-39/35+",
+      "n": 770,
+      "predicted": 770,
+      "mdape_pct": 19.6866295273403,
+      "p95_ape_pct": 123.85901275999989
+    },
+    {
+      "cell": "commune/40+/0-10",
+      "n": 34,
+      "predicted": 34,
+      "mdape_pct": 12.757149089226738,
+      "p95_ape_pct": 49.07736028152411
+    },
+    {
+      "cell": "commune/40+/10-20",
+      "n": 237,
+      "predicted": 237,
+      "mdape_pct": 15.26076114341567,
+      "p95_ape_pct": 132.78970612585667
+    },
+    {
+      "cell": "commune/40+/20-35",
+      "n": 673,
+      "predicted": 673,
+      "mdape_pct": 18.09308625072996,
+      "p95_ape_pct": 142.54561588632322
+    },
+    {
+      "cell": "commune/40+/35+",
+      "n": 1427,
+      "predicted": 1427,
+      "mdape_pct": 25.508317929759706,
+      "p95_ape_pct": 121.16407239459463
+    }
+  ],
+  "by_commune": [
+    {
+      "comuna": 13101,
+      "name": "SANTIAGO",
+      "total": 2202,
+      "trusted": {
+        "n": 588,
+        "predicted": 588,
+        "mdape_pct": 6.421555581662786,
+        "p95_ape_pct": 35.99784566389939
+      },
+      "all": {
+        "n": 2202,
+        "predicted": 2130,
+        "mdape_pct": 12.385708433157987,
+        "p95_ape_pct": 61.832707280495946
+      },
+      "coverage_pct": 26.70299727520436,
+      "passes_mdape_and_coverage": false
+    },
+    {
+      "comuna": 14157,
+      "name": "ESTACION CENTRAL",
+      "total": 837,
+      "trusted": {
+        "n": 241,
+        "predicted": 241,
+        "mdape_pct": 5.594956658786443,
+        "p95_ape_pct": 38.51955307262569
+      },
+      "all": {
+        "n": 837,
+        "predicted": 817,
+        "mdape_pct": 16.226373703741224,
+        "p95_ape_pct": 100.14276852972206
+      },
+      "coverage_pct": 28.79330943847073,
+      "passes_mdape_and_coverage": false
+    },
+    {
+      "comuna": 15103,
+      "name": "PROVIDENCIA",
+      "total": 1265,
+      "trusted": {
+        "n": 150,
+        "predicted": 150,
+        "mdape_pct": 5.8177791046008505,
+        "p95_ape_pct": 73.75548281434683
+      },
+      "all": {
+        "n": 1265,
+        "predicted": 1259,
+        "mdape_pct": 13.019607843137248,
+        "p95_ape_pct": 122.4561613461858
+      },
+      "coverage_pct": 11.857707509881424,
+      "passes_mdape_and_coverage": false
+    },
+    {
+      "comuna": 15105,
+      "name": "ÑUÑOA",
+      "total": 2699,
+      "trusted": {
+        "n": 1214,
+        "predicted": 1214,
+        "mdape_pct": 5.409524337985277,
+        "p95_ape_pct": 20.664854126110665
+      },
+      "all": {
+        "n": 2699,
+        "predicted": 2640,
+        "mdape_pct": 8.333333333333337,
+        "p95_ape_pct": 72.01214759234226
+      },
+      "coverage_pct": 44.97962208225269,
+      "passes_mdape_and_coverage": false
+    },
+    {
+      "comuna": 15108,
+      "name": "LAS CONDES",
+      "total": 2033,
+      "trusted": {
+        "n": 339,
+        "predicted": 339,
+        "mdape_pct": 7.963340122199591,
+        "p95_ape_pct": 47.49434834005438
+      },
+      "all": {
+        "n": 2033,
+        "predicted": 2014,
+        "mdape_pct": 11.590990029208491,
+        "p95_ape_pct": 121.29420840141977
+      },
+      "coverage_pct": 16.674864731923265,
+      "passes_mdape_and_coverage": false
+    },
+    {
+      "comuna": 15128,
+      "name": "LA FLORIDA",
+      "total": 2648,
+      "trusted": {
+        "n": 1253,
+        "predicted": 1253,
+        "mdape_pct": 5.356320663017344,
+        "p95_ape_pct": 20.43036610331569
+      },
+      "all": {
+        "n": 2648,
+        "predicted": 2584,
+        "mdape_pct": 9.447297423781986,
+        "p95_ape_pct": 77.76959900166273
+      },
+      "coverage_pct": 47.318731117824775,
+      "passes_mdape_and_coverage": false
+    },
+    {
+      "comuna": 15160,
+      "name": "VITACURA",
+      "total": 776,
+      "trusted": {
+        "n": 144,
+        "predicted": 144,
+        "mdape_pct": 8.240794906383803,
+        "p95_ape_pct": 72.48015550130197
+      },
+      "all": {
+        "n": 776,
+        "predicted": 765,
+        "mdape_pct": 11.920683343502125,
+        "p95_ape_pct": 95.39483559114902
+      },
+      "coverage_pct": 18.556701030927837,
+      "passes_mdape_and_coverage": false
+    },
+    {
+      "comuna": 16106,
+      "name": "SAN MIGUEL",
+      "total": 675,
+      "trusted": {
+        "n": 156,
+        "predicted": 156,
+        "mdape_pct": 8.004089969794059,
+        "p95_ape_pct": 56.808510638297875
+      },
+      "all": {
+        "n": 675,
+        "predicted": 672,
+        "mdape_pct": 15.766646541314477,
+        "p95_ape_pct": 79.36649641069988
+      },
+      "coverage_pct": 23.11111111111111,
+      "passes_mdape_and_coverage": false
+    }
+  ],
+  "communes_passing": 0
+}
