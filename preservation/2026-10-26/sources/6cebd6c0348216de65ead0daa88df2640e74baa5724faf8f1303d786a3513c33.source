@@ -1,0 +1,43 @@
+"""Read-only identity projection from local dev DB. No Oracle or DB writes."""
+from pathlib import Path
+import subprocess,json
+from identity import sanitize
+H=Path(__file__).resolve().parent
+
+SQL="""BEGIN TRANSACTION READ ONLY;
+SELECT json_build_object('listings', coalesce(json_agg(json_build_object(
+ 'id',id,'source',source,'external_id',external_id,'url',url,'title',title,
+ 'property_id',property_id,'comuna',comuna,'property_type',property_type,
+ 'm2',m2,'built_area_m2',built_area_m2,'usable_area_m2',usable_area_m2,
+ 'bedrooms',bedrooms,'bathrooms',bathrooms,'parking',parking,'lat',lat,'lon',lon,
+ 'created_at',created_at,'scraped_at',scraped_at,'geocode_precision',geocode_precision,
+ 'raw_metadata',json_build_object(
+  'address',raw_metadata->>'address','address_label',raw_metadata->>'address_label',
+  'street_hint',raw_metadata->>'street_hint','location_text',raw_metadata->>'location_text',
+  'normalized_address',raw_metadata->>'normalized_address','street_number',raw_metadata->>'street_number',
+  'unit',raw_metadata->>'unit','unit_number',raw_metadata->>'unit_number',
+  'building_name',raw_metadata->>'building_name','project_name',raw_metadata->>'project_name',
+  'coordinates_source',raw_metadata->>'coordinates_source','location_source',raw_metadata->>'location_source'),
+ 'existing_image_identifier_hash',md5(raw_metadata->>'main_image_url')
+)), '[]'::json)) FROM listings WHERE status='active';
+ROLLBACK;
+"""
+
+def main():
+    if (H/'local_identity_snapshot.json').exists():
+        raise RuntimeError('Frozen local snapshot exists; use a new experimental folder for another extraction')
+    command=['docker','exec','-i','valoria-v2-dev-postgres-1','sh','-c',
+       'exec psql --no-psqlrc -U "$POSTGRES_USER" -d "$POSTGRES_DB" -qAt -v ON_ERROR_STOP=1']
+    p=subprocess.run(command,input=SQL.encode(),capture_output=True)
+    if p.returncode: raise RuntimeError('Local read-only projection failed; diagnostics withheld')
+    result=json.loads(p.stdout)
+    for r in result['listings']:
+        r['title']=sanitize(r['title'])
+        r['raw_metadata']={k:sanitize(v) if isinstance(v,str) else v for k,v in r['raw_metadata'].items()}
+    from datetime import datetime,timezone
+    result['captured_at']=datetime.now(timezone.utc).isoformat()
+    result['provenance']='local valoria-v2-dev-postgres-1; BEGIN READ ONLY / SELECT identity columns / ROLLBACK; no price columns'
+    (H/'local_identity_snapshot.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+    (H/'local_identity_query.sql').write_text(SQL,encoding='utf-8')
+    print('local identity rows',len(result['listings']))
+if __name__=='__main__': main()

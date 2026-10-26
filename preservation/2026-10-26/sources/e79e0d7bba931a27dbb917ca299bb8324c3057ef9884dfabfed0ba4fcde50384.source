@@ -1,0 +1,38 @@
+from pathlib import Path
+import sys,json,httpx
+from playwright.sync_api import sync_playwright
+base=sys.argv[1].rstrip('/');phase=sys.argv[2];root=Path('work')/('entrypoints-'+phase);root.mkdir(exist_ok=True)
+out={'origin':base,'layouts':[],'mocked_form_checks':[],'errors':[]}
+with sync_playwright() as pw:
+ b=pw.chromium.launch(headless=True)
+ for device,viewport in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+  ctx=b.new_context(viewport=viewport);p=ctx.new_page();p.on('pageerror',lambda err:out['errors'].append(str(err)))
+  for path in ['/','/login']:
+   r=p.goto(base+path,wait_until='networkidle');assert r.status==200
+   assert not p.evaluate('document.documentElement.scrollWidth>innerWidth+2')
+   if path=='/':
+    assert p.get_by_role('link',name='Entrar',exact=True).get_attribute('href')=='/login'
+    assert p.get_by_role('link',name='Solicitar acceso',exact=True).get_attribute('href')=='https://valoria-beta.netlify.app/register'
+   else:
+    assert p.get_by_label('Email',exact=True).is_visible() and p.get_by_label('Contrasena',exact=True).is_visible()
+    p.get_by_role('button',name='Entrar a Valoria',exact=True).click()
+    assert not p.get_by_label('Email',exact=True).evaluate('(e)=>e.validity.valid')
+   p.screenshot(path=str(root/(device+path.replace('/','-')+'.png')),full_page=True)
+   assert p.reload(wait_until='networkidle').status==200;out['layouts'].append({'device':device,'path':path,'direct_refresh':200,'overflow':False})
+  ctx.close()
+ # Test the standalone form wiring with disposable dummy credentials and mocked transport.
+ # No real login request or token is sent to Oracle by these two form checks.
+ for success in [False,True]:
+  ctx=b.new_context();p=ctx.new_page();calls=[]
+  def route(req):
+   if req.request.url.endswith('/api/v1/auth/login'):
+    calls.append(req.request.post_data);req.fulfill(status=200 if success else 401,content_type='application/json',body=json.dumps({'access_token':'[REDACTED]','expires_in':300} if success else {'detail':'Credenciales invalidas de prueba.'}))
+   else:req.abort()
+  p.route('**/backend/**',route);p.goto(base+'/login',wait_until='networkidle');p.get_by_label('Email',exact=True).fill('form-test@example.invalid');p.get_by_label('Contrasena',exact=True).fill('disposable-test-value');p.get_by_role('button',name='Entrar a Valoria',exact=True).click()
+  if success:
+   p.wait_for_url('**/resumen');p.get_by_text('Esto cambió en tu mercado.',exact=True).wait_for();assert p.evaluate('localStorage.getItem("valoria_access_token")')=='disposable-form-test-token'
+  else:p.get_by_text('Credenciales invalidas de prueba.',exact=True).wait_for()
+  assert len(calls)==1 and 'username=form-test%40example.invalid' in calls[0]
+  out['mocked_form_checks'].append({'case':'success-to-resumen' if success else 'failed-login-message','pass':True});ctx.close()
+ b.close()
+assert not out['errors'];(root/'results.json').write_text(json.dumps(out,indent=2));print(json.dumps(out))

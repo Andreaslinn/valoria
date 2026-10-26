@@ -1,0 +1,23 @@
+import subprocess,json
+from pathlib import Path
+import httpx
+sql="""UPDATE listings SET created_at=date_trunc('day',now())-interval '1 day'+interval '15 hours' WHERE id=10000;
+UPDATE listings SET last_refresh_attempted_at=date_trunc('day',now())-interval '1 day'+interval '15 hours' WHERE id=298;
+DELETE FROM price_history WHERE listing_id=10000;
+INSERT INTO price_history(listing_id,price_clp,price_uf,change_basis,observed_at) VALUES
+(10000,140000000,3500,'uf',date_trunc('day',now())-interval '2 days'+interval '15 hours'),
+(10000,120000000,3000,'uf',date_trunc('day',now())-interval '1 day'+interval '15 hours');"""
+subprocess.run(['docker','exec','-i','valoria-remediation-pg','psql','-v','ON_ERROR_STOP=1','-U','valoria_test','-d','valoria_candidate_v2'],input=sql,text=True,check=True,capture_output=True)
+results=[]
+with httpx.Client(base_url='http://127.0.0.1:8013',timeout=90) as c:
+ t=c.post('/api/v1/auth/login',data={'username':'candidate-a@example.test','password':'[REDACTED]'});t.raise_for_status();c.headers['Authorization']='Bearer '+t.json()['access_token']
+ for days in [7,30,90]:
+  r=c.get(f'/api/v1/market/dashboard?period_days={days}&property_type=apartment');r.raise_for_status();d=r.json()
+  for key in ['new_listings','removed_or_inactive','price_drop_events']:
+   total=d['overview'][key];daily=sum(x[key] for x in d['daily_pulse']);assert total==daily==1,(days,key,total,daily)
+   if key!='removed_or_inactive':
+    communes=sum(x[key] for x in d['communes']);assert total==communes,(days,key,total,communes)
+  assert len(d['daily_pulse'])==days
+  results.append({'days':days,'scope':d['scope'],'overview':d['overview'],'daily_and_commune_totals_match':True})
+Path(__file__).with_name('candidate-temporal-evidence.json').write_text(json.dumps(results,indent=2),encoding='utf-8');print(json.dumps(results,indent=2))
+

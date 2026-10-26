@@ -1,0 +1,67 @@
+"""Frozen saved-data check only: no Oracle, portals, HTTP or remote database."""
+import sys, os, pathlib
+base=pathlib.Path('work/oracle-ingestion-resilience').resolve()
+sys.path=[p for p in sys.path if pathlib.Path(p or '.').resolve()!=pathlib.Path(__file__).resolve().parent]
+sys.path.insert(0,str(base))
+os.environ['DATABASE_URL']='sqlite+aiosqlite:///:memory:'
+os.environ['SYNC_DATABASE_URL']='sqlite:///:memory:'
+os.environ.setdefault('JWT_SECRET_KEY','0'*32)
+import asyncio,json,hashlib
+from decimal import Decimal
+from datetime import UTC,datetime,date
+from types import SimpleNamespace
+from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
+from infrastructure.db.base import Base
+from infrastructure.db.models import ListingORM
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+from infrastructure.db.published_fields import apply_published_fields
+from api.deps import get_valuation_service
+from api.v1.valuations import ValuationRequest,valuate
+from core.ports.uf_service import UFRateInfo
+
+async def main():
+    out=pathlib.Path('outputs/published-fields')
+    baseline={(r['source'],r['id']):r['fields'] for r in json.loads((out/'addresses-baseline-fields.json').read_text(encoding='utf8'))}
+    candidate={(r['source'],r['id']):r['fields'] for r in json.loads((out/'persisted-fields.json').read_text(encoding='utf8'))}
+    cached=[json.loads(line) for line in (out/'price-cache.jsonl').read_text(encoding='utf8').splitlines()]
+    cached={(r['source'],r['external_id']):r for r in cached if r.get('event')=='db_before'}
+    engine=create_async_engine('sqlite+aiosqlite:///:memory:')
+    async with engine.begin() as conn:await conn.run_sync(Base.metadata.create_all)
+    uf=Decimal('41162.73')
+    class UF:
+        async def get_current_rate(self):return uf
+        async def get_current_rate_info(self):return UFRateInfo(rate=uf,source='saved_snapshot',rate_date=date(2026,10,15))
+    async with async_sessionmaker(engine,expire_on_commit=False)() as session:
+        stored={}
+        for key,r in cached.items():
+            if not r.get('price_clp'):continue
+            kwargs={k:r.get(k) for k in ['source','external_id','title','url','comuna','property_type','m2','built_area_m2','usable_area_m2','bedrooms','bathrooms','parking','lat','lon','price_currency','raw_metadata']}
+            for field in ['bedrooms','bathrooms','parking']:kwargs[field]=kwargs[field] or 0
+            row=ListingORM(**kwargs,price_clp=Decimal(r['price_clp']),price_uf=Decimal(r['price_uf']) if r.get('price_uf') else None,
+                fingerprint='offline:'+':'.join(key),status='active',scraped_at=datetime(2026,10,15,tzinfo=UTC),last_seen_at=datetime(2026,10,15,tzinfo=UTC))
+            normkey=(key[0],''.join(c for c in key[1] if c.isdigit()))
+            if normkey in baseline:apply_published_fields(row,baseline[normkey])
+            stored[normkey]=row
+            session.add(row)
+        await session.commit()
+        reference=json.loads((base/'deploy/canonical-release/reference-cases.json').read_text())
+        async def run_cases():
+            results=[]
+            for c in reference['cases']:
+                service=get_valuation_service(SqlAlchemyListingRepository(session),UF())
+                result=await valuate(current_user=SimpleNamespace(id=None),payload=ValuationRequest(**c['payload']),service=service,session=session)
+                value=result.model_dump(mode='json')
+                results.append({'comuna':c['payload']['comuna'],'estimated_uf':value['estimated_price_uf'],
+                    'comparables_sha256':hashlib.sha256(json.dumps(value['valuation_debug']['comparable_calculation'],sort_keys=True).encode()).hexdigest()})
+            return results
+        before=await run_cases()
+        for key,row in stored.items():
+            if key in candidate:apply_published_fields(row,candidate[key])
+        await session.commit()
+        after=await run_cases()
+        assert before==after,(before,after)
+        proof={'passed':True,'execution':'local SQLite replay of saved snapshot; no production connection','uf':str(uf),'listings':len(stored),'before':before,'after':after}
+        (out/'addresses-reference-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf8')
+        print(json.dumps(proof))
+    await engine.dispose()
+asyncio.run(main())

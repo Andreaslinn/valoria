@@ -1,0 +1,15 @@
+from pathlib import Path
+import json
+r=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled');w=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work')
+d=json.loads((w/'oracle-0021-migration.json').read_text(encoding='utf-8'))
+assert list(d)==['0021_listing_observations.py']
+(r/'alembic/versions/0021_listing_observations.py').write_text(d['0021_listing_observations.py'],encoding='utf-8')
+p=r/'alembic/versions/0022_alert_reads.py';s=p.read_text(encoding='utf-8').replace('revision = "0021"','revision = "0022"').replace('down_revision = "0020"','down_revision = "0021"');p.write_text(s,encoding='utf-8')
+p=r/'services/v2_contract.py';s=p.read_text(encoding='utf-8').replace('"alembic/versions/0021_alert_reads.py"','"alembic/versions/0021_listing_observations.py", "alembic/versions/0022_alert_reads.py"');p.write_text(s,encoding='utf-8')
+p=r/'docs/valoria-v2-architecture.md';s=p.read_text(encoding='utf-8').replace('Migration `0021`','Migration `0022`');p.write_text(s,encoding='utf-8')
+p=w/'overlay-paths.json';paths=json.loads(p.read_text());paths.remove('alembic/versions/0021_alert_reads.py');paths+=['alembic/versions/0021_listing_observations.py','alembic/versions/0022_alert_reads.py'];p.write_text(json.dumps(paths,indent=2),encoding='utf-8')
+p=r/'docs/audits/valoria-v2-remediation.md';s=p.read_text(encoding='utf-8');s+='''
+### Release-blocking migration collision discovered and corrected
+
+Fresh protected backup /home/ubuntu/backups/remediation-20261012 restored successfully into network-none PostgreSQL:7030 listings,5240 append-only observations,7 users. Restored revision0021 revealed that production already uses0021_listing_observations.py, absent from the older checkout. The proposed0021_alert_reads.py was therefore unsafe for production despite a green fresh-local migration run. Preserve Oracle0021 and its immutable history triggers exactly; move alert acknowledgements to0022 with down_revision0021. Quarantine the earlier candidate overlay image; do not deploy it. Rebuild and rehearse0021->0022 on the restored backup, including old-application compatibility. Existing production DB remains untouched.
+''';p.write_text(s,encoding='utf-8')

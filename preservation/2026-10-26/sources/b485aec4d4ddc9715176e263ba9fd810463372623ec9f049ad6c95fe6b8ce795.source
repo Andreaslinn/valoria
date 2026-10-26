@@ -1,0 +1,230 @@
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import zipfile
+from pathlib import Path
+
+import numpy as np
+
+BASE = Path(__file__).resolve().parent
+REPO = BASE/'valoria'
+RUN = BASE/'closing-confidence-20261019'
+PUBLIC = REPO/'reports/sii/closing_confidence_20261019'
+OUT = BASE.parent/'outputs'
+
+
+def load(path):
+    return json.loads(path.read_text(encoding='utf-8-sig'))
+
+
+def save(path,data):
+    path.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf8')
+
+
+def fmt(value):
+    return '—' if value is None else f'{value:.2f}'
+
+
+def stats(rows):
+    errors=[r['ape_pct'] for r in rows if r['ape_pct'] is not None]
+    return {'n':len(rows),'predicted':len(errors),
+            'mdape_pct':float(np.median(errors)) if errors else None,
+            'p95_ape_pct':float(np.percentile(errors,95)) if errors else None}
+
+
+def write_csv(path,rows,fields):
+    with path.open('w',encoding='utf-8-sig',newline='') as f:
+        w=csv.DictWriter(f,fieldnames=fields,extrasaction='ignore')
+        w.writeheader();w.writerows(rows)
+
+
+def main():
+    PUBLIC.mkdir(parents=True,exist_ok=True)
+    comparison=load(RUN/'baseline-verified/comparison-summary.json')
+    validation=load(RUN/'fit/validation-summary.json')
+    holdout=load(RUN/'holdout/holdout-summary.json')
+    previous=load(RUN/'holdout-summary-before-gated-output.json')
+    assert holdout==previous,'Gated output must not change predictions, selection or metrics'
+    rule=load(RUN/'fit/frozen-rule.json')
+    rule_hash=hashlib.sha256((RUN/'fit/frozen-rule.json').read_bytes()).hexdigest()
+    assert rule_hash==validation['rule_sha256']==holdout['rule_sha256']
+    assert hashlib.sha256((REPO/'services/sii/closing_knn.py').read_bytes()).hexdigest()==rule['knn_sha256']
+    assert comparison['full_input_synthetic_shadow_checks_passed']==64
+    for cell in rule['validation_cells']:
+        if cell['trusted']:
+            assert cell['n']>=30 and cell['mdape_pct']<=10
+    records=load(RUN/'holdout/holdout-records-local.json')
+    for row in records:
+        gated=row['gated_prediction']
+        if row['trusted']:
+            assert gated['value_uf']==row['prediction']['value_uf']
+            assert gated['p25_uf']==row['prediction']['p25_uf']
+            assert gated['p75_uf']==row['prediction']['p75_uf']
+        else:
+            assert gated['status']=='abstained' and 'value_uf' not in gated
+    validation_records=load(RUN/'fit/validation-records-local.json')
+    marginal={}
+    for feature,values in [('same_building',range(11)),('same_block',range(11)),
+                           ('age_band',['0-9','10-19','20-39','40+']),
+                           ('dispersion_band',['0-10','10-20','20-35','35+'])]:
+        marginal[feature]=[{'value':value,**stats([r for r in validation_records
+                                                if r['features'] and r['features'][feature]==value])}
+                           for value in values]
+    tests=(BASE/'confidence-tests.log').read_text(encoding='utf-8-sig').strip().splitlines()[-1]
+    assert '126 passed' in tests,tests
+    totals={'sample_n':sum(r['sample_n'] for r in comparison['by_commune']),
+            'paired_n':sum(r['paired_n'] for r in comparison['by_commune']),
+            'canonical_predicted':sum(r['canonical_predicted'] for r in comparison['by_commune']),
+            'sii_predicted':sum(r['sii_predicted'] for r in comparison['by_commune']),
+            'holdout_n':sum(r['total'] for r in holdout['by_commune']),
+            'trusted_n':sum(r['trusted']['n'] for r in holdout['by_commune'])}
+    summary={'goal_met':holdout['communes_passing']>=6,'communes_passing':holdout['communes_passing'],
+             'rule_sha256':rule_hash,'knn_sha256':rule['knn_sha256'],'tests':tests,
+             'totals':totals,'comparison':comparison,'validation':validation,
+             'holdout':holdout,'validation_marginals':marginal,
+             'product_integration':False,'flag':'sii_closing_layer=false',
+             'records':'Individual records retained locally, never published on GitHub'}
+    save(PUBLIC/'summary.json',summary)
+    save(PUBLIC/'validation_marginals.json',marginal)
+    for origin,name in [(RUN/'fit/frozen-rule.json','frozen-rule.json'),
+                        (RUN/'fit/protocol.json','protocol.json'),
+                        (RUN/'baseline-verified/comparison-summary.json','canonical-comparison.json'),
+                        (RUN/'holdout/holdout-summary.json','holdout-summary.json')]:
+        (PUBLIC/name).write_bytes(origin.read_bytes())
+    lines=['# SII — contraste canónico y confianza congelada en 2025H2','',
+           '**Meta no alcanzada: ninguna comuna llega a 50% de cobertura. MdAPE dentro de la zona marcada ≤10% en las ocho.**','',
+           'Continuación del PR #11 en borrador, sin merge ni deploy, flag apagado. No se integra en Tasar. '
+           'Pesos, K, escalas y código del kNN originales permanecen idénticos.','',
+           '## 1. Línea base: mismos casos','',
+           f"Muestra de **{totals['sample_n']} cierres**: 150 por comuna, estratificación proporcional por edad "
+           '(0–9, 10–19, 20–39, 40+, desconocida si existe), asignación por restos mayores y semilla 20261019. '
+           'No se seleccionó por error ni por confianza. Las métricas siguientes usan exactamente la intersección '
+           f"de **{totals['paired_n']} casos** donde ambos motores devolvieron valor.",'',
+           '| Comuna | Pares / 150 | Canónico MdAPE % | Canónico P95 % | kNN SII MdAPE % | kNN SII P95 % |',
+           '|---|---:|---:|---:|---:|---:|']
+    for r in comparison['by_commune']:
+        c,s=r['canonical_paired'],r['sii_paired']
+        lines.append(f"| {r['name']} | {r['paired_n']} | {fmt(c['mdape_pct'])} | {fmt(c['p95_ape_pct'])} | {fmt(s['mdape_pct'])} | {fmt(s['p95_ape_pct'])} |")
+    lines+=['',f"Disponibilidad sobre los 1.200 intentos: canónico {totals['canonical_predicted']}; kNN {totals['sii_predicted']}. "
+            'No se comparan grupos diferentes ni se esconden las abstenciones.', '',
+            '| Comuna | Canónico con valor | kNN con valor | Asignación de muestra por edad |',
+            '|---|---:|---:|---|']
+    for r in comparison['by_commune']:
+        allocation=', '.join(f'{k}: {v}' for k,v in sorted(r['age_allocation'].items()))
+        lines.append(f"| {r['name']} | {r['canonical_predicted']}/150 | {r['sii_predicted']}/150 | {allocation} |")
+    lines+=['','### Qué significa esta comparación','',
+            f"- Motor real `comparables_canonical_outliers`, versión `{comparison['engine_version']}`, "
+            'invocado directamente como lo hace el servicio canónico. Coinciden los hashes del servicio, motor, scoring y filtro robusto con el código leído en producción.',
+            f"- Stock activo actual: {comparison['canonical_stock_count']} avisos, corte UTC `{comparison['canonical_stock_as_of']}`. "
+            'Lectura `REPEATABLE READ READ ONLY`, SELECTs acotados y rollback. Se conservan los filtros, orden de consulta del repositorio, precios, señales geográficas y clase de producto; no se exportan contactos ni descripciones.',
+            '- La clase de producto influye en el filtro robusto aun con el filtro directo de producto desactivado. Se conserva mediante etiquetas genéricas. **64 controles monetarios sintéticos coinciden exactamente** entre entradas completas del servidor y la proyección local.',
+            f"- UF auténtica persistida en el calendario SII para {comparison['uf']['date']}: {comparison['uf']['value']} CLP/UF. "
+            'No se llama al cliente que refresca/persiste la UF, no se usa tasa inventada o fallback.',
+            '- Ambos modelos reciben los mismos m² cerrados, comuna, tipo y año de cada cierre. El canónico actual **ignora el año**, aunque se conserva en la metadata del objetivo. No se añadió una sensibilidad de edad que el motor no tiene. Al no haber dormitorios/baños/estacionamientos del objetivo en SII, se usa 0 como hace Tasar cuando faltan; no se inventan atributos.',
+            '- **Comparación retrospectiva con ofertas actuales, no backtest histórico del stock canónico.** Las fechas de los cierres preceden al stock de octubre; además, se comparan ofertas con precios declarados de cierre. La mejora observada no aísla el efecto del algoritmo y no justifica por sí sola un reemplazo.',
+            '', '## 2. Regla definida solo en validación 2025H2','',
+            f"Protocolo registrado UTC `{load(RUN/'fit/protocol.json')['registered_at_utc']}`; "
+            f"regla congelada UTC `{rule['frozen_at_utc']}`. SHA-256 de la regla: `{rule_hash}`. "
+            'El archivo de entrenamiento excluye todas las filas 2026; `fit` las rechaza si se intentan introducir. '
+            'La evaluación 2026 exige el archivo congelado y verifica que no cambie su hash ni el código del kNN.', '',
+            f"Validación: **{validation['total']} cierres 2025H2**. Pool: {validation['pool_before_role_exclusion']} "
+            'cierres desde 2024 hasta el 30/06/2025, antes de excluir los roles de validación. '
+            'Se eliminan todas las ventas previas de cualquier rol de validación; no se usan comparables posteriores. '
+            'No se cambió el estimador para crear confianza.', '',
+            '### Segmentación fijada antes de medir','',
+            '1. Ubicación de los diez vecinos: `building5` si ≥5 son del mismo edificio; si no, `block5` si ≥5 son de la misma manzana; si no, `commune`. El conteo de manzana incluye los del edificio.',
+            '2. Edad en la fecha de valoración: 0–9, 10–19, 20–39 o ≥40 años. Desconocida o futura: abstención.',
+            '3. Dispersión relativa `D = (P75 − P25) / mediana`: D≤10%; 10%<D≤20%; 20%<D≤35%; D>35%.', '',
+            '**Regla simple:** un resultado se marca «confiable» si pertenece a una celda fija con **n≥30 y MdAPE 2025H2≤10%**. '
+            'Fuera de esas celdas se devuelve `status=abstained`, sin valor puntual. '
+            'Dentro se conserva exactamente el valor/rango/comparables del kNN, sin recalibración. '
+            'No se buscaron nuevas fronteras, reglas por comuna ni umbrales para mejorar 2026.', '',
+            '### Las diez celdas admitidas','',
+            '| Ubicación / edad / dispersión % | n validación | MdAPE validación % | P95 validación % |',
+            '|---|---:|---:|---:|']
+    segment_by={r['cell']:r for r in validation['segments']}
+    for cell in rule['validation_cells']:
+        if cell['trusted']:
+            seg=segment_by[cell['cell']]
+            lines.append(f"| {cell['cell']} | {cell['n']} | {fmt(cell['mdape_pct'])} | {fmt(seg['p95_ape_pct'])} |")
+    lines+=['', 'El mínimo de 30 se fijó antes de evaluar; evita declarar una zona por unos pocos cierres. '
+            'El umbral es empírico y no garantiza un error individual ≤10%. Los P95 siguen siendo altos en varias zonas.', '',
+            '## 3. Regla congelada aplicada al holdout 2026','',
+            f"Se evalúan los **{totals['holdout_n']} cierres**, no solo la muestra de comparación. "
+            'Pool 2024–2025, excluyendo por completo todos los roles presentes en 2026. '
+            'Cobertura = casos admitidos / todos los cierres de la comuna, incluidas las abstenciones por datos faltantes. '
+            'MdAPE y P95 usan solo los admitidos.', '',
+            '| Comuna | Admitidos / total | Cobertura % | MdAPE zona % | P95 zona % | ≥50% y ≤10% |',
+            '|---|---:|---:|---:|---:|---|']
+    for r in holdout['by_commune']:
+        m=r['trusted']
+        lines.append(f"| {r['name']} | {m['n']}/{r['total']} | {fmt(r['coverage_pct'])} | {fmt(m['mdape_pct'])} | {fmt(m['p95_ape_pct'])} | {'Sí' if r['passes_mdape_and_coverage'] else 'No'} |")
+    lines+=['',f"Resultado: **{holdout['communes_passing']}/8 comunas** cumplen simultáneamente; se pedían al menos seis. "
+            'Las ocho cumplen MdAPE dentro de la zona, pero todas quedan por debajo de 50% de cobertura. '
+            'La mejor cobertura es La Florida (47,32%), seguida de Ñuñoa (44,98%). '
+            'No se amplió la regla después de observar estos números.', '',
+            'La cobertura limitada viene de celdas de validación sin apoyo suficiente o con MdAPE>10%: '
+            'ningún tramo ≥40 años fue admitido, y la mayoría de combinaciones de ubicación débil o dispersión alta tampoco. '
+            'La regla abstiene para esos casos; no se traslada a otra celda ni sustituye por una estimación del canónico.', '',
+            '## Validación por segmento: conteos exactos y márgenes','',
+            'Descriptivos de 2025H2 únicamente; no se usan como nuevas reglas. Los conteos de ubicación incluyen de 0 a 10 vecinos.', '']
+    for key,label in [('same_building','Vecinos del mismo edificio'),('same_block','Vecinos de la misma manzana'),
+                      ('age_band','Tramo de edad'),('dispersion_band','Dispersión relativa %')]:
+        lines += [f'### {label}', '', '| Segmento | n | MdAPE % | P95 % |','|---|---:|---:|---:|']
+        for m in marginal[key]:
+            lines.append(f"| {m['value']} | {m['n']} | {fmt(m['mdape_pct'])} | {fmt(m['p95_ape_pct'])} |")
+        lines.append('')
+    lines+=['## Anexo: todas las celdas conjuntas de validación','',
+            '| Ubicación / edad / dispersión % | n | MdAPE % | P95 % | Admitida |',
+            '|---|---:|---:|---:|---|']
+    accepted=set(rule['allowed_cells'])
+    for m in validation['segments']:
+        lines.append(f"| {m['cell']} | {m['n']} | {fmt(m['mdape_pct'])} | {fmt(m['p95_ape_pct'])} | {'Sí' if m['cell'] in accepted else 'No'} |")
+    lines+=['', '## Pruebas, reproducibilidad y límites','',
+            f'- **{tests}**, Ruff y diff check correctos. Se probaron rechazo de 2026 al entrenar, límites de edad/IQR, mínimo de soporte, independencia del precio real al aplicar la regla, abstención sin valor, muestreo y regresiones canónicas/SII.',
+            '- 64 controles sintéticos de la proyección canónica y verificación de igualdad de hashes con producción. El stock se leyó sin escrituras; todos los registros resultantes quedan locales.',
+            '- Se comprobó que añadir la salida explícita de abstención no cambia ninguna selección, predicción ni métrica del holdout. La regla mantiene el mismo SHA y el kNN conserva exactamente su código original.',
+            '- Catastro estructural disponible: snapshot 2026H2 de la primera evaluación. No se reconstruyó un catastro histórico 2025; el corte temporal se aplica a cierres, roles y labels. Esa limitación de covariables impide presentar esto como un backtest histórico completo.',
+            '- Ningún endpoint, servicio de valoración o vista de Tasar fue modificado. Flag apagado; sin integración, merge ni deploy.',
+            '- El PR contiene solo código, protocolo, regla y métricas agregadas. Los cierres, roles, entradas canónicas, muestras y comparables individuales se entregan en el ZIP local. Los nombres de salidas individuales están ignorados por Git.',
+            '- La suite completa del proyecto no se ejecutó; se corrieron las pruebas relevantes anteriores.', '']
+    report='\n'.join(lines)
+    (PUBLIC/'report.md').write_text(report,encoding='utf8')
+    (OUT/'SII_CONFIANZA_RESULTADOS.md').write_text(report,encoding='utf8')
+    save(OUT/'SII_CONFIANZA_RESUMEN.json',summary)
+    comparison_rows=load(RUN/'baseline-verified/comparison-records-local.json')
+    write_csv(OUT/'SII_CONFIANZA_COMPARACION_LOCAL.csv',comparison_rows,
+              ['rol','comuna','date','year','age_band','kind','area','actual_uf','canonical_value_uf','canonical_ape_pct','canonical_status','sii_value_uf','sii_ape_pct','sii_trusted'])
+    gated_rows=[]
+    for r in records:
+        gated_rows.append({**{k:r[k] for k in ('rol','comuna','date','year','area','actual_uf','trusted')},
+                           'value_uf':r['gated_prediction'].get('value_uf'),
+                           'status':r['gated_prediction']['status'],
+                           'reason':r['gated_prediction'].get('reason'),
+                           'cell':r['features']['cell'] if r['features'] else None})
+    write_csv(OUT/'SII_CONFIANZA_HOLDOUT_LOCAL.csv',gated_rows,
+              ['rol','comuna','date','year','area','actual_uf','trusted','value_uf','status','reason','cell'])
+    evidence=OUT/'SII_CONFIANZA_EVIDENCIAS_LOCALES.zip'
+    with zipfile.ZipFile(evidence,'w',compression=zipfile.ZIP_DEFLATED) as z:
+        for p in PUBLIC.iterdir():
+            z.write(p,'agregados/'+p.name)
+        for p,name in [(RUN/'fit/validation-records-local.json','validation-records-local.json'),
+                        (RUN/'holdout/holdout-records-local.json','holdout-records-local.json'),
+                        (RUN/'baseline-verified/comparison-records-local.json','comparison-records-local.json'),
+                        (RUN/'canonical-pool-verified-local.json','canonical-pool-local.json'),
+                        (RUN/'uf-readonly-local.json','uf-readonly-local.json'),
+                        (RUN/'training-through-2025-local.json','training-through-2025-local.json'),
+                        (BASE/'closing-validation-final/closings.json','closings-local.json'),
+                        (BASE/'confidence-tests.log','tests.txt')]:
+            z.write(p,'local/'+name)
+        for name in ('SII_CONFIANZA_COMPARACION_LOCAL.csv','SII_CONFIANZA_HOLDOUT_LOCAL.csv'):
+            z.write(OUT/name,'local/'+name)
+    print(json.dumps({'report':str(OUT/'SII_CONFIANZA_RESULTADOS.md'),'tests':tests,
+                      'paired_n':totals['paired_n'],'trusted_n':totals['trusted_n'],
+                      'goal_met':summary['goal_met'],'evidence_zip_bytes':evidence.stat().st_size}))
+
+
+if __name__=='__main__':
+    main()

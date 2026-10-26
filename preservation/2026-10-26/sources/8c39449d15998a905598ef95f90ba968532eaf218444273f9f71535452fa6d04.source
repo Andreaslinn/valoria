@@ -1,0 +1,254 @@
+# Preserve reference dataframe names and record construction for direct comparison.
+# ruff: noqa: N806, C408
+import json
+import os
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from domain.property_life import engine as hv
+from domain.property_life.readers import parse_catastro, parse_f2890, parse_uf
+
+HERE = Path(__file__).parent
+TODAY = pd.Timestamp("2026-10-16")
+
+
+@pytest.fixture(scope="module")
+def source_dir():
+    value = os.environ.get("PROPERTY_LIFE_DATA_DIR")
+    if not value:
+        pytest.skip(
+            "Set PROPERTY_LIFE_DATA_DIR to the actual SII sources; goldens are never used as inputs"
+        )
+    return Path(value)
+
+
+@pytest.fixture(scope="module")
+def datasets(source_dir):
+    cache = {}
+
+    def load(comuna):
+        if comuna not in cache:
+            cod, name = hv.COMUNAS[hv.norm(comuna)]
+            N, L = parse_catastro(
+                next((source_dir / "catastro").glob(f"BRTMPCATASN_*_{cod}")),
+                next((source_dir / "catastro").glob(f"BRTMPCATASNL_*_{cod}")),
+            )
+            F = parse_f2890(next((source_dir / "f2890").glob("F2890*.txt")), name, set(N.mz))
+            uf = parse_uf((source_dir / "uf").glob("uf*.htm"))
+            V = hv.ventas(
+                hv.to_uf(F.copy(), uf), N, uf.asof(pd.Timestamp(hv.UF_AVALUO_DATE)), L, today=TODAY
+            )
+            cache[comuna] = (N, L, F, uf, V, hv.house_index(V))
+        return cache[comuna]
+
+    return load
+
+
+@pytest.mark.parametrize("case", ["samotracia_2071", "los_lagares_7282", "brasilia_750_dp123"])
+def test_real_source_golden(case, datasets):
+    expected = json.loads((HERE / "reference/golden" / f"{case}.json").read_text(encoding="utf-8"))
+    N, L, F, uf, _, index = datasets(expected["comuna"])
+    actual = hv.report(
+        expected["direccion"], expected["comuna"], N, L, F, uf, today=TODAY, index=index
+    )
+    assert actual["propiedad"] == expected["propiedad"]
+    assert actual["confianza_conteo"] == expected["confianza_conteo"]
+    assert len(actual["historial"]) == len(expected["historial"])
+    for a, e in zip(actual["historial"], expected["historial"], strict=True):
+        assert pd.Timestamp(a["fecha"]) == pd.Timestamp(e["fecha"])
+        assert a["confianza"] == e["confianza"]
+        assert bool(a["atipica"]) == bool(e["atipica"])
+        for key in ["uf_principal", "uf_total", "ufm2"]:
+            assert a[key] is None if pd.isna(e[key]) else a[key] == pytest.approx(e[key], rel=1e-10)
+    assert actual["estimacion"]["n"] == expected["estimacion"]["n"]
+    for key in ["uf_bajo", "uf_med", "uf_alto", "n_efectivo"]:
+        assert actual["estimacion"][key] == pytest.approx(expected["estimacion"][key], rel=0.01)
+    assert len(actual["comparables"]) == len(expected["comparables"])
+    for a, e in zip(actual["comparables"], expected["comparables"], strict=True):
+        assert a["dir"] == e["dir"]
+        assert pd.Timestamp(a["fecha"]) == pd.Timestamp(e["fecha"])
+        for key in ["ufm2_aj", "peso"]:
+            assert a[key] == pytest.approx(e[key], rel=1e-10)
+    json.dumps(actual, allow_nan=False)
+
+
+@pytest.mark.parametrize("comuna", ["Vitacura", "Las Condes"])
+def test_real_source_audit(comuna, datasets):
+    expected = json.loads((HERE / "reference/golden/auditoria.json").read_text())[comuna]
+    N, _L, F, _uf, V, _ = datasets(comuna)
+    joined = F.merge(N[["mz", "pr", "tipo"]], on=["mz", "pr"], how="left")
+    V10 = V[V.fecha >= TODAY - pd.DateOffset(years=10)]
+    actual = dict(
+        filas_f2890=len(F),
+        pct_rol_en_catastro=round(joined.tipo.notna().mean() * 100, 1),
+        tipo_filas=joined.tipo.fillna("sin_catastro").value_counts().to_dict(),
+        transferencias_unidad_principal=len(V),
+        ultimos_10a=len(V10),
+        confianza_10a=V10.groupby(["tipo", "confianza"])
+        .size()
+        .unstack(fill_value=0)
+        .to_dict("index"),
+        usable_10a={t: len(V10[(V10.tipo == t) & V10.usable]) for t in ["casa", "depto"]},
+    )
+    assert actual == expected
+
+
+def sample(types, amounts, *, mzs=None, date="20240115"):
+    mzs = mzs or [1] * len(types)
+    N = pd.DataFrame(
+        [
+            dict(
+                mz=mz,
+                pr=i,
+                dir=f"CALLE 100 DP {i}" if t == "depto" else f"CALLE {100 + i}",
+                tipo=t,
+                m2=100.0,
+                anio=1990,
+                avaluo=1000.0,
+                supter=200.0,
+            )
+            for i, (t, mz) in enumerate(zip(types, mzs, strict=True), 1)
+        ]
+    )
+    F = pd.DataFrame(
+        [
+            dict(
+                mz=mz,
+                pr=i,
+                FE=date,
+                FI=date,
+                UF=amount,
+                CLP=0.0,
+                fe=pd.Timestamp(date),
+                fi=pd.Timestamp(date),
+                uf_total=amount,
+            )
+            for i, (amount, mz) in enumerate(zip(amounts, mzs, strict=True), 1)
+        ]
+    )
+    return N, F
+
+
+@pytest.mark.parametrize(
+    "types,amounts,conf,total",
+    [
+        (["depto"], [1000.0], "individual", 1000),
+        (["depto", "estac"], [1000.0, 100.0], "desglosado", 1100),
+        (["depto", "estac"], [1000.0, 0.0], "paquete_no_desglosado", 1000),
+        (["depto", "estac"], [1000.0, 501.0], "aux_incierto", 1000),
+        (["casa", "casa"], [1000.0, 1100.0], "multiple", 1000),
+        (["casa", "casa"], [1000.0, 1000.0], "monto_repetido", 1000),
+        (["casa"], [np.nan], "sin_monto", np.nan),
+        (["casa", "casa", "casa"], [1000.0, 1100.0, 1200.0], "bloque", 1000),
+    ],
+)
+def test_confidence(types, amounts, conf, total):
+    N, F = sample(types, amounts)
+    V = hv.ventas(F, N, 1, today=TODAY)
+    assert V.iloc[0].confianza == conf
+    assert pd.isna(V.iloc[0].uf_total) if pd.isna(total) else V.iloc[0].uf_total == total
+
+
+def test_block_is_per_block_and_dedup_keeps_max():
+    N, F = sample(["casa"] * 3, [1000.0, 1100.0, 1200.0], mzs=[1, 2, 3])
+    F = pd.concat([F, F.iloc[[0]].assign(uf_total=1500.0)], ignore_index=True)
+    V = hv.ventas(F, N, 1, today=TODAY)
+    assert set(V.confianza) == {"individual"}
+    assert V[V.pr == 1].uf_principal.iloc[0] == 1500
+
+
+def test_historical_area_and_appraisal_window():
+    N, F = sample(["casa"], [1000.0], date="20100115")
+    L = pd.DataFrame(
+        [
+            dict(mz=1, pr=1, dest="H", sup=70.0, anio=1990),
+            dict(mz=1, pr=1, dest="H", sup=30.0, anio=2020),
+        ]
+    )
+    V = hv.ventas(F, N, 1, L, today=TODAY)
+    assert V.iloc[0].m2 == 70
+    assert pd.isna(V.iloc[0].precio_avaluo)
+
+
+def test_uf_fallback_asof_matches_reference():
+    _, F = sample(["casa"], [0.0])
+    F["CLP"] = 40000.0
+    F["UF"] = 0.0
+    uf = pd.Series([40.0], index=[pd.Timestamp("2024-01-14")])
+    assert hv.to_uf(F, uf).uf_total.iloc[0] == 1000
+
+
+def test_invalid_address_and_json():
+    with pytest.raises(ValueError):
+        hv.parse_addr("sin numero")
+    assert hv.clean_json({"a": np.nan, "b": np.float64(3)}) == {"a": None, "b": 3.0}
+    assert hv.clean_json([pd.NaT, pd.NA, float("inf")]) == [None, None, None]
+
+
+def test_aggregated_reconstruction_matches_reference_row_by_row():
+    rng = np.random.default_rng(2890)
+    types = ["casa", "depto", "estac", "bodega", "otro"] * 12
+    N, _ = sample(types, [1000.0] * len(types))
+    rows = []
+    for day in range(1, 11):
+        for pr in rng.choice(np.arange(1, len(types) + 1), size=35, replace=False):
+            amount = rng.choice([np.nan, 0.0, 100.0, 500.0, 1000.0, 1000.0, 1800.0])
+            stamp = f"202401{day:02d}"
+            rows.append(
+                dict(
+                    mz=1,
+                    pr=int(pr),
+                    FE=stamp,
+                    FI=stamp,
+                    UF=amount,
+                    CLP=0.0,
+                    fe=pd.Timestamp(stamp),
+                    fi=pd.Timestamp(stamp),
+                    uf_total=amount,
+                )
+            )
+    F = pd.DataFrame(rows)
+    F = pd.concat([F, F.iloc[:20].assign(uf_total=2000.0)], ignore_index=True)
+    actual = hv.ventas(F, N, 1.0, today=TODAY)
+    expected = hv.ventas_reference(F, N, 1.0, today=TODAY)
+    pd.testing.assert_frame_equal(actual, expected, check_dtype=False)
+
+
+def test_apartment_excludes_own_role_and_requires_three_comparables():
+    N, F = sample(["depto"] * 4, [10000.0] * 4)
+    N["calle"] = "CALLE"
+    N["num"] = 100
+    N["utok"] = "DP"
+    N["unum"] = N.pr.astype(str)
+    N["contrib"] = 1000.0
+    for i in F.index:
+        stamp = f"202401{i + 1:02d}"
+        F.loc[i, ["FE", "FI"]] = stamp
+        F.loc[i, ["fe", "fi"]] = pd.Timestamp(stamp)
+    L = pd.DataFrame(
+        [dict(mz=1, pr=i, dest="H", sup=100.0, anio=1990, mat="B", cal="2") for i in range(1, 5)]
+    )
+    result = hv.report("CALLE 100 DP 1", "Las Condes", N, L, F, pd.Series(dtype=float), today=TODAY)
+    assert len(result["historial"]) == 1
+    assert len(result["comparables"]) == 3
+    assert result["estimacion"]["n"] == 3
+    assert all(row["dir"] != "CALLE 100 DP 1" for row in result["comparables"])
+    smaller = hv.report(
+        "CALLE 100 DP 1", "Las Condes", N, L, F.iloc[:3], pd.Series(dtype=float), today=TODAY
+    )
+    assert len(smaller["comparables"]) == 2
+    assert "estimacion" not in smaller
+
+
+def test_no_transfers_returns_empty_history():
+    N, F = sample(["depto"], [10000.0])
+    N["calle"], N["num"], N["utok"], N["unum"], N["contrib"] = "CALLE", 100, "DP", "1", 1000.0
+    L = pd.DataFrame([dict(mz=1, pr=1, dest="H", sup=100.0, anio=1990, mat="B", cal="2")])
+    result = hv.report(
+        "CALLE 100 DP 1", "Las Condes", N, L, F.iloc[:0], pd.Series(dtype=float), today=TODAY
+    )
+    assert result["historial"] == []
+    assert result["comparables"] == []

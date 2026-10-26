@@ -1,0 +1,496 @@
+"""Offline A/A+/B experiment. Never imported by product routes.
+
+export reads the local DB in a read-only transaction; run only reads JSON.
+Run in a dedicated process: instrumentation patches are scoped, not concurrent.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import copy
+import hashlib
+import json
+import math
+import os
+import random
+from pathlib import Path
+from collections import defaultdict
+from dataclasses import asdict, replace
+from datetime import datetime, timezone
+from decimal import Decimal
+from functools import lru_cache
+from statistics import mean, median
+from unittest.mock import patch
+
+from core.entities.listing import Listing, Property
+from core.value_objects.location import Coordinates
+from core.value_objects.price import Price
+from domain.geocoding.quality import apply_geocoding_guardrails, normalized_precision_for
+from domain.valuation.comparables import candidate_discard_reason, valuate_with_comparables
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine, _candidate_key, _dedupe_key
+from domain.valuation.engines.contracts import EngineContext, EngineRequest
+from domain.valuation.engines.consensus import ValoriaConsensusV1Engine
+from domain.valuation.engines.consensus_orchestrator import (
+    _ENGINE_SPECS, _build_weight_audit, _valid_results_by_family, _run_engine,
+)
+from domain.valuation.engines.registry import experimental_engine_registry
+from domain.valuation.engines.valoria_consensus.combination import weighted_average, weighted_median
+from domain.valuation.price_surface import (
+    build_price_surface_index, price_per_m2, microzone_tokens_for, m2_bucket_for,
+)
+
+RADII = (0.5, 1.0, 2.0, 5.0)
+NAME = 'comparables_canonical_outliers'
+LOCATION_KEYS = {'address', 'address_label', 'street_hint', 'neighborhood', 'subcomuna',
+                 'microzone_id', 'microzone', 'microzone_key', 'geographic_microzone',
+                 'microzone_geo', 'geocode_precision', 'geocode_precision_reason',
+                 'title', 'property_type', 'price_currency', 'price_original',
+                 'price_uf_source', 'price_uf_confidence', 'price_recovery_method',
+                 'price_conversion_source', 'currency_original', 'currency',
+                 'price_clp', 'price_uf', 'price_raw', 'price_original_amount',
+                 'description', 'card_text', 'detail_text', 'highlight', 'product_class_hint',
+                 'location_text', 'location', 'geo_signals', 'geo_microzone_tokens',
+                 'nearby_metro', 'nearby_avenue', 'neighborhood_hint', 'intersection_hint',
+                 'microzone_confidence', 'microzone_reason'}
+
+
+def serialize(listing):
+    value = asdict(listing)
+    value['raw_metadata'] = {k: v for k, v in listing.raw_metadata.items() if k in LOCATION_KEYS}
+    return value
+
+
+def deserialize(value):
+    value = dict(value)
+    value['price'] = Price(clp=Decimal(value['price']['clp']))
+    if value.get('price_uf') is not None:
+        value['price_uf'] = Decimal(value['price_uf'])
+    if value.get('coordinates'):
+        value['coordinates'] = Coordinates(**value['coordinates'])
+    for key in ('scraped_at', 'last_seen_at', 'last_refresh_attempted_at'):
+        if value.get(key):
+            value[key] = datetime.fromisoformat(value[key])
+    return Listing(**value)
+
+
+def related_keys(item):
+    keys = []
+    if item.fingerprint:
+        keys.append(('fingerprint', item.fingerprint))
+    if item.external_id:
+        keys.append(('external', item.source, item.external_id))
+    if item.url:
+        keys.append(('url', item.url))
+    if item.id is not None:
+        keys.append(('id', item.id))
+    return keys
+
+
+def groups(items):
+    """Transitive evident-publication groups; property_id is not trusted."""
+    parent = list(range(len(items)))
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    seen = {}
+    for i, item in enumerate(items):
+        for key in related_keys(item):
+            if key in seen:
+                parent[root(i)] = root(seen[key])
+            seen[key] = i
+    return {id(item): root(i) for i, item in enumerate(items)}
+
+
+def target_for(item, geo=False):
+    area = item.built_area_m2 or item.usable_area_m2 or item.m2
+    # Reproduce Tasar's target, not EvaluationCase's richer metadata target.
+    return Property(id=None, comuna=item.comuna, m2=area,
+                    bedrooms=item.bedrooms or 0, bathrooms=item.bathrooms or 0,
+                    parking=item.parking or 0, property_type=item.property_type,
+                    built_area_m2=area, usable_area_m2=item.usable_area_m2 or area,
+                    coordinates=item.coordinates if geo else None,
+                    geocode_precision=item.geocode_precision if geo else None)
+
+
+def reference_members(surface, target, pool):
+    if not surface.available:
+        return []
+    return [_candidate_key(i) for i in pool if i.is_active and price_per_m2(i) is not None
+            and i.comuna == target.comuna and i.property_type == target.property_type
+            and ('bucket' not in surface.level_used or m2_bucket_for(i) == m2_bucket_for(target))
+            and ('microzone' not in surface.level_used or surface.microzone_token in microzone_tokens_for(i))]
+
+
+class InstrumentedComparable(ComparablesCanonicalEngine):
+    def __init__(self, *, spatial=False, frozen=None, frozen_pool=None, frozen_members=None):
+        super().__init__(name=NAME, variant='outliers')
+        self.spatial = spatial
+        self.frozen = frozen
+        self.frozen_pool = frozen_pool
+        self.frozen_members = frozen_members
+        self.trace = {}
+        self.surface = None
+
+    def _structural_pool(self, target, candidates, diagnostics):
+        if not self.spatial:
+            return super()._structural_pool(target, candidates, diagnostics)
+        # Only the comuna equality restriction is replaced; retain actual labels.
+        seen, eligible = set(), []
+        for item in candidates:
+            key = _dedupe_key(item)
+            reason = 'duplicate' if key in seen else candidate_discard_reason(
+                replace(target, comuna=item.comuna), item)
+            seen.add(key)
+            if reason:
+                diagnostics.add_exclusion(reason, item)
+            else:
+                eligible.append(item)
+        diagnostics.pool['candidates_structurally_eligible'] = len(eligible)
+        return eligible
+
+    def _post_process(self, **kwargs):
+        target, pool = kwargs['target'], kwargs['candidates']
+        computed = build_price_surface_index(pool).lookup(target)
+        self.surface = self.frozen if self.frozen is not None else computed
+        self.trace = {
+            'pre_adjustment': float(kwargs['estimate']),
+            'reference': asdict(self.surface),
+            'computed_reference': asdict(computed),
+            'reference_pool': self.frozen_pool if self.frozen_pool is not None else [_candidate_key(i) for i in pool],
+            'computed_reference_pool': [_candidate_key(i) for i in pool],
+            'reference_contributing_ids': self.frozen_members if self.frozen_members is not None
+                else reference_members(self.surface, target, pool),
+            'frozen': self.frozen is not None,
+        }
+        with patch('domain.valuation.engines.canonical_comparables.lookup_price_surface',
+                   return_value=self.surface):
+            result = super()._post_process(**kwargs)
+        post = result[0]
+        self.trace.update(post_adjustment=post,
+            adjustment_delta=post - self.trace['pre_adjustment'],
+            adjustment_direction='up' if post > self.trace['pre_adjustment'] else
+                'down' if post < self.trace['pre_adjustment'] else 'unchanged',
+            adjustment=result[-1]['surface_adjustment'])
+        return result
+
+
+def successful(result):
+    return result.estimated_price_clp is not None and result.estimated_price_clp > 0 and not result.error_code
+
+
+def selected_items(result, pool):
+    ids = {item.listing_id for item in result.selected_comparables}
+    fps = {item.fingerprint for item in result.selected_comparables if item.listing_id is None}
+    return [i for i in pool if (i.id in ids if i.id is not None else i.fingerprint in fps)]
+
+
+def diagnostics(result, engine, pool, target, group_map):
+    selected = selected_items(result, pool)
+    weights = [float(i.score or 0) for i in result.selected_comparables]
+    total = sum(weights)
+    effective = total ** 2 / sum(w*w for w in weights) if total else 0
+    distances = [target.coordinates.distance_km(i.coordinates) for i in selected
+                 if target.coordinates and i.coordinates and normalized_precision_for(i) == 'address']
+    return {'estimate': float(result.estimated_price_clp) if successful(result) else None,
+        'status': str(result.status), 'error': result.error_code,
+        'confidence': result.confidence, 'coverage_status': result.coverage_status,
+        'n': len(result.selected_comparables), 'effective_n': effective,
+        'evident_independent_groups': len({group_map.get(id(i), ('unknown', i.id)) for i in selected}),
+        'physical_independence': 'unverified',
+        'associated_property_ids': sorted({i.property_id for i in selected if i.property_id is not None}),
+        'median_distance_km': median(distances) if distances else None,
+        'max_distance_km': max(distances) if distances else None,
+        'trace': engine.trace, 'selected_ids': [i.id for i in selected]}
+
+
+def combine(context, raw, fixed=None):
+    valid = list(_valid_results_by_family(raw).values())
+    audit = _build_weight_audit(context, raw, valid)
+    if len(valid) < 2:
+        return {'estimate': None, 'fallback': 'insufficient_distinct_engine_families', 'audit': audit}
+    if fixed is not None:
+        estimates = {r.engine_name: r.estimated_price_clp for r in valid}
+        if set(fixed['weights']) - estimates.keys():
+            return {'estimate': None, 'fallback': 'controlled_family_missing', 'audit': audit}
+        fn = weighted_median if 'median' in fixed['strategy'] else weighted_average
+        estimate = fn(estimates, fixed['weights'])
+        return {'estimate': float(estimate), 'strategy': fixed['strategy'],
+                'weights': fixed['weights'], 'audit': audit, 'fallback': None,
+                'confidence':fixed.get('confidence'), 'confidence_frozen_to_A':True,
+                'coverage':fixed.get('coverage'), 'valid_families':len(valid)}
+    weights = {r['engine_name']: r['final_normalized_weight'] for r in audit
+               if r['final_normalized_weight'] > 0}
+    config = {'consensus_weights': {'segments': {'global': {'n_validation': 999, 'weights': weights}}}}
+    # Call actual combinator directly: capture true weights before overwrite.
+    result = ValoriaConsensusV1Engine().valuate(EngineRequest(metadata={'engine_results': valid}),
+        replace(context, config=config, metadata={'engine_results': valid}))
+    return {'estimate': float(result.estimated_price_clp) if successful(result) else None,
+        'strategy': result.diagnostics.get('strategy'), 'weights': result.diagnostics.get('weights', {}),
+        'confidence': result.confidence, 'coverage': result.coverage_status,
+        'valid_families': len(valid), 'audit': audit, 'fallback': result.error_code,
+        'agreement': result.diagnostics.get('agreement')}
+
+
+def experiment_case(item, universe, uf, registry, group_map=None):
+    group_map = group_map if group_map is not None else groups(universe)
+    candidates = [i for i in universe if group_map[id(i)] != group_map[id(item)]]
+    communal = apply_geocoding_guardrails(copy.deepcopy([i for i in candidates
+        if i.comuna == item.comuna and i.property_type == item.property_type]))
+    # Guards are applied separately to the same A/A+ communal pool.
+    target = target_for(item)
+    geo = bool(item.coordinates and normalized_precision_for(item) == 'address')
+    plus = target_for(item, geo=geo)
+    context = EngineContext(target=target, candidates=tuple(communal), uf_to_clp=uf)
+    request = EngineRequest(published_price_provided=False)
+    raw = [_run_engine(registry, spec, request=request, context=context) for spec in _ENGINE_SPECS]
+    baseline_gate = None
+    try:
+        valuate_with_comparables(target, copy.deepcopy(communal), uf)
+    except Exception as exc:
+        baseline_gate = type(exc).__name__
+    rows, results, engines, pools = {}, {}, {}, {}
+    for label, objective in [('A', target), ('A+', plus)]:
+        if label == 'A+' and not geo:
+            results[label], engines[label], pools[label] = results['A'], engines['A'], communal
+            continue
+        engine = InstrumentedComparable()
+        result = engine.valuate(request, replace(context, target=objective))
+        results[label], engines[label], pools[label] = result, engine, communal
+    spatial = apply_geocoding_guardrails(copy.deepcopy(candidates)) if geo else []
+    # Independent support based only on evident publication matches.
+    radius, bpool, bengine, bresult = None, communal, engines['A'], results['A']
+    attempts = []
+    if geo:
+        for distance in RADII:
+            pool = [i for i in spatial if i.property_type == 'apartment' and i.coordinates
+                    and normalized_precision_for(i) == 'address'
+                    and plus.coordinates.distance_km(i.coordinates) <= distance]
+            dedup = groups(pool)
+            independent, seen = [], set()
+            for candidate in pool:
+                key = dedup[id(candidate)]
+                if key not in seen:
+                    independent.append(candidate)
+                    seen.add(key)
+            engine = InstrumentedComparable(spatial=True)
+            result = engine.valuate(request, replace(context, target=plus, candidates=tuple(independent)))
+            attempts.append({'radius_km':distance, 'coordinate_candidates':len(pool),
+                'evident_independent_candidates':len(independent),
+                'final_comparables':result.comparables_used or 0,
+                'status':str(result.status), 'error':result.error_code,
+                'structurally_eligible':result.diagnostics.get('structurally_eligible'),
+                'canonical_price_usable':result.diagnostics.get('canonical_price_usable')})
+            if successful(result) and result.comparables_used >= 5:
+                radius, bpool, bengine, bresult = distance, independent, engine, result
+                break
+    results['B'], engines['B'], pools['B'] = bresult, bengine, bpool
+    if radius is not None and engines['A'].surface is not None:
+        frozen = InstrumentedComparable(spatial=True, frozen=engines['A'].surface,
+            frozen_pool=engines['A'].trace['reference_pool'],
+            frozen_members=engines['A'].trace['reference_contributing_ids'])
+        results['B-frozen'] = frozen.valuate(request, replace(context, target=plus, candidates=tuple(bpool)))
+        engines['B-frozen'], pools['B-frozen'] = frozen, bpool
+    else:
+        results['B-frozen'], engines['B-frozen'], pools['B-frozen'] = results['B'], engines['B'], pools['B']
+    fixed = combine(context, raw)
+    cache = {}
+    for label, result in results.items():
+        objective = target if label == 'A' or label.startswith('B') and radius is None else plus
+        pool = pools[label]
+        cached = id(result) in cache
+        metric_target = replace(objective, coordinates=item.coordinates)
+        info = copy.deepcopy(cache[id(result)]) if cached else diagnostics(
+            result, engines[label], pool, metric_target, groups(pool))
+        info.update(radius_km=radius if label.startswith('B') else None,
+                    fallback_to_A=label.startswith('B') and radius is None,
+                    frozen_applicable=radius is not None and engines['A'].surface is not None)
+        info['radius_attempts'] = attempts if label.startswith('B') else []
+        info['fallback_reason'] = ('target_location_not_eligible' if not geo else 'insufficient_spatial_support')
+        if not info['fallback_to_A']:
+            info['fallback_reason'] = None
+        if result.selected_comparables and not cached:
+            influential = max(result.selected_comparables, key=lambda c: c.score or 0)
+            reduced = [i for i in pool if i.id != influential.listing_id]
+            leave = InstrumentedComparable(spatial=label.startswith('B') and radius is not None,
+                frozen=engines['A'].surface if label == 'B-frozen' and radius is not None else None)
+            changed = leave.valuate(request, replace(context, target=objective, candidates=tuple(reduced)))
+            info['leave_one_out_estimate'] = float(changed.estimated_price_clp) if successful(changed) else None
+            info['leave_one_out_change_pct'] = (100 * abs(float(changed.estimated_price_clp / result.estimated_price_clp)-1)
+                if successful(changed) and successful(result) else None)
+        if not cached:
+            replaced = [result if r.engine_name == NAME else r for r in raw]
+            info['consensus_real'] = combine(context, replaced)
+            info['consensus_controlled'] = combine(context, replaced, fixed=fixed) if fixed.get('estimate') else fixed
+            cache[id(result)] = copy.deepcopy(info)
+        info['service_base_gate'] = baseline_gate
+        info['service_consensus_reached'] = baseline_gate is None
+        rows[label] = info
+    family_rows = [{'name': r.engine_name, 'estimate': float(r.estimated_price_clp) if successful(r) else None,
+                   'confidence': r.confidence, 'coverage': r.coverage_status} for r in raw]
+    for label, info in rows.items():
+        info['families'] = [dict(r, estimate=info['estimate'], confidence=info['confidence'],
+                                coverage=info['coverage_status']) if r['name'] == NAME else r for r in family_rows]
+        for family in info['families']:
+            family['signed_error_pct'] = (100 * (family['estimate']/float(item.price.clp)-1)
+                if family['estimate'] is not None else None)
+    return {'id': item.id, 'reference_clp': float(item.price.clp), 'reference_kind': 'asking_price',
+        'comuna': item.comuna, 'source': item.source, 'area': target.m2,
+        'geocode_precision': item.geocode_precision, 'geo_eligible': geo,
+        'density_1km': sum(1 for i in spatial if geo and i.property_type == 'apartment'
+                          and i.coordinates and normalized_precision_for(i) == 'address'
+                          and plus.coordinates.distance_km(i.coordinates) <= 1) if geo else None,
+        'families_A': family_rows, 'variants': rows}
+
+
+def summarize(cases, label, field='estimate'):
+    values, signed, pre, native = [], [], [], 0
+    for case in cases:
+        row = case['variants'][label]
+        value = (row.get(field) if field == 'estimate' else row.get('trace', {}).get('pre_adjustment')
+                 if field == 'pre_adjustment' else row.get(field, {}).get('estimate'))
+        if value is not None:
+            error = 100 * (value / case['reference_clp'] - 1)
+            signed.append(error)
+            values.append(abs(error))
+            native += not row['fallback_to_A']
+        before = row.get('trace', {}).get('pre_adjustment')
+        if before:
+            pre.append(abs(100 * (before / case['reference_clp'] - 1)))
+    ordered = sorted(values)
+    eligible = [c for c in cases if c['geo_eligible']]
+    native_rows = [c['variants'][label] for c in cases if not c['variants'][label]['fallback_to_A']]
+    def average(key):
+        clean = [r[key] for r in native_rows if r.get(key) is not None]
+        return mean(clean) if clean else None
+    return {'cases': len(cases), 'successful': len(values),
+        'coverage_including_fallback_pct': 100*len(values)/len(cases) if cases else 0,
+        'native_coverage_pct': 100*native/len(cases) if cases else 0,
+        'MdAPE': median(values) if values else None, 'MAPE': mean(values) if values else None,
+        'signed_error_pct': mean(signed) if signed else None,
+        'P90': ordered[math.ceil(.9*len(ordered))-1] if ordered else None,
+        'over20_pct': 100*sum(e>20 for e in values)/len(values) if values else None,
+        'over30_pct': 100*sum(e>30 for e in values)/len(values) if values else None,
+        'pre_adjustment_MdAPE': median(pre) if pre else None,
+        'geo_eligible_cases':len(eligible), 'mean_n':average('n'),
+        'mean_effective_n':average('effective_n'), 'mean_independent_groups':average('evident_independent_groups'),
+        'mean_median_distance_km':average('median_distance_km'),
+        'mean_max_distance_km':average('max_distance_km'),
+        'mean_leave_one_out_change_pct':average('leave_one_out_change_pct')}
+
+
+def encode(value):
+    if isinstance(value, (Decimal, datetime)):
+        return str(value) if isinstance(value, Decimal) else value.isoformat()
+    raise TypeError(type(value).__name__)
+
+
+async def export_snapshot(cutoff):
+    from sqlalchemy import text, select
+    from infrastructure.db.database import get_session_factory
+    from infrastructure.db.models import ListingORM
+    from infrastructure.db.mappers import listing_from_orm
+    async with get_session_factory()() as session:
+        await session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+        # Preserve original precision: guards depend on each variant's query pool.
+        values = await session.execute(select(ListingORM).where(ListingORM.status == 'active').order_by(ListingORM.id))
+        listings = [listing_from_orm(v) for v in values.scalars().all()]
+    allowed = {k: v for k, v in os.environ.items() if k.startswith(('VALUATION_', 'VALORIA_'))
+               and not any(s in k for s in ('SECRET', 'TOKEN', 'PASSWORD', 'KEY', 'URL'))}
+    return {'cutoff': cutoff.isoformat(), 'captured_at': datetime.now(timezone.utc).isoformat(),
+            'flags': allowed, 'listings': [serialize(i) for i in listings if i.scraped_at <= cutoff],
+            'limitations': ['Current active local snapshot, not historical temporal backtest',
+                'Metadata restricted to valuation/location whitelist', 'Reference is asking price']}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('mode', choices=['export', 'run'])
+    parser.add_argument('--cutoff', required=True)
+    parser.add_argument('--snapshot')
+    parser.add_argument('--uf-rate', type=Decimal)
+    parser.add_argument('--limit', type=int, default=150)
+    parser.add_argument('--progress-file')
+    args = parser.parse_args()
+    cutoff = datetime.fromisoformat(args.cutoff.replace('Z', '+00:00'))
+    if cutoff.tzinfo is None:
+        parser.error('cutoff requires timezone')
+    if args.mode == 'export':
+        print(json.dumps(asyncio.run(export_snapshot(cutoff)), default=encode))
+        return
+    if not args.snapshot or not args.uf_rate or not args.uf_rate.is_finite() or args.uf_rate <= 0:
+        parser.error('run requires snapshot and finite positive uf-rate')
+    data = open(args.snapshot, 'rb').read()
+    snapshot = json.loads(data)
+    if datetime.fromisoformat(snapshot['cutoff']) != cutoff:
+        parser.error('cutoff differs from fixed snapshot')
+    for key in list(os.environ):
+        if key.startswith(('VALUATION_', 'VALORIA_')):
+            os.environ.pop(key)
+    os.environ.update(snapshot['flags'])
+    listings = [deserialize(v) for v in snapshot['listings']]
+    eligible = sorted([i for i in listings if i.property_type == 'apartment' and i.price.clp > 0
+                       and (i.built_area_m2 or i.usable_area_m2 or i.m2 or 0)>0], key=lambda i: i.id or 0)
+    random.Random(42).shuffle(eligible)
+    registry = experimental_engine_registry()
+    group_map = groups(listings)
+    cases = []
+    import sys
+    from domain.valuation.product_classification import _normalize
+    # Memoize only a pure string normalization, in this dedicated offline process.
+    # No engine rules, evidence, prices or mutable results are cached.
+    with patch('domain.valuation.product_classification._normalize', lru_cache(maxsize=20000)(_normalize)):
+        for index,item in enumerate(eligible[:args.limit]):
+            if args.progress_file:
+                Path(args.progress_file).write_text(json.dumps({'completed':index,'current_id':item.id,
+                    'total':min(len(eligible),args.limit)}),encoding='utf-8')
+            cases.append(experiment_case(item, listings, args.uf_rate, registry, group_map))
+            if (index+1) % 100 == 0:
+                print(f'evaluated {index+1}/{min(len(eligible),args.limit)}',file=sys.stderr,flush=True)
+    layers = ('estimate', 'pre_adjustment', 'consensus_controlled', 'consensus_real')
+    summaries = {label: {layer: summarize(cases, label, layer) for layer in layers}
+                 for label in ('A','A+','B','B-frozen')}
+    common = [c for c in cases if all(c['variants'][label]['estimate'] is not None for label in summaries)]
+    common_summary = {label: {layer: summarize(common,label,layer) for layer in layers} for label in summaries}
+    consensus_common = [c for c in common if all(c['variants'][label]['consensus_real'].get('estimate') is not None
+                                               for label in summaries)]
+    consensus_common_summary = {label:{layer:summarize(consensus_common,label,layer) for layer in layers}
+                               for label in summaries}
+    conflicts = []
+    interactions = []
+    for case in cases:
+        ref = case['reference_clp']
+        a,b = case['variants']['A'], case['variants']['B']
+        err = lambda v: abs(100*(v/ref-1)) if v is not None else None
+        if a['estimate'] is not None and b['estimate'] is not None and not b['fallback_to_A']:
+            pre_a,pre_b = a['trace']['pre_adjustment'], b['trace']['pre_adjustment']
+            interactions.append({'id':case['id'], 'pre_error_delta_pp':err(pre_b)-err(pre_a),
+                'post_error_delta_pp':err(b['estimate'])-err(a['estimate']),
+                'attribution':'pre_better_post_worse' if err(pre_b)<err(pre_a) and err(b['estimate'])>err(a['estimate'])
+                else 'post_only_improvement' if err(pre_b)>=err(pre_a) and err(b['estimate'])<err(a['estimate'])
+                else 'both_or_neither', 'frozen_estimate':case['variants']['B-frozen']['estimate']})
+            ca, cb = a['consensus_real'].get('estimate'), b['consensus_real'].get('estimate')
+            if ca is not None and cb is not None and err(b['estimate'])<err(a['estimate']) and err(cb)>err(ca):
+                conflicts.append(case)
+    segments = {}
+    for field in ('comuna', 'source', 'geo_eligible', 'density', 'surface_bucket'):
+        buckets = defaultdict(list)
+        for case in cases:
+            key = (('unavailable' if case['density_1km'] is None else 'sparse' if case['density_1km']<5 else 'medium' if case['density_1km']<20 else 'dense')
+                   if field == 'density' else ('<60' if case['area']<60 else '60-100' if case['area']<=100 else '>100')
+                   if field == 'surface_bucket' else str(case[field]))
+            buckets[key].append(case)
+        segments[field] = {k: {label: summarize(v, label) for label in summaries} for k,v in buckets.items()}
+    print(json.dumps({'snapshot_sha256': hashlib.sha256(data).hexdigest(), 'cutoff': args.cutoff,
+        'implementation_sha256':hashlib.sha256(open(__file__,'rb').read()).hexdigest(),
+        'config': {'radii_km': RADII, 'uf_rate': args.uf_rate, 'seed':42, 'limit':args.limit,
+                   'flags':snapshot['flags'], 'physical_independence':'unverified'},
+        'consensus_evaluation':'counterfactual; local snapshot has consensus disabled',
+        'summary':summaries, 'common_summary':common_summary, 'segments':segments,
+        'consensus_common_summary':consensus_common_summary,
+        'surface_interactions':interactions, 'comparable_wins_consensus_loses':conflicts, 'cases':cases}, default=encode))
+
+
+if __name__ == '__main__':
+    main()

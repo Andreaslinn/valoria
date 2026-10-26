@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator
+
+import httpx
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+from api.main import create_app
+from api.security import hash_password
+from core.entities.user import User
+from infrastructure.db.database import get_db
+from infrastructure.db.repositories import SqlAlchemyUserRepository
+
+
+@pytest_asyncio.fixture
+async def client(engine: AsyncEngine) -> AsyncGenerator[httpx.AsyncClient, None]:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    async def _get_db_override() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            yield session
+
+    app = create_app()
+    app.dependency_overrides[get_db] = _get_db_override
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as test_client:
+        yield test_client
+
+
+@pytest_asyncio.fixture
+async def auth_headers(engine: AsyncEngine, client: httpx.AsyncClient) -> dict[str, str]:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        repo = SqlAlchemyUserRepository(session)
+        await repo.save(
+            User(
+                id=None,
+                email="reports@example.com",
+                password_hash=hash_password("passwordsegura123"),
+                role="beta_user",
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "reports@example.com", "password": "passwordsegura123"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.mark.asyncio
+async def test_valuation_report_requires_auth(client: httpx.AsyncClient) -> None:
+    response = await client.post("/api/v1/reports/valuation", json=_valuation_report_payload())
+
+    assert response.status_code in {401, 403}
+
+
+@pytest.mark.asyncio
+async def test_valuation_report_html_download_headers_and_context(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/api/v1/reports/valuation",
+        headers=auth_headers,
+        json=_valuation_report_payload(),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["content-disposition"].startswith('attachment; filename="valoria-tasacion-nunoa-')
+    assert response.headers["content-disposition"].endswith('.html"')
+    html = response.text
+    assert "Investment Intelligence Report" in html
+    assert "Ñuñoa" in html
+    assert "m²" in html
+    assert "published_price_not_provided" not in html
+    assert "listing id para watchlist" not in html
+    assert "Traceback" not in html
+
+
+@pytest.mark.asyncio
+async def test_listing_analysis_report_html_download_headers_and_listing_context(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/api/v1/reports/listing-analysis",
+        headers=auth_headers,
+        json={"analysis": _listing_analysis()},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "no-store"
+    assert 'filename="valoria-analisis-publicacion-123-' in response.headers["content-disposition"]
+    html = response.text
+    assert "Listing Risk / Opportunity Report" in html
+    assert "Precio publicado" in html
+    assert "https://example.test/depto-123" not in response.headers["content-disposition"]
+    assert "publication_history_missing" not in html
+    assert "Traceback" not in html
+
+
+@pytest.mark.asyncio
+async def test_report_pdf_format_is_controlled_422(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/api/v1/reports/valuation?format=pdf",
+        headers=auth_headers,
+        json=_valuation_report_payload(),
+    )
+
+    assert response.status_code == 422
+    assert "PDF no disponible" in response.json()["detail"]
+
+
+def _valuation_report_payload() -> dict:
+    return {
+        "valuation_payload": {
+            "comuna": "Ñuñoa",
+            "property_type": "apartment",
+            "m2": 75,
+            "built_area_m2": 75,
+            "dormitorios": 2,
+            "banos": 2,
+            "estacionamientos": 1,
+        },
+        "valuation_result": {
+            "estimated_price_uf": 5200,
+            "estimated_price_clp": 205000000,
+            "price_range_low_uf": 4900,
+            "price_range_high_uf": 5500,
+            "confidence": "medium",
+            "confidence_label": "medium",
+            "comparable_count": 6,
+            "price_m2_uf": 69.3,
+            "warnings": ["published_price_not_provided", "low_data_mode"],
+            "comparables": [
+                {
+                    "listing_id": 10,
+                    "title": "Comparable Ñuñoa",
+                    "comuna": "Ñuñoa",
+                    "price_uf": 5100,
+                    "price_clp": 201000000,
+                    "m2": 74,
+                    "similarity": 0.82,
+                    "url": "https://example.test/comparable",
+                }
+            ],
+        },
+    }
+
+
+def _listing_analysis() -> dict:
+    return {
+        "listing": {
+            "listing_id": 123,
+            "title": "Departamento en Estación Central",
+            "url": "https://example.test/depto-123",
+            "source": "test",
+            "comuna": "Estación Central",
+            "property_type": "apartment",
+            "m2": 46,
+            "built_area_m2": 46,
+            "bedrooms": 1,
+            "bathrooms": 1,
+            "parking": 0,
+            "price_uf": 1450,
+            "price_clp": 58000000,
+        },
+        "valuation": {
+            "estimated_value_uf": 1700,
+            "estimated_value_clp": 68000000,
+            "range_low_uf": 1600,
+            "range_high_uf": 1800,
+            "confidence_score": 0.72,
+            "confidence_label": "medium",
+            "comparables_used": 5,
+            "warnings": ["publication_history_missing"],
+        },
+        "price_analysis": {
+            "published_price_uf": 1450,
+            "estimated_price_uf": 1700,
+            "difference_uf": 250,
+            "difference_pct": 14.7,
+            "verdict": "under_market",
+            "verdict_label": "Bajo estimado",
+            "explanation": "Precio bajo estimacion.",
+        },
+        "signals": {"positives": [], "risks": [], "unavailable": []},
+        "report_status": {"listing_risk_report_available": True, "reason": "Disponible"},
+    }

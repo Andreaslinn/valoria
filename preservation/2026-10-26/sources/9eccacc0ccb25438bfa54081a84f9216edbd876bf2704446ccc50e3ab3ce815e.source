@@ -1,0 +1,21 @@
+from pathlib import Path
+import subprocess,re,json
+from github_bridge import github_client
+r=Path(__file__).parent/'github-release'
+files=subprocess.check_output(['git','ls-files','-z'],cwd=r).decode().split('\0');files=[x for x in files if x]
+files += [str(p.relative_to(r)).replace('\\','/') for p in (r/'frontend-v2').rglob('*') if p.is_file() and not any(x in p.parts for x in ['node_modules','.next','.next-dev']) and not p.name.endswith('.tsbuildinfo')]
+patterns={'private_key':rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----','github_token':rb'\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b','aws_key':rb'\b(?:AKIA|ASIA)[A-Z0-9]{16}\b','netlify_token':rb'\bnfp_[A-Za-z0-9]{30,}\b'}
+findings=[]
+for name in sorted(set(files)):
+ p=r/name
+ if not p.is_file():continue
+ data=p.read_bytes()
+ for kind,pattern in patterns.items():
+  if re.search(pattern,data):findings.append({'file':name,'kind':kind})
+assert not findings,'Potential credential file; values withheld'
+result={'files_scanned':len(set(files)),'high_confidence_secret_matches':findings,'scope':'existing tracked HEAD plus new frontend source; no values logged'}
+Path(__file__).with_name('frontend-secret-scan.json').write_text(json.dumps(result,indent=2));print(json.dumps(result))
+with github_client() as c:
+ res=c.get('/repos/Andreaslinn/valoria/commits/7222e516eb86420ccf20d2b2b221b07ac2154f0f/status');res.raise_for_status()
+ statuses=[{k:x.get(k) for k in ['context','state','target_url']} for x in res.json().get('statuses',[])]
+ print(json.dumps({'github_latest_base_statuses':statuses},indent=2));Path(__file__).with_name('github-base-deployment-status.json').write_text(json.dumps(statuses,indent=2))

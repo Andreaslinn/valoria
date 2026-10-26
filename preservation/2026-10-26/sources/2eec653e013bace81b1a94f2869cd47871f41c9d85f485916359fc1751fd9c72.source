@@ -1,0 +1,11 @@
+from pathlib import Path
+import subprocess,json
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+ssh=ssh[:1]+['-o','KexAlgorithms=ecdh-sha2-nistp256','-o','Ciphers=aes128-ctr','-o','HostKeyAlgorithms=ssh-ed25519','-o','IPQoS=none']+ssh[1:]
+code=Path('work/audit_address_coverage_step0.py').read_text(encoding='utf-8')
+remote="import subprocess,sys\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(code)+",capture_output=True,text=True,encoding='utf-8',timeout=90)\nprint(r.stdout);print(r.stderr if r.returncode else '',file=sys.stderr);sys.exit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,capture_output=True,text=True,encoding='utf-8',timeout=120)
+if r.returncode: print(r.stderr[-4000:]);r.check_returncode()
+data=json.loads(r.stdout)
+Path('work/address-coverage-step0-production.json').write_text(json.dumps(data,indent=2),encoding='utf-8')
+print(json.dumps({'gate':data['gate'],'six_communes':data['six_communes'],'targets':[x for x in data['by_comuna'] if x['comuna'] in data['gate']['targets']]},indent=2))

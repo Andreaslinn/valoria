@@ -1,0 +1,44 @@
+"""Read-only inventory, no geocoding, model or source-data mutations."""
+import sys,json,sqlite3,hashlib,os,re
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent;REPO=ROOT/'valoria';OUT=ROOT.parent/'outputs/geografia-existente-1261-6'
+OUT.mkdir(exist_ok=True)
+sys.path.insert(0,str(REPO))
+from scripts.validate_sii_closing import connect
+def save(n,o):(OUT/n).write_text(json.dumps(o,ensure_ascii=False,indent=2,default=str),encoding='utf8')
+qs=[]
+def query(c,label,sql,params=()):
+    qs.append({'label':label,'sql':sql,'params':params});return c.execute(sql,params if params else None).fetchall()
+old=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+selected=json.loads((old/'cierres-SII-10.json').read_text(encoding='utf8'))
+targets=[{'rol':'15160-1261-6','purpose':'objetivo'}]+[{'rol':r['rol'],'purpose':'comparable','rank':r['rank'],'raw_id':r['raw_id']} for r in selected]
+with connect('postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55432/valoria_sii_local') as c:
+    c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    c.execute("SET LOCAL statement_timeout='90s'")
+    control=query(c,'control',"SELECT current_database() AS database,current_setting('transaction_read_only') AS read_only,transaction_timestamp() AS as_of")[0]
+    assert control['read_only']=='on'
+    tables=query(c,'all_tables',"SELECT table_schema,table_name,table_type FROM information_schema.tables WHERE table_schema NOT IN ('information_schema','pg_catalog') ORDER BY table_schema,table_name")
+    cols=query(c,'all_columns',"SELECT table_schema,table_name,column_name,data_type,udt_name FROM information_schema.columns WHERE table_schema NOT IN ('information_schema','pg_catalog') ORDER BY table_schema,table_name,ordinal_position")
+    extensions=query(c,'extensions','SELECT extname,extversion FROM pg_extension')
+    geocount=query(c,'geocount',"SELECT count(*) AS total FROM sii.geo_predio")[0]
+    geogroup=query(c,'geogroups','SELECT comuna,metodo,count(*) AS n,min(precision_m) AS min_precision_m,max(precision_m) AS max_precision_m FROM sii.geo_predio GROUP BY comuna,metodo ORDER BY comuna,metodo')
+    sources=query(c,'source_files','SELECT id,tipo,nombre,semestre,comuna,hash,ruta,filas,filas_seleccionadas,line_source_file_id FROM sii.source_file ORDER BY id')
+    jobs=query(c,'geo_job_counters',"SELECT id,job,started_at,finished_at,successful,counters FROM sii.job_run WHERE job ILIKE '%rebuild%' OR counters::text ~* 'osm|geocod' ORDER BY id DESC LIMIT 20")
+    roles=[]
+    for t in targets:
+        code,block,parcel=map(int,t['rol'].split('-'))
+        predios=query(c,'role_versions','SELECT source_file_id,comuna,comuna_ine,manzana,predio,rol,direccion_raw,calle,numero,unidad,tipo,semestre FROM sii.predio WHERE comuna=%s AND manzana=%s AND predio=%s ORDER BY source_file_id',(code,block,parcel))
+        geo=query(c,'role_geo','SELECT * FROM sii.geo_predio WHERE comuna=%s AND manzana=%s AND predio=%s',(code,block,parcel))
+        blockgeo=query(c,'block_geo','SELECT * FROM sii.geo_predio WHERE comuna=%s AND manzana=%s',(code,block))
+        roles.append({**t,'predio_versions':predios,'geo':geo,'same_block_geocoded_roles':len(blockgeo),'block_geocodes':blockgeo})
+    c.rollback()
+spatial=[x for x in cols if re.search(r'(^|_)(lat|lon|lng|latitude|longitude|latitud|longitud|coord|geom|geometry|geography|geohash|h3|s2|manzana|block|polygon|poligono|precision|evidencia|calle|numero|direccion|rol)($|_)',x['column_name'],re.I) or x['udt_name'] in ('geometry','geography')]
+save('SII-inventario.json',{'control':control,'tables':tables,'columns':cols,'geographic_columns':spatial,'extensions':extensions,'geo_total':geocount,'geo_groups':geogroup,'sources':sources,'jobs':jobs,'roles':roles})
+save('consultas-SII.json',qs)
+sqlite=[]
+for path in (ROOT/'closing-validation-final').glob('*.sqlite'):
+    with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True) as c:
+        schema=c.execute("SELECT name,sql FROM sqlite_master WHERE type='table'").fetchall()
+        sqlite.append({'path':str(path),'schema':schema})
+save('SQLite-esquemas.json',sqlite)
+print(json.dumps({'geo_rows':geocount,'geo_groups':geogroup,'tables':[(r['table_schema'],r['table_name']) for r in tables],'spatial_fields':len(spatial),'target_and_selected_with_geo':sum(bool(t['geo']) for t in roles),'target_and_selected_block_geo':sum(bool(t['block_geocodes']) for t in roles),'source_types':sorted({s['tipo'] for s in sources})},ensure_ascii=False))

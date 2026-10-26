@@ -1,0 +1,71 @@
+# Preservación de evidencia e historial de ingesta v1
+
+Alcance: datos futuros de Yapo/Portal. Sin cambios en Tasar, Radar, Consensus, filtros monetarios, fingerprint ni asignación de property_id. Sin backfill. Portal permanece pausado.
+
+```mermaid
+flowchart LR
+  S[Fuente ya solicitada] --> R[Payload o fragmento RAW relevante]
+  R --> P[Parser existente + evidencia interna]
+  P --> N[Normalización existente / PARSED]
+  N --> L[Listing: comportamiento actual]
+  R --> H[Historial append-only privado]
+  N --> H
+  L --> H
+  F[Refresh: estado existente] --> H
+```
+
+## Representación y límites
+
+El parser agrega únicamente `_source_evidence` al dict interno. NO se agrega a raw_metadata funcional ni a endpoints públicos. La normalización/valoración no la utiliza. Los repositorios anteriores siguen funcionando; no se agrega un método abstracto obligatorio al puerto de listings.
+
+`_source_evidence`: schema_version, source, stage, observed_at, parser (module/version/SHA256 y hash del helper), original_url, canonical_url/origin, raw, parsed_signals, signal_provenance, coordinate_precision. El URL absoluto derivado de Yapo NO se presenta como canonical verificado por la fuente. Las coordenadas/pins se etiquetan `source_pin_unverified`, sin degradar ni mejorar el campo funcional geocode_precision.
+
+`listing_observations.document`: schema_version, observation_id, event_kind, listing_id, source, external_id, observed_at, raw_state, parsed_state, persisted_state, provenance y disponibilidad de evidencia. raw_state conserva el dict entrante con metadata y evidencia; parsed_state conserva el resultado entrante de clean_listing, sin merge de metadata anterior; persisted_state separa el estado efectivo tras protecciones de coordenadas/actualización. Cada campo físico/monetario existente tiene raw_value, parsed_value, campo de entrada, origen, timestamp, parser y hash del normalizador. Las superficies conservan también su ruta de normalización.
+
+Los payloads JSON retienen sus valores. Datetime del pipeline se serializa ISO UTC; Decimal como string; no finitos Python se etiquetan como nonfinite_number_raw, sin convertirlos en un precio válido. RAW de DOM es el fragmento serializado por BeautifulSoup, no un archivo byte por byte de toda la respuesta HTTP. Portal conserva componentes relevantes y JSON-LD original; deliberadamente excluye acciones de contacto, tokens de sesión y telemetry. No es un archivo completo de navegación ni de todos los campos desconocidos de la página.
+
+Las imágenes retienen RAW y orden de arrays originales. parsed_signals ofrece URLs válidas deduplicadas e IDs remotos Portal / sufijos de URL Yapo; estos IDs NO garantizan que la foto o el inmueble sean únicos. No hay descargas de imágenes. Fecha de publicación solo proviene de publishedAt/datePublished y actualización de updatedAt/dateModified; valores se preservan, sin inventar zona horaria. priceValidUntil no se transforma en publicación. UNIT_NAME, MODEL_NAME y UNIT_FLOOR de proyectos no se convierten en identidad de vivienda. seller_profile.id es un ID de componente, no seller ID.
+
+## Señales exactas por fuente
+
+| Fuente / ruta | Preservación nueva |
+|---|---|
+| Yapo payload estructurado | copia completa del item relevante: id, link, title; location/locality/city/lat/lon/zoom; price/currency/amount/formatted/discount/amountFull; images y principalImage; subCategoryType; square, lotSize, usableArea cuando exista; rooms, bathrooms, parking; campos adicionales presentes incluidos seller/broker/agency/user metadata y fechas |
+| Yapo DOM moderno | fragmento completo de card, payload intermedio ya usado por parser, src/data-src de todas sus imágenes, URL original/absoluto derivado y timestamp |
+| Yapo card legacy | fragmento de card e imágenes; metadata ya existente permanece intacta; no se rellena retrospectivamente ninguna fila |
+| Yapo detail estructurado | item del objetivo (no recomendaciones), más meta description/og:description/og:image/og:title, h1, mapas y atributos DOM disponibles |
+| Yapo detail DOM | título y los mismos fragmentos/meta de detalle; atributos físicos y coordenadas del parser anterior quedan en PARSED/provenance |
+| Portal card | título raw, lista textual de atributos, imágenes src/data-src/alt, location, seller, price raw vinculados solo a esa card; URL y observación |
+| Portal detail | platform id, JSON-LD/schema/meta; header, price, gallery/pictures/id/orden/config, location/location_and_points/map_info, technical_specifications, highlighted_specs_res, quotable_models, seller_profile, description, bookmark y atributos adicionales presentes |
+| Ambos / pipeline | identidad de publicación, URL, título, comuna/tipo, m2 y áreas diferenciadas, dormitorios/baños/parking, precio/moneda/procedencia, coordenadas/precisión, metadata entrante y resultado normalizado, hashes de parser/normalizador, timestamps |
+
+Dirección, calle/número/unidad/edificio/proyecto, antigüedad, bodega, piso, terraza, amenities y publicador se retienen **cuando existen** en el item, fragmento o componente observado. No se inventan campos, no se añaden extractores de identity y no se asegura cobertura que no ofrece la fuente. Descripción de Yapo detail se conserva incluso si el parser anterior retornaba antes de usarla. Adapters Portal card-first/canary transportan la evidencia antes de descartar campos funcionalmente no usados.
+
+## Historial y compatibilidad
+
+Una tabla nueva, migración 0021 sobre 0020; ninguna columna/constraint de tablas existentes cambia. Dos índices: source/external_id/time y listing_id/time. Sin FK ni cascada a listings: una eliminación o sustitución de fila no elimina evidencia. No se relaciona con property_id. Se retiene el source/external_id observado aunque el fingerprint anterior reutilice una fila: esto facilita auditar continuidad, no certifica republicación ni inmueble físico.
+
+INSERT ON CONFLICT DO NOTHING sobre observation_id. El hash identifica observación/estado/versión; excluye representación efectiva del DB y estado previo, para que diferencias de escala Numeric y repetición de refresh no rompan idempotencia. Timestamp distinto produce otra observación, aunque atributos/precio sean iguales. Un replay con parser distinto puede dejar otra revisión al mismo tiempo; para investigación, agrupar revisiones por fuente/ID/tiempo, no contarlas automáticamente como nuevas publicaciones.
+
+Listing e historial comparten transacción y commit del caller. Fallo del historial con flag activado aborta la transacción: no hay un modo silencioso de perder evidencia. Los refresh_result guardan estado previo/nuevo, motivo y tiempo del intento; no cuentan como listing_seen ni actualizan first/last seen derivado. PostgreSQL rechaza UPDATE/DELETE/TRUNCATE mediante triggers; el propietario de DB todavía puede deshabilitar triggers explícitamente. SQLite aplica guards UPDATE/DELETE cuando la migración se ejecuta; create_all de tests no instala triggers por sí mismo.
+
+first_seen/last_seen se derivan min/max de listing_seen por source+external_id, no por property_id ni created_at. Cambios físicos/precio comparan estados y procedencia; removed_404/inactive_explicit pueden explicar retirada; 403/429/error/ausencia en una búsqueda parcial NO son desaparición. listing_seen tras retirada permite observar reaparición. Otro external_id conserva evidencia para estudiar republicación offline; no se afirma automáticamente que sea el mismo inmueble. Duración observada es censurada, no tiempo de venta real.
+
+Solo entradas aceptadas por el pipeline y resultados del refresh existente se journalizan. Cards descartadas antes de parsear o validaciones rechazadas no tienen un archivo durable nuevo; capturarlas requeriría un archivador separado aprobado. No se altera el manejo monetario/pending UF existente. Historial apagado implica que la evidencia interna es transitoria hasta activación: no prometer preservación durable antes de aprobar migración+flag.
+
+## Activación, riesgos y rollback
+
+`INGESTION_OBSERVATION_HISTORY_ENABLED=false` por defecto. Código nuevo + DB0020 funciona sin tabla. Old code + DB0021 ignora tabla. Flag true sin migración falla explícitamente, por tanto NO activarlo antes del upgrade. Ninguna dependencia nueva, ningún campo nuevo obligatorio. Endpoints y payloads funcionales anteriores se mantienen; evidencia nueva no se expone en API.
+
+Riesgos: crecimiento por observación/imagen/texto; CPU/latencia de serializar/hashear y un INSERT por observación; publicador/ubicación/textos pueden ser sensibles; cobertura y semántica de área siguen imperfectas. Medir volumen y latencia en staging, controlar acceso a DB/backups y definir retención antes de ampliar adquisición. No logs de cuerpos, no endpoints de exportación públicos, no nuevas frecuencias. Los triggers hacen incompatible un borrado de retención ordinario: cualquier purga exige procedimiento explícito y aprobado.
+
+Despliegue propuesto, NO ejecutado:
+1. Revisar patch contra baseline exacto y construir/taggear imagen; conservar la anterior.
+2. Validar en staging sin productores ni Portal: replay fixtures, tests, atomicidad/latencia y smoke funcional. Resolver o aceptar explícitamente los fallos preexistentes de suite; el patch no los corrige.
+3. Backup fresco de PostgreSQL y configuración operativa antes de cualquier autorización de producción; probar restauración.
+4. Con aprobación específica de migración: aplicar 0021 (tabla vacía, sin backfill). Mantener flag OFF. Nunca activar Portal ni tocar timers.
+5. Con aprobación de despliegue: instalar imagen versionada, flag OFF; comprobar endpoints existentes. Activar historial solo después de revisar schema, replay staging y espacio disponible, conservando frecuencia actual.
+6. Observar errores/volumen/latencia y comprobar observaciones con tráfico ya autorizado; sin nuevas scrapeadas.
+7. Rollback: flag OFF y volver a imagen anterior; **dejar tabla/historial intactos**. No ejecutar downgrade en producción como rollback rutinario: elimina la historia. El downgrade solo para sandbox o después de exportación y aprobación explícita.
+
+No se aplicó esta migración en Oracle. No hubo requests a Yapo/Portal en esta preparación.

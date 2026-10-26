@@ -1,0 +1,21 @@
+"""Optional router, imported only while the local feature flag is enabled."""
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from services.property_life import life
+
+router = APIRouter(tags=["property-life"])
+
+
+class LifeRequest(BaseModel):
+    direccion: str = Field(min_length=1, max_length=250)
+    comuna: str = Field(min_length=1, max_length=100)
+
+
+@router.post("/property/life")
+def property_life(payload: LifeRequest):
+    try:
+        return life(payload.direccion, payload.comuna)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

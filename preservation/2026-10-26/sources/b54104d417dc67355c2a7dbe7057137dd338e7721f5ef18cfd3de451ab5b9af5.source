@@ -1,0 +1,4 @@
+from pathlib import Path
+s=Path('frontend-v2/src/features/portfolio/workspace.tsx').read_text(encoding='utf-8')
+import re
+for m in re.finditer(r'<Building2',s):print(s[max(0,m.start()-80):m.end()+100])

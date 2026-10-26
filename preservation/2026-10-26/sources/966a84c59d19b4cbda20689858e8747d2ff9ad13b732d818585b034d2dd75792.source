@@ -1,0 +1,161 @@
+"""Provider dates cannot be made current by fetching or requesting them today."""
+import json
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from core.exceptions import UFServiceError
+from core.ports.uf_service import UFRateInfo
+from infrastructure.external import uf_client
+from infrastructure.db.models import UFRateORM
+from services.uf_rate import require_real_uf_rate
+
+TODAY = date(2026, 9, 24)
+NOW = datetime(2026, 9, 24, 12, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def fixed_clock(monkeypatch):
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return TODAY
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz) if tz else NOW.replace(tzinfo=None)
+    monkeypatch.setattr(uf_client, "date", FixedDate)
+    monkeypatch.setattr(uf_client, "datetime", FixedDatetime)
+
+
+def _client(effective_date, *, cached=None, offline=False, allow_stale=False):
+    response = httpx.Response(200, json={"serie": [{"valor": 41000, "fecha": effective_date}]},
+                              request=httpx.Request("GET", "https://uf.test"))
+    http = AsyncMock()
+    http.get = AsyncMock(side_effect=httpx.ConnectError("offline")) if offline else AsyncMock(return_value=response)
+    redis = AsyncMock()
+    redis.get.return_value = cached
+    client = uf_client.UFClient(api_url="https://uf.test", http_client=http, redis=redis,
+                                allow_stale_on_failure=allow_stale)
+    client._persist_daily_rate = AsyncMock(side_effect=lambda info: info)
+    return client
+
+
+@pytest.mark.parametrize("effective_date", ["2026-09-10", "2026-09-25", None, "invalid"])
+async def test_remote_unusable_date_is_rejected_without_persistence(effective_date):
+    client = _client(effective_date)
+    with pytest.raises(UFServiceError):
+        await require_real_uf_rate(client)
+    client._persist_daily_rate.assert_not_awaited()
+    client._redis.setex.assert_not_awaited()
+
+
+async def test_requested_snapshot_date_never_relabels_provider_date():
+    client = _client("2026-09-23")
+    with pytest.raises(UFServiceError, match="2026-09-24.*2026-09-23"):
+        await client.ensure_daily_snapshot(target_date=TODAY)
+    client._persist_daily_rate.assert_not_awaited()
+    client._redis.setex.assert_not_awaited()
+
+
+@pytest.mark.parametrize("days_old", [0, 1])
+async def test_valid_rate_preserves_effective_and_requested_dates(days_old):
+    effective = TODAY - timedelta(days=days_old)
+    client = _client(effective.isoformat())
+    info = await require_real_uf_rate(client)
+    assert info.rate == Decimal("41000")
+    assert info.rate_date == effective
+    assert info.requested_date == TODAY
+    assert info.is_stale is False
+
+
+async def test_matching_snapshot_is_valid():
+    client = _client(TODAY.isoformat())
+    info = await client.ensure_daily_snapshot(target_date=TODAY)
+    assert info.rate_date == TODAY
+    assert info.requested_date == TODAY
+    assert not info.is_stale
+    client._persist_daily_rate.assert_awaited_once()
+
+
+async def test_recent_fetch_cannot_resurrect_old_cache_date():
+    cached = json.dumps(dict(value="41000", source="mindicador.cl",
+                             rate_date="2026-09-10", fetched_at=NOW.isoformat()))
+    client = _client(None, cached=cached, offline=True)
+    with pytest.raises(UFServiceError):
+        await require_real_uf_rate(client)
+
+
+async def test_recent_fetch_cannot_resurrect_old_db_date():
+    client = _client(None, offline=True)
+    client._latest_from_db = AsyncMock(return_value=UFRateInfo(
+        rate=Decimal("41000"), source="db", rate_date=date(2026, 9, 10), fetched_at=NOW))
+    with pytest.raises(UFServiceError):
+        await require_real_uf_rate(client)
+
+
+async def test_bad_remote_date_can_use_recent_valid_cache():
+    cached = json.dumps(dict(value="42000", source="mindicador.cl",
+                             rate_date="2026-09-23", fetched_at=(NOW - timedelta(hours=12)).isoformat()))
+    client = _client("2026-09-10", cached=cached)
+    info = await require_real_uf_rate(client)
+    assert info.rate == Decimal("42000")
+    assert info.rate_date == date(2026, 9, 23)
+
+
+async def test_scalar_consumer_cannot_use_stale_rate_even_when_metadata_is_allowed():
+    cached = json.dumps(dict(value="41000", source="mindicador.cl",
+                             rate_date="2026-09-10", fetched_at=NOW.isoformat()))
+    client = _client(None, cached=cached, offline=True, allow_stale=True)
+    with pytest.raises(UFServiceError):
+        await client.get_current_rate()
+
+
+async def test_snapshot_mismatch_does_not_write_memory_database(engine):
+    client = _client("2026-09-23")
+    del client._persist_daily_rate  # Exercise the real persistence method on SQLite memory.
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    client._session_factory = factory
+    with pytest.raises(UFServiceError):
+        await client.ensure_daily_snapshot(target_date=TODAY)
+    async with factory() as session:
+        assert (await session.scalars(select(UFRateORM))).all() == []
+
+
+async def test_valid_dates_survive_db_and_cache_roundtrip(engine):
+    client = _client(TODAY.isoformat())
+    del client._persist_daily_rate
+    client._session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    first = await client.get_current_rate_info()
+    second = await client.get_current_rate_info()  # DB hit, empty Redis mock.
+    client._redis.get.return_value = client._redis.setex.call_args.args[2]
+    third = await client.get_current_rate_info()
+    for info in (first, second, third):
+        assert info.rate_date == info.requested_date == TODAY
+        assert not info.is_stale
+    client._http.get.assert_awaited_once()
+    assert third.cache_hit
+
+
+async def test_historical_snapshot_is_marked_stale_and_never_cached_as_current():
+    client = _client("2026-09-10")
+    info = await client.ensure_daily_snapshot(target_date=date(2026, 9, 10))
+    assert info.rate_date == info.requested_date == date(2026, 9, 10)
+    assert info.is_stale
+    client._redis.setex.assert_not_awaited()
+
+
+@pytest.mark.parametrize("days_old,accepted", [(0, True), (1, False)])
+async def test_zero_day_policy_accepts_only_today(days_old, accepted):
+    client = _client((TODAY - timedelta(days=days_old)).isoformat())
+    client._max_staleness = timedelta(0)
+    if accepted:
+        assert not (await require_real_uf_rate(client)).is_stale
+    else:
+        with pytest.raises(UFServiceError):
+            await require_real_uf_rate(client)

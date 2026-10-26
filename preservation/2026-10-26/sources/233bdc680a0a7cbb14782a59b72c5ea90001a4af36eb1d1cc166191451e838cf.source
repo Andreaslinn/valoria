@@ -1,0 +1,433 @@
+"""Pipeline de ingesta: ÚNICO WRITE PATH para listings.
+
+Todos los scrapers + la UI deben llamar `process_listing()` para persistir
+datos. Esto garantiza:
+    · Validación consistente (data_cleaning.clean_listing).
+    · Deduplicación primaria por source + external_id.
+    · Deduplicación secundaria sobre el mismo fingerprint.
+    · Historial de precios automático cuando un listing reaparece con otro precio.
+    · Una misma Property física se reutiliza entre listings de distintas fuentes.
+
+Flujo:
+    raw dict
+      ↓  clean_listing
+    CleanedListing
+      ↓  make_fingerprint
+    ¿existe source + external_id?
+        sí → _update
+        no → ¿existe fingerprint?
+             sí → _update
+             no → _create
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from typing import Any
+
+from core.entities.listing import Listing, Property
+from core.normalization.geocode_precision import canonical_geocode_precision, geocode_precision_rank
+from core.ports.listing_repo import ListingRepository
+from core.ports.price_history_repo import PriceHistoryRepository
+from core.ports.property_repo import PropertyRepository
+from domain.ingestion.data_cleaning import CleanedListing, clean_listing
+from domain.ingestion.deduplication import make_fingerprint
+
+
+@dataclass(frozen=True)
+class PriceHistorySnapshot:
+    price_clp: Decimal
+    price_uf: Decimal | None
+    price_currency: str | None
+    uf_rate_used: Decimal | None
+    change_basis: str
+
+
+async def process_listing(
+    raw: dict[str, Any],
+    *,
+    listing_repo: ListingRepository,
+    property_repo: PropertyRepository,
+    price_history_repo: PriceHistoryRepository,
+    allow_incomplete: bool = False,
+) -> Listing:
+    """Ingresa o actualiza un listing según source+external_id, luego fingerprint.
+
+    Args:
+        raw: dict crudo del scraper / UI.
+        *_repo: adapters inyectados (inversión de dependencia).
+
+    Returns:
+        Listing persistido (nuevo o actualizado).
+
+    Raises:
+        ValidationError / UnknownComunaError: desde clean_listing.
+    """
+    cleaned = clean_listing(raw, allow_incomplete=allow_incomplete)
+    saved = await _persist_cleaned(cleaned, listing_repo=listing_repo,
+        property_repo=property_repo, price_history_repo=price_history_repo)
+    recorder = getattr(listing_repo, "record_observation", None)
+    if recorder is not None:
+        await recorder(raw, cleaned, saved)
+    return saved
+
+
+async def _persist_cleaned(cleaned, *, listing_repo, property_repo, price_history_repo):
+    fingerprint = make_fingerprint(cleaned)
+
+    existing = await _find_by_source_external_id(cleaned, listing_repo)
+    if existing is not None:
+        return await _update_existing(
+            existing,
+            cleaned,
+            fingerprint,
+            listing_repo=listing_repo,
+            property_repo=property_repo,
+            price_history_repo=price_history_repo,
+        )
+
+    existing = await listing_repo.find_by_fingerprint(fingerprint)
+    if existing is not None:
+        return await _update_existing(
+            existing,
+            cleaned,
+            fingerprint,
+            listing_repo=listing_repo,
+            property_repo=property_repo,
+            price_history_repo=price_history_repo,
+        )
+
+    return await _create_new(
+        cleaned, fingerprint,
+        listing_repo=listing_repo,
+        property_repo=property_repo,
+        price_history_repo=price_history_repo,
+    )
+
+
+# ─────────────────────────────────────────────────────────
+#  Ramas del pipeline
+# ─────────────────────────────────────────────────────────
+async def _update_existing(
+    existing: Listing,
+    cleaned: CleanedListing,
+    fingerprint: str,
+    *,
+    listing_repo: ListingRepository,
+    property_repo: PropertyRepository,
+    price_history_repo: PriceHistoryRepository,
+) -> Listing:
+    """Actualiza un listing ya persistido, grabando cambio de precio si aplica."""
+    price_snapshot = _price_history_snapshot_if_changed(existing, cleaned)
+    if price_snapshot is not None and existing.id is not None:
+        # Snapshot del precio ANTERIOR antes de sobrescribir
+        await price_history_repo.record(
+            listing_id=existing.id,
+            price_clp=price_snapshot.price_clp,
+            price_clp_snapshot=price_snapshot.price_clp,
+            price_uf=price_snapshot.price_uf,
+            price_currency=price_snapshot.price_currency,
+            uf_rate_used=price_snapshot.uf_rate_used,
+            change_basis=price_snapshot.change_basis,
+            observed_at=existing.scraped_at,
+        )
+
+    prop = None
+    if cleaned.is_complete_for_comparables:
+        prop = await _find_or_create_property(cleaned, property_repo)
+
+    existing.source = cleaned.source
+    existing.external_id = cleaned.external_id
+    existing.price = cleaned.price
+    existing.price_uf = cleaned.price_uf
+    existing.price_currency = cleaned.price_currency
+    existing.price_uf_confidence = cleaned.price_uf_confidence
+    existing.price_uf_source = cleaned.price_uf_source
+    existing.price_recovery_method = cleaned.price_recovery_method
+    existing.title = cleaned.title
+    existing.url = cleaned.url
+    existing.comuna = cleaned.comuna
+    existing.property_type = cleaned.property_type
+    existing.m2 = cleaned.m2
+    existing.built_area_m2 = cleaned.built_area_m2
+    existing.land_area_m2 = cleaned.land_area_m2
+    existing.usable_area_m2 = cleaned.usable_area_m2
+    existing.bedrooms = cleaned.bedrooms
+    existing.bathrooms = cleaned.bathrooms
+    existing.parking = cleaned.parking
+    fingerprint_owner = await listing_repo.find_by_fingerprint(fingerprint)
+    if fingerprint_owner is None or fingerprint_owner.id == existing.id:
+        existing.fingerprint = fingerprint
+    existing.property_id = prop.id if prop is not None else None
+    # Solo actualizamos coords si la nueva evidencia no baja la calidad
+    # geoespacial ya persistida.
+    replace_coordinates = _should_update_coordinates(existing, cleaned)
+    had_coordinates = existing.coordinates is not None
+    previous_geo = dict(existing.raw_metadata)
+    if replace_coordinates:
+        existing.coordinates = cleaned.coordinates
+    keep_portal_precision = existing.source == "portalinmobiliario" and had_coordinates and not replace_coordinates
+    if not keep_portal_precision and ((existing.source == "portalinmobiliario" and replace_coordinates) or _should_update_geocode_precision(existing, cleaned)):
+        existing.geocode_precision = cleaned.geocode_precision
+    existing.scraped_at = cleaned.scraped_at
+    existing.status = "active" if cleaned.is_complete_for_comparables else "incomplete"
+    # Merge no destructivo de metadata: nuevos campos ganan. Si la nueva
+    # pasada ya no trae warnings, removemos warnings antiguos de calidad.
+    merged_metadata = {**existing.raw_metadata, **cleaned.raw_metadata}
+    if existing.source == "portalinmobiliario" and had_coordinates and not replace_coordinates:
+        # Evidence must describe the point retained in the canonical columns.
+        # The rejected new observation remains in append-only source history.
+        for key in ("lat", "lon", "location_source", "coordinates_source", "coordinates_evidence",
+                    "geocode_precision", "geocode_precision_reason", "coordinates_quality", "coordinates_alternatives_raw"):
+            if key in previous_geo:
+                merged_metadata[key] = previous_geo[key]
+            else:
+                merged_metadata.pop(key, None)
+        if cleaned.raw_metadata.get("coordinates_evidence"):
+            merged_metadata["coordinates_candidate_evidence"] = cleaned.raw_metadata["coordinates_evidence"]
+    if _should_drop_stale_location_hints(cleaned):
+        for key in ("address", "address_label", "street_hint", "subcomuna", "neighborhood"):
+            if key not in cleaned.raw_metadata:
+                merged_metadata.pop(key, None)
+    if "data_quality_warnings" not in cleaned.raw_metadata:
+        merged_metadata.pop("data_quality", None)
+        merged_metadata.pop("data_quality_warnings", None)
+    existing.raw_metadata = merged_metadata
+    existing.last_seen_at = cleaned.scraped_at
+    return await listing_repo.save(existing)
+
+
+async def _find_by_source_external_id(
+    cleaned: CleanedListing,
+    listing_repo: ListingRepository,
+) -> Listing | None:
+    if cleaned.external_id is None:
+        return None
+    return await listing_repo.find_by_source_external_id(cleaned.source, cleaned.external_id)
+
+
+async def _create_new(
+    cleaned: CleanedListing,
+    fingerprint: str,
+    *,
+    listing_repo: ListingRepository,
+    property_repo: PropertyRepository,
+    price_history_repo: PriceHistoryRepository,
+) -> Listing:
+    """Inserta un listing nuevo, reutilizando o creando su Property."""
+    prop = None
+    if cleaned.is_complete_for_comparables:
+        prop = await _find_or_create_property(cleaned, property_repo)
+
+    listing = Listing(
+        id=None,
+        source=cleaned.source,
+        external_id=cleaned.external_id,
+        title=cleaned.title,
+        comuna=cleaned.comuna,
+        property_type=cleaned.property_type,
+        m2=cleaned.m2,
+        built_area_m2=cleaned.built_area_m2,
+        land_area_m2=cleaned.land_area_m2,
+        usable_area_m2=cleaned.usable_area_m2,
+        bedrooms=cleaned.bedrooms,
+        bathrooms=cleaned.bathrooms,
+        parking=cleaned.parking,
+        price=cleaned.price,
+        status="active" if cleaned.is_complete_for_comparables else "incomplete",
+        fingerprint=fingerprint,
+        scraped_at=cleaned.scraped_at,
+        last_seen_at=cleaned.scraped_at,
+        url=cleaned.url,
+        coordinates=cleaned.coordinates,
+        geocode_precision=cleaned.geocode_precision,
+        property_id=prop.id if prop is not None else None,
+        price_uf=cleaned.price_uf,
+        price_currency=cleaned.price_currency,
+        price_uf_confidence=cleaned.price_uf_confidence,
+        price_uf_source=cleaned.price_uf_source,
+        price_recovery_method=cleaned.price_recovery_method,
+        raw_metadata=cleaned.raw_metadata,
+    )
+    saved = await listing_repo.save(listing)
+    if saved.id is not None:
+        await price_history_repo.record(
+            listing_id=saved.id,
+            price_clp=saved.price.clp,
+            price_clp_snapshot=saved.price.clp,
+            price_uf=saved.price_uf,
+            price_currency=saved.price_currency,
+            uf_rate_used=_uf_rate_used_from_metadata(saved.raw_metadata),
+            change_basis=_initial_change_basis(saved.price_currency),
+            observed_at=saved.scraped_at,
+        )
+    return saved
+
+
+def _price_history_snapshot_if_changed(
+    existing: Listing,
+    cleaned: CleanedListing,
+) -> PriceHistorySnapshot | None:
+    old_currency = _canonical_price_currency(existing.price_currency, existing.raw_metadata)
+    new_currency = _canonical_price_currency(cleaned.price_currency, cleaned.raw_metadata)
+    old_price_uf = _decimal_or_none(existing.price_uf) or _metadata_decimal(existing.raw_metadata, "price_uf")
+    new_price_uf = _decimal_or_none(cleaned.price_uf) or _metadata_decimal(cleaned.raw_metadata, "price_uf")
+
+    if old_currency == "UF" or new_currency == "UF":
+        if old_price_uf is None or new_price_uf is None:
+            return None
+        if abs(old_price_uf - new_price_uf) <= Decimal("0.01"):
+            return None
+        return PriceHistorySnapshot(
+            price_clp=existing.price.clp,
+            price_uf=old_price_uf,
+            price_currency="UF",
+            uf_rate_used=_uf_rate_used_from_metadata(existing.raw_metadata),
+            change_basis="uf",
+        )
+
+    if old_currency == "CLP" and new_currency == "CLP":
+        if cleaned.price.clp == existing.price.clp:
+            return None
+        return PriceHistorySnapshot(
+            price_clp=existing.price.clp,
+            price_uf=None,
+            price_currency="CLP",
+            uf_rate_used=None,
+            change_basis="clp",
+        )
+
+    if cleaned.price.clp == existing.price.clp:
+        return None
+    return PriceHistorySnapshot(
+        price_clp=existing.price.clp,
+        price_uf=None,
+        price_currency=old_currency,
+        uf_rate_used=None,
+        change_basis="clp_legacy",
+    )
+
+
+def _initial_change_basis(price_currency: str | None) -> str:
+    if price_currency == "UF":
+        return "uf_initial"
+    if price_currency == "CLP":
+        return "clp_initial"
+    return "legacy_initial"
+
+
+def _canonical_price_currency(value: str | None, raw_metadata: dict | None) -> str | None:
+    if value is None and _metadata_decimal(raw_metadata, "price_uf") is not None:
+        return "UF"
+    raw = value or (raw_metadata or {}).get("currency_original") or (raw_metadata or {}).get("price_currency")
+    if raw is None:
+        return None
+    text = str(raw).strip().upper()
+    if text in {"UF", "CLF"}:
+        return "UF"
+    if text in {"CLP", "$", "PESO", "PESOS"}:
+        return "CLP"
+    return text[:16] or None
+
+
+def _uf_rate_used_from_metadata(raw_metadata: dict | None) -> Decimal | None:
+    return _metadata_decimal(raw_metadata, "uf_rate_used")
+
+
+def _metadata_decimal(raw_metadata: dict | None, key: str) -> Decimal | None:
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+    return _decimal_or_none(metadata.get(key))
+
+
+def _decimal_or_none(value: Any) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed.quantize(Decimal("0.01"))
+
+
+def _should_update_geocode_precision(existing: Listing, cleaned: CleanedListing) -> bool:
+    """Actualiza precision solo si mejora o mantiene la calidad existente."""
+    if cleaned.geocode_precision is None:
+        return False
+    if _should_replace_weak_card_text_hint(existing, cleaned):
+        return True
+    new_rank = geocode_precision_rank(cleaned.geocode_precision)
+    existing_rank = geocode_precision_rank(existing.geocode_precision)
+    return new_rank >= existing_rank
+
+
+def _should_update_coordinates(existing: Listing, cleaned: CleanedListing) -> bool:
+    """No reemplaza coordenadas validas por None ni por una precision inferior."""
+    if cleaned.coordinates is None:
+        return False
+    if existing.coordinates is None:
+        return True
+    if existing.source == "portalinmobiliario" and canonical_geocode_precision(existing.geocode_precision) in {"comuna", "comuna_centroid"}:
+        ev = cleaned.raw_metadata.get("coordinates_evidence") or {}
+        if ev.get("quality", {}).get("local_eligible"):
+            return True
+    if existing.source == "portalinmobiliario" and canonical_geocode_precision(existing.geocode_precision) not in {"comuna", "comuna_centroid"}:
+        # A second unverified source pin cannot justify moving an existing point.
+        if existing.coordinates.distance_km(cleaned.coordinates) > 0.001:
+            return False
+    new_rank = geocode_precision_rank(cleaned.geocode_precision)
+    existing_rank = geocode_precision_rank(existing.geocode_precision)
+    return new_rank >= existing_rank
+
+
+def _should_replace_weak_card_text_hint(existing: Listing, cleaned: CleanedListing) -> bool:
+    """Permite corregir hints débiles extraídos desde texto completo de card."""
+    if canonical_geocode_precision(existing.geocode_precision) != "address":
+        return False
+    if existing.raw_metadata.get("geocode_precision_reason") != "card_text":
+        return False
+    if cleaned.raw_metadata.get("geocode_precision_reason") == "card_text":
+        return False
+    return canonical_geocode_precision(cleaned.geocode_precision) in {"comuna", "unknown"}
+
+
+def _should_drop_stale_location_hints(cleaned: CleanedListing) -> bool:
+    return canonical_geocode_precision(cleaned.geocode_precision) in {"comuna", "unknown"} and not any(
+        key in cleaned.raw_metadata
+        for key in ("address", "address_label", "street_hint", "subcomuna", "neighborhood")
+    )
+
+
+async def _find_or_create_property(
+    cleaned: CleanedListing,
+    property_repo: PropertyRepository,
+) -> Property:
+    existing = await property_repo.find_matching(
+        comuna_slug=cleaned.comuna,
+        m2=cleaned.m2,
+        bedrooms=cleaned.bedrooms,
+        bathrooms=cleaned.bathrooms,
+        parking=cleaned.parking,
+        property_type=cleaned.property_type,
+        built_area_m2=cleaned.built_area_m2,
+        land_area_m2=cleaned.land_area_m2,
+    )
+    if existing is not None:
+        return existing
+
+    return await property_repo.save(
+        Property(
+            id=None,
+            comuna=cleaned.comuna,
+            property_type=cleaned.property_type,
+            m2=cleaned.m2,
+            built_area_m2=cleaned.built_area_m2,
+            land_area_m2=cleaned.land_area_m2,
+            usable_area_m2=cleaned.usable_area_m2,
+            bedrooms=cleaned.bedrooms,
+            bathrooms=cleaned.bathrooms,
+            parking=cleaned.parking,
+            coordinates=cleaned.coordinates,
+        )
+    )

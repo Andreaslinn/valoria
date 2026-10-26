@@ -1,0 +1,27 @@
+"""Code-backed contract certificate; no empirical outcomes needed."""
+from lab import *
+import ast
+def main():
+ root=HERE/'deployed_runtime';ev=read(HERE/'oracle_runtime.json')
+ for rel,h in ev['hashes'].items():assert sha(root/rel)==h,rel
+ service=(root/'services/valuation.py').read_text(encoding='utf-8');form=(ROOT/'valoria-reconciled/frontend-v2/src/features/valuation/property-form.tsx').read_text(encoding='utf-8')
+ endpoint=(root/'api/v1/valuations.py').read_text();analysis=(root/'services/listing_analysis.py').read_text()
+ tree=ast.parse(service);cl=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='ValuationInput');fields=[n.target.id for n in cl.body if isinstance(n,ast.AnnAssign)]
+ method=next(n for n in ast.walk(tree) if isinstance(n,ast.AsyncFunctionDef) and n.name=='valuate_property')
+ target=next(n for n in ast.walk(method) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='Property')
+ passed=[k.arg for k in target.keywords]
+ assert not set(fields)&{'coordinates','latitude','longitude','address','description','raw_metadata'}
+ assert not set(passed)&{'coordinates','geocode_precision','raw_metadata'}
+ assert 'valuation_strategy="consensus_v1"' in endpoint and 'valuation_strategy="consensus_v1"' in analysis
+ assert 'Solo para identificar la propiedad aquí. No interviene en el cálculo.' in form
+ comparisons={}
+ for rel in ['domain/valuation/scoring.py','domain/valuation/engines/canonical_comparables.py','domain/valuation/price_surface.py','domain/valuation/comparables.py','core/entities/listing.py']:
+  comparisons[rel]={'same_text_ignoring_line_endings':(root/rel).read_text()==(RUNTIME/'frozen_a'/rel).read_text()}
+ report={'checked_at':datetime.now(timezone.utc).isoformat(),'runtime_image':ev['image_id'],'runtime_flags':ev['flags_effective'],'manual_request_fields':fields,'manual_target_fields':passed,
+  'findings':{'manual_location_absent':'Confirmed frontend-v2 submit, backend DTO and deployed target constructor','distance_missing':'Confirmed scoring.py: 0.5, constant contribution .125 at nominal .25; no centroid substitution','consensus':'Requested by deployed endpoint, enabled true. Quality guarded also active; initial comparable gate precedes consensus.','URL':'Deployed listing_analysis maps physical inputs and published-price fields, drops target location/text and does not pass target_listing_id. Rich announcement storage != rich valuation input.','Radar':'Listing-to-Property adapter retains coordinates/precision/metadata; separate pipeline, not identical to Tasar endpoint.','territorial_family':'microzone_geo_v1 chooses microzone_id/neighborhood metadata then comuna median; no nearest-coordinate retrieval. Coordinates alone do not make this family spatial-local.','pool':'Repository active comuna/type, all rows, geocoding guardrails. SQL has no ORDER BY. Certified experiments use smaller clean fold catalog.','old_benchmarks':'Canonical target includes coordinates and price-free metadata; TextModel reads title/location. Manual ablation existed, but only A_core, not service end-to-end.'},
+  'modalities':{'manual_current':{'target':'physical/comuna, null layout ->0; no geo/text','pool':'fold train catalog -> same comuna active/type, guardrails','route':'current comparables -> surface -> guarded quality -> enabled consensus or fallback -> DTO','certification':'deployed calculation/code contract; population/pool/order remain explicit archived approximations'},'located_experimental':{'target':'manual + archived coordinate pair with original recorded precision; no location text','route':'same copied service, sandbox constructor adapter only','certification':'experimental availability, not currently accepted product request'},'listing_enriched_experimental':{'target':'price-free canonical physical + existing coordinates and sanitized textual metadata','route':'same sandbox service adapter; NOT current URL path','certification':'listing-rich experimental contract; do not label current Tasar/URL'},'listing_URL_current':{'target':'physical extraction; rich lookup data does not reach target','route':'same deployed service consensus_v1; target asking price not used as label input in harness','certification':'label-isolated benchmark excludes target dependency; current adapter absence of target_listing_id retained as an operational discrepancy, not reproduced as leakage'},'Radar_current':{'target':'rich Property from listing','route':'different opportunity pipeline; no claim these service-replay metrics evaluate Radar final output'}},
+  'frozen_vs_deployed':comparisons,'order_discrepancy':'Frozen A uses deterministic ID tie-break, deployed A stable-sorts scores with input order; SQL order unspecified. Common explicit ID order in benchmark; production equivalence conditional on that order.',
+  'scope':'No full operational population certification, no coordinate physical accuracy certification. No new production calls, no holdout.'}
+ write(HERE/'contract_certificate.json',report)
+ print(json.dumps({'certificate':'CONTRACTS_VERIFIED_WITH_EXPLICIT_POOL_AND_MODALITY_LIMITS','manual_geo':False,'URL_geo':False,'consensus_enabled':True,'quality_mode':'guarded','frozen_vs_deployed':comparisons}))
+if __name__=='__main__':main()

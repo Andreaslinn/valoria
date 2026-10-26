@@ -1,0 +1,68 @@
+"""Diagnostics only. Never changes rules, parameters or promotion policy."""
+import sys,json,csv,hashlib
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent.parent;OUT=ROOT/'outputs/house-rules'
+sys.path.insert(0,str(ROOT/'work/valoria'))
+from scripts.validate_house_rules import metrics
+import numpy as np
+cases=json.loads((OUT/'cases.json').read_text());expected=[(33000,37500),(38000,43000),(20600,26200)]
+diagnostics=[]
+for case,(low,high) in zip(cases,expected,strict=True):
+    p=case['prediction'];rol=case['target']['rol'];cs=p.get('comparables',[])
+    cumulative=0;median=None
+    for c in sorted(cs,key=lambda c:c['adjusted_uf']):
+        cumulative+=c['weight_share']
+        if cumulative>=.5:median=c;break
+    path=OUT/(rol+'-comparables.csv')
+    if cs:
+        with path.open('w',encoding='utf8',newline='') as f:
+            writer=csv.DictWriter(f,fieldnames=list(cs[0]));writer.writeheader();writer.writerows(cs)
+    diagnostics.append({'rol':rol,'diagnostic_only_expected_uf':[low,high],
+        'within_sanity_interval':p['status']=='ok' and low<=p['value_uf']<=high,
+        'outside_interval_uf':max(0,low-p.get('value_uf',low),p.get('value_uf',high)-high),
+        'weighted_median_source':median,'comparable_count':len(cs),'excluded_iqr_count':len(p.get('outliers',[])),
+        'explanation':('No se ajustaron parámetros. La mediana empírica corresponde a esa venta, indexada y ajustada por las superficies históricas NL y terreno SII. Los filtros de m² cambian el conjunto entre los dos vecinos.'),
+        'csv':path.name})
+(OUT/'case-diagnostics.json').write_text(json.dumps(diagnostics,indent=2),encoding='utf8')
+records=json.loads((OUT/'predictions.json').read_text())
+pairs=[(b,c) for b,c in zip(records['published_baseline'],records['candidate'],strict=True) if b['prediction']['status']==c['prediction']['status']=='ok']
+before=json.loads((OUT/'before-control-display-fix/predictions.json').read_text())
+display_fixed=json.loads((OUT/'before-uf-calendar-fix/predictions.json').read_text())
+for key in records:
+    assert len(records[key])==len(before[key])
+    for a,b in zip(display_fixed[key],before[key],strict=True):
+        assert a['raw_id']==b['raw_id'] and a['prediction']['status']==b['prediction']['status']
+        assert a['prediction'].get('value_uf')==b['prediction'].get('value_uf')
+    for a in records[key]:
+        if key=='candidate' and a['prediction']['status']=='ok':
+            for c in a['prediction']['comparables']:
+                assert c['rol']!=a['rol'] and c['fecha']<a['date'] and c['fi']<a['date']
+            assert a['prediction']['training_max_date']<'2024-01-01'
+proof={'all_2454_model_predictions_same_after_display_fix':True,
+    'historical_uf_completion_changed_prediction_counts':{k:sum(a['prediction'].get('value_uf')!=b['prediction'].get('value_uf') for a,b in zip(records[k],display_fixed[k],strict=True)) for k in records},
+    'literal_published_baseline_paired':{'baseline':metrics([a for a,_ in pairs]),'candidate':metrics([b for _,b in pairs])},
+    'coordinate_audit_reused':'outputs/integrated/vitacura/geography-audit.json',
+    'known_bad_osm_node':'Laura Tromben5631 OSM1263984531 was already rejected in existing audit; SII cached published role point retained. Corrected anchor interpolations reused, no new geo calls.',
+    'R10_units':'UF_hoy interpreted as query-date CLP/UF in appraisal control; its common factor cancels when converting result back to UF. No product of two UF sale amounts.'}
+(OUT/'verification.json').write_text(json.dumps(proof,indent=2),encoding='utf8')
+seal=json.loads((OUT/'sealed.json').read_text())
+segments=[]
+for dimension in ['land','price']:
+    for tercile in ['T1','T2','T3','missing']:
+        all_ids=[]
+        for i,r in enumerate(records['baseline']):
+            value=r['land'] if dimension=='land' else r['actual_uf']
+            key='missing' if not value else 'T'+str(1+int(np.searchsorted(seal['land_tertiles' if dimension=='land' else 'price_tertiles'],value,side='right')))
+            if key==tercile:all_ids.append(i)
+        if not all_ids:continue
+        ix=[i for i in all_ids if records['candidate'][i]['prediction']['status']=='ok']
+        bm=metrics([records['baseline'][i] for i in ix]);cm=metrics([records['candidate'][i] for i in ix])
+        row={'dimension':dimension,'tercile':tercile,'n_all':len(all_ids),'n_paired':len(ix),
+             'baseline_coverage_pct':100,'candidate_coverage_pct':100*len(ix)/len(all_ids)}
+        for k in ['mdape_pct','mape_pct','mean_bias_pct','within_10_pct','within_20_pct']:
+            row['baseline_'+k]=bm[k];row['candidate_'+k]=cm[k]
+        segments.append(row)
+with (OUT/'terciles-paired.csv').open('w',encoding='utf8',newline='') as f:
+    writer=csv.DictWriter(f,fieldnames=list(segments[0]));writer.writeheader();writer.writerows(segments)
+(OUT/'terciles-paired.json').write_text(json.dumps(segments,indent=2),encoding='utf8')
+print(json.dumps([{'rol':x['rol'],'within_sanity':x['within_sanity_interval'],'outside_uf':x['outside_interval_uf']} for x in diagnostics]))

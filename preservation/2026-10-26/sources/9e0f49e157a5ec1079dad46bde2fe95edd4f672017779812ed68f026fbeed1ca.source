@@ -1,0 +1,6 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+
+code="import subprocess,json,re\ns=subprocess.check_output(['docker','logs','--tail','160','valoria-portal-candidate-api'],stderr=subprocess.STDOUT,text=True)\nlines=[x for x in s.splitlines() if any(k in x for k in ['radar.detect_duration','radar.total_duration','radar/opportunities','radar_detect','duration_ms'])]\nprint(json.dumps({'sanitized_radar_timing_lines':lines[-10:]},indent=2))"
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=30);Path(__file__).with_name('radar-v6-http-timing.json').write_text(r.stdout+r.stderr);print(r.stdout);r.check_returncode()

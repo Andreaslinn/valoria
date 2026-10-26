@@ -1,0 +1,113 @@
+import sys,json,csv,math,hashlib,itertools,subprocess,shutil
+from pathlib import Path
+from datetime import date
+from decimal import Decimal
+from collections import Counter,defaultdict
+ROOT=Path(__file__).resolve().parent; REPO=ROOT/'valoria'; OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+sys.path.insert(0,str(REPO))
+from services.sii.closing_knn import ClosingKNN,weighted_quantile
+from services.sii.closing_confidence import features
+from services.sii.closing_address import AddressIndex
+from domain.valuation.canonical_price import valuation_price_basis
+from scripts.compare_sii_canonical import listing_from_snapshot
+def load(n):return json.loads((OUT/n).read_text(encoding='utf8'))
+def save(n,x):(OUT/n).write_text(json.dumps(x,indent=2,ensure_ascii=False,default=str),encoding='utf8')
+def csvout(n,rows):
+    if not rows:return
+    keys=list(dict.fromkeys(k for r in rows for k in r))
+    with (OUT/n).open('w',newline='',encoding='utf-8-sig') as f:
+        w=csv.DictWriter(f,fieldnames=keys);w.writeheader()
+        w.writerows({k:json.dumps(v,ensure_ascii=False,default=str) if isinstance(v,(dict,list,tuple)) else v for k,v in r.items()} for r in rows)
+bundle=load('sii-target-prediction.json'); target=bundle['target']; pred=bundle['prediction']
+pool=json.loads((ROOT/'closing-validation-final/closings.json').read_text(encoding='utf8'))
+model=ClosingKNN(pool)
+idx=AddressIndex(ROOT/'closing-validation-final/address-index.sqlite')
+byid={r['raw_id']:r for r in pool}; byselected={r['raw_id']:r for r in pred['comparables']}
+def score(r):
+    ratio=float(r['area'])/target['area']; days=(date.fromisoformat(target['date'])-date.fromisoformat(r['date'])).days
+    ar=max(0,1-abs(math.log(ratio))/math.log(1.5))
+    loc=1 if r['building']==target['building'] else .7 if r['block']==target['block'] else .2
+    age=max(0,1-abs(r['year']-target['year'])/20)
+    rec=max(0,1-days/(365.25*2))
+    return {'area_ratio':ratio,'similarity_area':ar,'similarity_location':loc,'similarity_age':age,'similarity_date':rec,'score':.3*ar+.3*loc+.3*age+.1*rec,'days_old':days,'location_level':'same_building' if loc==1 else 'same_block' if loc==.7 else 'same_commune'}
+valid=[]
+for r in model.groups[(15160,'casa')]:
+    s=score(r)
+    if .5<=s['area_ratio']<=1.5 and r['date']<target['date'] and r['rol']!=target['rol']:valid.append((s['score'],r['raw_id']))
+valid.sort(key=lambda v:(-v[0],v[1])); ranks={rid:i+1 for i,(s,rid) in enumerate(valid)}
+assert [rid for s,rid in valid[:10]]==list(byselected)
+weight_sum=sum(c['similarity'] for c in pred['comparables'])
+originals=load('selected-closings-original.json'); operations=load('operation-groups-original.json'); lines=load('construction-lines-original.json')
+sourcefiles={s['id']:s for s in load('source-files.json')}
+selected=[];checks=[]
+for r in sorted(originals,key=lambda r:ranks[r['raw_id']]):
+    comp=byselected[r['raw_id']]; row=byid[r['raw_id']];s=score(row)
+    assert abs(s['score']-comp['similarity'])<1e-12
+    native=r['raw_uf'] is not None and Decimal(r['raw_uf'])>0
+    recalculated=Decimal(r['raw_uf']) if native else Decimal(r['raw_clp'])/Decimal(r['calendar_uf'])
+    delta=abs(recalculated-Decimal(r['monto_uf']))
+    assert delta<Decimal('.00000001')
+    assert abs(float(r['monto_uf'])-row['uf'])<1e-8 and float(r['m2_cerrado'])==row['area'] and r['anio_min']==row['year'] and r['tipo']==row['kind']
+    exact_lines=[l for l in lines if l['manzana']==r['manzana'] and l['predio']==r['predio']]
+    h=sum(Decimal(l['m2']) for l in exact_lines if l['destino']=='H'); opened=sum(Decimal(l['m2']) for l in exact_lines if l['destino']=='H' and l['abierta'])
+    assert h==Decimal(r['m2_h']) and h-opened==Decimal(r['m2_cerrado'])
+    group=[o for o in operations if o['manzana']==r['manzana'] and o['fe']==r['fe'] and o['fi']==r['fi']]
+    same_role=[o for o in group if o['rol']==r['rol']]
+    same_money=[o for o in group if o['monto_uf']==r['monto_uf']]
+    flags=['declarado_no_verifica_compraventa_plena','sin_distancia_geografica','superficie_catastro_2026_2_no_historica']
+    if native:flags.append('UF_nativa_sin_CLP_declarado')
+    if float(r['m2_terreno'])<595 or float(r['m2_terreno'])>1105:flags.append('terreno_fuera_30pct_del_objetivo_no_filtrado_por_SII')
+    if comp['uf_m2']<60:flags.append('UF_m2_bajo_no_prueba_error_moneda')
+    if len(group)>1:flags.append('grupo_fecha_manzana_multiple_requiere_escritura')
+    selected.append({'rank':ranks[r['raw_id']],'raw_id':r['raw_id'],'rol':r['rol'],'direccion':r['direccion_raw'],'fecha':r['fecha'],'fecha_escritura_FE':r['fe'],'fecha_inscripcion_FI':r['fi'],'precio_CLP_declarado':r['raw_clp'],'precio_UF_nativo':r['raw_uf'],'UF_CLP_fecha':r['calendar_uf'],'UF_calendar_date':r['calendar_date'],'UF_calendar_source':r['calendar_source'],'UF_usada_conversion':r['uf_usada'],'UF_fecha_conversion':r['uf_fecha'],'precio_UF_calculado':str(recalculated),'precio_UF_motor':row['uf'],'diferencia_conversion_UF':str(delta),'precio_CLP_equivalente_fecha':str(recalculated*Decimal(r['calendar_uf'])),'base_precio':'UF_nativa' if native else 'CLP_div_UF_fecha_FE','construccion_H_m2':r['m2_h'],'construccion_abierta_H_m2':r['m2_h_abierta'],'construccion_cerrada_m2':r['m2_cerrado'],'terreno_m2':r['m2_terreno'],'tipo':r['tipo'],'destino':r['destino'],'anio_min':r['anio_min'],'distancia_objetivo_m':None,'distancia_estado':'No hay coordenadas verificadas del objetivo ni geo SII para estos roles','UF_m2_cerrado':comp['uf_m2'],**s,'normalized_weight':comp['similarity']/weight_sum,'source_file_id':r['source_file_id'],'predio_source_file_id':r['predio_source_file_id'],'line_source_file_id':sourcefiles[r['predio_source_file_id']]['line_source_file_id'],'F2890_fila':r['raw_fila'],'F2890_source_hash':sourcefiles[r['source_file_id']]['hash'],'N_source_hash':sourcefiles[r['predio_source_file_id']]['hash'],'cierre_comparable':r['cierre_comparable'],'paquete':r['paquete'],'motivos_exclusion':r['motivos_exclusion'],'reglas_version':r['reglas_version'],'grupo_fecha_manzana_filas':len(group),'grupo_fecha_manzana_roles':len({o['rol'] for o in group}),'mismo_rol_FE_FI_filas':len(same_role),'mismo_monto_grupo_filas':len(same_money),'marcas_calidad':flags})
+    checks.append({'raw_id':r['raw_id'],'conversion_exacta':True,'snapshot_cierre_coincide':True,'lineas_H_menos_abiertas_coincide':True,'join_source_exacto':True,'duplicate_group_count':len(same_role)})
+save('cierres-SII-10.json',selected);csvout('cierres-SII-10.csv',selected)
+history=load('neighbourhood-transfers-original.json'); neighbours=[]
+for r in history:
+    indexed=idx.db.execute('SELECT * FROM role WHERE rol=?',(r['rol'],)).fetchone(); yr=indexed['year'] if indexed else r.get('anio_min')
+    reasons=[]
+    if not r['cierre_comparable']:reasons+=['ingesta:'+x for x in r['motivos_exclusion']]
+    if not r['fecha'] or r['fecha']<'2024-01-01':reasons.append('export:fecha_anterior_2024_o_ausente')
+    if r['tipo']!='casa':reasons.append('knn:tipo_distinto')
+    if r['rol']==target['rol']:reasons.append('knn:rol_objetivo')
+    if not r['m2_cerrado'] or float(r['m2_cerrado'])<=0:reasons.append('knn:superficie_invalida')
+    elif not .5<=float(r['m2_cerrado'])/target['area']<=1.5:reasons.append('knn:superficie_fuera_50pct')
+    if not yr:reasons.append('knn:sin_anio')
+    if r['fecha'] and r['fecha']>=target['date']:reasons.append('knn:fecha_no_anterior_objetivo')
+    rid=r['raw_id'];rank=ranks.get(rid)
+    if rank and rank>10:reasons.append('ranking:fuera_top10')
+    status='seleccionado' if rid in byselected else 'descartado'
+    if status=='descartado' and not reasons:reasons.append('ausente_snapshot_revisar')
+    neighbours.append({**r,'rank_elegible':rank,'estado_tasacion':status,'razones_tasacion':reasons,'score':score(byid[rid]) if rid in byid and yr else None,'distancia_objetivo_m':None,'geografia':'misma_manzana' if r['manzana']==1261 else 'proximidad_textual_calle_numero_no_metros'})
+save('cierres-entorno-decisiones.json',neighbours);csvout('cierres-entorno-decisiones.csv',neighbours)
+csvout('cierres-entorno-descartados.csv',[r for r in neighbours if r['estado_tasacion']=='descartado'])
+named_roles={'15160-1261-9','15160-1261-20','15160-1261-26'}
+named=[r for r in neighbours if r['rol'] in named_roles]; save('tres-direcciones-verificadas.json',named);csvout('tres-direcciones-verificadas.csv',named)
+pubs=load('publicaciones-20.json'); snap=json.loads((ROOT/'closing-confidence-20261019/canonical-pool-verified-local.json').read_text(encoding='utf8')); native_rows={r['id']:r for r in snap['rows']}
+pubrows=[]
+for r in pubs:
+    original=native_rows[r['id']];basis=valuation_price_basis(listing_from_snapshot(original),Decimal('41183.94'))
+    row={'rank':r['rank'],'listing_id':r['id'],'source':r['source'],'property_id':r['property_id'],'fingerprint':r['fingerprint'],'external_id':r['external_id'],'URL':r['url'],'titulo_original':None,'titulo_proyectado_modelo':r['title'],'comuna':r['comuna'],'direccion':None,'lat':r['coordinates']['lat'] if r['coordinates'] else None,'lon':r['coordinates']['lon'] if r['coordinates'] else None,'geocode_precision':r['geocode_precision'],'geographic_metadata':r['raw_metadata'],'distancia_objetivo_m':None,'construccion_m2':r['built_area_m2'],'m2_generico':r['m2'],'m2_usado_denominador':r['built_area_m2'] or r['m2'],'terreno_m2':r['land_area_m2'],'util_m2':r['usable_area_m2'],'bedrooms':r['bedrooms'],'bathrooms':r['bathrooms'],'parking':r['parking'],'scraped_at':r['scraped_at'],'last_seen_at':r['last_seen_at'],'last_refresh_attempted_at':r['last_refresh_attempted_at'],'precio_CLP_snapshot':original['price']['clp'],'precio_UF_nativo':original['price_uf'],'price_currency':original['price_currency'],'price_uf_source':original['price_uf_source'],'price_basis':asdict(basis) if False else basis.__dict__,'precio_CLP_canonico':r['canonical_price_clp'],'precio_UF_canonico':r['canonical_price_uf'],'UF_m2_canonico':r['canonical_uf_m2'],'similarity':r['similarity_full'],'normalized_weight':r['normalized_weight'],'contribucion_UF_al_valor_final':r['target_scaled_uf_contribution'],'componentes_score':{k:r[k] for k in ('area_component','distance_component','bedrooms_component','bathrooms_component','parking_component','microzone_bonus')},'product_class':r['product_class'],'quality_flags':['snapshot_sin_direccion_URL_external_id_titulo_original','sin_coordenadas_objetivo']+(['terreno_ausente_pero_admitido'] if r['land_area_m2'] is None else [])+(['superficie_generica_como_construida'] if r['built_area_m2'] is None else [])}
+    pubrows.append(row)
+csvout('publicaciones-20.csv',pubrows);save('publicaciones-20-enriquecidas.json',pubrows)
+duplicate_suspects=[]
+for a,b in itertools.combinations(pubs,2):
+    if a['coordinates'] and a['coordinates']==b['coordinates'] and a['built_area_m2']==b['built_area_m2'] and a['land_area_m2']==b['land_area_m2']:
+        duplicate_suspects.append({'ids':[a['id'],b['id']],'same_coordinates':a['coordinates'],'built_area_m2':a['built_area_m2'],'land_area_m2':a['land_area_m2'],'fingerprints_different':a['fingerprint']!=b['fingerprint'],'combined_weight':a['normalized_weight']+b['normalized_weight'],'status':'sospecha_no_prueba_mismo_inmueble'})
+save('duplicados-sospechosos.json',duplicate_suspects)
+quantiles=[];cumulative=0
+for r in sorted(selected,key=lambda r:r['UF_m2_cerrado']):
+    cumulative+=r['normalized_weight'];quantiles.append({'rol':r['rol'],'raw_id':r['raw_id'],'UF_m2':r['UF_m2_cerrado'],'weight':r['normalized_weight'],'cumulative_weight':cumulative})
+save('SII-mediana-acumulada.json',quantiles);csvout('SII-mediana-acumulada.csv',quantiles)
+scenario=load('sensibilidad-terreno.json');sensitivity=[]
+baseline_ids=set(scenario[2]['selected_ids'])
+for r in scenario:
+    api=load(f"api-inference-{r['land_area_m2']}.json")
+    assert api['response']['estimated_price_uf']==r['value_uf']
+    assert api['response']['sii_closing_opinion']['value_uf']==pred['value_uf']
+    sensitivity.append({'terreno_m2':r['land_area_m2'],'valor_publicaciones_UF':r['value_uf'],'valor_SII_UF':pred['value_uf'],'comps_publicaciones':r['selected_count'],'seleccionados_con_terreno':sum(native_rows[i]['land_area_m2'] is not None for i in r['selected_ids']),'nuevos_vs_850':sorted(set(r['selected_ids'])-baseline_ids),'salen_vs_850':sorted(baseline_ids-set(r['selected_ids'])),'filtros':r['diagnostics']['exclusions'],'pools':r['diagnostics']['pool']})
+csvout('sensibilidad-terreno.csv',sensitivity);save('sensibilidad-verificada.json',sensitivity)
+summary={'canonical_UF':scenario[2]['value_uf'],'canonical_CLP':load('canonical-engine-850.json')['estimated_price_clp'],'sii_UF':pred['value_uf'],'sii_P25':pred['p25_uf'],'sii_P75':pred['p75_uf'],'sii_features':features(target,pred),'sii_pool_group_count':len(model.groups[(15160,'casa')]),'sii_eligible_count':len(valid),'sii_pool_total_rows':len(pool),'same_block_count':sum(r['location_level']=='same_block' for r in selected),'same_block_weight':sum(r['normalized_weight'] for r in selected if r['location_level']=='same_block'),'selected_native_uf_count':sum(r['base_precio']=='UF_nativa' for r in selected),'selected_clp_conversion_count':sum(r['base_precio']=='CLP_div_UF_fecha_FE' for r in selected),'selected_terrain_outside_30pct':sum('terreno_fuera_30pct_del_objetivo_no_filtrado_por_SII' in r['marcas_calidad'] for r in selected),'publications_land_known':sum(r['land_area_m2'] is not None for r in pubs),'publications_generic_built_fallback':sum(r['built_area_m2'] is None for r in pubs),'publications_precisions':dict(Counter(r['geocode_precision'] for r in pubs)),'publications_total_contribution':sum(r['target_scaled_uf_contribution'] for r in pubs),'same_block_historical_count':sum(r['manzana']==1261 for r in history),'text_neighbourhood_history_count':len(history),'named_directions':[{k:r[k] for k in ('raw_id','rol','direccion_raw','fecha','monto_uf','m2_cerrado','rank_elegible','estado_tasacion','razones_tasacion','score')} for r in named],'duplicate_suspects':duplicate_suspects,'checks':checks,'sensitivity':sensitivity,'geo_limit':'No target or audited SII coordinates. Geographic distances and exhaustive 500m selection cannot be verified. Text neighbourhood is an explicitly labelled proxy.'}
+save('hallazgos-verificados.json',summary)
+print(json.dumps({k:v for k,v in summary.items() if k not in ('checks','sensitivity')},indent=2,ensure_ascii=False))
+idx.close()

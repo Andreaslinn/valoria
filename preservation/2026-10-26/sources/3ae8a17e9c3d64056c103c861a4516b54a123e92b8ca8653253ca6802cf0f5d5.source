@@ -1,0 +1,120 @@
+from lab import *
+from models import *
+from dataclasses import replace
+from avm01.fixtures import synthetic
+from avm01.splits import make_plan
+from avm01.isolation import LabelCustody
+from avm01.engines import LearnedEngine
+import pytest
+def batch_for(ds):
+ plan=make_plan(ds,seed=42,n_folds=3,holdout_fraction=.2)
+ config={'seed':42,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':False,'engines':['C1','R0','Rsource','Flex','Trees'],'index_policy':'first_observation_v1'}
+ custody=LabelCustody(ds,plan.holdout);return custody.issue(ds,plan.folds[0],config,plan.holdout),custody,plan
+@pytest.mark.parametrize('kind,source',[('R0',False),('R0',True),('Flex',False),('Trees',False)])
+def test_determinism_and_price_blind(kind,source):
+ batch,_,_=batch_for(synthetic());m=Model(batch,kind,source);t=batch.targets[0]
+ np.testing.assert_allclose(m.predict_log([t]),Model(batch,kind,source).predict_log([t]),atol=1e-12)
+ assert not any('price' in k for k in t.canonical_target)
+ with pytest.raises(InvalidExperiment):m.predict_log([replace(t,canonical_target={**t.canonical_target,'price_uf':99999})])
+ with pytest.raises(InvalidExperiment):m.predict_log([replace(t,row_id='foreign')])
+def test_signed_partition():
+ batch,_,_=batch_for(synthetic())
+ with pytest.raises(InvalidExperiment):Model(replace(batch,rows=batch.rows[:-1]),'R0')
+def test_c1_parity():
+ batch,_,_=batch_for(synthetic());own=Model(batch,'R0',True);native=LearnedEngine('C1',seed=42).fit(batch)
+ for t,v in zip(batch.targets,own.predict_log(batch.targets)):assert math.isclose(math.exp(v),native.predict(t).value_uf,rel_tol=1e-12)
+def test_held_labels_do_not_affect_predictions():
+ ds=synthetic();batch,_,plan=batch_for(ds);held=set(plan.folds[0].test)|set(plan.holdout)
+ changed=replace(ds,records=tuple(replace(r,price_uf=r.price_uf*7) if r.row_id in held else r for r in ds.records))
+ bb,_,_=batch_for(changed)
+ assert set(r.row_id for r in batch.rows)==set(r.row_id for r in bb.rows)
+ np.testing.assert_array_equal(Model(batch,'Flex').predict_log(batch.targets),Model(bb,'Flex').predict_log(bb.targets))
+def test_sealed_holdout_and_labels():
+ batch,custody,plan=batch_for(synthetic())
+ with pytest.raises(InvalidExperiment):custody.complete({'R0':{}},plan.folds[0].test)
+ assert not set(plan.holdout)&{r.row_id for r in batch.rows}
+def test_adjustment_unit_elasticity_identity():
+ batch,_,_=batch_for(synthetic());t=batch.targets[0];train={r.row_id:r for r in batch.rows};ids=list(train)[:5]
+ a={'prediction':4000.,'pre':3900.,'selected_ids':ids};lt={i:r.features['log_area'] for i,r in train.items()}
+ post,pre,factor=adjusted(a,t,train,t.features['log_area'],lt)
+ assert post==4000. and pre==3900. and factor==1.
+def test_geo_missing_no_correction():
+ batch,_,_=batch_for(synthetic());assert local_residual(batch.targets[0],list(batch.rows),{},batch.components)==(0.,0)
+def test_metric_rounding_is_only_display():
+ from avm01.metrics import metrics
+ truth={str(i):100 for i in range(5)};p={str(i):100+x for i,x in enumerate([.12345,2.23456,7.34567,13.45678,20.56789])};m=metrics(truth,p)
+ assert abs(m['P90']-np.percentile([.12345,2.23456,7.34567,13.45678,20.56789],90))<=.005
+ assert math.isclose(m['MdAPE'],7.34567,abs_tol=1e-10)
+def test_crypto_and_original_seal():
+ assert decrypt_bytes_test({'synthetic':True})=={'synthetic':True};assert verify()['status'].startswith('exploratory')
+def decrypt_bytes_test(x):return json.loads(crypto().unprotect(crypto().protect(json.dumps(x).encode())))
+@pytest.mark.parametrize('spatial',[False,True])
+def test_kernel_psd_and_no_geo_fabrication(spatial):
+ from kernels import Kernel
+ batch,_,_=batch_for(synthetic());m=Kernel(batch,1.,1.,spatial)
+ K=m.kernel(m.X,m.com,m.geo,m.valid)
+ assert np.linalg.eigvalsh(K).min()>-1e-8
+ assert not m.valid.any()
+ np.testing.assert_allclose(m.predict_log(batch.targets),Kernel(batch,1.,1.,False).predict_log(batch.targets),atol=1e-10)
+ with pytest.raises(InvalidExperiment):m.predict_log([replace(batch.targets[0],features={**batch.targets[0].features,'parking':9})])
+def test_kernel_target_label_negative_control():
+ from kernels import Kernel
+ ds=synthetic();batch,_,plan=batch_for(ds);held=set(plan.folds[0].test)|set(plan.holdout);changed=replace(ds,records=tuple(replace(r,price_uf=r.price_uf*99) if r.row_id in held else r for r in ds.records));bb,_,_=batch_for(changed)
+ np.testing.assert_array_equal(Kernel(batch,1.,1.).predict_log(batch.targets),Kernel(bb,1.,1.).predict_log(bb.targets))
+
+def text_fixture():
+ from avm01.monetary_text import sanitize
+ ds=synthetic();rows=[]
+ for k,r in enumerate(ds.records):
+  title=sanitize('Vista parque terraza ascensor UF 9999999 contacto +56 9 12345678')
+  rows.append(replace(r,canonical_listing={**r.canonical_listing,'title':title},canonical_target={**r.canonical_target,'raw_metadata':{'title':title}}))
+ return replace(ds,records=tuple(rows))
+
+def test_text_train_inference_symmetry_and_monetary_removal():
+ from text_models import text,TextModel
+ ds=text_fixture();r=ds.records[0];assert text(r)==text(r.inference())
+ batch,_,_=batch_for(ds);m=TextModel(batch,alpha=1.)
+ vocab=m.pipeline.named_steps['preprocess'].named_transformers_['text'].vocabulary_
+ assert 'terraza' in vocab and 'vista parque' in vocab
+ assert not any(any(c.isdigit() for c in token) for token in vocab)
+ assert '9999999' not in text(r) and '12345678' not in text(r)
+
+def test_text_vocabulary_does_not_see_held_words():
+ from text_models import TextModel
+ ds=text_fixture();_,_,plan=batch_for(ds);held=set(plan.folds[0].test)|set(plan.holdout)
+ ds=replace(ds,records=tuple(replace(r,canonical_target={**r.canonical_target,'raw_metadata':{'title':'unicornioprivado futuro exclusivo'}}) if r.row_id in held else r for r in ds.records))
+ batch,_,_=batch_for(ds);m=TextModel(batch,alpha=1.)
+ assert 'unicornioprivado' not in m.pipeline.named_steps['preprocess'].named_transformers_['text'].vocabulary_
+ assert np.isfinite(m.predict_log(batch.targets)).all()
+
+@pytest.mark.parametrize('kind',['text','quality'])
+def test_text_and_quality_held_label_invariance_and_target_binding(kind):
+ from text_models import TextModel
+ from quality_run import Quality
+ ds=text_fixture();batch,_,plan=batch_for(ds);held=set(plan.folds[0].test)|set(plan.holdout)
+ changed=replace(ds,records=tuple(replace(r,price_uf=r.price_uf*17) if r.row_id in held else r for r in ds.records));bb,_,_=batch_for(changed)
+ make=(lambda b:TextModel(b,alpha=1.)) if kind=='text' else (lambda b:Quality(b,alpha=1.))
+ m=make(batch);np.testing.assert_array_equal(m.predict_log(batch.targets),make(bb).predict_log(bb.targets))
+ t=batch.targets[0]
+ with pytest.raises((InvalidExperiment,AssertionError)):m.predict_log([replace(t,canonical_target={**t.canonical_target,'raw_metadata':{'title':'lujo premium'}})])
+
+def test_missing_text_is_optional_at_inference():
+ from text_models import TextModel
+ ds=text_fixture();_,_,plan=batch_for(ds);held=set(plan.folds[0].test)
+ changed=replace(ds,records=tuple(replace(r,canonical_target={**r.canonical_target,'raw_metadata':{}}) if r.row_id in held else r for r in ds.records));batch,_,_=batch_for(changed)
+ assert np.isfinite(TextModel(batch,alpha=1.).predict_log(batch.targets)).all()
+
+def test_blend_endpoints_and_geometric_interpolation():
+ from blend_run import mixed
+ assert mixed(100.,400.,0.)==100.
+ assert math.isclose(mixed(100.,400.,1.),400.)
+ assert math.isclose(mixed(100.,400.,.5),200.)
+ assert mixed(None,400.,0.)==400.
+
+def test_common_support_and_group_bootstrap():
+ from analyze import metrics,interval
+ rows=[{'group':'g1','target_uf':100.,'predictions':{'A':120.,'B':110.}}, {'group':'g1','target_uf':100.,'predictions':{'A':120.,'B':110.}}, {'group':'g2','target_uf':100.,'predictions':{'A':None,'B':1000.}}]
+ result=interval(rows,'A','B')
+ assert result['n']==2 and result['groups']==1
+ assert math.isclose(result['delta_MAPE'],-10.)
+ assert metrics(rows,'A')['coverage']==2/3 and metrics(rows,'B')['coverage']==1.

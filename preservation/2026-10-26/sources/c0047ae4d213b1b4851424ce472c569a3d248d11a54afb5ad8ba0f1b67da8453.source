@@ -1,0 +1,615 @@
+"""Price-blind identity review and fold-local eligibility only. No model execution.
+
+Uses the certified parser, graph, DTO bridge, C1 matrix and frozen A filters.
+Canonical monetary DTOs are decrypted in memory; only authorized training rows
+cross the eligibility boundary. Neither prices nor reference statistics are output.
+"""
+from __future__ import annotations
+import ast
+import collections as C
+from contextlib import contextmanager, ExitStack
+from copy import deepcopy
+import csv
+from dataclasses import dataclass
+from decimal import Decimal
+import hashlib
+import importlib.util
+import io
+import itertools
+import json
+import math
+from pathlib import Path
+import platform
+import re
+import subprocess
+import sys
+from statistics import median
+from types import SimpleNamespace
+from unittest.mock import patch
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+COHORT = ROOT / 'research/tasar_cohort_20261009T154414Z'
+RUN = COHORT / 'runs/candidate-certified'
+HARNESS = ROOT / 'research/avm_harness_20261009T064239Z'
+HISTORY = ROOT / 'research/tasar_identity_20261002/historical_identity_snapshot.json'
+SEEDS = (20261009, 20261010, 20261011)  # reused, fixed before new counts
+PRIMARY_SEED = SEEDS[0]
+POLICY = {
+    'version': 'pilot-dependency-preflight-v2', 'primary': 'G3', 'K': 3,
+    'seeds': SEEDS, 'primary_seed': PRIMARY_SEED,
+    'review': 'Automatic evidence rules, not human certification. No calibrated probabilities.',
+    'G1': 'Certified strict publication/URL/explicit-full-address-unit rules, entire snapshot graph.',
+    'G2': 'Certified backed edges plus DEPENDENT review outcomes; entire snapshot graph.',
+    'G3': 'G2 plus INDETERMINATE candidates with a matching specific building/project or at least two non-generic shared locality/name tokens and compatible structure. Generic commune/floorplan/title templates alone never create edges.',
+    'distinct': 'Explicit conflicting unit designators with the same local text anchor are positive physical distinction; no new edge. Coordinates, broker codes, image nonmatches and publication IDs alone are not distinction.',
+    'group_scope': '6283 snapshot listings before cohort restriction, plus publication-verified historical aliases for isolation. Not productive property IDs.',
+    'extra_candidates': 'Separately disclosed, never added to the original 28. Explicit v2 amendment: an additional same-full-address pair without positive contradictions is cofolded in G3 even outside the old 5% area band. This is plausible building/republication dependence, not unit identity. Other high-risk unresolved additions block execution.',
+    'fold_assignment': 'Existing group-size balancing and SHA256([seed, minimum numeric listing ID]); no price, source/comuna balancing, coverage optimization or seed selection.',
+    'A': 'Canonical outliers variant; ordered train DTOs by observation_id, dedup before structural filter, canonical training price filter, disabled product hard filter, robust candidate-price filter. Stop before ranking/aggregation/surface. Short-circuit at actual minimum=5.',
+    'money_boundary': 'Identity/groups/folds use allowlisted nonmonetary fields. Only fold-local training DTOs may supply monetary fields for native A eligibility; held labels never requested. No monetary diagnostics exported.',
+    'temporal_scope': 'Retrospective Oct4 state capture only, not historical forecasting. Legacy aliases are isolation evidence, never additional comparables or feature enrichment. Modern History rows are unavailable locally and are not consumed.',
+    'C1': 'Unchanged six core features, geo=False, alpha=10; matrix and static certified preprocessing/abstention contract only. No fit, transform fitting, predict or predictive metrics.',
+}
+
+def sha(p):
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+
+def read(p):
+    return json.loads(Path(p).read_text(encoding='utf-8'))
+
+def load_module(name, p):
+    spec = importlib.util.spec_from_file_location(name, p)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+sys.path[:0] = [str(COHORT), str(HARNESS), str(HARNESS / 'frozen_a')]
+b = load_module('certified_cohort_preflight_reuse', COHORT / 'build.py')
+
+def verify_inputs():
+    m = read(RUN / 'manifest.json')
+    if sha(RUN / 'manifest.json') != 'd3ba5d421b99e96a4ac96e871c66109441d660e2295ed553939e7b08622987c8':
+        raise ValueError('Wrong certified cohort manifest')
+    h = b.verify_harness()
+    checked = {str(RUN / 'manifest.json'): sha(RUN / 'manifest.json')}
+    for name, expected in m['input_sha256'].items():
+        path = ROOT / name
+        if sha(path) != expected: raise ValueError('Certified input hash mismatch')
+        checked[str(path)] = expected
+    for name, entry in m['outputs'].items():
+        path = RUN / name
+        if sha(path) != entry['sha256']: raise ValueError('Certified output hash mismatch')
+        checked[str(path)] = entry['sha256']
+    for name, expected in read(HARNESS / 'certification.json')['code_sha256'].items():
+        checked[str(HARNESS / name)] = expected
+    checked[str(HARNESS / 'certification.json')] = h['certificate_sha256']
+    checked[str(HISTORY)] = sha(HISTORY)
+    checked[str(COHORT / 'build.py')] = sha(COHORT / 'build.py')
+    if checked[str(COHORT / 'build.py')] != m['code_sha256']['build.py']:
+        raise ValueError('Original cohort builder changed')
+    return checked
+
+TEXT_META = ('address', 'address_label', 'street_hint', 'location_text', 'description',
+             'building_name', 'project_name', 'unit', 'unit_number', 'street_number', 'normalized_address')
+PHYSICAL = ('id', 'source', 'external_id', 'comuna', 'property_type', 'm2', 'built_area_m2',
+            'usable_area_m2', 'land_area_m2', 'bedrooms', 'bathrooms', 'parking', 'lat', 'lon', 'geocode_precision')
+TIMESTAMPS = ('scraped_at', 'created_at', 'updated_at', 'last_seen_at')
+
+def blind_row(row):
+    """Projection before identity. URL is opaque equality only, never slug text.
+
+    URLs can themselves contain monetary slugs. Hash the normalized URL instead
+    of exposing it; public external_id remains the readable publication signal.
+    """
+    out = {k: row.get(k) for k in PHYSICAL + TIMESTAMPS}
+    out['title'] = b.identity.sanitize(row.get('title'))
+    url = b.identity.canonical_url(row.get('url'))
+    out['url'] = 'https://opaque.invalid/' + digest(url) if url else None
+    m = row.get('raw_metadata') or {}
+    out['raw_metadata'] = {k: b.identity.sanitize(m[k]) for k in TEXT_META if m.get(k)}
+    # Complete origin-image paths are identifiers, not perceptual image hashes.
+    out['raw_metadata']['image_urls'] = ['https://' + k for k in sorted(b.image_keys(row))]
+    return out
+
+GENERIC = set('est central estacion san pasos metro vista despejada conectividad alta rebaja comision remodelado piscina living invertir renta dorm banio edificio condominio proyecto norte sur oriente poniente'.split())
+
+def enriched(row):
+    f = b.signals(row)
+    text = b.identity.normalize(row['title'])
+    # Additional identity-only grammar recognizes "Depto 1912". This does not
+    # change any source parser or A feature/product semantics.
+    unit = re.search(r'\bdepartamento\s+(?:(?:numero|nro|no|n)\s+)?(\d{3,5}[a-z]?)\b', text)
+    if unit and not re.match(r'^\s*(?:m2|mts|metros|dorm|banos)\b', text[unit.end():]):
+        f['unit'] = unit.group(1)
+    anchors = set()
+    for key in ('building_name', 'project_name'):
+        value = b.identity.normalize(row['raw_metadata'].get(key))
+        if value: anchors.add(value)
+    match = re.search(r'\bedificio\s+([a-z]+)(?:\s+([a-z]+))?', text)
+    if match:
+        words = [w for w in match.groups() if w and w not in ('estacion', 'en', 'con', 'de', 'departamento')]
+        if words and len(words[0]) > 1: anchors.add('edificio ' + ' '.join(words))
+    match = re.search(r'([a-z]+)\s+([a-z]+)\s+edificio\s+([a-z])\b', text)
+    if match: anchors.add(' '.join(match.groups()))
+    commune = set(str(row['comuna'] or '').replace('_', ' ').split())
+    f['specific_tokens'] = f['title_tokens'] - GENERIC - commune
+    f['building_anchors'] = anchors
+    f['timestamps'] = {k: row.get(k) for k in TIMESTAMPS}
+    f['raw_identity_metadata'] = row['raw_metadata']
+    return f
+
+def assessment(a, z):
+    p = b.pair(a, z)
+    same_pub = a['source'] == z['source'] and a['external_id'] == z['external_id']
+    building = sorted(a['building_anchors'] & z['building_anchors'])
+    specific = sorted(a['specific_tokens'] & z['specific_tokens'])
+    local_anchor = bool(building or a.get('address_key') and a['address_key'] == z.get('address_key') or
+                        a.get('street') and a['street'] == z.get('street') or len(specific) >= 2)
+    unit_conflict = bool(a.get('unit') and z.get('unit') and a['unit'] != z['unit'] and
+                         a['comuna'] == z['comuna'] and local_anchor)
+    contradictions = list(filter(None, p['contradiction'].split('|')))
+    if unit_conflict: contradictions.append('explicit_different_unit_with_common_local_text_anchor')
+    # Differing unit designators are positive distinction only with a common
+    # local anchor, not two arbitrary unit numbers from unrelated neighborhoods.
+    if same_pub or p['G1'] or p['G2']:
+        classification = 'DEPENDENT'
+    elif unit_conflict:
+        classification = 'DISTINCT'
+    else:
+        classification = 'INDETERMINATE'
+    plausible = bool(classification == 'INDETERMINATE' and not contradictions and
+                     p['loose_structure'] and local_anchor)
+    evidence = {
+        'automatic_rules_only': True, 'same_publication': same_pub,
+        'external_id_a': a['external_id'], 'external_id_b': z['external_id'],
+        'opaque_url_id_a': digest(a['canonical_url']), 'opaque_url_id_b': digest(z['canonical_url']),
+        'same_opaque_url': a['canonical_url'] == z['canonical_url'],
+        'title_a': a['title_sanitized'], 'title_b': z['title_sanitized'],
+        'shared_specific_tokens': specific, 'shared_building_project_anchors': building,
+        'shared_origin_image_ids': sorted(a['image_keys'] & z['image_keys']),
+        'image_count_a': len(a['image_keys']), 'image_count_b': len(z['image_keys']),
+        'physical_a': {k: a.get(k) for k in ('area', 'bedrooms', 'bathrooms', 'parking')},
+        'physical_b': {k: z.get(k) for k in ('area', 'bedrooms', 'bathrooms', 'parking')},
+        'address_a': a['address_key'], 'address_b': z['address_key'], 'unit_a': a['unit'], 'unit_b': z['unit'],
+        'geo_a': [a['lat'], a['lon'], a['precision']], 'geo_b': [z['lat'], z['lon'], z['precision']],
+        'geo_precision_verified': False, 'distance_m_unverified': p['distance_m'],
+        'description_present_a': a['description_present'], 'description_present_b': z['description_present'],
+        'identity_metadata_a': {k:v for k,v in a['raw_identity_metadata'].items() if k != 'image_urls'},
+        'identity_metadata_b': {k:v for k,v in z['raw_identity_metadata'].items() if k != 'image_urls'},
+        'timestamps_a': a['timestamps'], 'timestamps_b': z['timestamps'],
+        'republication': 'unproven; different external IDs alone are not republication evidence',
+        'plausible_cv_risk': plausible,
+    }
+    unresolved = ['No human certification; grouping is not physical identity']
+    if classification == 'INDETERMINATE':
+        unresolved += ['No verified full-address/unit or shared-image corroboration',
+                       'Generic text/structure alone cannot establish independence or dependence']
+    return classification, plausible, contradictions, evidence, unresolved
+
+def load_blind():
+    snapshot = read(ROOT / b.POLICY['snapshot'])
+    rows = {int(r['id']): blind_row(r) for r in snapshot['listings']}
+    del snapshot  # labels never retained in the identity/split view
+    features = {i: enriched(r) for i, r in rows.items()}
+    allowed = ('observation_id', 'listing_id', 'source', 'external_id', 'comuna', 'property_type',
+               'area_canonical', 'log_area', 'bedrooms', 'bathrooms', 'parking', 'available_at')
+    with (RUN / 'cohort_candidate.csv').open(encoding='utf-8', newline='') as stream:
+        cohort = [{k: r[k] for k in allowed} for r in csv.DictReader(stream)]
+    cohort = {int(r['listing_id']): r for r in cohort}
+    with (RUN / 'dependency_pair_evidence.csv').open(encoding='utf-8', newline='') as stream:
+        candidates = list(csv.DictReader(stream))
+    candidate_ids = sorted({tuple(sorted((int(p['id_a']), int(p['id_b'])))) for p in candidates})
+    selected = [pair for pair in candidate_ids if set(pair) <= set(cohort)]
+    if len(selected) != 28 or len(set(selected)) != 28 or len(cohort) != 791:
+        raise ValueError('Certified pair/cohort selection changed')
+    return rows, features, cohort, candidate_ids, selected
+
+def historical_aliases(rows):
+    historical = read(HISTORY)
+    pubs = {(r['source'], r['external_id']): i for i, r in rows.items()}
+    old_to_current = {}
+    for old in historical['listings']:
+        current = pubs.get((old.get('source'), str(old.get('external_id') or '')))
+        if current is not None:
+            old_to_current[str(old['id'])] = current
+    # No old property_id links: they are uncertified historical associations.
+    aliases = {'legacy_listing:' + i: current for i, current in old_to_current.items()}
+    for event in historical['history_relationships']:
+        current = old_to_current.get(str(event['listing_id']))
+        if current is not None: aliases['legacy_history:' + str(event['id'])] = current
+    return aliases, {'legacy_listing_aliases': len(old_to_current),
+                     'legacy_history_aliases': sum(k.startswith('legacy_history:') for k in aliases),
+                     'modern_history_row_level_available': False,
+                     'history_usage': 'Known aliases only, joined by exact source/external_id; never features or comparables'}
+
+def review_tables(features, cohort, candidates, selected, aliases):
+    decisions = {}
+    pairs = []
+    for i, j in candidates:
+        result = assessment(features[i], features[j]); decisions[i, j] = result
+        if (i, j) not in selected: continue
+        cls, plausible, why, evidence, unresolved = result
+        evidence['known_legacy_history_alias_count_a'] = sum(v == i and k.startswith('legacy_history:') for k, v in aliases.items())
+        evidence['known_legacy_history_alias_count_b'] = sum(v == j and k.startswith('legacy_history:') for k, v in aliases.items())
+        unresolved.append('Modern History row-level evidence not available; no assertion of absence of historical republication')
+        pairs.append(dict(pair_id=f'{i}:{j}', listing_id_a=i, listing_id_b=j,
+            source_a=features[i]['source'], source_b=features[j]['source'], classification=cls,
+            supporting_evidence=json.dumps(evidence, sort_keys=True, ensure_ascii=False),
+            contradictory_evidence='|'.join(why) or 'none observed (not proof of identity)',
+            unresolved_information='; '.join(unresolved), requires_human_review=cls == 'INDETERMINATE',
+            recommended_cv_treatment='G1/G2/G3 same component' if cls == 'DEPENDENT' else
+                'separate unless supported through another edge; do not infer building-level independence' if cls == 'DISTINCT' else
+                'G3 same component; plausible local/name anchor, no physical identity claim' if plausible else
+                'no new edge: generic template only; residual uncertainty retained, not certified independent'))
+    return pairs, decisions
+
+def extra_candidates(features, cohort, original):
+    """Small anchor-based blindspot scan, not new productive identity matching."""
+    original = set(original); output = []; examined = C.Counter()
+    for i, j in itertools.combinations(sorted(cohort), 2):
+        a, z = features[i], features[j]
+        if a['source'] != z['source']: examined['cross_source_pairs_examined'] += 1
+        if (i, j) in original: continue
+        # Strong publication/address/images also checked across commune blocks.
+        exact = a['source'] == z['source'] and a['external_id'] == z['external_id'] or a['canonical_url'] == z['canonical_url']
+        address = bool(a['address_key'] and a['address_key'] == z['address_key'])
+        images = len(a['image_keys'] & z['image_keys']) >= 2
+        building = bool(a['building_anchors'] & z['building_anchors']) and b.identity.physical(a, z, True)
+        shared_description = a['description_tokens'] & z['description_tokens']
+        union_description = a['description_tokens'] | z['description_tokens']
+        description = len(shared_description) >= 20 and len(shared_description) / max(1, len(union_description)) >= .85 and b.identity.physical(a, z, True)
+        if not (exact or address or images or building or description): continue
+        cls, plausible, why, evidence, unresolved = assessment(a, z)
+        if cls == 'DISTINCT': continue
+        amendment = bool(address and not why and cls == 'INDETERMINATE')
+        evidence['explicit_v2_G3_amendment'] = amendment
+        output.append(dict(case_id=f'additional:{i}:{j}', listing_id_a=i, listing_id_b=j,
+            classification=cls, reason='additional anchor candidate outside original frozen list',
+            requires_human_review=True, blocks_pilot=not amendment,
+            evidence=json.dumps(evidence, sort_keys=True, ensure_ascii=False)))
+    examined['additional_high_risk_candidates'] = len(output)
+    return output, dict(examined)
+
+def component_conflicts(mapping, features, distinct_pairs=()):
+    members = C.defaultdict(list)
+    for i, g in mapping.items(): members[g].append(i)
+    conflicts = []
+    for group, ids in members.items():
+        if len(ids) < 2: continue
+        for i, j in itertools.combinations(sorted(ids), 2):
+            cls, _, why, _, _ = assessment(features[i], features[j])
+            if cls == 'DISTINCT' or (i, j) in set(distinct_pairs):
+                conflicts.append((group, i, j, 'positive_distinction_in_transitive_component'))
+            elif why:
+                # Conservative CV policy does not silently accept structural or
+                # explicit-address contradictions introduced through a bridge.
+                conflicts.append((group, i, j, '|'.join(why)))
+    return conflicts
+
+def grouping(features, candidates, decisions, amendments=()):
+    assignments = {}; summaries = []
+    for policy in ('G1', 'G2', 'G3'):
+        edges = []
+        for i, j in candidates:
+            native = b.pair(features[i], features[j])
+            cls, plausible, _, _, _ = decisions[i, j]
+            keep = native['G1'] or (policy != 'G1' and (native['G2'] or cls == 'DEPENDENT'))
+            if policy == 'G3': keep |= plausible
+            if cls == 'DISTINCT': keep = False
+            if keep: edges.append((i, j))
+        if policy == 'G3': edges.extend(amendments)
+        assignments[policy] = b.identity.graph(features, edges)
+        conflicts = component_conflicts(assignments[policy], features)
+        summaries.append(dict(policy=policy, full_universe_nodes=len(features), edges=len(edges),
+                              unresolved_transitive_conflicts=len(conflicts)))
+    return assignments, summaries
+
+def partition(cohort, mapping, seed):
+    components = C.defaultdict(list)
+    for i in cohort: components[mapping[i]].append(i)
+    folds = [[], [], []]
+    for root, members in sorted(components.items(), key=lambda item: (-len(item[1]), b.digest([seed, item[0]]))):
+        folds[min(range(3), key=lambda k: (len(folds[k]), k))].extend(sorted(members))
+    return [frozenset(f) for f in folds]
+
+def assert_partition(train, test, mapping, aliases=None):
+    """Resolve aliases against complete pre-eligibility components, not just test IDs."""
+    aliases = aliases or {}
+    resolve = lambda i: aliases.get(i, i)
+    if set(train) & set(test): raise ValueError('Contamination: row overlap')
+    if any(resolve(i) not in mapping for i in set(train) | set(test)):
+        raise ValueError('Contamination: unknown lineage')
+    if {mapping[resolve(i)] for i in train} & {mapping[resolve(i)] for i in test}:
+        raise ValueError('Contamination: direct/indirect/history group overlap')
+
+class TrainingVault:
+    """Trusted in-memory archive. Read access is checked BEFORE retrieving DTOs."""
+    def __init__(self, archive, cohort, available_at):
+        self.__archive = archive
+        self.cohort = cohort
+        self.available_at = available_at
+        self.accessed = set()
+
+    def training(self, train, test, mapping, aliases=None):
+        assert_partition(train, test, mapping, aliases)
+        if set(train) | set(test) != set(self.cohort) or not set(train) <= set(self.cohort):
+            raise ValueError('Only frozen snapshot cohort DTOs are admissible; no historical/global pool')
+        from avm01.canonical_io import listing_from_payload
+        from avm01.data import timepoint
+        result = []
+        for i in sorted(train, key=lambda i: self.cohort[i]['observation_id']):
+            if timepoint(self.cohort[i]['available_at']) > timepoint(self.available_at):
+                raise ValueError('Unavailable training state')
+            self.accessed.add(i)
+            result.append(listing_from_payload(self.__archive[i]))
+        if {item.id for item in result} != set(train): raise ValueError('DTO lineage mismatch')
+        return tuple(result)
+
+def load_vault(cohort):
+    snapshot = read(ROOT / b.POLICY['snapshot'])
+    prov = snapshot['provenance']; cutoff = snapshot['captured_at']; del snapshot
+    encrypted = ROOT / prov['canonical_DTO_encrypted_path']
+    if sha(encrypted) != prov['canonical_DTO_ciphertext_sha256']: raise ValueError('DTO ciphertext mismatch')
+    dpapi = load_module('preflight_dpapi_memory_only', ROOT / 'private-ingestion-production-20261004/recovery_tools.py')
+    plain = dpapi.unprotect(encrypted.read_bytes())
+    if hashlib.sha256(plain).hexdigest() != prov['canonical_DTO_plaintext_sha256']:
+        raise ValueError('DTO plaintext mismatch')
+    archive = {int(r['id']): r for r in json.loads(plain)}; del plain
+    return TrainingVault(archive, cohort, cutoff)
+
+def target_payload(row):
+    out = {k: row.get(k) for k in ('id', 'comuna', 'm2', 'bedrooms', 'bathrooms', 'parking',
+                                 'property_type', 'built_area_m2', 'usable_area_m2', 'land_area_m2', 'geocode_precision')}
+    out['coordinates'] = {'lat': row['lat'], 'lon': row['lon']} if row.get('lat') is not None and row.get('lon') is not None else None
+    out['raw_metadata'] = {k: row['raw_metadata'][k] for k in ('description', 'address_label', 'street_hint', 'location_text') if k in row['raw_metadata']}
+    out['raw_metadata']['title'] = row['title']
+    return out
+
+def deny(*args, **kwargs):
+    raise RuntimeError('Forbidden fit/predict/valuation/price aggregation execution')
+
+@contextmanager
+def execution_guard():
+    import avm01.engines as engines
+    import domain.valuation.engines.canonical_comparables as canonical
+    import avm01.metrics as metrics
+    with ExitStack() as stack:
+        for cls, names in ((engines.LearnedEngine, ('fit', 'predict')),
+                           (engines.FrozenA, ('fit', 'predict')),
+                           (engines.Pipeline, ('fit', 'fit_transform', 'predict')),
+                           (engines.Ridge, ('fit', 'predict')),
+                           (engines.ColumnTransformer, ('fit', 'fit_transform')),
+                           (engines.SimpleImputer, ('fit',)),
+                           (engines.OneHotEncoder, ('fit',)),
+                           (engines.StandardScaler, ('fit',)),
+                           (canonical.ComparablesCanonicalEngine, ('valuate', '_valuate', '_post_process'))):
+            for name in names: stack.enter_context(patch.object(cls, name, deny))
+        for name in ('score_and_rank', '_safe_estimate', '_weighted_total', '_weighted_mean_ppm2', '_range_delta'):
+            stack.enter_context(patch.object(canonical, name, deny))
+        for name in ('metrics', 'compare', 'grouped_bootstrap_delta'):
+            stack.enter_context(patch.object(metrics, name, deny))
+        yield
+
+def eligibility(target, listings, rate):
+    """Actual canonical stages only. Target is Property without a price slot."""
+    import domain.valuation.engines.canonical_comparables as native
+    engine = native.ComparablesCanonicalEngine(name='comparables_canonical_outliers', variant='outliers')
+    if engine.config.min_comparables != 5 or engine.config.enable_product_filter or not engine.config.enable_robust_filter:
+        raise ValueError('Unexpected canonical eligibility configuration')
+    native._validate_target(target); native._validated_uf_rate(rate)
+    diagnostics = native._Diagnostics()
+    structural = engine._structural_pool(target, listings, diagnostics)
+    stages = {'structural': len(structural), 'canonical': None, 'product': None, 'robust': None}
+    final = structural; reason = 'structural_lt5'
+    if len(structural) >= 5:
+        canonical = engine._canonical_price_pool(structural, rate, diagnostics)
+        stages['canonical'] = len(canonical); final = [r[0] for r in canonical]; reason = 'canonical_price_lt5'
+        if len(canonical) >= 5:
+            product = engine._product_pool(native.classify_product(target), canonical, diagnostics)
+            stages['product'] = len(product); final = [r[0] for r in product]; reason = 'product_lt5'
+            if len(product) >= 5:
+                final = engine._robust_pool(target, final, diagnostics)
+                stages['robust'] = len(final); reason = 'robust_lt5'
+    # Ranking is not needed to count eligibility: canonical scorer returns one
+    # score per supplied candidate; top_n=20 >= minimum=5. No scores calculated.
+    if len(final) >= 5: reason = 'eligible_before_prediction'
+    if not {r.id for r in final} <= {r.id for r in listings}: raise ValueError('Native filter escaped training pool')
+    return dict(n=len(final), reason=reason, stages=stages,
+                exclusions=dict(diagnostics.exclusions), final_ids=frozenset(r.id for r in final))
+
+def percentile(values, q):
+    from domain.valuation.evaluation.metrics import _percentile
+    return _percentile(list(values), q)  # counts only, not predictive errors
+
+def c1_features(row):
+    out = {k: float(row[k]) if row[k] != '' else None for k in ('log_area', 'bedrooms', 'bathrooms', 'parking')}
+    out.update({k: row[k] for k in ('comuna', 'source')})
+    return out
+
+def c1_input_reason(features):
+    if set(features) != {'log_area', 'bedrooms', 'bathrooms', 'parking', 'comuna', 'source'}:
+        return 'feature_contract_mismatch'
+    v = features['log_area']
+    if v is None or not math.isfinite(v) or not math.log(10) <= v <= math.log(1000): return 'invalid_log_area'
+    for k in ('bedrooms', 'bathrooms', 'parking'):
+        if features[k] is not None and (not math.isfinite(features[k]) or features[k] < 0): return 'invalid_' + k
+    if any(not isinstance(features[k], str) or not features[k].strip() for k in ('comuna', 'source')): return 'invalid_category'
+    return None
+
+def c1_contract():
+    import avm01.engines as engines
+    from avm01.data import CORE, positive
+    if set(CORE) != {'log_area', 'bedrooms', 'bathrooms', 'parking', 'comuna', 'source'} or engines.DEFAULTS['C1'] != {'alpha': 10.0}:
+        raise ValueError('C1 contract changed')
+    tree = ast.parse((HARNESS / 'avm01/engines.py').read_text(encoding='utf-8'))
+    learned = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'LearnedEngine')
+    fit = next(node for node in learned.body if isinstance(node, ast.FunctionDef) and node.name == 'fit')
+    predict = next(node for node in learned.body if isinstance(node, ast.FunctionDef) and node.name == 'predict')
+    text = ast.unparse(fit); prediction_text = ast.unparse(predict)
+    checks = ["require_batch(batch, legacy)" in text, 'rows = list(self.batch.rows)' in text,
+              'self.pipeline.fit(matrix(rows, self.geo), y)' in text,
+              "handle_unknown='ignore'" in text, "strategy='median'" in text,
+              'keep_empty_features=True' in text, 'self.batch.validate_target(target)' in prediction_text,
+              "'invalid_prediction'" in prediction_text, "'nonfinite_or_nonpositive'" in prediction_text]
+    if not all(checks) or any(positive(v) for v in (None, 0, -1, math.nan, math.inf)):
+        raise ValueError('Preprocessing or abstention contract not demonstrated')
+    return {'static_training_only_contract': True, 'new_preprocessors_fitted': False,
+            'invalid_or_missing_prediction_is_abstention': True, 'six_features_unchanged': True,
+            'geo': False, 'alpha': 10.0}
+
+def simulate(rows, features, cohort, mappings, aliases, vault):
+    from avm01.canonical_io import target_from_payload, uf_reference
+    from avm01.data import timepoint
+    from avm01.engines import matrix
+    cutoff = next(iter(cohort.values()))['available_at']
+    ref = read(RUN / 'canonical_contract_check.json')['uf_context']
+    rate = uf_reference({'uf_reference': ref}, timepoint(cutoff))
+    targets = {i: target_from_payload(target_payload(rows[i])) for i in cohort}
+    folds_output = []; coverage = []; comuna_output = []; sensitivity = []; c1_output = []
+    for policy, mapping in mappings.items():
+        buckets = C.defaultdict(list)
+        for i in cohort: buckets[mapping[i]].append(i)
+        sizes = [len(v) for v in buckets.values()]
+        groups_info = dict(groups=len(buckets), singletons=sum(n == 1 for n in sizes),
+            multiple_groups=sum(n > 1 for n in sizes), max_group_size=max(sizes),
+            cross_source_groups=sum(len({cohort[i]['source'] for i in ids}) > 1 for ids in buckets.values()),
+            grouped_records=sum(n for n in sizes if n > 1))
+        for seed in SEEDS:
+            count_all = 0
+            for k, test in enumerate(partition(cohort, mapping, seed)):
+                train = frozenset(cohort) - test
+                assert_partition(train, test, mapping, aliases)
+                pool = vault.training(train, test, mapping, aliases)
+                if {r.id for r in pool} != set(train): raise ValueError('Global comparable pool')
+                supports = {}; reasons = C.Counter(); exclusions = C.Counter()
+                for i in sorted(test):
+                    result = eligibility(targets[i], pool, rate)
+                    if not result['final_ids'] <= train or mapping[i] in {mapping[j] for j in result['final_ids']}:
+                        raise ValueError('Related comparable leakage')
+                    supports[i] = result['n']; exclusions.update(result['exclusions'])
+                    if result['n'] < 5: reasons[result['reason']] += 1
+                hits = sum(n >= 5 for n in supports.values()); count_all += hits
+                folds_output.append(dict(policy=policy, seed=seed, fold=k, n_train=len(train), n_test=len(test),
+                    n_train_groups=len({mapping[i] for i in train}), n_test_groups=len({mapping[i] for i in test}),
+                    group_overlap=0, comparable_pool_train_only=True, historical_alias_overlap=0,
+                    train_by_source=json.dumps(dict(C.Counter(cohort[i]['source'] for i in train)), sort_keys=True),
+                    test_by_source=json.dumps(dict(C.Counter(cohort[i]['source'] for i in test)), sort_keys=True),
+                    train_by_comuna=json.dumps(dict(C.Counter(cohort[i]['comuna'] for i in train)), sort_keys=True),
+                    test_by_comuna=json.dumps(dict(C.Counter(cohort[i]['comuna'] for i in test)), sort_keys=True),
+                    official_or_confirmatory_split=False))
+                coverage.append(dict(policy=policy, seed=seed, fold=k, n_test=len(test), n_ge5=hits, n_lt5=len(test)-hits,
+                    eligibility_coverage=hits/len(test), median_comparables=percentile(supports.values(), 50),
+                    p10_comparables=percentile(supports.values(), 10), p90_comparables=percentile(supports.values(), 90),
+                    abstention_reasons=json.dumps(dict(reasons), sort_keys=True), native_exclusions=json.dumps(dict(exclusions), sort_keys=True),
+                    coverage_by_source=json.dumps({source:dict(n_test=sum(cohort[i]['source']==source for i in test),
+                        n_ge5=sum(cohort[i]['source']==source and supports[i]>=5 for i in test))
+                        for source in sorted({cohort[i]['source'] for i in test})}, sort_keys=True),
+                    scope='actual frozen eligibility stages; not operational prediction coverage'))
+                for comuna in sorted({cohort[i]['comuna'] for i in test}):
+                    ids = [i for i in test if cohort[i]['comuna'] == comuna]
+                    n = sum(supports[i] >= 5 for i in ids)
+                    comuna_output.append(dict(policy=policy, seed=seed, fold=k, comuna=comuna, n_test=len(ids), n_ge5=n, n_lt5=len(ids)-n, eligibility_coverage=n/len(ids)))
+                train_features = [SimpleNamespace(features=c1_features(cohort[i])) for i in sorted(train)]
+                test_features = [SimpleNamespace(features=c1_features(cohort[i])) for i in sorted(test)]
+                invalid = [i for i in test if c1_input_reason(c1_features(cohort[i]))]
+                # Actual certified matrix only, never fit a transformer or model.
+                if matrix(train_features).shape != (len(train), 9) or matrix(test_features).shape != (len(test), 9):
+                    raise ValueError('C1 matrix contract failed')
+                unknown = {f: sum(cohort[i][f] not in {cohort[j][f] for j in train} for i in test) for f in ('comuna', 'source')}
+                c1_output.append(dict(policy=policy, seed=seed, fold=k, n_test=len(test), input_processable=len(test)-len(invalid), invalid_n=len(invalid),
+                    unseen_comuna_n=unknown['comuna'], unseen_source_n=unknown['source'], unseen_category_handling='ignore by certified OneHotEncoder',
+                    features='log_area|bedrooms|bathrooms|parking|comuna|source', feature_width=9, preprocessing_scope='static certified training-only contract; no fitting here',
+                    prediction_scope='not run; invalid/missing must abstain; retain all791 denominators'))
+            sensitivity.append(dict(policy=policy, seed=seed, k=3, eligible_n=len(cohort), n_ge5=count_all, n_lt5=len(cohort)-count_all,
+                                    eligibility_coverage=count_all/len(cohort), **groups_info))
+    for policy in mappings:
+        values = [r['eligibility_coverage'] for r in sensitivity if r['policy'] == policy]
+        for row in sensitivity:
+            if row['policy'] == policy:
+                row.update(coverage_min=min(values), coverage_median=median(values), coverage_max=max(values))
+    return {'fold_feasibility.csv': folds_output, 'a_coverage_by_fold.csv': coverage,
+            'a_coverage_by_comuna.csv': comuna_output, 'grouping_sensitivity.csv': sensitivity,
+            'c1_input_feasibility.csv': c1_output}
+
+def csv_bytes(rows, empty_fields=None):
+    fields = list(rows[0]) if rows else empty_fields
+    stream = io.StringIO(newline=''); writer = csv.DictWriter(stream, fieldnames=fields, lineterminator='\n')
+    writer.writeheader(); writer.writerows(rows)
+    return stream.getvalue().encode('utf-8')
+
+def calculate():
+    before = verify_inputs()
+    rows, features, cohort, candidates, selected = load_blind()
+    aliases, history_info = historical_aliases(rows)
+    pairs, decisions = review_tables(features, cohort, candidates, selected, aliases)
+    extra, scan = extra_candidates(features, cohort, candidates)
+    amendments = [(r['listing_id_a'],r['listing_id_b']) for r in extra if not r['blocks_pilot']]
+    mappings, graph_audit = grouping(features, candidates, decisions, amendments)
+    unresolved = [dict(case_id='review:' + p['pair_id'], listing_id_a=p['listing_id_a'], listing_id_b=p['listing_id_b'],
+        classification=p['classification'], reason=p['unresolved_information'], requires_human_review=True, blocks_pilot=False,
+        evidence=p['recommended_cv_treatment']) for p in pairs if p['requires_human_review']]
+    unresolved.extend(extra)
+    groups = [dict(observation_id=cohort[i]['observation_id'], listing_id=i, source=cohort[i]['source'],
+        G1=mappings['G1'][i], G2=mappings['G2'][i], G3=mappings['G3'][i],
+        cv_dependency_group_id_pilot='pilot-G3-' + str(mappings['G3'][i]),
+        identity_scope='experimental dependence; not certified physical property') for i in sorted(cohort)]
+    # Freeze identity/group/fold policy before the monetary training vault exists.
+    blind_stage_hash = digest({'policy': POLICY, 'pairs': pairs, 'groups': groups})
+    with execution_guard():
+        c1 = c1_contract()
+        tables = simulate(rows, features, cohort, mappings, aliases, load_vault(cohort))
+    tables.update({'pair_adjudication.csv': pairs, 'cv_dependency_groups.csv': groups,
+                   'unresolved_identity_cases.csv': unresolved})
+    if verify_inputs() != before: raise ValueError('Immutable inputs changed during execution')
+    conflict_n = sum(r['unresolved_transitive_conflicts'] for r in graph_audit)
+    decision = 'BLOCKED' if conflict_n else 'CONDITIONAL' if any(r['blocks_pilot'] for r in extra) else 'READY_FOR_EXPLORATORY_PILOT'
+    return tables, dict(input_sha256=before, policy=POLICY, blind_stage_sha256=blind_stage_hash,
+        pair_counts={name:sum(p['classification']==name for p in pairs) for name in ('DEPENDENT','DISTINCT','INDETERMINATE')}, human_review_pending=sum(p['requires_human_review'] for p in pairs),
+        graph_audit=graph_audit, blindspot_scan=scan, history=history_info, C1=c1, decision=decision,
+        explicit_G3_amendment_pairs=amendments, additional_pending_human_review=len(extra),
+        identity_signal_coverage_by_source={source:{key:sum(bool(features[i][key]) for i in cohort if cohort[i]['source']==source)
+            for key in ('image_keys','description_present','address_key','unit','lat','building_anchors')}
+            for source in sorted({r['source'] for r in cohort.values()})},
+        no_fit=True, no_prediction=True, no_predictive_metrics=True, held_labels_requested=False,
+        residual_risks=['Cross-source recall unquantified: Portal has no image/description/verified-location support.',
+          'Generic title candidates remain unresolved; absence of an edge is not certified independence.',
+          'Same-building units can retain contextual dependence outside this physical/likely-republication policy.',
+          'Offer-price T1 parsed trace, not sale prices or independently certified original RAW.',
+          'Oct4 retrospective snapshot only; cannot certify time-generalization or modern History identity completeness.',
+          'Parking zero is ambiguous; area built/useful is a proxy; source and commune strongly confounded.'],
+        previous_bound_correction='711-716 was already fold-local with old singleton groups; upper bound omitted ordered-first dedup and canonical/robust rejection.',
+        versions={'python': platform.python_version(), 'harness_certification_sha256': sha(HARNESS/'certification.json'),
+                  'numpy': __import__('numpy').__version__, 'sklearn': __import__('sklearn').__version__})
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in ('run', 'verify'): raise SystemExit('Use run or verify')
+    tables, manifest = calculate()
+    payloads = {name: csv_bytes(rows, ['case_id','listing_id_a','listing_id_b','classification','reason','requires_human_review','blocks_pilot','evidence']) for name, rows in tables.items()}
+    if sys.argv[1] == 'verify':
+        saved = read(HERE/'manifest.json')
+        for name, payload in payloads.items():
+            if (HERE/name).read_bytes() != payload: raise ValueError('Fresh-process reproduction mismatch')
+        if saved['input_sha256'] != manifest['input_sha256']: raise ValueError('Input drift')
+        print(json.dumps({'fresh_process_reproduction': 'PASS', 'identical_csvs': len(payloads)})); return
+    if (HERE/'manifest.json').exists() or any((HERE/name).exists() for name in payloads): raise ValueError('Refuse overwrite; use new isolated directory')
+    for name, payload in payloads.items(): (HERE/name).write_bytes(payload)
+    suite = subprocess.run([sys.executable, '-B', str(HERE/'test_preflight.py')], cwd=ROOT, capture_output=True, text=True)
+    match = re.search(r'Ran (\d+) tests?', suite.stderr)
+    manifest['tests'] = {'passed': int(match.group(1)) if match and suite.returncode == 0 else None,
+                         'failed': 0 if suite.returncode == 0 else 'see local rerun', 'exit_code': suite.returncode,
+                         'output_sha256': hashlib.sha256((suite.stdout+suite.stderr).encode()).hexdigest()}
+    if suite.returncode: print(suite.stderr[-7000:]); manifest['decision'] = 'BLOCKED'
+    manifest['outputs'] = {name: {'sha256': sha(HERE/name), 'bytes': (HERE/name).stat().st_size, 'rows': len(tables[name])} for name in payloads}
+    manifest['code_sha256'] = {name: sha(HERE/name) for name in ('preflight.py','test_preflight.py','README.md','.gitignore')}
+    manifest['original_inputs_unchanged'] = verify_inputs() == manifest['input_sha256']
+    (HERE/'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+    print(json.dumps({k: manifest[k] for k in ('decision','pair_counts','human_review_pending','tests','blindspot_scan')}))
+    if suite.returncode: raise SystemExit(1)
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,9 @@
+import json, pathlib, subprocess
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','docker logs valoria-discovery-admission-audit-yapo-diagnostic-1035'],capture_output=True,text=True,encoding='utf8',timeout=30)
+events=[json.loads(v[len('AUDIT_DETAIL_HTML '):]) for v in r.stdout.splitlines() if v.startswith('AUDIT_DETAIL_HTML ')]
+if not events:
+ print('No rejected detail observed yet');raise SystemExit()
+row=events[0];pathlib.Path('outputs/discovery-same-day/yapo-rejected-detail-private.json').write_text(json.dumps(row),encoding='utf8')
+from bs4 import BeautifulSoup
+soup=BeautifulSoup(row['html'],'lxml')
+print(json.dumps({'url':row['url'],'title':soup.title.get_text() if soup.title else None,'bytes':len(row['html']),'scripts':len(soup.find_all('script')),'body_excerpt':soup.get_text(' ',strip=True)[:1800]},ensure_ascii=False))

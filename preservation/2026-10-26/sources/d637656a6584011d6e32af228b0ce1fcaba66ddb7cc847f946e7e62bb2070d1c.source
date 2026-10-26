@@ -1,0 +1,111 @@
+# Auditoría por fuente
+Cobertura medida sobre snapshot moderno de Oracle. Disponibilidad de origen verificada en fixtures reales sanitizados y código actual; no es una estimación poblacional. Yapo vivo devolvió 403; Portal no fue solicitado. `incierta` significa que NO pudimos confirmar ausencia ni presencia.
+
+## yapo
+| Señal | Evidencia en fuente | Captura / pérdida | % persistido observado |
+|---|---|---|---|
+| source | card/detail | preserved | 100.0 |
+| external_id | card/detail | preserved | 100.0 |
+| original_url | card/detail | partial | 100.0 |
+| canonical_url | derived; not preserved separately | partial | 0.0 |
+| additional_listing_ids | uncertain | uncertain | 0.0 |
+| platform_id | card id | preserved | 100.0 |
+| title_raw | card/detail title; cleaner trims to 512 | discarded | 0.0 |
+| description | detail meta; structured detail early return skips it | detail_only | 2.685 |
+| structured_attributes | card square/rooms/bathrooms/parking/lotSize | partial | 0.0 |
+| metadata_raw | Flight item exists; current parser selects fields | discarded | 0.0 |
+| address_raw | detail source uncertain; card only locality | uncertain | 0.0 |
+| street | text inference only | partial | 0.0 |
+| street_number | text only when explicit | partial | 0.0 |
+| unit | text when explicit; no field preserved | partial | 0.0 |
+| building | uncertain | uncertain | 0.0 |
+| project | uncertain | uncertain | 0.0 |
+| neighborhood | legacy card location/text | partial | 0.0 |
+| coordinates | card location lat/lon and detail property map | preserved | 75.391 |
+| coordinate_origin | location_source | preserved | 74.944 |
+| geo_address_quality | source pin precision not verified; zoom discarded | partial | 0.0 |
+| usable_area | usableArea optional not present in real fixture | partial | 100.0 |
+| total_area | lotSize retained as source_total_area_m2; meaning ambiguous | partial | 58.613 |
+| built_area | square mapped to built_area; semantic confidence unverified | partial | 100.0 |
+| terrace | uncertain | uncertain | 0.0 |
+| land_area | lotSize for houses | partial | 0.0 |
+| bedrooms | card rooms | preserved | 100.0 |
+| bathrooms | card bathrooms | preserved | 100.0 |
+| parking | card parking; missing becomes zero | partial | 45.414 |
+| storage | text potentially; no capture confirmed | uncertain | 0.0 |
+| floor | real titles mention piso; no dedicated capture | partial | 0.0 |
+| age | uncertain | uncertain | 0.0 |
+| condition | real titles remodelado; no structured capture | partial | 0.0 |
+| amenities | uncertain | uncertain | 0.0 |
+| seller_name | legacy cards; absent modern fixture | partial | 31.544 |
+| seller_type | uncertain | uncertain | 0.0 |
+| seller_id | uncertain | uncertain | 0.0 |
+| seller_profile_url | uncertain | uncertain | 0.0 |
+| phone_hash | not fetched or inferred | not_found | 0.0 |
+| image_urls | images + principalImage; only main kept | partial | 100.0 |
+| image_ids | remote URL suffix available; not retained separately | discarded | 0.0 |
+| image_order | images list | discarded | 0.0 |
+| publication_date | not in modern card fixture; detail uncertain | uncertain | 0.0 |
+| source_updated_date | uncertain | uncertain | 0.0 |
+| observation_time | scraped_at overwritten each pass | partial | 100.0 |
+| first_seen | created_at is DB-row birth, not stable publication first-seen | partial | 100.0 |
+| last_seen | last_seen_at | preserved | 100.0 |
+| status | active/incomplete; refresh status separate | partial | 100.0 |
+| disappearance | absence in search not evidence; explicit refresh needed | partial | 0.0 |
+| reappearance | active upsert loses transition history | discarded | 0.0 |
+| canonical_price | native UF or published CLP; some legacy/recovered excluded | partial | 100.0 |
+| two_identity_signals | computed only offline | partial | 2.685 |
+## portalinmobiliario
+| Señal | Evidencia en fuente | Captura / pérdida | % persistido observado |
+|---|---|---|---|
+| source | card/detail | preserved | 100.0 |
+| external_id | MLC URL/state/productID | preserved | 100.0 |
+| original_url | card href/detail url replaced by canonical in adapter | partial | 100.0 |
+| canonical_url | detail canonical/offer url | detail_only | 0.0 |
+| additional_listing_ids | detail sku/productID/state id | partial | 0.0 |
+| platform_id | MLC | preserved | 100.0 |
+| title_raw | DOM/state; cleaner truncation | discarded | 0.0 |
+| description | detail component; adapter top-level does not enter raw_metadata | discarded | 0.0 |
+| structured_attributes | bookmark UNIT_NAME MODEL_NAME UNIT_FLOOR BALCONY_AREA FACING; technical specs/models | partial | 2.697 |
+| metadata_raw | Nordic state/JSON-LD; not retained | discarded | 0.0 |
+| address_raw | detail location.content_rows; can describe project not unit | discarded | 0.0 |
+| street | detail location text | partial | 0.0 |
+| street_number | detail location text when explicit | partial | 0.0 |
+| unit | UNIT_NAME often unit/model typology NOT physical apartment number | uncertain | 0.0 |
+| building | project detail titles/models | detail_only | 0.0 |
+| project | quotable_models/header/project breadcrumbs | detail_only | 0.0 |
+| neighborhood | detail text/points of interest | partial | 0.0 |
+| coordinates | detail location map_info; not cards | detail_only | 0.0 |
+| coordinate_origin | detail location_source | detail_only | 0.0 |
+| geo_address_quality | map precision not verified | uncertain | 0.0 |
+| usable_area | card generic area/detail technical_specs | partial | 100.0 |
+| total_area | detail TOTAL_AREA/raw technical specs | partial | 2.697 |
+| built_area | detail COVERED_AREA/technical_specs | partial | 100.0 |
+| terrace | detail BALCONY_AREA | discarded | 0.0 |
+| land_area | detail specs | detail_only | 0.0 |
+| bedrooms | card/detail | preserved | 100.0 |
+| bathrooms | card/detail | preserved | 100.0 |
+| parking | detail PARKING_LOTS; default zero in most cards | partial | 0.0 |
+| storage | detail unknown | uncertain | 0.0 |
+| floor | detail UNIT_FLOOR | discarded | 0.0 |
+| age | detail schema NewCondition != construction year | uncertain | 0.0 |
+| condition | detail schema.itemCondition | discarded | 0.0 |
+| amenities | detail text/specs potentially; not exhaustive | partial | 0.0 |
+| seller_name | card seller/detail profile name; detail adapter drops seller | partial | 27.865 |
+| seller_type | project context; no dedicated persisted field | partial | 0.0 |
+| seller_id | seller profile component id is UI id; real stable ID not established | uncertain | 0.0 |
+| seller_profile_url | profile actions may expose public profile; not verified | uncertain | 0.0 |
+| phone_hash | not collected; contact actions not followed | not_found | 0.0 |
+| image_urls | cards img src/data-src; detail schema image | discarded | 0.0 |
+| image_ids | detail gallery.pictures[].id | discarded | 0.0 |
+| image_order | detail pictures list | discarded | 0.0 |
+| publication_date | priceValidUntil is NOT publication date; no reliable date found | not_found | 0.0 |
+| source_updated_date | not verified | uncertain | 0.0 |
+| observation_time | scraped_at overwritten each pass | partial | 100.0 |
+| first_seen | created_at is DB-row birth, not stable publication first-seen | partial | 100.0 |
+| last_seen | last_seen_at | preserved | 100.0 |
+| status | active/incomplete; refresh status separate | partial | 100.0 |
+| disappearance | absence in search not evidence; explicit refresh needed | partial | 0.0 |
+| reappearance | active upsert loses transition history | discarded | 0.0 |
+| canonical_price | native UF or published CLP; some legacy/recovered excluded | partial | 100.0 |
+| two_identity_signals | computed only offline | partial | 0.0 |

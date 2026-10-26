@@ -1,0 +1,22 @@
+from pathlib import Path
+import sys,json,hashlib,importlib.util,csv
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1]
+RUNTIME=HERE/'runtime';OLD=ROOT/'research/tasar_pilot_A_vs_C1_20261010T130800Z'
+sys.path[:0]=[str(RUNTIME),str(RUNTIME/'frozen_a')]
+def module(name,p):
+ s=importlib.util.spec_from_file_location(name,p);m=importlib.util.module_from_spec(s);sys.modules[name]=m;s.loader.exec_module(m);return m
+def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+def read(p):return json.loads(Path(p).read_text(encoding='utf-8'))
+def write(p,v):Path(p).write_text(json.dumps(v,ensure_ascii=False,indent=2,allow_nan=False,default=str)+'\n',encoding='utf-8')
+def digest(v):return hashlib.sha256(json.dumps(v,sort_keys=True,default=str).encode()).hexdigest()
+def csvwrite(p,rows):
+ if not rows:return
+ with Path(p).open('w',newline='',encoding='utf-8') as f:
+  w=csv.DictWriter(f,fieldnames=list(rows[0]),lineterminator='\n');w.writeheader();w.writerows(rows)
+def load():
+ p=module('read_previous_pilot',OLD/'pilot.py');p.RUNTIME=RUNTIME
+ return p,p.load_datasets()
+def verify():
+ c=read(HERE/'protocol.json');assert sha(HERE/'protocol.json')==(HERE/'protocol.sha256').read_text().strip()
+ for name,h in c['immutable_inputs'].items():assert sha(name)==h,name
+ return c

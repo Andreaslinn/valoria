@@ -1,0 +1,4 @@
+from pathlib import Path
+r=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled');w=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work')
+p=r/'infrastructure/db/models.py';s=p.read_text(encoding='utf-8');before=(w/'oracle-overlay-before/infrastructure/db/models.py').read_text(encoding='utf-8');block=before[before.index('class ListingObservationORM'):];assert 'class ListingObservationORM' not in s;s+='\n\n'+block;p.write_text(s,encoding='utf-8')
+p=r/'api/v1/listings.py';s=p.read_text(encoding='utf-8');s=s.replace('class ListingUrlLookupResponse(BaseModel):','class ListingLookupDataOut(BaseModel):\n    model_config = ConfigDict(extra="allow")\n    thumbnail: ThumbnailRef | None = None\n\n\nclass ListingUrlLookupResponse(BaseModel):').replace('listing_data: dict[str, Any]','listing_data: ListingLookupDataOut');p.write_text(s,encoding='utf-8')

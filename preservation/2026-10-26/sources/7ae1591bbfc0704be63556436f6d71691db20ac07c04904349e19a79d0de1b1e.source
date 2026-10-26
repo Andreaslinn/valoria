@@ -1,0 +1,255 @@
+"""Opt-in, sequential HTTP backfill into a dedicated LOCAL SQLite ledger only.
+
+Never reads DATABASE_URL, imports application settings/ORM, or updates listings.
+Input: frozen JSON {rows: [...]} from the read-only inventory; no source discovery.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sqlite3
+import sys
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+from urllib.parse import urljoin, urlsplit
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.audit_sii_linkage_readiness import bound, facts, source_name  # noqa: E402
+
+APPLICATION_ID = 0x56425035
+MIN_PAUSE = 5.0  # Existing scheduler minimum is 2 s; this job is slower.
+BLOCK_STATES = {"blocked", "challenge", "http_blocked", "captcha_visible",
+                "verification_visible", "login_page"}
+
+
+def now():
+    return datetime.now(UTC).isoformat()
+
+
+def allowed_url(row):
+    try:
+        p = urlsplit(row["url"])
+        if p.scheme != "https" or p.username or p.password or p.port not in (None, 443):
+            return False
+        if source_name(row["source"]) == "portal":
+            from domain.geocoding.source_quality import mlc
+            return (p.hostname in {"www.portalinmobiliario.com", "portalinmobiliario.com",
+                                   "www.mercadolibre.cl", "articulo.mercadolibre.cl"}
+                    and mlc(row["external_id"]) is not None
+                    and mlc(row["url"]) == mlc(row["external_id"]))
+        return (source_name(row["source"]) == "yapo"
+                and p.hostname in {"www.yapo.cl", "yapo.cl"}
+                and p.path.rstrip("/").rsplit("/", 1)[-1] == str(row["external_id"]))
+    except (ValueError, KeyError):
+        return False
+
+
+def parse_fields(html, row):
+    """Use existing PR5 parsers; bind the primary payload, never recommendations."""
+    if source_name(row["source"]) == "portal":
+        from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal
+        parsed = parse_listing_detail_portal(html, url=row["url"])
+        state = parsed.get("state", "unexpected")
+        fields = (parsed.get("raw_metadata") or {}).get("published_fields")
+        components = ((parsed.get("_source_evidence") or {}).get("raw") or {}).get("components") or {}
+        if state == "detail" and fields is None and components.get("quotable_models"):
+            state = "project_without_individual_unit_fields"
+    else:
+        from bs4 import BeautifulSoup
+
+        from infrastructure.scrapers.published_fields import yapo_fields
+        from infrastructure.scrapers.yapo_modern import classify_page, payload_items
+        soup = BeautifulSoup(html, "lxml")
+        item = next((x for x in payload_items(soup)
+                     if str(x.get("id")) == str(row["external_id"])), None)
+        if item and (item.get("active") is False or item.get("rent") is True):
+            return "inactive_or_rental", None
+        state = "detail" if item else classify_page(html, status_code=200)
+        fields = yapo_fields(item, soup) if item else None
+    if fields is not None and (not bound(fields, row) or fields.get("stage") != "detail"):
+        return "identity_mismatch", None
+    return state, fields
+
+
+def open_ledger(path):
+    # File paths only, never a SQL/network URI. Reject unrelated SQLite databases.
+    raw = str(path)
+    if "://" in raw or raw.startswith(("file:", "\\\\", "//")) or raw == ":memory:":
+        raise ValueError("dedicated_local_sqlite_file_required")
+    path = Path(path).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path, timeout=1)
+    db.row_factory = sqlite3.Row
+    app_id = db.execute("PRAGMA application_id").fetchone()[0]
+    tables = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    if app_id != APPLICATION_ID and (app_id or tables):
+        db.close()
+        raise ValueError("not_a_backfill_ledger")
+    # The connection keeps its exclusive local file lock across checkpoint commits.
+    db.execute("PRAGMA locking_mode=EXCLUSIVE")
+    db.execute("BEGIN EXCLUSIVE")
+    db.execute(f"PRAGMA application_id={APPLICATION_ID}")
+    db.execute("""CREATE TABLE IF NOT EXISTS tasks (
+        source TEXT, external_id TEXT, row_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+        http_status INTEGER, state TEXT, fields_json TEXT, facts_json TEXT,
+        elapsed_s REAL, response_sha256 TEXT, updated_at TEXT,
+        PRIMARY KEY(source,external_id))""")
+    db.execute("""CREATE TABLE IF NOT EXISTS source_stops (
+        source TEXT PRIMARY KEY, reason TEXT NOT NULL, stopped_at TEXT NOT NULL,
+        retry_after TEXT)""")
+    db.commit()
+    return db
+
+
+def enqueue(db, rows):
+    before = db.total_changes
+    for row in rows:
+        if row.get("status") != "active" or row.get("property_type") not in {
+            "apartment", "departamento", "depto"
+        } or facts(row)["snapshot_PR5"]:
+            continue
+        db.execute("INSERT OR IGNORE INTO tasks(source,external_id,row_json) VALUES (?,?,?)",
+                   (source_name(row["source"]), str(row["external_id"]),
+                    json.dumps(row, ensure_ascii=False, default=str)))
+    db.commit()
+    return db.total_changes - before
+
+
+def execute(db, client, *, pause=MIN_PAUSE, limit=50, sleep=time.sleep,
+            monotonic=time.monotonic, parser=parse_fields):
+    if pause < MIN_PAUSE or not 1 <= limit <= 2000:
+        raise ValueError("pause_at_least_5_seconds_and_limit_1_to_2000")
+    written = requests = 0
+    stopped = {r[0] for r in db.execute("SELECT source FROM source_stops")}
+    last_finished = monotonic()  # Wait even on restart; no burst across invocations.
+    per_source = {}
+    tasks = db.execute("SELECT * FROM tasks WHERE status='pending' ORDER BY source,external_id").fetchall()
+    for task in tasks:
+        source = task["source"]
+        if source in stopped or per_source.get(source, 0) >= limit:
+            continue
+        row = json.loads(task["row_json"])
+        if not allowed_url(row):
+            db.execute("UPDATE tasks SET status='invalid_url',updated_at=? WHERE source=? AND external_id=?",
+                       (now(), source, task["external_id"]))
+            db.commit()
+            continue
+        sleep(max(0, pause - (monotonic() - last_finished)))
+        per_source[source] = per_source.get(source, 0) + 1
+        db.execute("UPDATE tasks SET attempts=attempts+1,updated_at=? WHERE source=? AND external_id=?",
+                   (now(), source, task["external_id"]))
+        db.commit()
+        start = monotonic()
+        status, state, fields, code, digest, retry_after = "pending", None, None, None, None, None
+        try:
+            import httpx
+            requests += 1
+            response = client.get(row["url"], follow_redirects=False)
+            # One canonical redirect, same source/ID, as in discovery_admission.
+            destination = urljoin(row["url"], response.headers.get("location", ""))
+            if response.status_code in (301, 302, 303, 307, 308) and allowed_url({**row, "url": destination}):
+                sleep(pause)
+                requests += 1
+                response = client.get(destination, follow_redirects=False)
+            code = response.status_code
+            digest = hashlib.sha256(response.content).hexdigest()
+            if code in (403, 429):
+                status, state = "blocked", "http_" + str(code)
+                retry_after = response.headers.get("retry-after")
+            elif 300 <= code < 400:
+                # Never follow arbitrary redirects or login/verification flows.
+                status, state = "redirect", "http_" + str(code)
+                location = urlsplit(response.headers.get("location", "")).path
+                if any(w in location for w in ("login", "account-verification", "captcha")):
+                    status = "blocked"
+            elif code in (404, 410):
+                status, state = "unavailable", "http_" + str(code)
+            elif code != 200:
+                status, state = "http_error", "http_" + str(code)
+            else:
+                state, fields = parser(response.text, row)
+                status = "captured" if fields is not None else "no_fields"
+                if state in BLOCK_STATES:
+                    status, fields = "blocked", None
+        except httpx.HTTPError as exc:
+            status, state = "fetch_error", type(exc).__name__
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            status, state = "parse_error", type(exc).__name__
+        if fields is not None and (not bound(fields, row) or fields.get("stage") != "detail"):
+            status, state, fields = "identity_mismatch", "unbound_detail", None
+        result_facts = facts({**row, "published_detail_fields": fields,
+                              "published_fields": fields})
+        elapsed = monotonic() - start
+        db.execute("""UPDATE tasks SET status=?,http_status=?,state=?,fields_json=?,facts_json=?,
+            elapsed_s=?,response_sha256=?,updated_at=? WHERE source=? AND external_id=?""",
+            (status, code, state, json.dumps(fields, ensure_ascii=False, default=str) if fields else None,
+             json.dumps(result_facts, ensure_ascii=False), elapsed, digest, now(), source, task["external_id"]))
+        written += int(status == "captured")
+        if status in {"blocked", "fetch_error"} or (code is not None and code >= 500):
+            db.execute("INSERT OR REPLACE INTO source_stops VALUES (?,?,?,?)",
+                       (source, state, now(), retry_after))
+            stopped.add(source)
+        db.commit()
+        last_finished = monotonic()
+        print(json.dumps({"source": source, "external_id": task["external_id"], "status": status,
+                          "http_status": code, "state": state}, ensure_ascii=False), flush=True)
+    return {"requests_this_run": requests, "new_captures_this_run": written}
+
+
+def summary(db):
+    result = {}
+    for source in ("portal", "yapo"):
+        rows = list(db.execute("SELECT * FROM tasks WHERE source=?", (source,)))
+        if not rows:
+            continue
+        from collections import Counter
+        fs = [json.loads(r["facts_json"]) for r in rows if r["facts_json"]]
+        result[source] = {"scheduled": len(rows), "attempted": sum(r["attempts"] > 0 for r in rows),
+                          "states": dict(Counter(r["status"] for r in rows)),
+                          "exact_address": sum(f["direccion"] for f in fs),
+                          "published_coordinates": sum(f["coordenadas_publicadas"] for f in fs),
+                          "location": sum(f["direccion_o_coordenadas"] for f in fs),
+                          "explicit_useful_area": sum(f["m2_util_explicito"] for f in fs),
+                          "request_seconds": sum(r["elapsed_s"] or 0 for r in rows)}
+    return result
+
+
+def main():
+    if os.environ.get("SII_PUBLISHED_BACKFILL_ENABLED", "false").lower() != "true":
+        print(json.dumps({"enabled": False, "status": "disabled"}))
+        return
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inventory", type=Path, required=True)
+    parser.add_argument("--ledger", required=True)
+    parser.add_argument("--limit-per-portal", type=int, default=50)
+    parser.add_argument("--pause-seconds", type=float, default=MIN_PAUSE)
+    parser.add_argument("--summary", type=Path, required=True)
+    args = parser.parse_args()
+    import httpx
+
+    from scripts.portal_smoke import DEFAULT_HEADERS
+    rows = json.loads(args.inventory.read_text(encoding="utf-8-sig"))["rows"]
+    db = open_ledger(args.ledger)
+    try:
+        inserted = enqueue(db, rows)
+        with httpx.Client(headers=DEFAULT_HEADERS, timeout=30, follow_redirects=False,
+                          limits=httpx.Limits(max_connections=1, max_keepalive_connections=1)) as client:
+            execution = execute(db, client, pause=args.pause_seconds, limit=args.limit_per_portal)
+        result = {"local_only": True, "inventory_inserted": inserted, **execution,
+                  "portals": summary(db), "as_of_utc": now()}
+        args.summary.parent.mkdir(parents=True, exist_ok=True)
+        args.summary.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps(result, ensure_ascii=False))
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()

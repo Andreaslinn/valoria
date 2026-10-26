@@ -1,0 +1,32 @@
+"""Capability URLs for derived images; JWT endpoints retain their existing auth."""
+import hashlib
+import hmac
+import re
+import time
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
+
+from services.thumbnails import get_store, signature, SIGNED_TTL
+
+router = APIRouter(prefix='/thumbnails', tags=['thumbnails'])
+
+
+@router.get('/{key}')
+def asset(key: str, request: Request, expires: int = Query(...), sig: str = Query(...)):
+    now = int(time.time())
+    if (not re.fullmatch(r'[a-f0-9]{64}\.webp', key) or expires <= now
+            or expires > now + SIGNED_TTL or not hmac.compare_digest(sig, signature(key, expires))):
+        raise HTTPException(403, 'Invalid or expired image reference')
+    try:
+        body = (get_store().assets / key).read_bytes()
+    except OSError:
+        raise HTTPException(404, 'Image unavailable') from None
+    digest = hashlib.sha256(body).hexdigest()
+    if digest != key[:-5]:
+        raise HTTPException(404, 'Image unavailable')
+    headers = {'ETag': f'"{digest}"', 'Cache-Control': f'private, max-age={min(300, expires-now)}',
+               'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer'}
+    if request.headers.get('if-none-match') == headers['ETag']:
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type='image/webp', headers=headers)

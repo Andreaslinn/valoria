@@ -1,0 +1,45 @@
+def backfill_readonly():
+    import psycopg
+    from psycopg.rows import dict_row
+    dsn = re.sub(r'^postgres(?:ql)?\+(?:asyncpg|psycopg)://', 'postgresql://', os.environ['DATABASE_URL'])
+    with psycopg.connect(dsn, row_factory=dict_row, connect_timeout=10,
+        options='-c default_transaction_read_only=on -c statement_timeout=20000 -c lock_timeout=1000 -c timezone=UTC',
+        application_name='published_backfill_diagnosis_readonly') as c:
+        c.read_only = True
+        c.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        with c.cursor() as cur:
+            cur.execute("SELECT current_setting('transaction_read_only') ro,transaction_timestamp() as_of")
+            control = cur.fetchone()
+            assert control['ro'] == 'on'
+            query = SQL.replace('usable_area_m2,last_seen_at,scraped_at,', "usable_area_m2,last_seen_at,scraped_at,last_refresh_attempted_at,last_refresh_status,raw_metadata::jsonb->>'published_detail_attempted_at' detail_attempted_at,")
+            cur.execute(query, (list(FIELD_KEYS), list(FIELD_KEYS)))
+            rows = [r for r in cur.fetchall() if normalized(r['comuna']) in COMMUNES or normalized(r['comuna']) == 'santiago_centro']
+            ids = [r['id'] for r in rows]
+            cur.execute("""SELECT o.listing_id,o.source,o.external_id,o.observed_at,o.event_kind,
+                document::jsonb#>>'{raw_state,_source_evidence,stage}' stage,
+                document::jsonb#>>'{raw_state,_source_evidence,parser,sha256}' parser_sha,
+                document::jsonb#>'{raw_state,raw_metadata,published_fields}' raw_fields,
+                document::jsonb#>'{parsed_state,raw_metadata,published_fields}' parsed_fields,
+                document::jsonb#>'{parsed_state,raw_metadata,published_detail_fields}' detail_fields,
+                document::jsonb#>>'{parsed_state,refresh_status}' refresh_status,
+                document::jsonb#>>'{provenance,origin}' geo_origin,
+                document::jsonb#>>'{parsed_state,coordinates_evidence,source}' coordinate_source,
+                document::jsonb#>'{parsed_state,detail,raw_metadata,published_fields}' geo_fields,
+                document::jsonb#>>'{raw_state,_source_evidence,raw,platform_id}' platform_id,
+                document::jsonb#>>'{raw_state,_source_evidence,raw,payload,id}' payload_id,
+                document::jsonb#>'{raw_state,_source_evidence,raw,components}' components
+                FROM listing_observations o WHERE listing_id=ANY(%s)
+                AND observed_at >= '2026-10-16 08:51:00+00' ORDER BY observed_at""", (ids,))
+            observations = cur.fetchall()
+            # Export component names only, never descriptions/contact payloads.
+            for obs in observations:
+                obs['component_names'] = sorted((obs.pop('components') or {}).keys())
+            cur.execute("""SELECT source,started_at,finished_at,successful,counters FROM ingestion_runs
+                WHERE source IN ('yapo','portal','portalinmobiliario') AND started_at >= '2026-10-16 08:51:00+00'
+                ORDER BY started_at""")
+            runs = cur.fetchall()
+        c.rollback()
+    print(json.dumps({'as_of_utc': control['as_of'], 'transaction_read_only': True,
+        'rows': rows, 'observations': observations, 'runs': runs}, default=str, ensure_ascii=False))
+
+backfill_readonly()

@@ -1,0 +1,119 @@
+from contracts import *
+from dataclasses import replace
+import pytest,math
+from avm01.data import Record,Dataset,InvalidExperiment
+from avm01.splits import Split
+from avm01.isolation import dependency_hash,LabelCustody
+from domain.valuation.scoring import _distance_score,similarity_score
+from avm01.canonical_io import target_from_payload,listing_from_payload
+
+def fixture():
+ now='2026-10-04T00:00:00+00:00'
+ def row(i,price):
+  f=dict(log_area=math.log(50),bedrooms=2,bathrooms=1,parking=0,comuna='nunoa',source='yapo')
+  t=dict(id=i,comuna='nunoa',m2=50.,built_area_m2=50.,usable_area_m2=50.,property_type='apartment',bedrooms=2,bathrooms=1,parking=0,coordinates={'lat':-33.45,'lon':-70.6},geocode_precision='address',raw_metadata={'title':'departamento luminoso'})
+  l={**t,'title':'departamento luminoso','price':{'clp':price*40000},'price_uf':price,'source':'yapo','external_id':str(i),'url':f'https://example.invalid/{i}','status':'active','fingerprint':str(i),'scraped_at':now}
+  return Record(str(i),str(i),str(i),str(i),'g'+str(i),'synthetic_known',f,price,now,now,now,now,canonical_url=l['url'],latitude=-33.45,longitude=-70.6,canonical_target=t,canonical_listing=l)
+ ds=Dataset(tuple(row(i,2500+i) for i in range(1,8)),'synthetic','contract-tests','synthetic_known_identity',index_policy='first_observation_v1')
+ s=Split(tuple(str(i) for i in range(1,7)),('7',),'development_cv',42,ds.hash(),dependency_hash(ds))
+ return ds,s
+
+@pytest.mark.parametrize('mode',MODES)
+def test_projection_keeps_labels_and_dependencies(mode):
+ ds,s=fixture();dd,ss=derive(ds,s,mode)
+ assert [(r.row_id,r.price_uf,r.group_id) for r in dd.records]==[(r.row_id,r.price_uf,r.group_id) for r in ds.records]
+ assert dependency_hash(dd)==dependency_hash(ds)
+ assert ss.train==s.train and ss.test==s.test
+ assert not dd.indexed()['7'].canonical_listing
+
+def test_manual_has_no_location_or_text():
+ ds,s=fixture();dd,_=derive(ds,s,'manual');t=dd.indexed()['7']
+ assert t.latitude is None and t.longitude is None
+ assert t.canonical_target['coordinates'] is None and t.canonical_target['raw_metadata']=={}
+ p=target_from_payload(t.canonical_target);l=listing_from_payload(ds.indexed()['1'].canonical_listing)
+ assert _distance_score(p,l)==.5
+
+def test_located_adds_only_available_geo():
+ ds,s=fixture();dd,_=derive(ds,s,'located');t=dd.indexed()['7']
+ assert t.canonical_target['coordinates']==ds.indexed()['7'].canonical_target['coordinates']
+ assert t.canonical_target['raw_metadata']=={}
+
+def test_does_not_invent_coordinates():
+ ds,s=fixture();last=replace(ds.records[-1],latitude=None,longitude=None,canonical_target={**ds.records[-1].canonical_target,'coordinates':None},canonical_listing={**ds.records[-1].canonical_listing,'coordinates':None})
+ ds=replace(ds,records=ds.records[:-1]+(last,));s=replace(s,snapshot_hash=ds.hash(),dependency_hash=dependency_hash(ds))
+ dd,_=derive(ds,s,'located');assert dd.indexed()['7'].latitude is None
+
+def test_missing_layout_reproduces_service_zero():
+ ds,s=fixture();r=ds.records[-1];f={**r.features,'parking':None};t={**r.canonical_target,'parking':None};l={**r.canonical_listing,'parking':None}
+ ds=replace(ds,records=ds.records[:-1]+(replace(r,features=f,canonical_target=t,canonical_listing=l),));s=replace(s,snapshot_hash=ds.hash(),dependency_hash=dependency_hash(ds))
+ dd,_=derive(ds,s,'manual');assert dd.indexed()['7'].features['parking']==0
+
+def test_enriched_retains_sanitized_metadata():
+ ds,s=fixture();dd,_=derive(ds,s,'enriched');assert dd.indexed()['7'].canonical_target['raw_metadata']==ds.indexed()['7'].canonical_target['raw_metadata']
+
+def test_training_guardrails_use_training_only():
+ ds,s=fixture();dd,_=derive(ds,s,'located')
+ assert all(dd.indexed()[i].canonical_listing['geocode_precision']=='comuna_centroid' for i in s.train)
+ assert dd.indexed()['7'].canonical_target['geocode_precision']=='address'
+
+def test_held_price_change_leaves_inference_unchanged():
+ ds,s=fixture();a,sa=derive(ds,s,'manual');r=ds.records[-1];ds=replace(ds,records=ds.records[:-1]+(replace(r,price_uf=99999),));s=replace(s,snapshot_hash=ds.hash(),dependency_hash=dependency_hash(ds));b,sb=derive(ds,s,'manual')
+ assert a.indexed()['7'].inference()==b.indexed()['7'].inference()
+
+def test_unregistered_contract_is_blocked():
+ ds,s=fixture();bad=replace(ds,origin='real_retrospective_snapshot_candidate')
+ with pytest.raises(InvalidExperiment):bad.require_synthetic()
+
+def test_predictions_required_before_labels():
+ ds,s=fixture();c=LabelCustody(ds,())
+ config={'seed':42,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':False,'engines':['A'],'index_policy':'first_observation_v1'}
+ batch=c.issue(ds,s,config,())
+ with pytest.raises(InvalidExperiment):c.complete({'A':{'7':2500}},s.test)
+ c.record_predictions(batch,{'A':{'7':2500}});assert c.complete({'A':{'7':2500}},s.test)['7']==2507
+
+@pytest.mark.parametrize('mode',MODES)
+def test_deployed_worker_runs_offline(mode):
+ import subprocess
+ ds,s=fixture();dd,_=derive(ds,s,mode)
+ payload={'mode':mode,'uf_reference':{'value':40000,'source':'archived_test','effective_date':'2026-10-04','available_at':'2026-10-04T00:00:00+00:00'},'pool':[dd.indexed()[i].canonical_listing for i in s.train],'targets':[{'row_id':'7','canonical_target':dd.indexed()['7'].canonical_target,'am':2600.,'blend':2600.}]}
+ exe=ROOT/'work/avm-01-20261008/.venv-repro/Scripts/python.exe'
+ out=subprocess.run([str(exe),'-B',str(HERE/'product_worker.py')],input=json.dumps(payload).encode(),capture_output=True,timeout=30)
+ assert out.returncode==0,out.stderr.decode(errors='replace')[-1500:]
+ v=json.loads(out.stdout)['7']
+ assert set(v)=={'Final','FinalAM','FinalBlend','DeployedA','trace'}
+ assert v['Final'] is not None
+
+def test_located_only_and_manual_have_identical_physical_inputs():
+ ds,s=fixture();a,_=derive(ds,s,'manual');b,_=derive(ds,s,'located')
+ x=a.indexed()['7'];y=b.indexed()['7']
+ assert x.features==y.features
+ for k in ['comuna','m2','built_area_m2','usable_area_m2','bedrooms','bathrooms','parking']:assert x.canonical_target[k]==y.canonical_target[k]
+
+def test_copied_deployed_sources_match_inspection_hashes():
+ ev=read(HERE/'oracle_runtime.json')
+ assert all(sha(HERE/'deployed_runtime'/rel)==h for rel,h in ev['hashes'].items())
+
+def test_candidate_changes_existing_family_only():
+ import ast
+ tree=ast.parse((HERE/'product_worker.py').read_text(encoding='utf-8'))
+ cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='FamilyValue')
+ assert 'comparables_canonical_outliers' in ast.get_source_segment((HERE/'product_worker.py').read_text(encoding='utf-8'),cls)
+ assert 'confidence=' not in ast.get_source_segment((HERE/'product_worker.py').read_text(encoding='utf-8'),cls)
+
+def test_new_catalog_authorization_preserves_existing_registry():
+ from avm01 import pilot_authorization as a
+ import catalog_experiment as c
+ old=a.protocols
+ try:
+  before=old();c.enable_registry();after=a.protocols()
+  assert after[:-1]==before
+  assert after[-1][0]==sha(HERE/'catalog_protocol_v2.json')
+ finally:a.protocols=old
+
+def test_located_missing_pair_does_not_add_precision_information():
+ from repair_location_contract import corrected
+ ds,s=fixture();r=ds.records[-1]
+ r=replace(r,latitude=None,longitude=None,canonical_target={**r.canonical_target,'coordinates':None,'geocode_precision':'comuna'},canonical_listing={**r.canonical_listing,'coordinates':None,'geocode_precision':'comuna'})
+ ds=replace(ds,records=ds.records[:-1]+(r,));s=replace(s,snapshot_hash=ds.hash(),dependency_hash=dependency_hash(ds))
+ a,_=derive(ds,s,'manual');b,_=corrected(ds,s)
+ assert a.indexed()['7'].canonical_target==b.indexed()['7'].canonical_target

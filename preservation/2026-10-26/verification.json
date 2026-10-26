@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-26",
+  "base_commit": "c71b234906b973c79486fa966882f2f59893a090",
+  "backend": {
+    "command": "python -m pytest -p pytest_asyncio.plugin tests/unit tests/integration -q --tb=short --basetemp=../pytest-verified",
+    "environment": "SQLite in memory; explicit synthetic JWT test key; unrelated global pytest plugins disabled",
+    "passed": 2119,
+    "skipped": 10,
+    "skip_reason": "requires disposable Docker Postgres on 55433",
+    "failures": 0,
+    "errors": 0
+  },
+  "frontend": {
+    "typescript": "passed: tsc -p frontend-v2/tsconfig.json --noEmit --incremental false",
+    "contract_tests": "8 passed: node --test tests/frontend/*.test.cjs",
+    "production_build": "passed: npm run build; Next.js 15.5.19; 12 static pages",
+    "dependencies": "reused installed local node_modules via temporary ignored junction; lockfile unchanged"
+  },
+  "active_diff_check": "passed",
+  "security": {
+    "pattern_matches_reviewed": 84,
+    "unresolved": 0,
+    "forbidden_files": 0,
+    "oversized_files": 0,
+    "scope": "tracked and nonignored untracked snapshot files; custom pattern scanner plus manual placeholder review; inherited remote history not rewritten"
+  },
+  "source_integrity": "all archived stored_sha256 verified; selected original source repositories have identical git status before/after",
+  "limitations": [
+    "PostgreSQL-only tests skipped; no production integration or deployment verification",
+    "Archived variants retained for review, not activated or validated as one application",
+    "Local data, real environment files, databases and dependencies must be supplied separately"
+  ]
+}

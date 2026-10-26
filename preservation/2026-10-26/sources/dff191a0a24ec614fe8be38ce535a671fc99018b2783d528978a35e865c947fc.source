@@ -1,0 +1,214 @@
+# Diagnóstico de madurez para exportación — 17-oct-2026
+
+Rama: `diag/published-fields-maturity-20261017`, basada en la release
+`29eaa0b3f3543c57e1e596eda2fb64e527d3f65a` (PR #4–#8 incluidos).
+No cambia scrapers, motor, migraciones, timers ni configuración de producción.
+El dictamen de producción **está pendiente de ejecutar el script y leer su salida**.
+Los resultados de fixtures no describen la madurez real de Valoria.
+
+## Ejecución por el operador, sin despliegue
+
+El script es independiente de la aplicación. Necesita Python >=3.11 y `psycopg`,
+ya declarado en las dependencias del proyecto. No solicita ni imprime credenciales.
+Lee exclusivamente `DATABASE_URL` del entorno del proceso. No instala nada.
+
+En el servidor, con una copia del archivo de esta rama disponible y el contenedor
+API existente (el archivo se transmite por stdin y no se instala en el contenedor):
+
+```sh
+docker exec -i valoria_oracle_beta-api-1 python - --format both \
+  < scripts/audit_published_maturity.py \
+  > maturity-20261017.json 2> maturity-20261017.txt
+```
+
+Entregar ambos archivos para interpretar los resultados. El JSON queda limpio en
+stdout; la tabla y sus notas van a stderr con `--format both`. Un fallo devuelve
+código 2 y una clase de error sin DSN ni parámetros. `--format json` y
+`--format table` permiten obtener cada formato por separado.
+
+Alternativa si Python ya dispone del entorno PostgreSQL en el host:
+
+```sh
+python scripts/audit_published_maturity.py --format both \
+  > maturity-20261017.json 2> maturity-20261017.txt
+```
+
+No copiar la URL de conexión a la línea de comandos. Preferir un usuario con
+permiso SELECT únicamente. El propio script fuerza transacción READ ONLY y
+REPEATABLE READ, verifica el guard antes de consultar y termina con rollback.
+Cada sentencia tiene timeout de 60 s, conexión 10 s y espera de locks 1 s.
+No usa ORM, imports de configuración, HTTP, SSH, escrituras, FOR UPDATE ni locks
+explícitos. PostgreSQL toma inevitablemente locks AccessShare al ejecutar SELECT;
+no son locks de filas ni reservas para escritura. El snapshot puede ser cancelado
+por el timeout y no queda en espera indefinida de un cambio de esquema.
+
+## Qué mide
+
+44 combinaciones: Portal/Yapo × departamento/casa × las once comunas solicitadas.
+También incluye cuatro dictámenes agrupados fuente × tipo. Por defecto las once
+comunas son las **comunas clave**, ponderadas por cantidad de activos, no mediante
+un promedio de porcentajes. Se pueden reducir de forma explícita con
+`--key-communes santiago,nunoa,...`; el detalle sigue mostrando las once.
+Un grupo sin activos devuelve porcentajes `null` y nunca se considera maduro.
+Las comunas sin stock aparecen como una advertencia de cobertura, sin concluir
+que no existe oferta en el portal.
+
+Todos los porcentajes usan avisos **activos** como denominador. `total` incluye
+inactivos. No se inventa un filtro de venta: `listings` es el inventario canónico
+de publicaciones de venta y no tiene columna de operación. Si se incorporasen
+arriendos a esa misma tabla haría falta un discriminador antes de usar este reporte.
+
+* `published_stage_detail`: etapa literal `detail` en `published_fields`.
+* `detail`: además acepta `published_detail_fields.stage=detail` conservado bajo
+  una tarjeta posterior `merged`. Exige versión, fuente e ID del aviso correctos;
+  Portal requiere `technical_table_observed=true`. No toma un alias de otro ID
+  como ficha propia ni una mera tarjeta como ficha.
+* `oldest_observation` / `newest_observation`: fechas disponibles en los snapshots
+  publicados actuales, entre activos. `history_oldest_observation` /
+  `history_newest_observation`: extremos de todos los eventos históricos del
+  ledger de observaciones, sin confundir `listing_seen` con captura de detalle.
+* Calle + número: calle no vacía, distinta de marcadores DPTO/DP/N°, número cívico
+  positivo explícito, tipo `exact` y procedencia de dirección. Rango, intersección
+  y solo calle se cuentan por separado. Número 0 no es exacto.
+* Coordenadas publicadas: lat/lon válidos, origen Portal/Yapo, sin 0,0, centroides,
+  geocodificación ni imputación. Se conservan las categorías de precisión
+  declaradas, incluida `unknown`. Una coordenada de precisión desconocida o
+  aproximada **no prueba** identidad de edificio, parcela o rol SII.
+* Áreas: valores positivos con procedencia en `published_fields`. Nunca se utiliza
+  `m2` genérico ni se renombra construido/total como útil. Terreno para casas:
+  `land_area_m2` publicado con procedencia, o columna canónica con procedencia
+  explícita `raw.land_area_m2`, `raw.terrain_m2`, `raw.terreno_m2`,
+  `text.land_area_context` o `text.land_area_without_unit`. `lotSize` se conserva
+  como total: el diagnóstico no presume que sea terreno. Una pareja de áreas
+  inferida por `/` no entra en terreno explícito.
+* Dormitorios/baños: cada uno >0 y ambos >0 por separado. NOT NULL y 0 no prueban
+  publicación de un dato. El diagnóstico no deduce el significado de un cero.
+* Cruzable: ambos >0, más calle+número o coordenadas publicadas, más útil o
+  construido explícito. Es exactamente una heurística de selección, **no** una
+  autorización para completar una unidad con datos de otra unidad del edificio.
+* Conflictos actuales y flags históricos registrados desde el 16-oct: áreas, años,
+  coordenadas inválidas y oficina del corredor. Son conteos de avisos con flags,
+  no conteos de copias del mismo JSON. `invalid_coordinate_pair` incluye 0,0 y
+  valores fuera de rango; no se afirma que todos sean 0,0.
+* Diez ejemplos cruzables por fuente, o los disponibles si hay menos. Incluye URL,
+  JSON publicado, tipo, comuna y atributos. Selección determinista para revisión,
+  no muestra aleatoria para estimación estadística.
+
+## Ritmo, backlog y proyección
+
+Intervalo por defecto: desde `2026-10-16T00:00:00Z` hasta ahora. Fechas UTC.
+`--as-of` permite fijar el corte de historia/ledger para reproducir un reporte;
+**no reconstruye una tabla listings histórica**, que siempre es el stock actual.
+
+El ritmo distingue adquisiciones únicas de detalle de eventos de tarjeta:
+deduplica ID de aviso y `published_fields.observed_at`, aunque ese snapshot aparezca
+en múltiples eventos o bajo `published_detail_fields`. Una tarjeta del 17 que
+arrastra una ficha del 16 no suma otra ficha el 17. Los snapshots del stock
+actual complementan la historia, porque la persistencia de detalles no garantiza
+un evento histórico para cada escritura. Se informa cuántos IDs tienen evidencia
+en historia. Las cifras de ritmo son un **mínimo observable**, no una auditoría
+exhaustiva de todas las solicitudes de ficha.
+
+El backlog es activos menos activos con ficha de detalle vinculada al mismo ID.
+El reporte muestra fichas por día, primeros detalles conservados por día y ritmo
+observado por fuente/tipo/comuna. Si faltan snapshots anteriores, no puede probarse
+que ese «primer detalle» sea el primero de toda la vida del aviso. No debe usarse
+para prometer una fecha ni para afirmar cuánto creció realmente el stock histórico.
+
+Para cada umbral muestra cuántos activos adicionales faltan y los días **optimistas**
+si cada detalle de una unidad distinta repara precisamente ese campo. También da
+el mínimo teórico del backlog completo a cinco reparaciones efectivas por día,
+compartidas por toda la fuente, no cinco por comuna/tipo. Ninguna es una fecha
+garantizada: la fuente puede no publicar el campo, los avisos rotan y compiten
+otras comunas, casas/departamentos, nuevas altas, reintentos y rechazos.
+
+El supuesto de «cinco detalles totales al día» no se toma como hecho del runtime.
+Los PR #6–#8 incluyen enriquecimiento de altas dentro de discovery, además del
+cupo de mantenimiento. `source_operational_counters_since` permite contrastar
+detalle solicitado/capturado, altas, aplazamientos y bloqueos con el ledger real.
+No se suman indiscriminadamente contadores solapados de Portal y Yapo.
+
+## Dictamen automático y limitaciones para SII
+
+Por fuente × tipo:
+
+* **MADURO**: ubicación >=40%, útil o construido explícito >=30%, ambos dormitorios
+  y baños >0 >=95%; evidencia de primeros detalles conservados de activos distintos
+  en cada uno de al menos dos días UTC
+  completos desde el inicio, sin jornadas vacías; menos de dos errores
+  `PORTAL_SESSION_EXPIRED` y última corrida exitosa.
+* **CASI**: cumplen los tres porcentajes y no hay expiración repetida, pero falta
+  evidencia de continuidad de captura o de última corrida exitosa.
+* **NO**: falla un umbral, no hay activos o se repite la expiración de sesión.
+
+El día en curso es parcial: no se declara estancamiento por un día que todavía no
+terminó, ni se exige que cada día haga más solicitudes que el anterior. Continuidad
+de captura no prueba crecimiento monotónico de cobertura si las fichas se repiten.
+Las repeticiones del mismo aviso no satisfacen por sí solas el criterio de crecimiento.
+Antes de aceptar MADURO para decisiones de cruce hay que mirar el respaldo histórico
+y esta limitación del ritmo; el script no inventa snapshots ausentes.
+
+El JSON devuelve el umbral concreto que falla, alertas repetidas y propuestas
+mínimas sin aplicarlas. Cero stock en una comuna orienta a revisar cobertura;
+rechazos/ritmo bajo orientan a priorizar incompletos y rotar fallos **dentro** del
+cupo existente; expiración registrada orienta a renovar la sesión por el flujo
+existente. Sin evidencia de ledger, no atribuye la causa a la sesión ni demuestra
+que el presupuesto sea el cuello de botella.
+
+Un edificio puede tener departamentos de distinta tipología. Aunque el stock sea
+MADURO para exportar candidatos, ni un punto aproximado ni una dirección de edificio
+permiten heredar dormitorios y baños a todos sus avisos. Se requiere validar unidad
+o rol y resolver ambigüedades con el catastro en una etapa posterior. Este trabajo
+no consulta SII, no certifica su cobertura y no incorpora sus datos al motor.
+
+## Exportación, únicamente si el dictamen interpretado resulta MADURO
+
+```sh
+docker exec -i valoria_oracle_beta-api-1 python - --export-csv \
+  < scripts/audit_published_maturity.py \
+  > listings-maduros-20261017.csv
+```
+
+Exporta activos de departamentos y casas de las once comunas, con identidad, URL,
+fuente, tipo, comuna, dormitorios/baños, banderas de cruzabilidad y evidencia,
+dirección y número de departamento, áreas separadas, coordenadas/procedencia/
+precisión, piso y año, conflictos y ambos snapshots JSON. El CSV se escribe en
+stdout, no en la base. No aplica la heurística como filtro oculto: los registros
+no cruzables se conservan con `crossable=false`. Revisarlos antes del cruce.
+
+## Prueba local reproducible (no ejecutar el setup en Oracle)
+
+Se usa **otra** instancia Docker, limitada a 256 MiB / 0,5 CPU, puerto loopback,
+datos ficticios en tmpfs. No toca las bases de desarrollo ya existentes.
+
+```sh
+docker run -d --name valoria-maturity-fixture-20261017 \
+  --memory=256m --cpus=0.5 -p 127.0.0.1:55439:5432 \
+  --tmpfs /var/lib/postgresql/data:rw,size=192m \
+  -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=valoria_maturity_fixture \
+  postgres:16-alpine
+TEST_MATURITY_DATABASE_URL=postgresql://postgres@127.0.0.1:55439/valoria_maturity_fixture \
+  python -m pytest tests/unit/test_published_maturity.py \
+  tests/integration_pg/test_published_maturity_pg.py -q
+```
+
+Esperar a que `docker exec valoria-maturity-fixture-20261017 pg_isready` responda
+antes de las pruebas. El setup valida host local y nombre exacto de base antes de
+crear/resetear fixtures; su rol lector solo tiene SELECT. Prueba JSON, tabla, CSV,
+deduplicación de snapshots, 44 grupos, ceros, centroides, precisión desconocida,
+direcciones inválidas, conflictos, proyecciones y MADURO/CASI/NO. Verifica además
+que READ ONLY bloquea una escritura incluso conectando como administrador y que
+no se revelan credenciales ante un error. No son pruebas contra producción.
+
+Al finalizar las pruebas, detener solamente el contenedor de fixtures:
+
+```sh
+docker stop valoria-maturity-fixture-20261017
+```
+
+No hay limpieza, retención, creación de recursos ni acciones sobre Oracle.
+
+Validación local realizada el 17-oct-2026: **32 pruebas pasaron**, incluidas las de
+PostgreSQL 16 en Docker y las tres rutas CLI (JSON, tabla, CSV). Ruff sin errores.
+El guard READ ONLY rechazó una sentencia UPDATE inyectada en el test incluso con
+el rol administrador; los dormitorios y el conteo de fixtures siguieron intactos.

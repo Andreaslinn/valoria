@@ -1,0 +1,59 @@
+"""Bounded read-only operational verification. No remote writes or source requests."""
+import subprocess,json
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+REMOTE=r'''
+import subprocess,json,hashlib,pathlib,datetime
+def cmd(args,stdin=None):
+ p=subprocess.run(args,input=stdin,text=True,capture_output=True,timeout=35)
+ return p.stdout.strip() if p.returncode==0 else None
+root=pathlib.Path('/home/ubuntu/apps/valoria')
+paths=['domain/geocoding/source_quality.py','infrastructure/scrapers/portalinmobiliario.py','scripts/portal_card_first.py','domain/ingestion/pipeline.py','workers/refresh_scraper.py']
+def evidence(p):
+ if not p.exists():return {'exists':False}
+ b=p.read_bytes();s=b.decode('utf-8',errors='replace')
+ return {'exists':True,'sha256':hashlib.sha256(b).hexdigest(),'bind_detail':'bind_detail(' in s,'coordinates_evidence':'coordinates_evidence' in s,'detail_parser':'parse_listing_detail_portal' in s,'legacy_list_parser':'PortalInmobiliarioScraper.parse_listings(html)' in s}
+dbcode="""import asyncio,json,hashlib,pathlib
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from config import get_settings
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  await s.execute(text(\"SET LOCAL statement_timeout='15s'\"))
+  ro=(await s.execute(text('SHOW transaction_read_only'))).scalar();assert ro=='on'
+  q=\"SELECT source,count(*) AS n,count(*) FILTER(WHERE lat IS NOT NULL AND lon IS NOT NULL) AS coords,max(updated_at)::text AS latest_update,max(scraped_at)::text AS latest_scraped FROM listings WHERE property_type='apartment' AND status='active' GROUP BY source\"
+  counts=[dict(r) for r in (await s.execute(text(q))).mappings()]
+  settings=get_settings(); flags={k:getattr(settings,k,None) for k in ['portal_http_enabled','scheduler_enabled','workers_enabled','ingestion_observation_history_enabled']}
+  files={}
+  for name in %s:
+   p=pathlib.Path(name)
+   if not p.exists():files[name]={'exists':False};continue
+   b=p.read_bytes();v=b.decode('utf-8',errors='replace');files[name]={'exists':True,'sha256':hashlib.sha256(b).hexdigest(),'bind_detail':'bind_detail(' in v,'coordinates_evidence':'coordinates_evidence' in v,'detail_parser':'parse_listing_detail_portal' in v,'legacy_list_parser':'PortalInmobiliarioScraper.parse_listings(html)' in v}
+  print(json.dumps({'read_only':ro,'counts':counts,'flags':flags,'files':files},default=str))
+asyncio.run(main())
+""" % repr(paths)
+names=(cmd(['docker','ps','--format','{{.Names}}']) or '').splitlines(); api=next((n for n in names if n.endswith('-api-1')),None)
+container=json.loads(cmd(['docker','exec','-i',api,'python','-B','-'],dbcode)) if api else None
+unitlist=cmd(['systemctl','list-unit-files','--no-legend','--no-pager']) or ''
+units=[line.split()[0] for line in unitlist.splitlines() if 'valoria' in line.lower() and line.split()[0].endswith(('.timer','.service'))]
+timers={u:cmd(['systemctl','show',u,'--no-pager','-p','ActiveState','-p','SubState','-p','LastTriggerUSec','-p','NextElapseUSecRealtime','-p','Result','-p','ExecMainExitTimestamp']) for u in units}
+operational={}
+for u in units:
+ content=cmd(['systemctl','cat',u]) or ''
+ # Only report booleans for known switches, never full unit/environment contents.
+ operational[u]={'mentions_portal':'portal' in content.lower(),'mentions_detail':'detail' in content.lower(),'mentions_refresh':'refresh' in content.lower(),'explicit_enable_portal':'--enable-portal' in content,'explicit_disable_portal':'--disable-portal' in content}
+out={'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'container':api,
+ 'image':cmd(['docker','inspect','--format','{{.Config.Image}}',api]) if api else None,
+ 'image_id':cmd(['docker','inspect','--format','{{.Image}}',api]) if api else None,
+ 'container_evidence':container,'checkout_commit':cmd(['git','-C',str(root),'rev-parse','HEAD']),
+ 'checkout_status':cmd(['git','-C',str(root),'status','--porcelain','--untracked-files=no']),
+ 'checkout_files':{p:evidence(root/p) for p in paths},'units':timers,'unit_markers':operational}
+print(json.dumps(out))
+'''
+if __name__=='__main__':
+ ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -']
+ p=subprocess.run(ssh,input=REMOTE,text=True,capture_output=True,timeout=100)
+ if p.returncode:raise RuntimeError('Read-only Oracle verification failed; raw output withheld')
+ v=json.loads(p.stdout);(HERE/'oracle_status.json').write_text(json.dumps(v,indent=2),encoding='utf-8')
+ print(json.dumps(v))

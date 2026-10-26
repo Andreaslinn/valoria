@@ -1,0 +1,33 @@
+"""Produce and test a proposed parser patch in sandbox only."""
+import difflib,importlib.util,json,copy
+from common import REPO,H,save,sha
+path='infrastructure/scrapers/yapo_modern.py'
+before=(REPO/path).read_text(encoding='utf-8')
+after=before.replace('import json\n','import json\nimport copy\n',1)
+needle='    if lat is not None:\n        metadata["location_source"] = "yapo_search_payload"'
+replacement='''    # Preserve observed source fields without assigning physical identity.
+    # Full HTML and observations belong in a separate append-only evidence store.
+    metadata["source_payload_v1"] = copy.deepcopy(item)
+    metadata["source_images_raw"] = copy.deepcopy(item.get("images"))
+    metadata["source_location_raw"] = copy.deepcopy(location)
+    metadata["source_title_raw"] = title
+    if lat is not None:
+        metadata["location_source"] = "yapo_search_payload"'''
+assert needle in after
+after=after.replace(needle,replacement,1)
+sandbox=H/'proposed_parser';sandbox.mkdir(exist_ok=True)
+p=sandbox/'yapo_modern.py';p.write_text(after,encoding='utf-8')
+patch=''.join(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile='a/'+path,tofile='b/'+path))
+(H/'proposed_yapo_capture.patch').write_text(patch,encoding='utf-8')
+from replay import decode_yapo
+from bs4 import BeautifulSoup
+from infrastructure.scrapers.yapo_modern import payload_items,adapt_item
+spec=importlib.util.spec_from_file_location('proposed_yapo',p);mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+items=payload_items(BeautifulSoup((REPO/'tests/fixtures/yapo_modern_results_sanitized.html').read_bytes(),'lxml'),search_only=True)
+for item in items:
+    old=adapt_item(item,scraped_at='replay',uf_to_clp=None);new=mod.adapt_item(item,scraped_at='replay',uf_to_clp=None)
+    assert new['raw_metadata']['source_payload_v1']==item
+    for key in ['source_payload_v1','source_images_raw','source_location_raw','source_title_raw']:new['raw_metadata'].pop(key)
+    assert new==old
+save('patch_verification.json',dict(real_items=20,native_parser_semantics_unchanged=True,patch_applied_to_product=False,original_file_sha256=sha((REPO/path).read_bytes()),patch_sha256=sha((H/'proposed_yapo_capture.patch').read_bytes())))
+print('Proposed patch verified on 20 real items; product untouched')

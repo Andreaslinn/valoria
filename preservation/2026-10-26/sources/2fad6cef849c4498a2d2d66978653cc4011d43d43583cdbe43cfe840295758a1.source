@@ -1,0 +1,21 @@
+"""Aggregate availability only: no new target prices or observations exported."""
+from capture_runtime import call,HERE
+import json
+from datetime import datetime,timezone
+REMOTE='''
+import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text("SET TRANSACTION READ ONLY"))
+  await s.execute(text("SET LOCAL statement_timeout='20s'"))
+  r=(await s.execute(text("SELECT count(*) AS n,max(observed_at) AS latest FROM listing_observations WHERE event_kind='listing_seen'"))).mappings().one()
+  print(json.dumps({"count":r["n"],"latest":str(r["latest"]),"read_only":(await s.execute(text("SHOW transaction_read_only"))).scalar()}))
+asyncio.run(main())
+'''
+if __name__=='__main__':
+ v=json.loads(call('docker exec -i valoria_oracle_beta-api-1 python -B -',REMOTE))
+ assert v['read_only']=='on';v['checked_at']=datetime.now(timezone.utc).isoformat()
+ (HERE/'history_availability.json').write_text(json.dumps(v,indent=2))
+ print(json.dumps(v))

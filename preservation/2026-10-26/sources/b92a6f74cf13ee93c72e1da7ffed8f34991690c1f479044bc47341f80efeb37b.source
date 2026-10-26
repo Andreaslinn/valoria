@@ -1,0 +1,133 @@
+# Baseline Oracle y reconciliación selectiva — 26 septiembre 2026
+
+Este checkout independiente parte de `32f23a66f73fe01bd89d005afd1503c6ae684b6e`, rama
+`reconcile/production-baseline-20260925`. La carpeta local anterior no se sustituye.
+Referencia ejecutable: imagen ARM64 `e8eff5348f3668cf177bf5762af5412a29327c2a4a2b008b1810dffd8248e15e`.
+Esquema conservado: **0020**; migraciones 0017–0020 proceden del commit Oracle.
+No se ejecutaron migraciones nuevas, reparación histórica ni despliegues.
+
+## Preservación y restauración
+
+La carpeta privada hermana `private-preservation-20260925` contiene la copia local completa
+(incluye Git, modificaciones, archivos sin seguimiento, dependencias y configuración), checkout
+Oracle completo, configuración de contenedores, unidades systemd, imágenes activas,
+`production-avm.dump`, globals PostgreSQL y manifiesto SHA-256. Su ACL limita el acceso al
+usuario y SYSTEM. Ningún secreto ni dump forma parte de este Git.
+
+Backup PostgreSQL custom-format consistente, obtenido por streaming SSH sin crear archivos
+en Oracle. SHA-256 del dump: `06108ae0457bc01a9958798cdfec2db64568f8a4a4eb28d911a716ec34c5b675`.
+Restauración con `pg_restore --exit-on-error --no-owner --no-privileges`, rol de prueba,
+18 tablas y esquema 0020. Los globals originales se conservan, pero no se aplican sus
+contraseñas/roles productivos. La primera restauración utilizó PostgreSQL local 16.13;
+la reconstrucción final utiliza la imagen exacta de Oracle, PostgreSQL **16.14 ARM64**.
+
+## Qué conserva de Oracle
+
+- Consensus v1, selección explícita de estrategia en API/Analizar URL y fallback por familias.
+- Radar con pool objetivo separado del universo de comparables.
+- Patrimonio, estrategias, desarrollos, alertas, dashboard y registro de actividad de Tasar.
+- Rate limiting de autenticación, análisis y reportes, incluidas las políticas fail-open vigentes.
+- Pool PostgreSQL 5+5, perfiles de runtime y soporte de Redis opcional.
+- Dockerfile original y Compose Oracle, Caddy y descubrimiento diario existentes.
+- Dependencias exactas del runtime mediante la imagen preservada y manifiesto
+  `python-runtime-versions.json`; lockfile frontend sin modificaciones.
+
+`production-reference.json` registra imágenes y configuración pública efectiva.
+`systemd-reference/` conserva las unidades exactas, sin instalarlas ni habilitarlas.
+Yapo: 05:45 UTC + jitter hasta 45 minutos, flock, timeout 30 minutos.
+Portal: 07:15 UTC + jitter hasta 45 minutos, flock, timeout 20 minutos.
+Los wrappers y límites de descubrimiento permanecen en los scripts originales.
+El Compose declara scheduler, pero **no había un contenedor scheduler desplegado**:
+los trabajos observados eran timers systemd. No ejecutar `docker compose up` indiscriminadamente.
+
+## Quick wins incorporados por intención
+
+| Cambio validado | Aplicación en este baseline |
+|---|---|
+| `median_days=0` frente a ausencia | Valor cero conservado; fallback solo para `None`. |
+| Sesión ante red/5xx | Conserva token, muestra error recuperable, permite reintentar; solo 401 elimina token. |
+| Feedback público deshabilitado | Default false y opt-in solo local/development, conservando bloqueo cloud de Oracle. |
+| Dependencias de reportes | Ya incluidas en Dockerfile Oracle; se conservan sin copiar el arranque local con migraciones. |
+| Precio de comparables | DTO respeta la base utilizada, sin modificar snapshot CLP persistido. |
+| Trazabilidad UF | Source, fecha efectiva y stale llegan a contrato API y tipos frontend. |
+| Última observación | `last_seen_at` en Radar y Analizar URL, conservando el layout Oracle. |
+| Navegación móvil | Se conserva navegación inferior y menú secundario Oracle; regresión de destinos. |
+| Orden estable | Desempates deterministas de comparables. |
+| Exclusión del objetivo | Filtrado por `listing.id` antes de valorar; no se excluye por `property_id`. |
+| Validación temporal UF | Fecha solicitada separada de efectiva; antigüedad y fechas ausentes/futuras verificadas. |
+| ID hacia Tasar | Prefill, formulario, API, análisis y snapshots conservan ID estable del objetivo. |
+| UF no utilizable | 503 con contrato específico y mensaje frontend, preservando otras causas de error. |
+| Reportes inválidos | Rechaza cero, negativos, no finitos y booleanos antes del render; no cambia persistencia. |
+
+## Conflictos resueltos
+
+1. Oracle tiene `valuation_strategy` y registro de actividad adicionales. Se filtra el objetivo
+   antes del motor, manteniendo ambas rutas y los eventos. Regresiones cubren `current` y `consensus_v1`.
+2. El cliente UF Oracle permite Redis ausente: se mantienen sus guards al portar fechas.
+3. El gate Oracle de feedback se combina con default seguro y restricción de entorno local.
+4. El shell móvil Oracle es más completo que el menú local: se conserva y solo se adapta el manejo de sesión.
+5. Watchlist Oracle etiquetaba cualquier 503 como UF. Se conserva su manejo de errores y se limita
+   el mensaje UF al contrato específico; regresión demuestra que mantenimiento/500/red no se confunden.
+6. Se adaptó la firma del test de Tasar a `current_user`/`session` y la expectativa del default de
+   feedback. No se cambiaron las reglas productivas para satisfacer tests antiguos.
+7. No se copiaron archivos completos del local que contuvieran otras diferencias; se aplicaron
+   hunks de las tres tandas y se resolvieron manualmente los conflictos anteriores.
+
+## Repetir la reconstrucción local
+
+Requisitos: Docker Desktop/Linux con soporte ARM64, Python, Node y dependencias de desarrollo.
+Mantener los artefactos sensibles en una carpeta privada fuera del checkout. Los scripts solo
+aceptan nombres de stack `valoria-reconcile-*`, redes internas y endpoints de prueba.
+
+Desde la raíz de este checkout, cargar el archivo privado de imágenes preservadas si falta
+algún ID (`docker load --input <carpeta-privada>/oracle-active-images.tar.gz`). Después:
+
+```text
+python scripts/build_reconciled.py
+python scripts/prepare_reconciliation.py --preservation-dir <carpeta-privada> --prefix valoria-reconcile-nueva --emulated-redis
+python scripts/start_reconciled.py --env-file <carpeta-privada>/valoria-reconcile-nueva-api.env --network valoria-reconcile-nueva-internal
+python scripts/smoke_reconciliation.py --prefix valoria-reconcile-nueva --output .tmp/smoke.json
+python scripts/test_isolated.py tests
+```
+
+Usar un prefijo nuevo: la preparación rechaza recursos y credenciales existentes y nunca
+sobrescribe una base. Comprueba checksum del dump y restauración 0020 antes de habilitar API.
+Los scripts no descargan imágenes ni ejecutan migraciones. La imagen se construye con
+`--network=none`, sobre el ID de runtime verificado, conservando Python y librerías exactos.
+El Dockerfile específico tiene una lista permitida de archivos; secretos, dumps y node_modules
+no entran al contexto. El Dockerfile original queda como referencia, pero sus rangos `>=`
+no garantizan reinstalar las mismas dependencias desde cero.
+
+`--emulated-redis` se usa **solo** en Docker Desktop x86 con ARM64 emulado: Redis 7.4.9
+detecta `ARM64-COW-BUG` y se detiene. La opción ignora esa advertencia únicamente para este
+Redis descartable, con `save` vacío y `appendonly no`. En ARM64 nativo omitirla.
+No se modificó ni desactivó ninguna protección del Redis productivo.
+
+En `frontend`, ejecutar cada archivo `tests/*.test.cjs` con `node`,
+`node_modules/.bin/tsc --noEmit --incremental false` y `npm run build`.
+Antes del build fijar `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:13000` y
+`NEXT_TELEMETRY_DISABLED=1`. El puerto es un destino local de prueba: no se publica
+automáticamente ni se configura el dominio de Oracle.
+
+## Aislamiento y diferencias operativas deliberadas
+
+Stack final: `valoria-reconcile-20260926-*`. PostgreSQL, Redis, API, fixture UF y Caddy
+solo pertenecen a su red interna; **ningún puerto publicado**. URLs de DB/Redis apuntan
+a `reconcile-db`/`reconcile-redis`; claves aleatorias de prueba y bootstrap admin vacío.
+No hay scheduler, timers, scrapers, refresh on-demand, escritura de snapshots, feedback,
+analítica, webhooks o notificaciones habilitados. UF procede de fixture interno, valor 41000
+con fecha actual; no sirve para validar el valor económico real ni disponibilidad del proveedor.
+
+Caddy usa la imagen productiva y proxy/compresión, con HTTP interno 8080. No se reproducen
+TLS público/ACME, DNS, firewall OCI, ejecución real de scrapers/timers, entrega de notificaciones,
+ni el artefacto publicado de Netlify. Las pruebas frontend corresponden al código Oracle reconciliado.
+No se ha hecho un rebuild de dependencias desde repositorios externos ni una prueba de carga.
+
+## Evidencia y decisión
+
+Ver `validation/` y el informe de cierre en `docs/reconciliation-20260926.md`.
+Esta rama sirve como base controlada de desarrollo, preservando la referencia productiva
+y las mejoras locales validadas. **No es una release aprobada para desplegar:** la suite completa
+tiene tres fallos heredados reproducidos también en 32f23a66; quedan explícitos en el informe.
+Antes de identidad/deduplicación, acordar su tratamiento y comenzar desde esta rama versionada,
+con una nueva copia aislada de datos. No integrar automáticamente la carpeta local anterior.

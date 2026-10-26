@@ -1,0 +1,33 @@
+import subprocess,json,pathlib,datetime
+runtime=pathlib.Path('/home/ubuntu/apps/valoria/scripts/portal_session_runtime')
+state=subprocess.check_output(['systemctl','show','valoria-portal-discovery.service','--property=Result,ExecMainStatus,ActiveState'],text=True)
+assert 'Result=success' in state and 'ExecMainStatus=0' in state and 'ActiveState=inactive' in state
+assert (runtime/'run_portal_discovery_service.before.sh').exists()
+for file in runtime.rglob('*.py'):compile(file.read_text(),str(file),'exec')
+subprocess.run(['sudo','-n','touch','/var/lib/systemd/timers/stamp-valoria-portal-discovery.timer'],check=True,capture_output=True)
+subprocess.run(['sudo','-n','systemctl','enable','--now','valoria-portal-discovery.timer'],check=True,capture_output=True)
+out={'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+out['timer']=subprocess.check_output(['systemctl','show','valoria-portal-discovery.timer','--property=ActiveState,SubState,UnitFileState,NextElapseUSecRealtime'],text=True)
+out['containers']=subprocess.check_output(['docker','ps','--format','{{.Names}} {{.Status}}'],text=True)
+out['resource_usage']=subprocess.check_output(['docker','stats','--no-stream','--format','{{.Name}} {{.CPUPerc}} {{.MemUsage}}'],text=True)
+code='''import asyncio,json,httpx
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with httpx.AsyncClient(timeout=10) as c:
+  health={p:(await c.get('http://127.0.0.1:8000'+p)).status_code for p in ['/health','/api/v1/health']}
+ async with get_session_factory()() as s:
+  stats=dict((await s.execute(text("select count(*) as portal_total,count(*) filter(where lat is not null and lon is not null) as with_coordinates,max(scraped_at)::text as last_scraped from listings where source='portalinmobiliario'"))).mappings().one())
+  history=[dict(r) for r in (await s.execute(text("select source,event_kind,count(*) as n from listing_observations group by source,event_kind order by source,event_kind"))).mappings()]
+ print(json.dumps({'health':health,'stats':stats,'history':history},default=str))
+asyncio.run(main())
+'''
+r=subprocess.run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',code],capture_output=True,text=True,check=True)
+out['validation']=json.loads(r.stdout)
+assert all(v==200 for v in out['validation']['health'].values())
+assert out['validation']['stats']['with_coordinates']>=3
+out['yapo_timer']=subprocess.check_output(['systemctl','show','valoria-yapo-discovery.timer','--property=ActiveState,UnitFileState'],text=True)
+out['no_new_oci_resources']=True
+out['api_restarts']=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0]['RestartCount']
+(runtime/'final-validation.json').write_text(json.dumps(out,indent=2))
+print(json.dumps(out,indent=2))

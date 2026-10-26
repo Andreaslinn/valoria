@@ -1,0 +1,34 @@
+"""Opt-in local API regression isolation. Load with -p tests.portal_geo_offline_plugin.
+
+Default legacy API fixtures otherwise share a real Redis namespace and accumulate
+429s across unrelated test runs. Keep rate limits enabled, isolate only storage.
+"""
+
+import math
+import time
+
+import pytest
+
+
+class MemoryRateLimitRedis:
+    def __init__(self):
+        self.entries = {}
+
+    async def eval(self, script, numkeys, key, window):
+        now = time.monotonic()
+        count, until = self.entries.get(key, (0, now + window))
+        if until <= now:
+            count, until = 0, now + window
+        count += 1
+        self.entries[key] = (count, until)
+        return [count, max(1, math.ceil(until - now))]
+
+    async def aclose(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def isolated_rate_limit_store(monkeypatch):
+    import api.deps as deps
+
+    monkeypatch.setattr(deps, "_rate_limit_redis_client", MemoryRateLimitRedis())

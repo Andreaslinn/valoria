@@ -1,0 +1,81 @@
+import copy,hashlib,json
+from pathlib import Path
+import pytest
+from services.sii.closing_knn import ClosingKNN
+from services.sii.geographic_knn import GeographicKNN,GeoParameters,historical_filter,usable
+from scripts.validate_sii_geographic import folds,metrics
+
+
+def sample():
+    rows=[{'rol':f'15160-{i+1}-1','raw_id':i,'comuna':15160,'block':i+1,'kind':'casa',
+        'date':'2024-01-01','fi':'2024-02-01','area':100.,'year':1980,'building':f'b{i}',
+        'uf':float(10000+i*10)} for i in range(25)]
+    target={**rows[0],'rol':'15160-99-1','block':99,'building':'subject','date':'2026-01-01'}
+    geo={r['rol']:{'lat':-33.38-i*.0001,'lon':-70.56,'precision_m':25.,
+        'quality':'address_match','method':'osm_direct'} for i,r in enumerate(rows)}
+    geo[target['rol']]={'lat':-33.38,'lon':-70.56,'precision_m':25.,'quality':'sii_role_point','method':'sii_published_point'}
+    return rows,target,geo
+
+
+def test_baseline_implementation_preserved():
+    path=Path(__file__).parents[2]/'services/sii/closing_knn.py'
+    assert hashlib.sha256(path.read_bytes()).hexdigest()=='0e29cf44711c2cab8da612ca42ade263ca4f6aa10c4914c57a8ccd75423bd54f'
+
+
+def test_no_target_label_or_role_leakage_and_no_future_registration():
+    rows,target,geo=sample()
+    own={**rows[0],'rol':target['rol'],'raw_id':999,'uf':1e12}
+    future={**rows[0],'rol':'15160-999-1','raw_id':998,'fi':'2027-01-01','uf':1e12}
+    geo[future['rol']]=geo[rows[0]['rol']]
+    model=GeographicKNN(rows+[own,future],geo)
+    a=model.estimate(target);b=model.estimate({**target,'uf':1e15,'raw_id':123456})
+    assert a==b and a['status']=='ok' and a['model_used']=='geographic'
+    assert all(c['rol']!=target['rol'] and c['raw_id']!=998 for c in a['comparables'])
+    # The availability filter must also apply to the baseline fallback.
+    geo[target['rol']]['quality']='quarantined'
+    fallback=GeographicKNN(rows+[future],geo).estimate(target)
+    assert fallback['model_used']=='baseline'
+    assert all(c['raw_id']!=998 for c in fallback['comparables'])
+
+
+def test_radius_and_quality_abstention_are_exact_baseline():
+    rows,target,geo=sample()
+    base=ClosingKNN(rows).estimate(target)
+    for quality in ['quarantined','legacy_unverified','reference_disagreement']:
+        geo[target['rol']]['quality']=quality
+        value=GeographicKNN(rows,geo).estimate(target)
+        assert value['value_uf']==base['value_uf']
+        assert value['comparables']==base['comparables']
+    geo[target['rol']]['quality']='sii_role_point'
+    value=GeographicKNN(rows,geo,GeoParameters(radius_m=1)).estimate(target)
+    assert value['model_used']=='baseline'
+    value=GeographicKNN(rows,geo,GeoParameters(radius_m=1500)).estimate(target)
+    assert all(c['distance_m']<=1500 for c in value['comparables'])
+    assert not usable({**geo[target['rol']],'precision_m':float('nan')})
+    with pytest.raises(ValueError):GeoParameters(scale_m=float('inf'))
+
+
+def test_temporal_group_and_historical_feature_controls():
+    rows,target,geo=sample()
+    target.update(date='2025-03-01',fi='2025-03-10')
+    controls={r['rol']:{'undated_lines':0,'last_closed_year':1980} for r in rows+[target]}
+    rows += [{**target,'date':'2024-01-01','fi':'2024-02-01','raw_id':100},target]
+    rows[0]['fi']='2025-02-01'
+    controls[rows[1]['rol']]['last_closed_year']=2026
+    pool,targets,audit=folds(rows,controls,'2025-01-01','2025-07-01',set())
+    assert {r['rol'] for r in targets}=={target['rol']}
+    assert all(r['rol'] not in {target['rol'],rows[0]['rol'],rows[1]['rol']} for r in pool)
+    assert not historical_filter([rows[1]],controls)
+    controls[target['rol']]['undated_lines']=1
+    assert not historical_filter([target],controls)
+
+
+def test_metrics_use_identical_denominators_and_signed_bias():
+    rows=[{'actual_uf':100.,'prediction':{'status':'ok','value_uf':110.}},
+          {'actual_uf':100.,'prediction':{'status':'ok','value_uf':80.}},
+          {'actual_uf':100.,'prediction':{'status':'unavailable'}}]
+    m=metrics(rows)
+    assert m['mdape_pct']==pytest.approx(15)
+    assert m['mape_pct']==pytest.approx(15)
+    assert m['mean_bias_pct']==pytest.approx(-5)
+    assert m['coverage_pct']==pytest.approx(200/3)

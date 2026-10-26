@@ -1,0 +1,113 @@
+"""Validated local house policy; departments and frozen baseline stay intact."""
+from __future__ import annotations
+import hashlib,json,os,sqlite3
+from functools import lru_cache
+from pathlib import Path
+from services.sii.house_rules import prepare,area_at,HouseRules,load_snapshot
+from services.sii.geographic_opinion import _valuation_geography
+from services.sii.house_hybrid import hybrid_prediction
+from services.sii.house_rules import HistoricalBaseline, available
+from services.sii.hybrid_activation import load_hybrid_activation
+
+
+def sha(path):
+    h=hashlib.sha256()
+    with Path(path).open('rb') as f:
+        for block in iter(lambda:f.read(1024*1024),b''):h.update(block)
+    return h.hexdigest()
+
+
+@lru_cache(maxsize=2)
+def bundle(root,geography,stamps):
+    root,geography=Path(root),Path(geography)
+    policy=json.loads((root/'policy.json').read_text())
+    files={'snapshot':root/'existing-sii.json','protocol':root/'protocol.json',
+        'model':Path(__file__).with_name('house_rules.py'),'baseline':Path(__file__).with_name('closing_knn.py'),
+        'geography':geography/'geography.sqlite','address_index':geography/'address-index.sqlite',
+        'uf_calendar':root/'historical-uf.json'}
+    for key,path in files.items():
+        if sha(path)!=policy['hashes'][key]:raise ValueError('unvalidated_house_artifact')
+    if sha(root/'evaluation.json')!=policy['evaluation_sha256']:raise ValueError('invalid_house_evaluation')
+    snapshot=load_snapshot(root)
+    rows,facts,lines,_=prepare(snapshot)
+    protocol=json.loads((root/'protocol.json').read_text())
+    model=HouseRules(rows,_valuation_geography(geography),protocol['parameter_cutoff_exclusive'])
+    return model,facts,lines,policy,json.loads((root/'evaluation.json').read_text())
+
+
+@lru_cache(maxsize=128)
+def candidate(root,geography,stamps,rol,as_of):
+    model,facts,lines,policy,evaluation=bundle(root,geography,stamps)
+    f=facts[rol];area,year=area_at(lines[rol],int(as_of[:4]))
+    target={**f,'rol':rol,'comuna':15160,'area':area,'year':year,'date':as_of}
+    return model.estimate(target),target,policy,evaluation
+
+
+@lru_cache(maxsize=128)
+def hybrid_candidate(root,geography,stamps,rol,as_of):
+    house,subject,_,_=candidate(root,geography,stamps,rol,as_of)
+    model,_,_,_,_=bundle(root,geography,stamps)
+    target={**subject,'building':'|'.join(map(str,[15160,subject['block'],subject['calle'],subject['numero'] or '']))}
+    return hybrid_prediction(target,house,lambda:HistoricalBaseline(
+        available(model.rows,as_of,rol)).estimate(target),model.geo)
+
+
+def apply_house_policy(target,baseline,geography_root):
+    root=os.getenv('SII_HOUSE_RULES_DIR')
+    if not root or target['kind']!='casa' or target['comuna']!=15160:
+        return baseline,{},None
+    geography_root=Path(os.getenv('SII_GEOGRAPHY_DATA_DIR') or geography_root);root=Path(root)
+    files=[root/n for n in ['existing-sii.json','historical-uf.json','protocol.json','policy.json','evaluation.json']]
+    files += [geography_root/n for n in ['geography.sqlite','address-index.sqlite']]
+    files += [Path(__file__).with_name(n) for n in ['house_rules.py','closing_knn.py']]
+    try:
+        stamps=tuple((p.stat().st_mtime_ns,p.stat().st_size) for p in files)
+        p,subject,policy,evaluation=candidate(str(root.resolve()),str(geography_root.resolve()),stamps,target['rol'],target['date'])
+        promoted=policy['house_model']=='house_rules'
+        def public(c):return {k:v for k,v in c.items() if k not in ['rol','building']}
+        house={'status':p['status'],'promoted':promoted,'version':policy['version'],
+            'area_m2':subject['area'],'land_m2':subject['land'],
+            **{k:p.get(k) for k in ['value_uf','p25_uf','p75_uf','effective_n','radius_m','b','c','training_n','reason','controls']},
+            'comparable_count':len(p.get('comparables',[])),
+            'comparables':[public(c) for c in p.get('comparables',[])],
+            'outliers':[public(c) for c in p.get('outliers',[])],
+            'message':'Señal insuficiente' if p['status']!='ok' else ('Modelo de casas R1–R11' if promoted else 'Candidato R1–R11 sin promover'),
+            'validation':{'baseline':evaluation['paired']['baseline'],'candidate':evaluation['paired']['candidate'],
+                'baseline_coverage_pct':evaluation['models']['baseline']['coverage_pct'],
+                'candidate_coverage_pct':evaluation['models']['candidate']['coverage_pct'],
+                'n':evaluation['all_valid_targets'],'promotion_checks':evaluation['promotion_checks']}}
+        hybrid=hybrid_candidate(str(root.resolve()),str(geography_root.resolve()),stamps,target['rol'],target['date'])
+        activation=load_hybrid_activation(root)
+        active=activation is not None
+        house['hybrid']={**{k:hybrid.get(k) for k in ['status','model_used','motivo','confianza',
+            'value_uf','p25_uf','p75_uf','effective_n','house_rules_reason','baseline_reason']},
+            'approval_pending':not active,'published_unchanged':not active,'active':active,
+            'comparables':[public(c) for c in hybrid.get('comparables',[])]}
+        extra={'house_rules_candidate':house,'baseline_value_uf':baseline.get('value_uf')}
+        if active:
+            validated=activation['evaluation']
+            house['hybrid']['validation']={'baseline':validated['models']['baseline'],
+                'candidate':validated['models']['hybrid'],'n':validated['same_target_count'],
+                'baseline_coverage_pct':validated['models']['baseline']['coverage_pct'],
+                'candidate_coverage_pct':validated['models']['hybrid']['coverage_pct'],
+                'promotion_checks':validated['promotion_checks']}
+            extra.update(model_used=hybrid['model_used'],motivo=hybrid['motivo'],
+                confianza=hybrid['confianza'],house_hybrid_active=True,
+                effective_n=hybrid.get('effective_n'),confidence_override=True)
+            extra['selected_comparables']=[{'label':f'Comparable SII {i+1}',
+                **public(c),'raw_id':str(c['raw_id']),
+                'uf':c.get('uf',c['uf_m2']*c['m2'])}
+                for i,c in enumerate(hybrid.get('comparables',[]))]
+            return hybrid,extra,subject['area']
+        if promoted:
+            extra.update(model_used='house_rules',effective_n=p.get('effective_n'),
+                confidence_override=True)
+            if p['status']=='ok':
+                extra['selected_comparables']=[{'label':f'Comparable SII {i+1}',**public(c)} for i,c in enumerate(p['comparables'])]
+            return p,extra,subject['area']
+        return baseline,extra,None
+    except (OSError,ValueError,KeyError,TypeError,sqlite3.Error):
+        extra={'house_rules_candidate':{'status':'unavailable','message':'Modelo local no validado','reason':'unvalidated_house_artifact','promoted':False}}
+        if (root/'hybrid-activation.json').exists():
+            extra.update(model_used='baseline',motivo='artefactos_no_validados',confianza='baja',house_hybrid_active=False)
+        return baseline,extra,None

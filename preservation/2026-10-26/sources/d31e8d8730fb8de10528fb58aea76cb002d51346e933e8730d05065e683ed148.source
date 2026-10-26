@@ -1,0 +1,12 @@
+from pathlib import Path
+import json
+scope={};exec(Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];pr=api('/pulls/8');head='35933e67e9ccd17a818def7a8e47319bbde203a2'
+assert pr['head']['sha']==head and pr['base']['ref']=='release/canonical-only-reproducible-20261013'
+assert pr['base']['sha']=='652e2e06c4fdcc3c7dbd551d9cdb35b2a003fc7c'
+if not pr['merged']:
+ result=api('/pulls/8/merge',{'sha':head,'merge_method':'merge','commit_title':'Merge PR #8: distinct HOUM property references and native Yapo scope'},method='PUT')
+ assert result.get('merged');commit=result['sha']
+else:commit=pr['merge_commit_sha']
+out={'commit':commit,'head':head,'base':pr['base']['ref'],'pr':pr['html_url']}
+Path('outputs/discovery-final-redeploy-20261016/merge-proof.json').write_text(json.dumps(out,indent=2));print(json.dumps(out))

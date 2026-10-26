@@ -1,0 +1,84 @@
+"""Collect unattended-run proof without starting any service or writing Oracle."""
+import subprocess,json,pathlib
+
+snapshot=json.loads(pathlib.Path('outputs/portal-location-2a/scheduled-verification-pending.json').read_text(encoding='utf-8-sig'))
+expected={source:snapshot['timers'][name]['NextElapseUSecRealtime'] for source,name in
+          [('uf','uf-calendar'),('yapo','yapo-discovery'),('portalinmobiliario','portal-discovery')]}
+
+code=r'''
+import subprocess,json,datetime,pathlib,hashlib
+UTC=datetime.timezone.utc
+now=datetime.datetime.now(UTC)
+EXPECTED=EXPECTED_VALUE
+def timer_date(value):
+ return datetime.datetime.strptime(value,'%a %Y-%m-%d %H:%M:%S UTC').replace(tzinfo=UTC)
+services={'uf':'valoria-uf-calendar','yapo':'valoria-yapo-discovery','portalinmobiliario':'valoria-portal-discovery'}
+earliest={'uf':'2026-10-15T16:30:00+00:00','yapo':'2026-10-16T06:00:00+00:00','portalinmobiliario':'2026-10-16T07:00:00+00:00'}
+def run(args):
+ r=subprocess.run(args,text=True,capture_output=True,timeout=40)
+ if r.returncode:raise RuntimeError('Read-only observation failed: '+args[0])
+ return r.stdout
+proof={'checked_at':now.isoformat(),'services':{},'read_only':True}
+for source,unit in services.items():
+ timer=dict(line.split('=',1) for line in run(['systemctl','show',unit+'.timer','--property=LastTriggerUSec,NextElapseUSecRealtime,ActiveState']).splitlines() if '=' in line)
+ service=dict(line.split('=',1) for line in run(['systemctl','show',unit+'.service','--property=ExecMainStatus,Result,ActiveState']).splitlines() if '=' in line)
+ boundary=datetime.datetime.fromisoformat(earliest[source])
+ reports=[]
+ for line in run(['journalctl','-u',unit+'.service','--since',boundary.strftime('%Y-%m-%d %H:%M:%S UTC'),'--until',(boundary+datetime.timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S UTC'),'--no-pager','-o','json']).splitlines():
+  try:
+   record=json.loads(line);message=json.loads(record.get('MESSAGE',''))
+  except (ValueError,TypeError):continue
+  if not isinstance(message,dict) or 'exit_code' not in message:continue
+  safe={k:v for k,v in message.items() if k in ('exit_code','calendar_days_saved','error_types','counts','error','runtime_error','stderr_log','image_id')}
+  reports.append({'timestamp_us':record.get('__REALTIME_TIMESTAMP'),'invocation':record.get('_SYSTEMD_INVOCATION_ID'),'report':safe})
+ first=reports[0] if reports else None
+ if first:
+  report=first['report'];counts=report.get('counts') or {}
+  positive=report.get('calendar_days_saved',0)>0 if source=='uf' else counts.get('inserted',0)+counts.get('updated',0)>0
+  status='passed' if report['exit_code']==0 and positive else 'failed'
+ else:status='pending' if now<boundary+datetime.timedelta(hours=2) else 'missing_failed'
+ expected=timer_date(EXPECTED[source])
+ if status=='passed':
+  report_time=datetime.datetime.fromtimestamp(int(first['timestamp_us'])/1e6,UTC)
+  if not (timer_date(timer['LastTriggerUSec'])>=expected and expected<=report_time<=expected+datetime.timedelta(hours=1)):
+   status='failed_timer_correlation'
+  elif service.get('ExecMainStatus')!='0' or service.get('Result')!='success':status='failed_systemd_status'
+ proof['services'][source]={'status':status,'timer':timer,'service':service,'recorded_first_scheduled_trigger':expected.isoformat(),'first_report':first}
+ if first and first['report'].get('stderr_log'):
+  name=pathlib.Path(first['report']['stderr_log']).name
+  p=pathlib.Path('/home/ubuntu/apps/valoria/private/ingestion-errors')/name
+  if p.is_file():proof['services'][source]['stderr']={'filename':name,'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+db=r"""import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  runs=(await s.execute(text("SELECT id,source,started_at,finished_at,successful,counters,errors FROM ingestion_runs WHERE started_at>='2026-10-15T12:40:00Z' ORDER BY started_at"))).mappings().all()
+  calendar=(await s.execute(text("SELECT date,value,source,fetched_at FROM ingestion_uf_calendar WHERE date=(CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::date"))).mappings().all()
+  print(json.dumps({'runs':[dict(r) for r in runs],'calendar_today':[dict(r) for r in calendar]},default=str))
+  await s.rollback()
+asyncio.run(main())"""
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input=db,text=True,capture_output=True,timeout=60)
+if r.returncode:raise RuntimeError('Read-only ledger observation failed')
+proof['database']=json.loads(r.stdout)
+proof['health']=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]))
+for source in ('yapo','portalinmobiliario'):
+ item=proof['services'][source]
+ matching=[r for r in proof['database']['runs'] if r['source']==source and datetime.datetime.fromisoformat(r['started_at'])>=datetime.datetime.fromisoformat(earliest[source])]
+ item['first_ledger_run']=matching[0] if matching else None
+ if item['status']=='passed' and (not matching or matching[0]['successful'] is not True):item['status']='failed_ledger_mismatch'
+ if item['status']=='passed':
+  started=datetime.datetime.fromisoformat(matching[0]['started_at'])
+  trigger=datetime.datetime.fromisoformat(item['recorded_first_scheduled_trigger'])
+  if not trigger<=started<=trigger+datetime.timedelta(minutes=5):item['status']='failed_ledger_trigger_correlation'
+proof['passed']=all(item['status']=='passed' for item in proof['services'].values()) and proof['health']['status']=='ok' and bool(proof['database']['calendar_today'])
+print(json.dumps(proof))
+'''.replace('EXPECTED_VALUE',repr(expected))
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=code,text=True,encoding='utf-8',capture_output=True,timeout=210)
+if r.returncode:raise SystemExit(r.stderr[-700:]+r.stdout[-300:])
+proof=json.loads(r.stdout)
+out=pathlib.Path('outputs/portal-location-2a')
+(out/'scheduled-part-a-latest.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+if proof['passed']:(out/'scheduled-part-a-passed.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+print(json.dumps({'checked_at':proof['checked_at'],'passed':proof['passed'],'services':{k:v['status'] for k,v in proof['services'].items()},'health':proof['health']['status']}))

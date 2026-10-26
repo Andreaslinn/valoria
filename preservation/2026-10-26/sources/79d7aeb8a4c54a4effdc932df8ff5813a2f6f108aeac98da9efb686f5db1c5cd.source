@@ -1,0 +1,89 @@
+"""Restore a preserved dump into a NEW internal-only stack; never overwrite one."""
+from pathlib import Path
+import argparse
+import hashlib
+import json
+import re
+import secrets
+import subprocess
+import time
+
+def call(args, **kwargs):
+    p = subprocess.run(args, capture_output=True, **kwargs)
+    if p.returncode: raise RuntimeError('Docker operation failed; private diagnostics withheld')
+    return p.stdout.decode().strip()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--preservation-dir', type=Path, required=True)
+    parser.add_argument('--prefix', required=True)
+    parser.add_argument('--emulated-redis', action='store_true',
+                        help='Test-only ARM64 emulation workaround; Redis persistence stays disabled')
+    args = parser.parse_args()
+    assert re.fullmatch(r'valoria-reconcile-[a-z0-9-]+', args.prefix)
+    root = Path(__file__).resolve().parents[1]
+    private = args.preservation_dir.resolve()
+    assert not private.is_relative_to(root), 'Credentials and dumps must remain outside Git'
+    manifest = json.loads((private / 'oracle-preservation-manifest.json').read_text())
+    dump = private / 'production-avm.dump'
+    with dump.open('rb') as stream:
+        assert hashlib.file_digest(stream, 'sha256').hexdigest() == manifest[dump.name]['sha256']
+    reference = json.loads((root / 'deploy/reconciliation/production-reference.json').read_text())
+    images = reference['images']
+    pg_image = images['postgres:16-alpine']['id']
+    redis_image = images['redis:7-alpine']['id']
+    api_image = images['valoria_oracle_beta-api']['id']
+    for image in [pg_image, redis_image, api_image]: call(['docker', 'image', 'inspect', image])
+    network = args.prefix + '-internal'
+    credentials = private / (args.prefix + '-postgres.env')
+    api_env = private / (args.prefix + '-api.env')
+    for path in [credentials, api_env]: assert not path.exists(), 'Refusing to overwrite credentials'
+    for kind, name in [('network', network), ('container', args.prefix + '-db'), ('volume', args.prefix + '-dbdata')]:
+        assert subprocess.run(['docker', kind, 'inspect', name], capture_output=True).returncode != 0, 'Refusing to reuse existing state'
+    password = secrets.token_hex(32)
+    credentials.write_text('POSTGRES_USER=reconcile_admin\nPOSTGRES_DB=avm_restore\nPOSTGRES_PASSWORD=' + password + '\n')
+    call(['docker', 'network', 'create', '--internal', '--label', 'valoria.task=reconciliation-20260925', network])
+    db = args.prefix + '-db'
+    call(['docker', 'run', '-d', '--pull=never', '--platform=linux/arm64', '--name', db,
+          '--network', network, '--network-alias', 'reconcile-db', '--env-file', str(credentials),
+          '--label', 'valoria.task=reconciliation-20260925',
+          '--mount', f'type=volume,source={args.prefix}-dbdata,target=/var/lib/postgresql/data', pg_image])
+    for _ in range(90):
+        if subprocess.run(['docker', 'exec', db, 'pg_isready', '-U', 'reconcile_admin', '-d', 'avm_restore'],capture_output=True).returncode == 0: break
+        time.sleep(1)
+    else: raise RuntimeError('Isolated PostgreSQL did not start')
+    with dump.open('rb') as stream:
+        call(['docker', 'exec', '-i', db, 'pg_restore', '--exit-on-error', '--no-owner', '--no-privileges',
+              '-U', 'reconcile_admin', '-d', 'avm_restore'], stdin=stream)
+    revision = call(['docker', 'exec', db, 'psql', '-U', 'reconcile_admin', '-d', 'avm_restore', '-At',
+                     '-v', 'ON_ERROR_STOP=1', '-c', 'select version_num from alembic_version'])
+    assert revision == '0020', 'Restore gate failed; do not start API'
+    redis_flags = ['--ignore-warnings', 'ARM64-COW-BUG'] if args.emulated_redis else []
+    call(['docker', 'run', '-d', '--pull=never', '--platform=linux/arm64', '--name', args.prefix + '-redis',
+          '--network', network, '--network-alias', 'reconcile-redis', '--label', 'valoria.task=reconciliation-20260925',
+          redis_image, 'redis-server', '--save', '', '--appendonly', 'no', *redis_flags])
+    for _ in range(30):
+        if subprocess.run(['docker', 'exec', args.prefix + '-redis', 'redis-cli', 'ping'], capture_output=True).stdout.strip() == b'PONG': break
+        time.sleep(1)
+    else: raise RuntimeError('Isolated Redis failed to start; on x86 Docker Desktop check --emulated-redis')
+    fixture = root / 'scripts/reconciliation_uf_fixture.py'
+    call(['docker', 'run', '-d', '--pull=never', '--platform=linux/arm64', '--name', args.prefix + '-fixtures',
+          '--network', network, '--network-alias', 'reconcile-fixtures', '--label', 'valoria.task=reconciliation-20260925',
+          '--mount', f'type=bind,source={fixture},target=/fixture.py,readonly', '--entrypoint', 'python', api_image, '-B', '/fixture.py'])
+    flags = reference['compose_effective_redacted']['services']['api']['env_flags'].copy()
+    flags.update({k:v for k,v in reference['runtime_values'].items() if k != 'ORACLE_API_HOSTNAME'})
+    flags.update(DATABASE_URL=f'postgresql+asyncpg://[USER]:[PASSWORD]@reconcile-db:5432/avm_restore',
+                 SYNC_DATABASE_URL=f'postgresql+psycopg://[USER]:[PASSWORD]@reconcile-db:5432/avm_restore',
+                 REDIS_URL='redis://reconcile-redis:6379/0', JWT_SECRET_KEY=secrets.token_hex(32), SECRET_KEY=secrets.token_hex(32),
+                 ADMIN_EMAIL='', ADMIN_PASSWORD='', ENVIRONMENT='beta', VALORIA_RUNTIME_PROFILE='oracle_beta',
+                 UF_API_URL='http://reconcile-fixtures:8080/uf', NOMINATIM_URL='http://reconcile-fixtures:8080/disabled',
+                 BACKEND_CORS_ORIGINS='http://127.0.0.1:13000', FORWARDED_ALLOW_IPS='127.0.0.1')
+    for key in ['SCHEDULER_ENABLED', 'WORKERS_ENABLED', 'SCHEDULER_ENABLE_UF_DAILY_SNAPSHOT',
+                'SCHEDULER_ENABLE_DISCOVERY', 'SCHEDULER_ENABLE_PORTAL', 'SCHEDULER_STARTUP_CATCHUP_ENABLED',
+                'PORTAL_HTTP_ENABLED', 'UF_REFRESH_ON_STARTUP', 'PORTFOLIO_SNAPSHOTS_ENABLED',
+                'PORTFOLIO_SNAPSHOT_WRITE_ENABLED', 'LISTING_ON_DEMAND_REFRESH_ENABLED',
+                'VALUATION_FEEDBACK_ENABLED', 'PRODUCT_ANALYTICS_ENABLED', 'NOTIFICATIONS_ENABLED', 'WEBHOOKS_ENABLED']:
+        flags[key] = 'false'
+    api_env.write_text('\n'.join(k+'='+str(v) for k,v in flags.items())+'\n')
+    print('Restore verified: 0020; exact preserved PostgreSQL/Redis images; internal network ' + network)
+    print('API test environment stored privately: ' + str(api_env))

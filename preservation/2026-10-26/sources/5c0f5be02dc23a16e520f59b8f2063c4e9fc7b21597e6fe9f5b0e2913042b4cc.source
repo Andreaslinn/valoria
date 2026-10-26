@@ -1,0 +1,33 @@
+# Risk Report Visible QA Latest
+
+Fecha: 2026-06-18
+
+## Casos Revisados
+
+- `PROPERTY_VALUATION`: casa en Vitacura tipo Samotracia 2071, 221 m2 construidos, 512 m2 terreno, 5 dorms, 5 banos, 1 estacionamiento, sin precio publicado, sin URL, sin listing_id.
+- `LISTING_ANALYSIS`: publicacion con precio publicado, valor estimado, descuento, URL, source, listing_id y warnings de publicacion.
+
+## Problemas Encontrados
+
+- Seguian visibles textos genericos: `Real Estate Risk Report`.
+- El gauge mantenia el label estatico `HIGH RISK`.
+- En tasacion manual el subtitulo todavia podia decir `Listing N/A`.
+
+## Cambios Aplicados
+
+- `report_type` ahora alimenta title/kicker/footer.
+- El gauge muestra `Investment Score` o `Listing Opportunity Score` segun contexto.
+- El eje bajo del gauge cambio de `HIGH RISK` a `WEAK`.
+- El helper del gauge ahora es contextual.
+- La tasacion manual muestra `Tasacion manual` en subtitulo, no `Listing N/A`.
+- Tests ampliados para HTML final, Bottom Line contextual y ausencia de raw warning codes.
+
+## Tests Ejecutados
+
+- `python -m pytest tests/unit/test_risk_report_contract.py tests/unit/test_risk_report_html.py tests/unit/test_tasar_playground_adapter.py` -> 29 passed
+- `python -m ruff check ui/components/risk_report_contract.py ui/components/risk_report_html.py tests/unit/test_risk_report_contract.py tests/unit/test_risk_report_html.py` -> All checks passed
+
+## Pendientes
+
+- Agregar snapshot HTML mas amplio cuando el copy de producto quede estable.
+- Sumar fixture con watchlist/alertas reales cuando exista payload local estable.

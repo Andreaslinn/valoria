@@ -1,0 +1,14 @@
+import httpx,json
+from pathlib import Path
+base='http://127.0.0.1:8013'
+with httpx.Client(base_url=base,timeout=120) as c:
+ t=c.post('/api/v1/auth/login',data={'username':'candidate-a@example.test','password':'[REDACTED]'});t.raise_for_status();c.headers['Authorization']='Bearer '+t.json()['access_token']
+ cases={}
+ for path in ['/health','/api/v1/health/capabilities','/api/v1/watchlist','/api/v1/watchlist/1130/status','/api/v1/listings/298','/api/v1/radar/opportunities?limit=20','/api/v1/market/dashboard?period_days=30&property_type=apartment']:
+  res=c.get(path);cases[path]={'status':res.status_code,'payload':res.json()}
+ res=c.post('/api/v1/valuations',json={'target_listing_id':1130,'comuna':'independencia','property_type':'apartment','m2':52,'usable_area_m2':52,'built_area_m2':52,'dormitorios':2,'banos':1,'estacionamientos':1,'precio_publicado_uf':1520});cases['valuation1130']={'status':res.status_code,'payload':res.json()}
+ for lid,url in [(3633,'https://www.portalinmobiliario.com/MLC-4082793840-new-slug?utm_source=test'),(298,'https://www.yapo.cl/departamento/298')]:
+  res=c.post('/api/v1/listings/analyze-url',json={'url':url});cases[f'analyze{lid}']={'status':res.status_code,'payload':res.json()}
+ p=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\candidate-api-evidence.json');p.write_text(json.dumps(cases,indent=2,ensure_ascii=False),encoding='utf-8')
+ for key,value in cases.items():
+  print(key,value['status'],str(value['payload'])[:180])

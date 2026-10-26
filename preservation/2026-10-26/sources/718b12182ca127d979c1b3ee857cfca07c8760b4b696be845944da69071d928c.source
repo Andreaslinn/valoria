@@ -1,0 +1,75 @@
+"""Read-only production audit; no geocoder, database writes or address export."""
+import asyncio
+import json
+import re
+import unicodedata
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from core.normalization.geocode_precision import normalize_geocode_precision
+from scripts.geocode_listings import extract_address_candidate
+from config.comunas import normalize_comuna, get_coordinates
+
+TARGETS = ['providencia','vitacura','la_florida','estacion_central','san_miguel','santiago']
+
+def normalized(value):
+    return re.sub(r'[^a-z0-9]+',' ',unicodedata.normalize('NFKD',str(value)).encode('ascii','ignore').decode().lower()).strip()
+
+def group_report(rows, all_rows):
+    buildings=defaultdict(set)
+    for r in all_rows:
+        if r['building_key']: buildings[r['building_key']].add(r['id'])
+    groups={r['building_key'] for r in rows if r['building_key'] and len(buildings[r['building_key']])>=2}
+    return {
+        'active_apartments':len(rows),
+        'address_geocoded_n':sum(r['address_geo'] for r in rows),
+        'address_geocoded_pct':round(100*sum(r['address_geo'] for r in rows)/len(rows),2) if rows else None,
+        'guarded_address_geocoded_n':sum(r['guarded_address'] for r in rows),
+        'guarded_address_geocoded_pct':round(100*sum(r['guarded_address'] for r in rows)/len(rows),2) if rows else None,
+        'valid_coordinates_n':sum(r['valid_coords'] for r in rows),
+        'numbered_address_text_n':sum(r['numbered_text'] for r in rows),
+        'numbered_text_missing_address_geo_n':sum(r['numbered_text'] and not r['address_geo'] for r in rows),
+        'same_numbered_address_groups':len(groups),
+        'listings_sharing_numbered_address':sum(r['building_key'] in groups for r in rows),
+        'address_geocoded_sharing_numbered_address':sum(r['building_key'] in groups and r['address_geo'] for r in rows),
+        'raw_precision_counts':dict(Counter(str(r['raw_precision']) for r in rows)),
+        'normalized_precision_counts':dict(Counter(r['precision'] for r in rows)),
+        'candidate_precision_counts':dict(Counter(r['candidate_precision'] for r in rows)),
+        'candidate_source_counts':dict(Counter(r['candidate_source'] for r in rows)),
+    }
+
+async def main():
+    async with get_session_factory()() as session:
+        await session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+        clock=(await session.execute(text('SELECT CURRENT_TIMESTAMP, CURRENT_DATE'))).first()
+        inventory=(await session.execute(text("SELECT source,property_type,count(*) n FROM listings WHERE status='active' GROUP BY source,property_type ORDER BY source,property_type"))).mappings().all()
+        raw=(await session.execute(text("SELECT id,comuna,source,title,url,lat,lon,geocode_precision,raw_metadata FROM listings WHERE status='active' AND property_type='apartment' ORDER BY id"))).mappings().all()
+        rows=[]
+        coord_counts=Counter((normalize_comuna(r['comuna']),round(r['lat'],7),round(r['lon'],7)) for r in raw if r['lat'] is not None and r['lon'] is not None)
+        for r in raw:
+            meta=r['raw_metadata'] or {}
+            valid=r['lat'] is not None and r['lon'] is not None and -34.5<float(r['lat'])<-32 and -72<float(r['lon'])<-69
+            comuna=normalize_comuna(r['comuna'])
+            precision=normalize_geocode_precision(r['geocode_precision'],has_coords=valid,raw_metadata=meta,comuna=comuna)
+            candidate=extract_address_candidate(title=r['title'] or '',url=r['url'] or '',description=' '.join(str(meta.get(k) or '') for k in ['description','descripcion','details','body','summary']),comuna=comuna,raw_metadata=meta)
+            numbered=candidate.precision=='street_address' and bool(candidate.text) and bool(re.search(r'\d',candidate.text))
+            key=(comuna,normalized(candidate.text)) if numbered else None
+            repeated=valid and coord_counts[(comuna,round(r['lat'],7),round(r['lon'],7))]>=5
+            center=get_coordinates(comuna)
+            centroid=valid and center is not None and abs(r['lat']-center[0])<.000001 and abs(r['lon']-center[1])<.000001
+            rows.append({'id':r['id'],'comuna':comuna,'source':r['source'],'valid_coords':valid,'raw_precision':r['geocode_precision'],'precision':precision,'address_geo':precision=='address' and not centroid,'guarded_address':precision=='address' and not repeated and not centroid,'numbered_text':numbered,'building_key':key,'candidate_precision':candidate.precision,'candidate_source':candidate.source})
+        sources=sorted({r['source'] for r in rows})
+        report={'generated_at_utc':datetime.now(timezone.utc).isoformat(),'database_snapshot_at':str(clock[0]),'database_date':str(clock[1]),'read_only':True,'geocoder_requests':0,'active_inventory':[dict(x) for x in inventory],'all_apartments':group_report(rows,rows),'by_comuna':[],'by_comuna_source':[],'sources':sources}
+        for comuna in sorted({r['comuna'] for r in rows}|set(TARGETS)):
+            segment=[r for r in rows if r['comuna']==comuna]
+            report['by_comuna'].append({'comuna':comuna,**group_report(segment,rows)})
+            for source in sources:
+                report['by_comuna_source'].append({'comuna':comuna,'source':source,**group_report([r for r in segment if r['source']==source],rows)})
+        selected=[r for r in rows if r['comuna'] in TARGETS]
+        report['six_communes']=group_report(selected,rows)
+        report['gate']={'threshold_pct':40,'each_target_comuna_passes':all(next(x for x in report['by_comuna'] if x['comuna']==c)['address_geocoded_pct'] is not None and next(x for x in report['by_comuna'] if x['comuna']==c)['address_geocoded_pct']>=40 for c in TARGETS),'targets':TARGETS}
+        await session.rollback()
+    print(json.dumps(report,ensure_ascii=True,default=str))
+
+asyncio.run(main())

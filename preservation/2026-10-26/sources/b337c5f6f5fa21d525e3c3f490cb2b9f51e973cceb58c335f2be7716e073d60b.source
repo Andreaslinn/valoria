@@ -1,0 +1,10 @@
+from pathlib import Path
+import json
+W=Path(__file__).parent
+p=W/'overlay-paths.json';paths=json.loads(p.read_text())
+for name in ['scripts/portal_session.py','infrastructure/scrapers/portal_acquisition.py']:
+ if name not in paths:paths.append(name)
+p.write_text(json.dumps(paths,indent=2))
+for src,dst in [('package_candidate_v3.py','package_candidate_v4.py'),('check_candidate_image_v3.py','check_candidate_image_v4.py')]:
+ s=(W/src).read_text().replace('release-overlay-v3','release-overlay-v4').replace('candidate-20261012-v3','candidate-20261012-v4')
+ (W/dst).write_text(s,encoding='utf-8')

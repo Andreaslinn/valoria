@@ -1,0 +1,107 @@
+"""Start independent local development; restore only into an empty dev database.
+
+python scripts/dev_local.py [--preservation-dir PATH]
+Secrets remain in ignored .env.dev. No migrations, scheduler or fixture services.
+Stop without deleting data: docker compose --env-file .env.dev -f docker-compose.dev.yml stop
+"""
+from pathlib import Path
+import argparse
+import hashlib
+import json
+import secrets
+import shutil
+import socket
+import subprocess
+import urllib.request
+
+ROOT = Path(__file__).resolve().parents[1]
+ENV = ROOT / '.env.dev'
+COMPOSE = ['docker', 'compose', '--project-name', 'valoria-v2-dev', '--env-file', str(ENV),
+           '-f', str(ROOT / 'docker-compose.dev.yml')]
+
+
+def run(args, **kwargs):
+    result = subprocess.run(args, cwd=ROOT, capture_output=True, **kwargs)
+    if result.returncode:
+        raise RuntimeError('Local dev command failed; private diagnostic withheld: ' + args[0])
+    return result.stdout.decode().strip()
+
+
+def sql(query):
+    return run(COMPOSE + ['exec', '-T', 'postgres', 'psql', '-U', 'valoria_dev', '-d',
+                         'valoria_dev', '-At', '-v', 'ON_ERROR_STOP=1', '-c', query])
+
+
+def start_frontend():
+    frontend = ROOT / 'frontend-v2'
+    try:
+        with socket.create_connection(('127.0.0.1', 3002), timeout=2):
+            with urllib.request.urlopen('http://localhost:3002', timeout=30) as response:
+                if b'_next/' not in response.read():
+                    raise RuntimeError('Port 3002 is occupied by a different service; not stopping it.')
+            return
+    except (ConnectionRefusedError, TimeoutError):
+        pass
+    node = shutil.which('node')
+    entry = frontend / 'node_modules/next/dist/bin/next'
+    if not node or not entry.exists():
+        raise RuntimeError('Install Node and run npm ci in frontend-v2 before starting the frontend.')
+    logs = ROOT / '.local'
+    logs.mkdir(exist_ok=True)
+    with (logs / 'frontend-dev.stdout.log').open('ab') as out, (logs / 'frontend-dev.stderr.log').open('ab') as err:
+        subprocess.Popen([node, str(entry), 'dev', '--hostname', '127.0.0.1', '--port', '3002'],
+                         cwd=frontend, stdout=out, stderr=err,
+                         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--preservation-dir', type=Path, default=ROOT.parent / 'private-preservation-20260925')
+    parser.add_argument('--no-frontend', action='store_true')
+    args = parser.parse_args()
+    if not ENV.exists():
+        values = {
+            'DEV_POSTGRES_PASSWORD': secrets.token_hex(32),
+            'JWT_SECRET_KEY': secrets.token_hex(32),
+            'ENVIRONMENT': 'development', 'VALORIA_RUNTIME_PROFILE': 'local',
+            'BACKEND_CORS_ORIGINS': 'http://localhost:3002,http://127.0.0.1:3002,http://localhost:3000',
+            'UF_API_URL': 'https://mindicador.cl/api/uf',
+            'NOMINATIM_URL': 'https://nominatim.openstreetmap.org/search',
+            'NOMINATIM_USER_AGENT': 'Valoria-local-development/2.0',
+            'VALORIA_USE_CONSENSUS': 'false', 'VALUATION_QUALITY_V2_APPLY_MODE': 'guarded',
+            'DATABASE_POOL_SIZE': '5', 'DATABASE_MAX_OVERFLOW': '5',
+            'BETA_SIGNUP_ENABLED': 'false', 'REDIS_ENABLED': 'true',
+        }
+        for key in ['SCHEDULER_ENABLED', 'WORKERS_ENABLED', 'SCHEDULER_STARTUP_CATCHUP_ENABLED',
+                    'SCHEDULER_ENABLE_DISCOVERY', 'SCHEDULER_ENABLE_PORTAL', 'PORTAL_HTTP_ENABLED',
+                    'UF_REFRESH_ON_STARTUP', 'PORTFOLIO_SNAPSHOTS_ENABLED',
+                    'PORTFOLIO_SNAPSHOT_WRITE_ENABLED', 'LISTING_ON_DEMAND_REFRESH_ENABLED',
+                    'VALUATION_FEEDBACK_ENABLED', 'PRODUCT_ANALYTICS_ENABLED', 'NOTIFICATIONS_ENABLED', 'WEBHOOKS_ENABLED']:
+            values[key] = 'false'
+        with ENV.open('x', encoding='utf-8') as stream:
+            stream.write('\n'.join(f'{key}={value}' for key, value in values.items()) + '\n')
+    run(['git', 'check-ignore', str(ENV)])
+    run(COMPOSE + ['up', '-d', '--wait', '--wait-timeout', '90', 'postgres', 'redis'])
+    tables = int(sql("select count(*) from pg_tables where schemaname='public'"))
+    if tables == 0:
+        dump = args.preservation_dir / 'production-avm.dump'
+        manifest = json.loads((args.preservation_dir / 'oracle-preservation-manifest.json').read_text())
+        with dump.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != manifest[dump.name]['sha256']:
+                raise RuntimeError('Backup checksum mismatch; restore refused')
+        with dump.open('rb') as stream:
+            run(COMPOSE + ['exec', '-T', 'postgres', 'pg_restore', '--exit-on-error', '--single-transaction',
+                           '--no-owner', '--no-privileges', '-U', 'valoria_dev', '-d', 'valoria_dev'], stdin=stream)
+        print('Restored preserved data into the NEW dev volume; source backup unchanged.')
+    if sql('select version_num from alembic_version') != '0020':
+        raise RuntimeError('Expected schema 0020. No migrations will be run.')
+    print('Schema 0020 verified. No migrations executed.')
+    run(COMPOSE + ['up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'api'])
+    print('FastAPI dev ready at http://localhost:8000; real UF provider, no reconcile-fixtures.')
+    if not args.no_frontend:
+        start_frontend()
+        print('Frontend dev at http://localhost:3002 (normal mode).')
+
+
+if __name__ == '__main__':
+    main()

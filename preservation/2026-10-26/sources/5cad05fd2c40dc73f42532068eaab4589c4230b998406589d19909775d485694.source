@@ -1,0 +1,139 @@
+from pathlib import Path
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+from sqlalchemy import select
+
+from api.deps import get_radar_service
+from api.v1.radar import OpportunityOut
+from infrastructure.db.models import ListingORM
+from infrastructure.thumbnails.pipeline import Context, Store, work_one
+from infrastructure.thumbnails.security import Download
+from services import thumbnails
+from services.listing_url_lookup import ListingUrlLookupResult
+from tests.integration.test_watchlist_api import client as base_client, auth_headers, listing  # reusable DB/auth fixtures
+
+
+import pytest_asyncio
+
+@pytest_asyncio.fixture
+async def client(base_client):
+    from api.deps import get_rate_limiter
+    from api.rate_limit import RateLimiter
+    from config import get_settings
+    base_client._transport.app.dependency_overrides[get_rate_limiter] = lambda: RateLimiter(redis=None, settings=get_settings().model_copy(update={'rate_limit_enabled':False}))
+    yield base_client
+
+
+@pytest.fixture
+def cache(monkeypatch, tmp_path):
+    store = Store(tmp_path)
+    monkeypatch.setattr(thumbnails, 'get_store', lambda: store)
+    monkeypatch.setattr('api.v1.thumbnails.get_store', lambda: store)
+    yield store
+    store.close()
+
+
+def fixture_source():
+    folder = Path('validation/thumbnail_lab/fixtures')
+    item = json.loads((folder/'manifest.json').read_text())[0]
+    return item, (folder/item['file']).read_bytes()
+
+
+def ready(cache, lid):
+    item, body = fixture_source()
+    cache.request({'listing_id': lid, 'source': 'yapo', 'raw_metadata': {'main_image_url':item['url']}}, Context('radar', True, True, '1'))
+    assert work_one(cache, lambda _: Download(body, item['mime'], 'source', 0))
+    return cache.lookup(lid)
+
+
+async def test_watchlist_real_contract_and_degradation(cache, client, auth_headers, listing, monkeypatch):
+    response = await client.post(f'/api/v1/watchlist/{listing.id}', headers=auth_headers)
+    assert response.status_code == 201
+    response = await client.get('/api/v1/watchlist', headers=auth_headers)
+    assert response.json()[0]['thumbnail'] is None
+    ready(cache, listing.id)
+    response = await client.get('/api/v1/watchlist', headers=auth_headers)
+    ref = response.json()[0]['thumbnail']
+    assert ref['url'].startswith('/api/v1/thumbnails/')
+    assert ref['width'] > 0
+    asset = await client.get(ref['url'])
+    assert asset.status_code == 200 and asset.headers['content-type'] == 'image/webp'
+    assert (await client.get(ref['url'], headers={'If-None-Match':asset.headers['etag']})).status_code == 304
+    assert (await client.get(ref['url'].replace('sig=', 'sig=0'))).status_code == 403
+    key = ref['hash']+'.webp'
+    assert (await client.get('/api/v1/thumbnails/'+key)).status_code == 422
+    (cache.assets/key).unlink()
+    assert (await client.get(ref['url'])).status_code == 404
+    assert (await client.get('/api/v1/watchlist', headers=auth_headers)).json()[0]['thumbnail'] is None
+    monkeypatch.setattr(cache, 'request_many', lambda *_: (_ for _ in ()).throw(OSError('cache down')))
+    response = await client.get('/api/v1/watchlist', headers=auth_headers)
+    assert response.status_code == 200 and response.json()[0]['thumbnail'] is None
+
+
+def opportunity(lid):
+    return OpportunityOut(listing_id=lid, title='Propiedad', comuna='nunoa', price_uf=4000, price_clp=156000000,
+        m2=60, estimated_price_uf=4500, discount_pct=11, score=70, confidence='medium', confidence_label='Media',
+        comparables_used=10, url=None, warnings=[], radar_verdict='review', radar_verdict_message='Revisar', source='yapo')
+
+
+async def test_radar_common_contract(cache, client, auth_headers, listing, monkeypatch):
+    from api.main import create_app
+    from api.deps import _resolve_current_user
+    from infrastructure.db.database import get_db
+    # Use the existing client/app overrides while intercepting only its Radar dependency.
+    app = client._transport.app
+    app.dependency_overrides[get_radar_service] = lambda: SimpleNamespace(opportunities=AsyncMock(return_value=[opportunity(listing.id)]))
+    response = await client.get('/api/v1/radar/opportunities', headers=auth_headers)
+    assert response.status_code == 200 and response.json()[0]['thumbnail'] is None
+    ready(cache, listing.id)
+    response = await client.get('/api/v1/radar/opportunities', headers=auth_headers)
+    assert response.json()[0]['thumbnail']['hash'] == cache.lookup(listing.id)['hash']
+    assert response.json()[0]['score'] == 70
+    monkeypatch.setattr(cache, 'request_many', lambda *_: (_ for _ in ()).throw(OSError()))
+    assert (await client.get('/api/v1/radar/opportunities', headers=auth_headers)).json()[0]['thumbnail'] is None
+
+
+async def test_lookup_common_contract(cache, client, auth_headers, listing, monkeypatch):
+    monkeypatch.setattr('api.v1.listings.lookup_listing_url', AsyncMock(return_value=ListingUrlLookupResult(
+        'found_existing', {'listing_id':listing.id, 'title':'Propiedad'}, [], 'yapo', 'https://www.yapo.cl/test')))
+    monkeypatch.setattr('api.v1.listings._maybe_ensure_lookup_freshness', AsyncMock(return_value=None))
+    monkeypatch.setattr('api.v1.listings.enforce_rate_limit', AsyncMock())
+    async def get():
+        return await client.post('/api/v1/listings/lookup-url', json={'url':'https://www.yapo.cl/test'}, headers=auth_headers)
+    response = await get()
+    assert response.status_code == 200 and response.json()['listing_data']['thumbnail'] is None
+    ready(cache, listing.id)
+    assert (await get()).json()['listing_data']['thumbnail']['width'] > 0
+    monkeypatch.setattr(cache, 'request_many', lambda *_: (_ for _ in ()).throw(OSError()))
+    response = await get()
+    assert response.status_code == 200 and response.json()['listing_data']['thumbnail'] is None
+
+
+async def test_batch_and_restart(cache, session, monkeypatch):
+    refs = [ready(cache, lid) for lid in range(1, 21)]
+    assert len(list(cache.assets.glob('*.webp'))) == 1
+    statements = []
+    cache._db.set_trace_callback(statements.append)
+    payloads = [dict(listing_id=i, source='yapo') for i in range(1,21)]
+    result = cache.request_many(payloads, Context('radar',True,True,'1'))
+    assert all(result.values())
+    assert len([s for s in statements if s.startswith('SELECT * FROM thumbnails')]) == 1
+    assert len([s for s in statements if s == 'BEGIN IMMEDIATE']) == 1
+    reopened = Store(cache.root)
+    assert reopened.lookup(20)['hash'] == refs[0]['hash']
+    reopened.close()
+    source_session = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda:SimpleNamespace(all=lambda:[SimpleNamespace(id=i,source='yapo',raw_metadata={}) for i in range(1,21)]))))
+    resolved = await thumbnails.resolve(source_session, range(1,21), owner=1, surface='radar')
+    assert source_session.execute.await_count == 1 and all(resolved.values())
+
+
+async def test_signature_expiry_and_path(cache, client):
+    ref = thumbnails.signed_reference(ready(cache,1))
+    import re
+    bad = re.sub(r'expires=[0-9]+', 'expires=1', ref.url)
+    assert (await client.get(bad)).status_code == 403
+    assert (await client.get('/api/v1/thumbnails/evil.webp?expires=1&sig=x')).status_code == 403

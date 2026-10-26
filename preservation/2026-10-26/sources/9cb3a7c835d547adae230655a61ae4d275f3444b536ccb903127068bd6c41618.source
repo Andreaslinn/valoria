@@ -1,0 +1,22 @@
+import json,time,statistics
+from pathlib import Path
+import httpx
+ROOT=Path(__file__).resolve().parent.parent;OUT=ROOT/'outputs/house-rules'
+report={'http':{}}
+with httpx.Client(timeout=30) as c:
+    for rol in ['1261-6','1261-7','2481-13']:
+        times=[]
+        for i in range(21):
+            t=time.perf_counter();r=c.post('http://127.0.0.1:8772/api/v1/tasar/sii-valuation',json={'rol':rol});r.raise_for_status()
+            elapsed=1000*(time.perf_counter()-t);body=r.json()
+            assert body['status']=='available' and body['sii_only'] and body['model_used']=='baseline'
+            house=body['house_rules_candidate'];assert house['status']=='ok' and not house['promoted']
+            if i:times.append(elapsed)
+            else:report['http'][rol]={'first_ms':elapsed}
+        report['http'][rol].update(n=20,median_ms=statistics.median(times),p95_ms=sorted(times)[18],
+            baseline_uf=body['value_uf'],candidate_uf=house['value_uf'],effective_n=house['effective_n'])
+    a=c.post('http://127.0.0.1:8772/api/v1/tasar/sii-valuation',json={'address':'Laura Tromben 5631'});a.raise_for_status()
+    assert a.json()['house_rules_candidate']['value_uf']==report['http']['1261-6']['candidate_uf']
+    r=c.post('http://127.0.0.1:3113/backend/api/v1/tasar/sii-valuation',json={'rol':'1261-7'});r.raise_for_status()
+    assert r.json()['house_rules_candidate'];report['frontend_proxy']='passed';report['address_role_equivalence']='passed'
+(OUT/'latency.json').write_text(json.dumps(report,indent=2),encoding='utf8');print(json.dumps(report,indent=2))

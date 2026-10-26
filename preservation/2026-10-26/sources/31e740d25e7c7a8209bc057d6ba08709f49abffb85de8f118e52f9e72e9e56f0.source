@@ -1,0 +1,18 @@
+import subprocess,pathlib,json
+out=pathlib.Path('work/oracle-reference');out.mkdir(exist_ok=True)
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+files={
+ 'portal_runtime.py':'cat /home/ubuntu/apps/valoria/scripts/portal_session_runtime/run_portal_session.py',
+ 'portal_card_first.py':'cat /home/ubuntu/apps/valoria/scripts/portal_session_runtime/scripts/portal_card_first.py',
+ 'portal_session.py':'cat /home/ubuntu/apps/valoria/scripts/portal_session_runtime/scripts/portal_session.py',
+ 'portal_geo_enrichment.py':'cat /home/ubuntu/apps/valoria/scripts/portal_session_runtime/workers/portal_geo_enrichment.py',
+ 'uf_client.py':'docker exec valoria_oracle_beta-api-1 cat infrastructure/external/uf_client.py',
+ 'scheduler.py':'docker exec valoria_oracle_beta-api-1 cat workers/scheduler.py',
+ 'source_units.txt':'systemctl cat valoria-portal-discovery.service valoria-portal-discovery.timer valoria-yapo-discovery.service valoria-yapo-discovery.timer',
+ 'retained_images.txt':"docker image ls --no-trunc --format '{{.ID}} {{.CreatedAt}}'; docker ps -a --format '{{.Names}} {{.Status}}'",
+}
+for name,command in files.items():
+ r=subprocess.run(ssh+[command],capture_output=True,text=True,timeout=35)
+ if r.returncode:raise SystemExit(name+': failed')
+ (out/name).write_text(r.stdout,encoding='utf-8')
+ print(name,len(r.stdout))

@@ -1,0 +1,22 @@
+import json,time,statistics
+from pathlib import Path
+import httpx
+out={}
+with httpx.Client(timeout=30) as c:
+    for case in [{'address':'Samotracia 2071'},{'rol':'1261-6'}]:
+        times=[]
+        for _ in range(20):
+            t=time.perf_counter()
+            response=c.post('http://127.0.0.1:8772/api/v1/tasar/nearby-sales',json=case)
+            response.raise_for_status()
+            times.append((time.perf_counter()-t)*1000)
+            body=response.json()
+            assert body['status']=='ok'
+        out[str(case)]={'n':20,'median_ms':round(statistics.median(times),2),
+             'p95_ms':round(sorted(times)[18],2),'role':body['role'],
+             'total':body['total'],'quality':body['location']['quality']}
+    assert c.get('http://127.0.0.1:3113/tasar').status_code==200
+    assert c.post('http://127.0.0.1:3113/backend/api/v1/tasar/nearby-sales',
+                  json={'rol':'1261-6'}).json()['status']=='ok'
+(Path(__file__).resolve().parent.parent/'outputs/http-validation.json').write_text(json.dumps(out,indent=2),encoding='utf8')
+print(json.dumps(out,indent=2))

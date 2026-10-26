@@ -1,0 +1,12 @@
+import httpx,json
+from playwright.sync_api import sync_playwright
+from pathlib import Path
+root=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work')
+t=httpx.post('http://127.0.0.1:8013/api/v1/auth/login',data={'username':'candidate-a@example.test','password':'[REDACTED]'}).json()['access_token']
+with sync_playwright() as p:
+ b=p.chromium.launch(headless=True);ctx=b.new_context(viewport={'width':1440,'height':1000});ctx.add_init_script('localStorage.setItem("valoria_access_token",'+json.dumps(t)+')');page=ctx.new_page()
+ lines=[]
+ for path in ['portfolio','alerts','radar','analizar-url','tasar']:
+  page.goto('http://127.0.0.1:3003/'+path,wait_until='networkidle');lines.append(path+'\n'+page.locator('body').inner_text()[:9000]+'\nBUTTONS'+str(page.get_by_role('button').all_text_contents()))
+ (root/'browser-dom-inventory.txt').write_text('\n\n'.join(lines),encoding='utf-8');print('\n'.join(lines))
+ b.close()

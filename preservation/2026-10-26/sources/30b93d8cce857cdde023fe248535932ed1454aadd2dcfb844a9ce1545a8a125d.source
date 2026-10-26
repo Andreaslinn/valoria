@@ -1,0 +1,10 @@
+// Loopback-only dev server without Next CLI child-process launcher.
+process.env.NEXT_TELEMETRY_DISABLED = '1';
+process.env.NEXT_PUBLIC_API_BASE_URL = 'http://127.0.0.1:8105';
+const http = require('http');
+const next = require('next');
+const app = next({ dev: true, hostname: '127.0.0.1', port: 3105 });
+app.prepare().then(() => {
+  const handler = app.getRequestHandler();
+  http.createServer(handler).listen(3105,'127.0.0.1',()=>console.log('Thumbnail UI http://127.0.0.1:3105/sandbox'));
+}).catch(error=>{ console.error(error); process.exit(1); });

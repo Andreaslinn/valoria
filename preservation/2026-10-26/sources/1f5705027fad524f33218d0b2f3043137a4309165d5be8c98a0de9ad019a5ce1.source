@@ -1,0 +1,18 @@
+from pathlib import Path
+import os, subprocess
+root=Path('outputs/valoria').resolve()
+main=root/'api/main.py'
+modified=main.read_bytes()
+baseline=subprocess.check_output(['git','-C',str(root),'show','HEAD:api/main.py'])
+env=os.environ.copy()
+env.update(DATABASE_URL='sqlite+aiosqlite:///:memory:',SYNC_DATABASE_URL='sqlite:///:memory:',JWT_SECRET_KEY='0'*32,PROPERTY_LIFE_ENABLED='false')
+python=r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\private-preservation-20260925\local-complete\.venv-win\Scripts\python.exe'
+try:
+    main.write_bytes(baseline)
+    failures=[line.split(' - ')[0].removeprefix('FAILED ') for line in (root/'docs/property_life_suite_off.txt').read_text(encoding='utf-8').splitlines() if line.startswith('FAILED ')]
+    p=subprocess.run([python,'-u','-m','pytest',*failures,
+        '-q','--tb=line'],cwd=root,env=env,capture_output=True,text=True,timeout=120)
+    (root/'docs/property_life_baseline_tests.txt').write_text(p.stdout+p.stderr,encoding='utf-8')
+    print(p.stdout[-5000:])
+finally:
+    main.write_bytes(modified)

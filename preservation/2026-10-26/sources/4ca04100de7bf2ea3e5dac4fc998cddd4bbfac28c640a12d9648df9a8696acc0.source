@@ -1,0 +1,88 @@
+"""Explicitly enabled, bounded production READ ONLY inventory for local backfill.
+
+--emit-standalone emits a self-contained stdin program. No deployment or file
+installation is necessary on the production container. Do not publish the raw
+inventory: it contains private source observations; publish aggregates instead.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+from pathlib import Path
+
+from scripts.audit_sii_linkage_readiness import COMMUNES, FIELD_KEYS, SQL, normalized
+
+HISTORY_SQL = """SELECT o.listing_id,o.source,o.external_id,o.observed_at,o.event_kind,
+ document::jsonb#>>'{raw_state,_source_evidence,stage}' stage,
+ document::jsonb#>>'{raw_state,_source_evidence,parser,sha256}' parser_sha,
+ document::jsonb#>'{raw_state,raw_metadata,published_fields}' raw_fields,
+ document::jsonb#>'{parsed_state,raw_metadata,published_fields}' parsed_fields,
+ document::jsonb#>'{parsed_state,raw_metadata,published_detail_fields}' detail_fields,
+ document::jsonb#>>'{parsed_state,refresh_status}' refresh_status,
+ document::jsonb#>>'{provenance,origin}' geo_origin,
+ document::jsonb#>>'{parsed_state,coordinates_evidence,source}' coordinate_source,
+ document::jsonb#>'{parsed_state,detail,raw_metadata,published_fields}' geo_fields
+ FROM listing_observations o WHERE listing_id=ANY(%s)
+ AND observed_at >= '2026-10-16 08:51:00+00' ORDER BY observed_at"""
+
+
+def collect():
+    import psycopg
+    from psycopg.rows import dict_row
+    dsn = re.sub(r"^postgres(?:ql)?\+(?:asyncpg|psycopg)://", "postgresql://", os.environ["DATABASE_URL"])
+    with psycopg.connect(dsn, row_factory=dict_row, connect_timeout=10,
+                        options="-c default_transaction_read_only=on -c statement_timeout=20000 -c lock_timeout=1000 -c timezone=UTC",
+                        application_name="published_backfill_diagnosis_readonly") as c:
+        c.read_only = True
+        c.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        with c.cursor() as cur:
+            cur.execute("SELECT current_setting('transaction_read_only') ro,transaction_timestamp() as_of")
+            control = cur.fetchone()
+            assert control["ro"] == "on"
+            query = SQL.replace("usable_area_m2,last_seen_at,scraped_at,",
+                                "usable_area_m2,last_seen_at,scraped_at,last_refresh_attempted_at,last_refresh_status,raw_metadata::jsonb->>'published_detail_attempted_at' detail_attempted_at,")
+            cur.execute(query, (list(FIELD_KEYS), list(FIELD_KEYS)))
+            rows = [r for r in cur.fetchall() if normalized(r["comuna"]) in COMMUNES
+                    or normalized(r["comuna"]) == "santiago_centro"]
+            cur.execute(HISTORY_SQL, ([r["id"] for r in rows],))
+            observations = cur.fetchall()
+            cur.execute("""SELECT source,started_at,finished_at,successful,counters FROM ingestion_runs
+                WHERE source IN ('yapo','portal','portalinmobiliario') AND started_at >= '2026-10-16 08:51:00+00'
+                ORDER BY started_at""")
+            runs = cur.fetchall()
+        c.rollback()
+    return {"as_of_utc": control["as_of"], "transaction_read_only": True,
+            "rows": rows, "observations": observations, "runs": runs}
+
+
+def standalone():
+    base = Path(__file__).with_name("audit_sii_linkage_readiness.py").read_text(encoding="utf-8")
+    base = base.rsplit('if __name__ == "__main__":', 1)[0]
+    own = Path(__file__).read_text(encoding="utf-8")
+    own = own.replace("from __future__ import annotations\n", "")
+    return ("import sys, types\n"
+            "m = types.ModuleType('scripts.audit_sii_linkage_readiness')\n"
+            "sys.modules[m.__name__] = m\n"
+            f"exec({ascii(base)}, m.__dict__)\n" + own)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--emit-standalone", action="store_true")
+    parser.add_argument("--production-readonly", action="store_true")
+    args = parser.parse_args()
+    if args.emit_standalone:
+        print(standalone())
+        return
+    if os.environ.get("SII_PUBLISHED_BACKFILL_ENABLED", "false").lower() != "true":
+        print(json.dumps({"enabled": False, "status": "disabled"}))
+        return
+    if not args.production_readonly:
+        parser.error("--production-readonly required; no other connection mode")
+    print(json.dumps(collect(), default=str, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

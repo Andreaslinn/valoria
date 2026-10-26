@@ -1,0 +1,37 @@
+"""One bounded current-state read, encrypted locally; not a temporal truth claim."""
+from pathlib import Path
+import subprocess,json,hashlib,importlib.util,sys
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1]
+def module(name,p):
+ s=importlib.util.spec_from_file_location(name,p);m=importlib.util.module_from_spec(s);sys.modules[name]=m;s.loader.exec_module(m);return m
+remote='''import asyncio,json
+from datetime import datetime,timezone
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+SAFE={'description','title','card_text','detail_text','highlight','product_class_hint','address','address_label','street_hint','location_text','location','neighborhood','subcomuna','geo_signals','geo_microzone_tokens','nearby_metro','nearby_avenue','neighborhood_hint','intersection_hint','microzone_confidence','microzone_reason','geocode_precision','geocode_precision_reason','coordinates_source','location_source','geocode_provider','geocode_query_source','geocode_applied_at','geocode_source','geocode_confidence','geocode_version','lat','lon','latitude','longitude','coordinates','main_image_url','image_urls','building_name','project_name','unit','unit_number','street_number','normalized_address','explicit_studio','parser_source','portal_card_first','accepted_rm'}
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  await s.execute(text("SET LOCAL statement_timeout='20s'"))
+  await s.execute(text("SET LOCAL lock_timeout='1s'"))
+  assert (await s.execute(text('SHOW transaction_read_only'))).scalar()=='on'
+  rows=[dict(r) for r in (await s.execute(text('SELECT * FROM listings ORDER BY id LIMIT 10001'))).mappings()]
+  assert len(rows)<=10000
+  for r in rows:
+   r['raw_metadata']={k:v for k,v in (r.get('raw_metadata') or {}).items() if k in SAFE or k.startswith(('price','currency','uf_'))}
+  hist=[dict(r) for r in (await s.execute(text('SELECT source,count(*) AS n,min(observed_at)::text AS first_observed,max(observed_at)::text AS last_observed,count(DISTINCT external_id) AS publications FROM listing_observations GROUP BY source'))).mappings()]
+  print(json.dumps({'captured_at':datetime.now(timezone.utc).isoformat(),'transaction_read_only':'on','listings':rows,'history_aggregate':hist},default=str))
+asyncio.run(main())
+'''
+if __name__=='__main__':
+ path=HERE/'current_snapshot.json.dpapi'
+ assert not path.exists(),'Refuse snapshot overwrite'
+ cmd=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','docker exec -i valoria_oracle_beta-api-1 python -B -']
+ p=subprocess.run(cmd,input=remote.encode(),capture_output=True,timeout=65)
+ if p.returncode:raise RuntimeError('ReadOnlyCaptureFailed; remote diagnostics withheld')
+ data=json.loads(p.stdout);assert data['transaction_read_only']=='on'
+ crypto=module('local_crypto',ROOT/'private-ingestion-production-20261004/recovery_tools.py')
+ cipher=crypto.protect(p.stdout);path.write_bytes(cipher)
+ meta={'captured_at':data['captured_at'],'rows':len(data['listings']),'transaction_read_only':'on','plaintext_sha256':hashlib.sha256(p.stdout).hexdigest(),'ciphertext_sha256':hashlib.sha256(cipher).hexdigest(),'history_aggregate':data['history_aggregate'],'privacy':'allowlisted metadata; DPAPI CurrentUser, no plaintext snapshot'}
+ (HERE/'current_snapshot_manifest.json').write_text(json.dumps(meta,indent=2),encoding='utf-8')
+ print(json.dumps(meta))

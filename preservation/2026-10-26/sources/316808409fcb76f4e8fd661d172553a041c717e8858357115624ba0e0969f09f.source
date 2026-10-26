@@ -1,0 +1,27 @@
+from pathlib import Path
+import subprocess,json
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+ssh=ssh[:1]+['-o','KexAlgorithms=ecdh-sha2-nistp256','-o','Ciphers=aes128-ctr','-o','HostKeyAlgorithms=ssh-ed25519','-o','IPQoS=none']+ssh[1:]
+remote='''import subprocess,json,pathlib,re
+def run(args):return subprocess.run(args,text=True,capture_output=True,timeout=30).stdout
+units={}
+for unit in ['valoria-portal-discovery.service','valoria-portal-discovery.timer']:
+ units[unit]=run(['systemctl','show',unit,'--property=Result,ExecMainStatus,ActiveState,ExecMainStartTimestamp,ExecMainExitTimestamp,LastTriggerUSec,NextElapseUSecRealtime'])
+logs=run(['journalctl','-u','valoria-portal-discovery.service','--since','3 days ago','-n','250','--output=json','--no-pager'])
+reports=[];errors=[]
+for line in logs.splitlines():
+ try:
+  entry=json.loads(line);message=entry.get('MESSAGE','');start=message.find('{')
+  for error in re.findall(r"(\\w*(?:Error|Exception))(?::|\\b)",message): errors.append(error)
+  if start<0:continue
+  data=json.loads(message[start:])
+  safe={k:v for k,v in data.items() if isinstance(v,(int,float,bool)) and not isinstance(v,str)}
+  if safe:reports.append({'timestamp_us':entry.get('__REALTIME_TIMESTAMP'),'counts':safe,'keys':list(data),'safe_nested':{k:v for k,v in data.items() if isinstance(v,dict) and all(isinstance(x,(int,float,bool,type(None))) for x in v.values())}})
+ except (ValueError,TypeError):pass
+marker=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session/reauth_required.json')
+paths=list(pathlib.Path('/home/ubuntu/apps/valoria').glob('**/*portal*latest*.json'))
+print(json.dumps({'units':units,'recent_reports':reports[-10:],'error_classes':errors[-15:],'report_paths':[str(p) for p in paths if 'private' not in str(p)],'reauth_required_marker_exists':marker.exists()}))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,encoding='utf-8',capture_output=True,timeout=60)
+assert r.returncode==0,r.stderr[-1000:]
+d=json.loads(r.stdout);Path('work/portal-recent-status-20261015.json').write_text(json.dumps(d,indent=2),encoding='utf-8');print(json.dumps(d,indent=2))

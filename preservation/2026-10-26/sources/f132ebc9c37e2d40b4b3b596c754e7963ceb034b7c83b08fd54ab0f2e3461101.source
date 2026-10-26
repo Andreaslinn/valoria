@@ -1,0 +1,61 @@
+import json,zipfile,io,hashlib,csv,math,subprocess
+from pathlib import Path
+import pyarrow.parquet as pq
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/geografia-existente-1261-6';REPO=ROOT/'valoria'
+def load(n):return json.loads((OUT/n).read_text(encoding='utf8'))
+def save(n,x):(OUT/n).write_text(json.dumps(x,indent=2,ensure_ascii=False,default=str),encoding='utf8')
+inv=load('ZIP-datos-geograficos.json');db=load('SII-inventario.json')
+archives=[Path('C:/Users/heiko/Downloads')/n for n in ['valoria_alertas_obra_mvp.zip','valoria_entorno_mvp_v2.zip','valoria_entorno_mvp_v2.1.zip','Valoria_Cerro_Blanco_2120_Datos_y_MVP_revision.zip']]
+checks=[]
+def check(n,ok):assert ok,n;checks.append({'control':n,'status':'PASS'})
+zpath=archives[2];prefix='valoria_entorno_mvp_v2.1/'
+with zipfile.ZipFile(zpath) as z:
+    blocks=pq.read_table(io.BytesIO(z.read(prefix+'data/processed/manzanas.parquet'))).to_pylist()
+    cache=json.loads(z.read(prefix+'data/cache/sii_predio_coords.json'))
+    provenance=json.loads(z.read(prefix+'data/provenance.json'))
+    for n in ['valoria_entorno/config.py','pipeline/build_data.py','valoria_entorno/locate.py','valoria_entorno/textnorm.py','data/cache/sii_predio_coords.json','data/provenance.json']:
+        dest=OUT/'artefactos-texto'/zpath.stem/prefix/n;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(z.read(prefix+n))
+pred=next(r for r in inv if r['archive']==str(zpath) and r['member'].endswith('predios.parquet'))
+pkeys={(r['c'],r['mz'],r['pr']):r for r in pred['target_and_selected_rows']}
+blockkeys={(r['c'],r['mz']):r for r in blocks}
+result=[]
+for r in db['roles']:
+    c,m,p=map(int,r['rol'].split('-'));old=pkeys[(c,m,p)];b=blockkeys.get((c,m))
+    current=next(x for x in r['predio_versions'] if x['source_file_id']==9)
+    check('Identity and address '+r['rol'],old['dir']==current['direccion_raw'] and (old['c'],old['mz'],old['pr'])==(c,m,p))
+    result.append({'rol':r['rol'],'purpose':r['purpose'],'rank':r.get('rank'),'raw_id':r.get('raw_id'),'direccion':old['dir'],'comuna_SII':c,'comuna_INE':current['comuna_ine'],'manzana':m,'SII_local_coordinate':bool(r['geo']),'artifact_point_lat':old['lat'],'artifact_point_lon':old['lon'],'artifact_point_method':old.get('geo_method'),'SII_cached_exact_point':cache.get(r['rol']),'block_center_lat':b['lat'] if b else None,'block_center_lon':b['lon'] if b else None,'block_radius_m':b['radius_m'] if b else None,'block_geocoded_role_count':b['n_geo'] if b else None,'block_role_count':b['n_roles'] if b else None,'block_method':'median_of_OSM_and_interpolated_role_points' if b else 'identifier_only_no_point','block_polygon':False,'is_exact_parcel':False,'point_source':str(zpath)+'::'+prefix+'data/processed/predios.parquet','block_source':str(zpath)+'::'+prefix+'data/processed/manzanas.parquet'})
+save('roles-y-manzanas-verificados.json',result)
+with (OUT/'roles-y-manzanas-verificados.csv').open('w',newline='',encoding='utf-8-sig') as f:
+    w=csv.DictWriter(f,fieldnames=list(result[0]));w.writeheader();w.writerows(result)
+targetblock=blockkeys[(15160,1261)]
+anchorroles=[r for r in pred['block_1261_rows'] if r['lat'] is not None]
+save('manzana-1261-procedencia.json',{'block':targetblock,'geocoded_roles_used':anchorroles,'SII_source_9_hash':next(s['hash'] for s in db['sources'] if s['id']==9),'artifact_N_hash_prefix':provenance['sii_catastro_2026_2']['files']['BRTMPCATASN_2026_2_15160'],'cache_points':cache,'user_clarification':'Hark entregaba respuesta a una dirección, pero no entregó archivos. No se atribuyen a Hark los ZIP locales sin evidencia de autoría.'})
+check('SII geo table truly empty',db['geo_total']['total']==0)
+check('No target exact coordinate in current table',not db['roles'][0]['geo'])
+check('Target missing direct OSM/interpolated point',result[0]['artifact_point_lat'] is None)
+check('Target not in SII map cache','15160-1261-6' not in cache)
+check('5 of 10 comparables have point',sum(r['artifact_point_lat'] is not None for r in result[1:])==5)
+check('All 5 points are interpolation',all(r['artifact_point_method']=='interpolacion_calle' for r in result[1:] if r['artifact_point_lat'] is not None))
+check('9 of 10 comparables have approximate block point',sum(r['block_center_lat'] is not None for r in result[1:])==9)
+check('Block 1261 based on two interpolated roles',targetblock['n_geo']==2 and len(anchorroles)==2 and all(r['geo_method']=='interpolacion_calle' for r in anchorroles))
+check('Matching catastro source hash prefix',next(s['hash'] for s in db['sources'] if s['id']==9).startswith(provenance['sii_catastro_2026_2']['files']['BRTMPCATASN_2026_2_15160']))
+other_geo=[]
+with zipfile.ZipFile(archives[3]) as z:
+    for n in z.namelist():
+        if n.endswith('.geojson'):
+            raw=z.read(n);d=json.loads(raw);features=d.get('features',[])
+            property_names=sorted({k for f in features for k in f.get('properties',{})})
+            other_geo.append({'archive':str(archives[3]),'member':n,'features':len(features),'geometry_types':sorted({f.get('geometry',{}).get('type','unknown') for f in features if f.get('geometry')}),'property_fields':property_names,'sha256':hashlib.sha256(raw).hexdigest(),'example_properties':features[0].get('properties') if features else None,'matching_role_text':sum('1261-6' in json.dumps(f.get('properties',{})) for f in features)})
+    for n in ['mvp/data/processed/ine_pe.parquet','mvp/data/processed/ine_crf.parquet']:
+        raw=z.read(n);pf=pq.ParquetFile(io.BytesIO(raw));other_geo.append({'archive':str(archives[3]),'member':n,'row_count':pf.metadata.num_rows,'schema':str(pf.schema_arrow),'sha256':hashlib.sha256(raw).hexdigest()})
+save('otras-capas-geograficas.json',other_geo)
+hashes=[]
+for p in archives:
+    h=hashlib.sha256()
+    with p.open('rb') as f:
+        while b:=f.read(1024*1024):h.update(b)
+    hashes.append({'archive':str(p),'bytes':p.stat().st_size,'sha256':h.hexdigest()})
+save('archivos-fuente-hashes.json',hashes)
+check('Product working tree clean',not subprocess.check_output(['git','status','--porcelain'],cwd=REPO,text=True).strip())
+save('CONTROLES.json',checks)
+print(json.dumps({'targetblock':targetblock,'anchors':anchorroles,'roles':result,'controls':len(checks),'artifact_counts':{'all_roles':pred['row_count'],'geocoded_roles':pred['geo_nonnull_count'],'vitacura_roles':pred['vitacura_rows'],'vitacura_geo':pred['vitacura_geo_count']},'other_geo':[{'member':x['member'],'features':x.get('features'),'geometry_types':x.get('geometry_types'),'row_count':x.get('row_count')} for x in other_geo]},ensure_ascii=False,indent=2))

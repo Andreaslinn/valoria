@@ -1,0 +1,14 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+code='''import subprocess,json
+name='valoria-remediation-restore-check'
+c=json.loads(subprocess.check_output(['docker','inspect',name],text=True))[0]
+import re
+assert c['Name']=='/'+name and c['HostConfig']['NetworkMode']=='none', 'Refuse cleanup: unexpected restored-copy identity'
+assert all(m['Type']=='volume' and re.fullmatch('[0-9a-f]{64}',m.get('Name','')) and m['Destination']=='/var/lib/postgresql/data' for m in c['Mounts']), 'Refuse cleanup: unexpected restored-copy storage'
+subprocess.run(['docker','rm','-f','-v',name],check=True,capture_output=True)
+print(json.dumps({'removed_only_ephemeral_restore_copy':name,'production_services_untouched':True,'protected_backups_preserved':True}))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=45)
+p=Path(__file__).resolve().parents[1]/'outputs/acceptance-evidence/restore-copy-cleanup.json';p.write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr);raise SystemExit(r.returncode)

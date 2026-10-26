@@ -1,0 +1,118 @@
+import json
+import shutil
+import socket
+from pathlib import Path
+from datetime import date
+import pytest
+
+from api.sii_closing_contract import SiiClosingOpinionOut
+from services.sii.closing_opinion import build_opinion
+from services.sii.pure_valuation import sii_valuation
+from services.sii.hybrid_activation import load_hybrid_activation
+
+ROOT=Path(__file__).resolve().parents[4]
+GEO=ROOT/'outputs/integrated/vitacura'
+PHASE1=ROOT/'outputs/house-rules'
+PHASE2=ROOT/'outputs/house-hybrid'
+
+
+@pytest.fixture
+def approved(monkeypatch):
+    if not (PHASE1/'hybrid-activation.json').exists():pytest.skip('Local approved artifacts required')
+    monkeypatch.setenv('SII_HOUSE_RULES_DIR',str(PHASE1))
+    monkeypatch.setenv('SII_GEOGRAPHY_DATA_DIR',str(GEO))
+    monkeypatch.delenv('SII_MICROMARKET_DIR',raising=False)
+    monkeypatch.setattr(socket,'create_connection',lambda *a,**k:pytest.fail('External request'))
+    return monkeypatch
+
+
+@pytest.mark.parametrize('rol',['1261-6','1261-7','2481-13'])
+def test_approved_hybrid_sets_headline_range_comparables_and_confidence(approved,rol):
+    r=sii_valuation(rol=rol,data_dir=GEO)
+    expected=next(x for x in json.loads((PHASE2/'cases.json').read_text()) if x['target']['rol']=='15160-'+rol)
+    assert r['status']=='available' and r['house_hybrid_active'] is True
+    for k in ['model_used','motivo','confianza','value_uf','p25_uf','p75_uf','effective_n']:assert r[k]==expected[k]
+    assert r['confidence_label']=={'alta':'Confianza alta','media':'Confianza media'}[expected['confianza']]
+    assert {str(c['raw_id']) for c in r['selected_comparables']}=={str(c['raw_id']) for c in expected['comparables']}
+    assert all('rol' not in c and 'building' not in c and c['uf']>0 for c in r['selected_comparables'])
+    assert r['house_rules_candidate']['hybrid']['active'] is True
+    assert r['house_rules_candidate']['hybrid']['approval_pending'] is False
+    validation=r['house_rules_candidate']['hybrid']['validation']
+    assert validation['n']==818 and validation['candidate_coverage_pct']==100
+    assert validation['candidate']['mdape_pct']==pytest.approx(13.238443274482659)
+    public=SiiClosingOpinionOut.model_validate(r).model_dump()
+    assert all(public[k]==r[k] for k in ['model_used','motivo','confianza','house_hybrid_active'])
+
+
+@pytest.mark.parametrize('reason',['sin_terreno','geografia','sin_comparables','iqr'])
+def test_approved_fallback_is_same_frozen_baseline_at_historical_date(approved,reason):
+    expected=next(x for x in json.loads((PHASE2/'predictions.json').read_text()) if x['hybrid']['motivo']==reason)
+    r=build_opinion(address='',rol=expected['rol'],comuna='vitacura',property_type='house',area=0,
+                    as_of=date.fromisoformat(expected['date']),data_dir=str(GEO))
+    assert r['status']=='available' and r['house_hybrid_active'] is True
+    assert r['model_used']=='baseline' and r['motivo']==reason
+    assert r['value_uf']==expected['baseline']['value_uf']
+    assert r['confianza']==('media' if reason=='sin_terreno' else 'baja')
+    assert len(r['selected_comparables'])==10
+
+
+def test_approval_switch_changes_price_without_changing_the_frozen_policy(approved):
+    import services.sii.house_opinion as house
+    active=sii_valuation(rol='1261-6',data_dir=GEO)
+    approved.setattr(house,'load_hybrid_activation',lambda root:None)
+    pending=sii_valuation(rol='1261-6',data_dir=GEO)
+    assert active['value_uf']!=pending['value_uf']
+    assert active['baseline_value_uf']==pending['value_uf']
+    assert pending['model_used']=='baseline'
+    assert json.loads((PHASE1/'policy.json').read_text())['house_model']=='baseline'
+
+
+def test_departments_remain_identical_with_local_approval(approved):
+    rol=next(r['rol'] for r in json.loads((GEO/'closings.json').read_text()) if r['kind']=='depto')
+    active=sii_valuation(rol=rol,data_dir=GEO)
+    approved.delenv('SII_HOUSE_RULES_DIR')
+    assert active==sii_valuation(rol=rol,data_dir=GEO)
+
+
+def test_no_stale_price_when_active_hybrid_has_no_signal(approved):
+    approved.setattr('services.sii.house_opinion.hybrid_candidate',lambda *a:{
+        'status':'unavailable','model_used':'baseline','motivo':'sin_comparables','confianza':'baja','comparables':[]})
+    r=sii_valuation(rol='1261-6',data_dir=GEO)
+    assert r['status']=='unavailable' and 'value_uf' not in r
+    assert r['model_used']=='baseline' and r['confianza']=='baja'
+
+
+@pytest.fixture
+def copied_approval(tmp_path):
+    one=tmp_path/'house-rules';two=tmp_path/'house-hybrid'
+    one.mkdir();two.mkdir()
+    for name in ['policy.json','hybrid-activation.json']:shutil.copyfile(PHASE1/name,one/name)
+    for name in ['protocol.json','evaluation.json','decision.json']:shutil.copyfile(PHASE2/name,two/name)
+    return one
+
+
+def test_guard_accepts_valid_evidence_and_rejects_changed_evaluation(copied_approval):
+    assert load_hybrid_activation(copied_approval)['approved']
+    p=copied_approval.parent/'house-hybrid/evaluation.json'
+    p.write_text(p.read_text()+' ')
+    with pytest.raises(ValueError,match='artifact_changed'):load_hybrid_activation(copied_approval)
+
+
+@pytest.mark.parametrize('field,value',[('approved',False),('scope',{'comuna':15108,'kind':'casa'})])
+def test_guard_rejects_unapproved_or_out_of_scope(copied_approval,field,value):
+    p=copied_approval/'hybrid-activation.json';a=json.loads(p.read_text());a[field]=value;p.write_text(json.dumps(a))
+    with pytest.raises(ValueError,match='approval_invalid'):load_hybrid_activation(copied_approval)
+
+
+def test_invalid_activation_preserves_safe_baseline_with_explicit_reason(approved):
+    def invalid(root):raise ValueError('changed')
+    approved.setattr('services.sii.house_opinion.load_hybrid_activation',invalid)
+    r=sii_valuation(rol='1261-6',data_dir=GEO)
+    assert r['model_used']=='baseline' and r['house_hybrid_active'] is False
+    assert r['motivo']=='artefactos_no_validados' and r['confidence_label']=='Confianza baja'
+
+
+def test_other_communes_cannot_activate(approved):
+    from services.sii.house_opinion import apply_house_policy
+    b={'status':'ok','value_uf':12345}
+    assert apply_house_policy({'comuna':15108,'kind':'casa'},b,GEO)==(b,{},None)

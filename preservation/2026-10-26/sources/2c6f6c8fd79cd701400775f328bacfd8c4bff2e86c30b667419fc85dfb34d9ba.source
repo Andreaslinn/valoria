@@ -1,0 +1,50 @@
+from pathlib import Path
+import subprocess,json
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+candidate=json.loads(Path(__file__).with_name('radar-candidate-image.json').read_text())
+assert '1971 passed' in Path(__file__).with_name('radar-backend-tests.log').read_text(encoding='utf-8')
+assert '90 passed' in Path(__file__).with_name('radar-active-deps-tests.log').read_text(encoding='utf-8')
+assert json.loads(Path(__file__).with_name('radar-shared-candidate-parity.json').read_text())['all_rows_match_tasar']
+code='''import pathlib,subprocess,json,hashlib,time,os
+root=pathlib.Path('/home/ubuntu/apps/valoria');back=pathlib.Path('/home/ubuntu/backups/radar-tasar-engine-20261013');assert (back/'manifest.json').is_file()
+before=json.loads((back/'api-before-private.json').read_text());saved=json.loads((back/'preservation-state-private.json').read_text());name='valoria_oracle_beta-api-1'
+def inspect(n):return json.loads(subprocess.check_output(['docker','inspect',n]))[0]
+assert inspect(name)['Id']==before['Id'] and inspect(name)['State']['Health']['Status']=='healthy'
+release_env=dict(os.environ,PORTAL_GEO_RELEASE_IMAGE=before['Config']['Image'])
+def run(args,timeout=100):
+ r=subprocess.run(args,text=True,capture_output=True,env=release_env,timeout=timeout)
+ assert r.returncode==0,'Controlled API command failed; sensitive diagnostics withheld'
+ return r.stdout
+base=['docker','compose','--project-name','valoria_oracle_beta','--env-file',str(root/'deploy/oracle.env')]
+for file in before['Config']['Labels']['com.docker.compose.project.config_files'].split(','):base+=['-f',file]
+override=root/'deploy/radar-tasar-engine.override.yml';assert not override.exists()
+# Use literal newline construction to avoid shell or credential interpolation.
+override.write_text(chr(10).join(['services:','  api:','    image: '+CANDIDATE['image'],'']));override.chmod(0o600)
+new=base+['-f',str(override)]
+original=json.loads(run(base+['config','--format','json']));updated=json.loads(run(new+['config','--format','json']))
+for service in original['services']:
+ if service!='api':assert original['services'][service]==updated['services'][service]
+old_api=original['services']['api'];new_api=updated['services']['api'];assert new_api['image']==CANDIDATE['image']
+assert {k:v for k,v in old_api.items() if k!='image'}=={k:v for k,v in new_api.items() if k!='image'}
+assert run(['docker','image','inspect',new_api['image'],'--format','{{.Id}}']).strip()==CANDIDATE['image_id']
+out={'old_image':before['Image'],'new_image':CANDIDATE['image_id'],'revision':CANDIDATE['revision'],'fingerprint':CANDIDATE['fingerprint'],'schema_changed':False,'configuration_diff':'api.image only'}
+def wait_healthy(image):
+ for _ in range(25):
+  state=inspect(name)
+  if state['Image']==image and state['State'].get('Health',{}).get('Status')=='healthy':return state
+  time.sleep(2)
+ raise RuntimeError('API health deadline exceeded')
+try:
+ run(new+['up','-d','--no-deps','--no-build','api'],120);current=wait_healthy(CANDIDATE['image_id'])
+ check="import httpx,json;from services.v2_contract import check_v2_contract;c=httpx.Client();s=c.get('http://127.0.0.1:8000/openapi.json').json();cap=c.get('http://127.0.0.1:8000/api/v1/health/capabilities').json();assert cap['code_fingerprint']=="+repr(CANDIDATE['fingerprint'])+";assert not check_v2_contract(s,cap);print('served_contracts_pass')"
+ assert 'served_contracts_pass' in run(['docker','exec',name,'python','-B','-c',check],45)
+ for container,identity in saved['other_container_ids'].items():
+  other=inspect(container);assert other['Id']==identity and other['State']['StartedAt']==saved['other_started_at'][container]
+ session=root/'private/portal-session/session.json';out['portal_session_unchanged']=hashlib.sha256(session.read_bytes()).hexdigest()==saved['portal_session_sha256']
+ assert any(x.get('Destination')=='/portal-session' and x.get('RW') is False for x in current['Mounts'])
+ out.update(status='healthy_and_contracts_pass',other_containers_unchanged=True,session_mount_readonly=True,api_started=current['State']['StartedAt'])
+except Exception:
+ run(base+['up','-d','--no-deps','--no-build','api'],120);wait_healthy(before['Image']);out['status']='rolled_back';print(json.dumps(out));raise
+p=back/'release-result.json';p.write_text(json.dumps(out,indent=2));p.chmod(0o600);print(json.dumps(out,indent=2))
+'''.replace('CANDIDATE',repr(candidate))
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=240);print(r.stdout);print(r.stderr[-1500:] if r.returncode else '');Path(__file__).with_name('radar-api-release-result.json').write_text(r.stdout,encoding='utf-8');r.check_returncode()

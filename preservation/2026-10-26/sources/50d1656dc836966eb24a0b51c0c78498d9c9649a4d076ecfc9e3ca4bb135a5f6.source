@@ -1,0 +1,74 @@
+"""Access failures remain fail-closed and produce useful, secret-free counters."""
+import json
+from decimal import Decimal
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from scripts import portal_card_first as discovery
+
+
+@pytest.mark.parametrize(
+    "status,body,state",
+    [
+        (200, "<html><body>Unrecognized response</body></html>", "unexpected"),
+        (200, "<html><body>Verifica que eres humano</body></html>", "captcha_visible"),
+        (403, "Forbidden", "blocked"),
+        (429, "Rate limited", "blocked"),
+    ],
+)
+async def test_search_failure_records_status_and_state_without_ingestion(monkeypatch, status, body, state):
+    async def handler(request):
+        return httpx.Response(status, text=body, headers={"set-cookie": "private-cookie"})
+
+    report, calls = await _run_mocked(monkeypatch, handler)
+    assert report["blocked_or_captcha"] == 1
+    assert report[f"access_search_http_{status}"] == 1
+    assert report[f"access_search_state_{state}"] == 1
+    assert len(calls) == 1
+    assert "private-cookie" not in json.dumps(report)
+
+
+async def test_account_redirect_records_cause_without_logging_queries_or_cookies(monkeypatch):
+    async def handler(request):
+        if request.url.path.startswith("/venta/"):
+            return httpx.Response(302, headers={"location": "/gz/account-verification?tid=private-token&go=private-destination"})
+        return httpx.Response(200, text='<html><body>Ingresa a tu cuenta <a href="/login">Ya tengo cuenta</a></body></html>')
+
+    report, calls = await _run_mocked(monkeypatch, handler)
+    assert report["access_search_http_200"] == 1
+    assert report["access_search_state_login_page"] == 1
+    assert report["access_search_redirect_http_302"] == 1
+    assert report["access_search_route_account_verification"] == 1
+    assert report["blocked_or_captcha"] == 1
+    assert len(calls) == 2
+    assert "private-" not in json.dumps(report)
+
+
+async def _run_mocked(monkeypatch, handler):
+    calls = []
+    original_client = httpx.AsyncClient
+
+    async def tracked(request):
+        calls.append(str(request.url))
+        return await handler(request)
+
+    async def no_op(*args, **kwargs):
+        pass
+
+    async def uf(*args, **kwargs):
+        return SimpleNamespace(rate=Decimal("40000"))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("An access failure must never parse cards or persist data")
+
+    monkeypatch.setattr(discovery, "get_settings", lambda: SimpleNamespace(portal_http_enabled=True, portal_geo_detail_budget=0, redis_url="redis://unused", uf_api_url="https://unused.invalid"))
+    monkeypatch.setattr(discovery.Redis, "from_url", lambda *a, **kw: SimpleNamespace(aclose=no_op))
+    monkeypatch.setattr(discovery, "require_real_uf_rate", uf)
+    monkeypatch.setattr(discovery.RateLimiter, "wait", no_op)
+    monkeypatch.setattr(discovery.httpx, "AsyncClient", lambda **kw: original_client(transport=httpx.MockTransport(tracked), **kw))
+    monkeypatch.setattr(discovery.PortalInmobiliarioScraper, "parse_listings_detailed", forbidden)
+    monkeypatch.setattr(discovery, "_persist", forbidden)
+    report = await discovery.run(apply=True, max_pages=1, max_details=0, pause_s=0)
+    return report, calls

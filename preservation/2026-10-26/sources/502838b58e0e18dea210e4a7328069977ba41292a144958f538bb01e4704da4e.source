@@ -1,0 +1,24 @@
+"""Read-only inventory probes; no prices printed or used."""
+from pathlib import Path
+import csv,json,re
+from collections import Counter
+H=Path(__file__).resolve().parent
+BASE=H.parents[1]
+with (BASE/'research/tasar_avm_audit_20261002/candidate_dataset_with_group_id.csv').open(encoding='utf-8') as f:
+    ids={int(r['id']) for r in csv.DictReader(f)}
+snapshot=json.loads((BASE/'research/tasar_avm_audit_20261002/input_snapshot.json').read_text(encoding='utf-8'))
+rows=[r for r in snapshot['listings'] if r['id'] in ids]
+keys=['address','address_label','street_hint','location_text','location','description','card_text','detail_text',
+      'neighborhood','subcomuna','geo_signals','coordinates_source','location_source']
+for source in sorted({r['source'] for r in rows}):
+    p=[r for r in rows if r['source']==source]
+    print(source,len(p),{k:sum(bool(r['raw_metadata'].get(k)) for r in p) for k in keys})
+print('address-shape examples (all numbers masked):')
+values=sorted({str(r['raw_metadata'].get('address') or r['raw_metadata'].get('address_label') or '') for r in rows})
+for x in values[:25]:
+    if x: print(re.sub(r'\d+','#',x)[:130])
+print('unit hints count',sum(bool(re.search(r'\b(?:depto|departamento|dpto|unidad|apartamento)\s*(?:n[°ºo]?\s*)?\d+',
+    str(r['raw_metadata'].get('address') or r['raw_metadata'].get('address_label') or ''),re.I)) for r in rows))
+print('url hosts',Counter(re.sub(r'(https?://[^/]+).*',r'\1',r.get('url') or '') for r in rows))
+print('metadata keys with possible history/image/id', {k:v for k,v in snapshot['metadata_key_counts'].items()
+    if any(t in k.lower() for t in ('history','previous','image','broker','external','normalized','address','unit','building','project'))})

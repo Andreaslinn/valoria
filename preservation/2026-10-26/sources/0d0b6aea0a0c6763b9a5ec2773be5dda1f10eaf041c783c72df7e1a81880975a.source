@@ -1,0 +1,75 @@
+import unittest,tempfile,json,copy,sys
+from pathlib import Path
+from common import H,REPO
+from ingestion import cohort,is_modern_ingestion,append_observation,evidence_yapo,evidence_portal,geo,address_parts
+from replay import decode_yapo,decode_portal,build_hash
+FIX=REPO/'tests/fixtures'
+
+class EvidenceTests(unittest.TestCase):
+    def row(self):
+        return dict(source='yapo',external_id='123',url='https://www.yapo.cl/x/123',m2=50,bedrooms=2,bathrooms=1,price_uf=3000,price_currency='UF',raw_metadata={'parser_source':'yapo_search_payload'})
+    def test_modern_not_date_based(self):
+        r=self.row();r['created_at']='2020-01-01';self.assertTrue(is_modern_ingestion(r))
+        r['raw_metadata']={};r['created_at']='2099-01-01';self.assertFalse(is_modern_ingestion(r))
+    def test_legacy_missing_uf_never_reconstructed(self):
+        r=self.row();r['price_uf']=None;r['price_clp']=111000000; self.assertFalse(cohort(r)['modern_avm_usable']);self.assertEqual(cohort(r)['status'],'legacy')
+    def test_recovered_prices_excluded(self):
+        r=self.row();r['price_uf_source']='recovered_high_confidence';self.assertFalse(cohort(r)['modern_avm_usable'])
+    def test_current_portal_marker_without_fake_date(self):
+        r=self.row();r['source']='portalinmobiliario';r['raw_metadata']={'portal_card_first':True};self.assertTrue(cohort(r)['modern_avm_usable'])
+    def test_bad_prices_and_area(self):
+        for v in [0,-1,float('nan'),float('inf'),False]:
+            r=self.row();r['price_uf']=v;self.assertFalse(cohort(r)['modern_avm_usable'])
+        r=self.row();r['m2']=2025;self.assertFalse(cohort(r)['modern_avm_usable'])
+    def test_low_clp_existing_guard(self):
+        r=self.row();r['price_currency']='CLP';r['price_clp']=1975;self.assertFalse(cohort(r)['modern_avm_usable'])
+    def test_raw_and_parsed_append_only(self):
+        d=H/'private/test_append_only'
+        d.mkdir(parents=True,exist_ok=True)
+        # Unique persistent test folder: no recursive deletion, no Temp ACL dependency.
+        import uuid
+        d=d/str(uuid.uuid4())
+        if True:
+            for i in range(3):
+                r=self.row();r['bedrooms']=i+1
+                append_observation(d,r,f'raw{i}'.encode(),source_url=r['url'],observed_at=f't{i}',build_hash='hash',stage='live_card')
+            rows=[json.loads(s) for s in (Path(d)/'observations.jsonl').read_text().splitlines()]
+            self.assertEqual([r['bedrooms'] for r in rows],[1,2,3]);self.assertEqual(len({r['observation_id'] for r in rows}),3)
+            self.assertEqual(len(list((Path(d)/'raw').glob('*.bin'))),3)
+            append_observation(d,r,b'raw2',source_url=r['url'],observed_at='t2',build_hash='hash',stage='live_card')
+            self.assertEqual(len((Path(d)/'observations.jsonl').read_text().splitlines()),3)
+    def test_yapo_preserves_all_raw_images_and_unknown_fields(self):
+        rows=decode_yapo((FIX/'yapo_modern_results_sanitized.html').read_bytes(),'fixture://x','t')
+        r=rows[0];self.assertEqual(len(r['evidence']['images_raw']),1);self.assertTrue(r['evidence']['image_ids']);self.assertIn('zoom',r['evidence']['location_raw'])
+        item={'title':'raw','images':['https://x.test/a','https://x.test/b'],'location':{},'square':'45,5'}
+        e=evidence_yapo(item);self.assertEqual(len(e['image_urls']),2);self.assertEqual(e['surfaces_raw']['square'],'45,5')
+    def test_portal_actual_gallery_and_lost_specs(self):
+        r=decode_portal((FIX/'portal_detail_real_1_sanitized.html').read_bytes(),'https://x.test/MLC-1949798443',True)[0]
+        e=r['evidence'];self.assertEqual(len(e['image_ids']),19);self.assertTrue(e['description_raw']);self.assertTrue(e['project_listing']);self.assertIn('UNIT_FLOOR',[v['id'] for v in e['physical_raw']])
+        self.assertIsNone(e['address_parsed']['unit']) # UNIT_NAME != apartment identity.
+        self.assertFalse(e['seller_ids']) # UI component seller_profile != platform seller ID.
+    def test_portal_card_images_are_not_pagewide(self):
+        rows=decode_portal((FIX/'portal_results_real_sanitized.html').read_bytes(),'fixture://x')
+        self.assertEqual(len(rows),48)
+        self.assertTrue(all(len(r['evidence'].get('image_urls',[]))<=3 for r in rows))
+        self.assertTrue(any(r['evidence'].get('image_urls') for r in rows))
+    def test_coordinates_never_promoted_by_pin(self):
+        for xy in [(0,0),(91,0),(0,181),(float('nan'),2),(False,4)]:self.assertIsNone(geo(*xy))
+        self.assertEqual(evidence_yapo({'location':{'lat':-33,'lon':-70}})['coordinate_precision'],'source_pin_unverified')
+    def test_fixture_not_new_benchmark_row(self):
+        r=self.row();r['stage']='fixture_card';self.assertFalse(cohort(r)['modern_avm_usable'])
+    def test_no_price_identity_features(self):
+        sys.path.insert(0,str(H.parents[1]/'research/tasar_identity_20261002'));from identity import features
+        r=self.row();r['id']=1;r['title']='Depto UF 3000';f=features(r)
+        r['price_uf']=100000;r['title']='Depto UF 100000';self.assertEqual(f,features(r))
+    def test_description_not_publication_date(self):
+        r=decode_portal((FIX/'portal_detail_real_1_sanitized.html').read_bytes(),'https://x.test/MLC-1949798443',True)[0]
+        self.assertIsNone(r['evidence']['publication_date']) # priceValidUntil is unrelated.
+    def test_source_guard_stops_block_and_challenge(self):
+        from infrastructure.scrapers.yapo_modern import classify_page
+        self.assertEqual(classify_page('anything',status_code=403),'http_blocked')
+        self.assertEqual(classify_page('anything',status_code=429),'http_blocked')
+        self.assertEqual(classify_page('<title>Just a moment...</title>'),'challenge')
+    def test_original_long_title_preserved(self):
+        title='original '*1000;self.assertEqual(evidence_yapo({'title':title,'location':{}})['title_raw'],title)
+if __name__=='__main__':unittest.main()

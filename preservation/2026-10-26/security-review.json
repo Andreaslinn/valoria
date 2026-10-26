@@ -1,0 +1,514 @@
+{
+  "files_scanned": 2294,
+  "forbidden_files": [],
+  "oversized_files": [],
+  "pattern_matches": 84,
+  "unresolved": [],
+  "reviewed": [
+    {
+      "path": "preservation/2026-10-26/sources/0510a3cb5ecdc85c691c9ebbec3024da0fd24eebc9a59825d2fcc952f1a9b692.source",
+      "line": 176,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/09604cab979cc6064b25265e52f2bb56505203b44a9c0b3d06883ec804a5b1fe.source",
+      "line": 10,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/0dd1c6418ff3eb8eccc2185a4f12304382ff772730ab7f6d1b468ffbd8b28f43.source",
+      "line": 20,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/0dd1c6418ff3eb8eccc2185a4f12304382ff772730ab7f6d1b468ffbd8b28f43.source",
+      "line": 21,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/0e5700d0e3dd9640746db7c44294944774ce45c9cd25856c2206ebf0d3c8b7fa.source",
+      "line": 30,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/15613f842bf1eba3d10e6183eb9a97446b15e938ce409cc45e7bfdc0f99d8428.source",
+      "line": 24,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/31f6720c2aeeb5af392ddcf100a04d01616f3ca8c9bf7d9b5db155028f1e7534.source",
+      "line": 20,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/3702f5cb6ff41ff5e1ada6d8e9a5a0f05576ff14558c7eb23d181454a32f8cef.source",
+      "line": 157,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/4278e42072a1d03ce386a879514216cb3f620cd21c37020e631deb796c5224e0.source",
+      "line": 24,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/53699d6a785ed4903c2b7dd5df1b09035ffa401162fe18f62a90890112641333.source",
+      "line": 33,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/53699d6a785ed4903c2b7dd5df1b09035ffa401162fe18f62a90890112641333.source",
+      "line": 34,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/53699d6a785ed4903c2b7dd5df1b09035ffa401162fe18f62a90890112641333.source",
+      "line": 35,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/53699d6a785ed4903c2b7dd5df1b09035ffa401162fe18f62a90890112641333.source",
+      "line": 36,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/553fd9324a57a788faa509150fdde841d575d05e21a02dd51c3d94aad018298c.source",
+      "line": 19,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/56740465c45e274147e2bbf19ddb287c62b8fcd89bb8a5b6a769f850108ec8b0.source",
+      "line": 206,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/649b4108c526f9898484fb22b61ce5688775c695e98b7e78821356a3649ba684.source",
+      "line": 14,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/6b50abdd2d3deb0efee5e1dfcbf5495a3941ba80b4d9c97c1d249684052d9b58.source",
+      "line": 32,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/6f5c61901a49138d881d58c2910862fc5029278b864572f690ec9c62d16bf6d2.source",
+      "line": 157,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/71de07ded42c584cdfb0aa220fe7d9162cd077b678a0f504727ab753fbe2e2d2.source",
+      "line": 17,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/79d0f88719e2425691620979629721a38c05babcc620bd4dc2cbcf90ab9ab5be.source",
+      "line": 20,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/79d0f88719e2425691620979629721a38c05babcc620bd4dc2cbcf90ab9ab5be.source",
+      "line": 21,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/79d7aeb8a4c54a4effdc932df8ff5813a2f6f108aeac98da9efb686f5db1c5cd.source",
+      "line": 75,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/79d7aeb8a4c54a4effdc932df8ff5813a2f6f108aeac98da9efb686f5db1c5cd.source",
+      "line": 76,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/87875056f15d14cbddda8f223fa2bdc1a8c71b659e890044c790a3b94c8e45dd.source",
+      "line": 37,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/87875056f15d14cbddda8f223fa2bdc1a8c71b659e890044c790a3b94c8e45dd.source",
+      "line": 38,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/890b5ad541f109f27805cfceea5dbc24a6642c130cc279290f3b3f08515d801f.source",
+      "line": 190,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/9da68374fbf24d9d44a9e4f61798896d9282fbf62a826c89f4df1bef9ba42c6d.source",
+      "line": 15,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/b0efde3c3e775f66406444b6e2859d85e04e5491770d674cc05da0066b8829e0.source",
+      "line": 206,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/baff8063007fd37031f34f857e916e6163a0b58457bf79c80b2d8920e742c410.source",
+      "line": 33,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/c2a0c647d6819528324103f2a9da7e83351446c58401cf9dc0460fa131df1e07.source",
+      "line": 9,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/c2a0c647d6819528324103f2a9da7e83351446c58401cf9dc0460fa131df1e07.source",
+      "line": 10,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/c2a0c647d6819528324103f2a9da7e83351446c58401cf9dc0460fa131df1e07.source",
+      "line": 11,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/c2a0c647d6819528324103f2a9da7e83351446c58401cf9dc0460fa131df1e07.source",
+      "line": 12,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/c2a0c647d6819528324103f2a9da7e83351446c58401cf9dc0460fa131df1e07.source",
+      "line": 26,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/c434dd7b06577973589bb31c797589e86449d80363ee1221cfdc643484d800b5.source",
+      "line": 5,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/cd2d03d1865130237d917233bb4404e3cc37bccc7795d199552d27ac1261f089.source",
+      "line": 9,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/d3b17bff789df48648320e17e45ce18da44b03d0dbd2320b33c8631445be95a4.source",
+      "line": 16,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/d3b17bff789df48648320e17e45ce18da44b03d0dbd2320b33c8631445be95a4.source",
+      "line": 48,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/e1b51c5ec658f14df7516d078d91a2e40dd943d9055f4d29af2b742441bfdb32.source",
+      "line": 25,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/e1b51c5ec658f14df7516d078d91a2e40dd943d9055f4d29af2b742441bfdb32.source",
+      "line": 26,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/e1b51c5ec658f14df7516d078d91a2e40dd943d9055f4d29af2b742441bfdb32.source",
+      "line": 27,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/e1b51c5ec658f14df7516d078d91a2e40dd943d9055f4d29af2b742441bfdb32.source",
+      "line": 28,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/e1b51c5ec658f14df7516d078d91a2e40dd943d9055f4d29af2b742441bfdb32.source",
+      "line": 29,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/e3d53f50110d2c64c882a52bbe62dbc2b49007f8b3dd78db8630b87468bf7a2f.source",
+      "line": 20,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/e3d53f50110d2c64c882a52bbe62dbc2b49007f8b3dd78db8630b87468bf7a2f.source",
+      "line": 21,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/e9cc754ac99ba23cf4651d5fdab9d4bd5078181ccded5181adf49726e1dd87e7.source",
+      "line": 20,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/f0fe3c4b92f53cc89f4577d42a2bf44d71623618f8fcf903f3d3521edbc47084.source",
+      "line": 6,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/f4f6c9c0f9d4053ae4f2bef012f065484747f3a764d27910d6a6850d3858ae42.source",
+      "line": 44,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/f59e447f086503c8e49a675dab874c26c72e6fa23acb2330dbdc0934f348ddba.source",
+      "line": 41,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "preservation/2026-10-26/sources/f59e447f086503c8e49a675dab874c26c72e6fa23acb2330dbdc0934f348ddba.source",
+      "line": 42,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": ".env.example",
+      "line": 25,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": ".env.example",
+      "line": 26,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": ".env.example",
+      "line": 16,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": ".env.example",
+      "line": 39,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": ".env.example",
+      "line": 40,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": ".env.example",
+      "line": 85,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": ".env.sii.example",
+      "line": 3,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "deploy/cloud-beta.env.example",
+      "line": 10,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "deploy/cloud-beta.env.example",
+      "line": 11,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "deploy/cloud-beta.env.example",
+      "line": 20,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "deploy/cloud-beta.env.example",
+      "line": 21,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/deploy_beta.md",
+      "line": 19,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/deploy_beta.md",
+      "line": 20,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/deploy_beta.md",
+      "line": 21,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/deploy_beta.md",
+      "line": 24,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/deploy_beta.md",
+      "line": 25,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/deployment.md",
+      "line": 110,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/deployment.md",
+      "line": 111,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/deployment.md",
+      "line": 121,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/scraper_cron.md",
+      "line": 30,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/scraper_cron.md",
+      "line": 31,
+      "kind": "env_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "docs/sii_ingest.md",
+      "line": 176,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "services/users.py",
+      "line": 27,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/integration/test_alerts_e2e_chain.py",
+      "line": 33,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_beta_gate.py",
+      "line": 23,
+      "kind": "credential_assignment",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_cloud_beta_runtime_profile.py",
+      "line": 20,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_cloud_beta_runtime_profile.py",
+      "line": 21,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_listing_url_portal.py",
+      "line": 20,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_portal_canary.py",
+      "line": 206,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_sii_ingest.py",
+      "line": 25,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_sii_ingest.py",
+      "line": 26,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_sii_ingest.py",
+      "line": 27,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_sii_ingest.py",
+      "line": 28,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    },
+    {
+      "path": "tests/unit/test_sii_ingest.py",
+      "line": 29,
+      "kind": "credential_url",
+      "review": "benign placeholder/test/annotation"
+    }
+  ],
+  "scope": "current snapshot tree; inherited remote history not rewritten; no real .env/data/dependency directories included"
+}

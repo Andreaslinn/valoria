@@ -1,0 +1,770 @@
+from pathlib import Path
+from decimal import Decimal
+from types import SimpleNamespace
+from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal
+from scripts.portal_canary import portal_detail_to_raw
+from domain.ingestion.data_cleaning import clean_listing
+
+FIX = Path(__file__).parents[1] / "fixtures/portal_detail_real_1_sanitized.html"
+TARGET = {
+    "operation": "venta",
+    "label": "offline",
+    "property_type": "apartment",
+    "base_url": "https://www.portalinmobiliario.com",
+}
+UF = SimpleNamespace(rate=Decimal("41089.96"), source="fixture", cache_hit=False, is_stale=False)
+
+
+def test_detail_keeps_publication_bound_raw_evidence_and_unknown_accuracy():
+    detail = parse_listing_detail_portal(FIX.read_text(encoding="utf-8"), "")
+    raw = portal_detail_to_raw(detail, TARGET, uf_info=UF)
+    cleaned = clean_listing(raw)
+    assert cleaned.coordinates is not None
+    assert cleaned.geocode_precision == "unknown"
+    ev = detail["raw_metadata"]["coordinates_evidence"]
+    assert ev["source_listing_id"] == detail["external_id"]
+    assert ev["original"]["lat"] == "-33.4569685"
+
+
+def test_detail_mlc_conflict_does_not_escape_to_canonical():
+    detail = parse_listing_detail_portal(
+        FIX.read_text(encoding="utf-8"), "https://www.portalinmobiliario.com/MLC-999999-wrong"
+    )
+    assert "lat" not in detail["raw_metadata"]
+
+
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
+import json
+import math
+import pytest
+import httpx
+from sqlalchemy import select, func, event
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from config import get_settings
+from domain.geocoding.source_quality import assess, evidence, validate_context
+from domain.ingestion.pipeline import process_listing
+from infrastructure.db.base import Base
+from infrastructure.db.models import ListingORM, ListingObservationORM, PriceHistoryORM
+from infrastructure.db.repositories import (
+    SqlAlchemyListingRepository,
+    SqlAlchemyPropertyRepository,
+    SqlAlchemyPriceHistoryRepository,
+)
+from infrastructure.db.portal_geography import STATE_KEY, claim
+from workers.portal_geo_enrichment import enrich_geography
+from workers.refresh_scraper import parse_refresh_listing_html
+from scripts.portal_card_first import _card_raw
+from scripts.recover_portal_geography import recover_copy
+
+T = datetime(2026, 10, 11, 12, tzinfo=UTC)
+
+
+@pytest.fixture
+def enabled(monkeypatch):
+    monkeypatch.setattr(get_settings(), "ingestion_observation_history_enabled", True)
+
+
+class NoWait:
+    async def wait(self):
+        pass
+
+
+def repos(session):
+    return dict(
+        listing_repo=SqlAlchemyListingRepository(session),
+        property_repo=SqlAlchemyPropertyRepository(session),
+        price_history_repo=SqlAlchemyPriceHistoryRepository(session),
+    )
+
+
+def parsed(number=1):
+    return parse_listing_detail_portal(
+        (FIX.parent / f"portal_detail_real_{number}_sanitized.html").read_text(encoding="utf-8"), ""
+    )
+
+
+def raw_for(external_id, *, m2=63, metadata=None, lat=None, lon=None):
+    return dict(
+        source="portalinmobiliario",
+        external_id=external_id,
+        title="Departamento test",
+        url=f"https://www.portalinmobiliario.com/{external_id}-departamento",
+        comuna="Santiago",
+        property_type="apartment",
+        m2=m2,
+        bedrooms=2,
+        bathrooms=2,
+        parking=1,
+        price_clp=160000000,
+        scraped_at=T,
+        raw_metadata=metadata or {},
+        lat=lat,
+        lon=lon,
+        geocode_precision="unknown",
+    )
+
+
+async def seed(factory, external_id, **kwargs):
+    async with factory() as s:
+        item = await process_listing(raw_for(external_id, **kwargs), **repos(s))
+        await s.commit()
+        return item.id
+
+
+async def test_real_fixture_end_to_end_history_and_consumer_contracts(engine, enabled):
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as s:
+        detail = parsed(2)
+        raw = portal_detail_to_raw(detail, TARGET, uf_info=UF)
+        saved = await process_listing(raw, **repos(s))
+        await s.commit()
+    async with factory() as s:
+        repo = SqlAlchemyListingRepository(s)
+        persisted = await repo.find_by_id(saved.id)
+        radar = (await repo.list_active())[0]
+        tasar = (await repo.find_active_in_comuna(saved.comuna, property_type="apartment"))[0]
+        assert radar.coordinates == tasar.coordinates == persisted.coordinates
+        assert persisted.geocode_precision == "unknown"
+        from api.v1.radar import OpportunityOut
+
+        payload = OpportunityOut(
+            listing_id=persisted.id,
+            title=persisted.title,
+            comuna=persisted.comuna,
+            price_uf=4000,
+            price_clp=160000000,
+            m2=persisted.m2,
+            estimated_price_uf=4500,
+            discount_pct=10,
+            score=70,
+            confidence="medium",
+            confidence_label="Media",
+            comparables_used=5,
+            url=persisted.url,
+            warnings=[],
+            radar_verdict="watch",
+            radar_verdict_message="",
+            lat=persisted.coordinates.lat,
+            lon=persisted.coordinates.lon,
+            geocode_precision=persisted.geocode_precision,
+        )
+        assert payload.model_dump()["lat"] == -33.476406
+        docs = (await s.scalars(select(ListingObservationORM))).all()
+        assert len(docs) == 1
+        assert (
+            docs[0].document["parsed_state"]["raw_metadata"]["coordinates_evidence"]["original"][
+                "lat"
+            ]
+            == "-33.476406"
+        )
+        assert docs[0].document["source_evidence_available"]
+
+
+async def test_complete_card_independent_geo_budget_and_repetition(engine, enabled):
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    detail = parsed()
+    card = {
+        "external_id": detail["external_id"],
+        "title": "Departamento test",
+        "url": raw_for(detail["external_id"])["url"],
+        "comuna": "Santiago",
+        "m2": 63,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 1,
+        "raw_metadata": {"currency_original": "UF", "price_uf": 4000},
+    }
+    clean = clean_listing(_card_raw(card, TARGET, UF.rate))
+    assert clean.is_complete_for_comparables and clean.coordinates is None
+    ident = await seed(factory, detail["external_id"])
+    requests = []
+    updates = []
+
+    def handler(request):
+        requests.append(str(request.url))
+        return httpx.Response(200, text=FIX.read_text(encoding="utf-8"))
+
+    def sql_observe(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith(("UPDATE", "INSERT")):
+            updates.append(statement)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        stats = await enrich_geography(
+            session_factory=factory, client=client, limiter=NoWait(), budget=1, now=T
+        )
+        assert stats["geo_enriched"] == 1 and len(requests) == 1
+        event.listen(engine.sync_engine, "before_cursor_execute", sql_observe)
+        try:
+            await enrich_geography(
+                session_factory=factory,
+                client=client,
+                limiter=NoWait(),
+                budget=1,
+                now=T + timedelta(days=5),
+            )
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", sql_observe)
+        assert len(requests) == 1 and updates == []
+    async with factory() as s:
+        row = await s.get(ListingORM, ident)
+        assert row.lat == -33.4569685
+        assert row.raw_metadata[STATE_KEY]["attempts"] == 1
+        assert (await s.scalar(select(func.count()).select_from(ListingObservationORM))) == 2
+
+
+async def test_missing_point_cooldown_and_exhaustion(engine, enabled):
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    ident = await seed(factory, "MLC-777")
+    html = (
+        '<html><script type="application/ld+json">'
+        + json.dumps({"@type": "Product", "productID": "MLC777", "name": "Departamento"})
+        + "</script></html>"
+    )
+    calls = []
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: (calls.append(r), httpx.Response(200, text=html))[1]
+        )
+    ) as client:
+        for day in [0, 0, 1, 2, 3, 10]:
+            await enrich_geography(
+                session_factory=factory,
+                client=client,
+                limiter=NoWait(),
+                budget=1,
+                now=T + timedelta(days=day),
+            )
+    assert len(calls) == 3
+    async with factory() as s:
+        row = await s.get(ListingORM, ident)
+        assert row.lat is None
+        assert row.raw_metadata[STATE_KEY]["exhausted"]
+
+
+async def test_archive_recovery_no_http_and_honest_time(engine, enabled):
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed()
+    ev = d["raw_metadata"]["coordinates_evidence"]
+    ev["observed_at"] = None
+    ident = await seed(factory, d["external_id"], metadata={"coordinates_evidence": ev})
+
+    def forbidden(r):
+        raise AssertionError("archive recovery must not request")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(forbidden)) as client:
+        stats = await enrich_geography(
+            session_factory=factory, client=client, limiter=NoWait(), budget=1, now=T
+        )
+    assert stats["geo_recovered_archive"] == 1
+    async with factory() as s:
+        row = await s.get(ListingORM, ident)
+        assert row.scraped_at.replace(tzinfo=UTC) == T
+        assert row.raw_metadata["coordinates_recovery"]["original_observed_at"] is None
+        docs = (
+            await s.scalars(
+                select(ListingObservationORM).where(
+                    ListingObservationORM.event_kind == "geo_recovered"
+                )
+            )
+        ).all()
+        assert len(docs) == 1 and docs[0].document["provenance"]["is_listing_seen"] is False
+
+
+async def test_existing_point_survives_conflict_and_incomplete_detail(session, enabled):
+    r = portal_detail_to_raw(parsed(2), TARGET, uf_info=UF)
+    first = await process_listing(r, **repos(session))
+    original = first.coordinates
+    prop = first.property_id
+    weak = deepcopy(r)
+    weak["lat"] = -33.4
+    weak["lon"] = -70.5
+    later = await process_listing(weak, **repos(session))
+    assert later.coordinates == original
+    assert later.raw_metadata["coordinates_evidence"]["normalized"] == {
+        "lat": original.lat,
+        "lon": original.lon,
+    }
+    assert "coordinates_candidate_evidence" in later.raw_metadata
+    incomplete = deepcopy(r)
+    incomplete["lat"] = incomplete["lon"] = None
+    incomplete["raw_metadata"] = {}
+    last = await process_listing(incomplete, **repos(session))
+    assert last.coordinates == original and last.property_id == prop
+    assert last.geocode_precision == "unknown"
+
+
+@pytest.mark.parametrize(
+    "lat,lon",
+    [
+        (math.nan, -70),
+        (math.inf, -70),
+        (True, -70),
+        (-3345, -7060),
+        (None, -70),
+        (0, 0),
+        ("bad", -70),
+    ],
+)
+def test_invalid_values_preserved_but_never_usable(lat, lon):
+    assert assess(lat, lon)["status"] == "INVALID"
+
+
+@pytest.mark.parametrize(
+    "commune,lat,lon,reason",
+    [
+        ("Santiago", -33.45, -70.65, "commune_evidence_conflict"),
+        ("Santiago", -45, -73, "far_from_declared_commune"),
+        ("Santiago", -33.4489, -70.6693, "known_commune_centroid"),
+    ],
+)
+def test_context_conflicts(commune, lat, lon, reason):
+    ev = evidence(lat, lon, publication_id="MLC-1", source="portal:location.map_info.location")
+    if reason == "commune_evidence_conflict":
+        ev["commune"] = "Ñuñoa"
+    checked = validate_context(ev, commune)
+    assert checked["quality"]["reason"] == reason and not checked["quality"]["local_eligible"]
+
+
+async def test_claim_serialized_and_crash_bounded(session, enabled):
+    saved = await process_listing(raw_for("MLC-1"), **repos(session))
+    row = await session.get(ListingORM, saved.id)
+    assert await claim(session, row, now=T)
+    assert not await claim(session, row, now=T)
+    assert row.raw_metadata[STATE_KEY]["attempts"] == 1
+
+
+async def test_mixed_cycle_budget_errors_dedup_and_active_priority(engine, enabled):
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed(2)
+    ev = d["raw_metadata"]["coordinates_evidence"]
+    await seed(factory, "MLC-101", m2=61, lat=-33.45, lon=-70.65)
+    await seed(factory, d["external_id"], m2=62, metadata={"coordinates_evidence": ev})
+    await seed(factory, "MLC-103", m2=63)
+    await seed(factory, "MLC-104", m2=64)
+    f = await seed(factory, "MLC-105", m2=65)
+    async with factory() as s:
+        (await s.get(ListingORM, f)).status = "inactive"
+        await s.commit()
+    calls = []
+
+    def handler(r):
+        calls.append(str(r.url))
+        return httpx.Response(500)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        stats = await enrich_geography(
+            session_factory=factory, client=client, limiter=NoWait(), budget=2, now=T
+        )
+    assert len(calls) == 2 and stats["geo_recovered_archive"] == 1 and stats["geo_http_500"] == 2
+    assert all("MLC-105" not in u for u in calls)
+
+
+async def test_reuse_existing_commercial_detail_response_no_extra_request(engine, enabled):
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed()
+    await seed(factory, d["external_id"])
+    cached = httpx.Response(200, text=FIX.read_text(encoding="utf-8"))
+
+    def forbidden(r):
+        raise AssertionError("duplicate HTTP")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(forbidden)) as client:
+        stats = await enrich_geography(
+            session_factory=factory,
+            client=client,
+            limiter=NoWait(),
+            budget=1,
+            fetched={d["external_id"]: cached},
+            now=T,
+        )
+    assert stats["geo_enriched"] == 1 and stats["geo_reused_detail_response"] == 1
+    assert not stats["geo_details_requested"]
+
+
+async def test_wrong_mlc_and_block_never_change_point(engine, enabled):
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    ident = await seed(factory, "MLC-999999")
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, text=FIX.read_text(encoding="utf-8"))
+        )
+    ) as client:
+        stats = await enrich_geography(
+            session_factory=factory, client=client, limiter=NoWait(), budget=1, now=T
+        )
+    assert stats["geo_unbound"] == 1
+    async with factory() as s:
+        row = await s.get(ListingORM, ident)
+        assert row.lat is None
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(403))
+    ) as client:
+        stats = await enrich_geography(
+            session_factory=factory,
+            client=client,
+            limiter=NoWait(),
+            budget=1,
+            now=T + timedelta(days=1),
+        )
+    assert stats["geo_blocked"] == 1 and stats["geo_stopped"] == 1
+
+
+def test_generic_refresh_uses_real_detail_and_geo_adapter():
+    detail = parsed(2)
+    r = portal_detail_to_raw(detail, TARGET, uf_info=UF)
+    listing = SimpleNamespace(
+        source="portalinmobiliario",
+        url=r["url"],
+        external_id=r["external_id"],
+        property_type="apartment",
+    )
+    parsed_raw = parse_refresh_listing_html(
+        listing,
+        (FIX.parent / "portal_detail_real_2_sanitized.html").read_text(encoding="utf-8"),
+        uf_to_clp=UF.rate,
+    )
+    assert (
+        parsed_raw["lat"] == -33.476406 and clean_listing(parsed_raw).geocode_precision == "unknown"
+    )
+
+
+async def test_offline_backfill_dryrun_resume_and_no_market_reobservation(tmp_path, enabled):
+    database = tmp_path / "copy.sqlite"
+    engine = create_async_engine("sqlite+aiosqlite:///" + database.as_posix())
+    async with engine.begin() as c:
+        await c.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed(2)
+    ident = await seed(factory, d["external_id"])
+    archive = {d["external_id"]: {"path": str(FIX.parent / "portal_detail_real_2_sanitized.html")}}
+    assert (await recover_copy(database, archive=archive))[0]["result"] == "recoverable"
+    async with factory() as s:
+        assert (await s.get(ListingORM, ident)).lat is None
+    assert (await recover_copy(database, apply=True, archive=archive))[0]["result"] == "recovered"
+    assert (await recover_copy(database, apply=True, archive=archive))[0][
+        "result"
+    ] == "preserved_or_inactive"
+    async with factory() as s:
+        docs = (await s.scalars(select(ListingObservationORM))).all()
+        assert len(docs) == 2 and {d.event_kind for d in docs} == {"listing_seen", "geo_recovered"}
+        row = await s.get(ListingORM, ident)
+        assert row.raw_metadata["coordinates_recovery"]["original_observed_at"] is None
+        assert await s.scalar(select(func.count()).select_from(PriceHistoryORM)) == 1
+    await engine.dispose()
+
+
+async def test_real_card_first_cycle_complete_cards_enriched_without_commercial_details(
+    engine, enabled, monkeypatch
+):
+    import scripts.portal_card_first as card_first
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed()
+    card = dict(
+        external_id=d["external_id"],
+        title="Departamento test",
+        url=raw_for(d["external_id"])["url"],
+        comuna="Santiago",
+        m2=63,
+        bedrooms=2,
+        bathrooms=2,
+        parking=1,
+        raw_metadata={"currency_original": "UF", "price_uf": 4000},
+    )
+    calls = []
+
+    def handler(r):
+        calls.append(str(r.url))
+        return httpx.Response(
+            200,
+            text=(
+                FIX
+                if d["external_id"] in str(r.url)
+                else FIX.parent / "portal_results_real_sanitized.html"
+            ).read_text(encoding="utf-8"),
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    class FakeRedis:
+        @staticmethod
+        def from_url(_):
+            return FakeRedis()
+
+        async def aclose(self):
+            pass
+
+    async def uf(_):
+        return UF
+
+    monkeypatch.setattr(card_first.httpx, "AsyncClient", lambda **kw: client)
+    monkeypatch.setattr(card_first, "Redis", FakeRedis)
+    monkeypatch.setattr(card_first, "require_real_uf_rate", uf)
+    monkeypatch.setattr(card_first, "RateLimiter", lambda _: NoWait())
+    monkeypatch.setattr(card_first, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(
+        card_first, "PORTAL_TARGETS", [dict(TARGET, comuna="Santiago", enabled=True, max_pages=1)]
+    )
+    monkeypatch.setattr(
+        card_first.PortalInmobiliarioScraper,
+        "parse_listings_detailed",
+        lambda *a, **kw: {"cards_detected": 2, "items": [card, deepcopy(card)]},
+    )
+    monkeypatch.setattr(get_settings(), "portal_http_enabled", True)
+    result = await card_first.run(
+        apply=True, max_pages=1, max_details=0, pause_s=0, max_geo_details=1
+    )
+    assert result["card_complete"] == 1 and result["geo_enriched"] == 1 and len(calls) == 2
+    assert result.get("details_requested", 0) == 0
+    async with factory() as s:
+        row = (await s.scalars(select(ListingORM))).one()
+        assert row.lat == -33.4569685 and row.external_id == d["external_id"]
+
+
+async def test_portal_disabled_no_io(monkeypatch):
+    import scripts.portal_card_first as card_first
+
+    monkeypatch.setattr(get_settings(), "portal_http_enabled", False)
+
+    def forbidden(**kw):
+        raise AssertionError("Portal remains paused")
+
+    monkeypatch.setattr(card_first.httpx, "AsyncClient", forbidden)
+    assert await card_first.run(
+        apply=True, max_pages=1, max_details=5, pause_s=3, max_geo_details=1
+    ) == {"portal_disabled": 1}
+
+
+def test_multiple_property_map_points_conflict_and_raw_invalid_preservation():
+    def portal_html(component, point):
+        state = {
+            "id": "MLC4134091558",
+            "components": {component: {"map_info": {"location": point}}},
+        }
+        return (
+            '<h1>Departamento Santiago</h1><script id="__NORDIC_RENDERING_CTX__">'
+            + json.dumps({"appProps": {"pageProps": {"initialState": state}}})
+            + "</script>"
+        )
+
+    html = portal_html("location", {"latitude": "-33.45", "longitude": "-70.65"})
+    payload = json.loads(
+        html.split('<script id="__NORDIC_RENDERING_CTX__">')[1].split("</script>")[0]
+    )
+    state = payload["appProps"]["pageProps"]["initialState"]
+    state["components"]["location_and_points"] = {
+        "map_info": {"location": {"latitude": "-33.40", "longitude": "-70.55"}}
+    }
+    changed = (
+        html.split("<script")[0]
+        + '<script id="__NORDIC_RENDERING_CTX__">'
+        + json.dumps(payload)
+        + "</script>"
+    )
+    d = parse_listing_detail_portal(changed, "https://www.portalinmobiliario.com/MLC-4134091558-x")
+    assert d["raw_metadata"]["coordinates_quality"]["reason"] == "source_map_components_conflict"
+    assert "lat" not in d["raw_metadata"]
+    bad = parse_listing_detail_portal(
+        portal_html("location", {"latitude": "NaN", "longitude": "-70.65"}),
+        "https://www.portalinmobiliario.com/MLC-4134091558-x",
+    )
+    assert bad["raw_metadata"]["coordinates_evidence"]["original"]["lat"] == "NaN"
+    assert bad["raw_metadata"]["coordinates_quality"]["status"] == "INVALID"
+
+
+async def test_retained_point_does_not_gain_fake_precision_from_card(session, enabled):
+    r = portal_detail_to_raw(parsed(2), TARGET, uf_info=UF)
+    first = await process_listing(r, **repos(session))
+    incomplete = raw_for(first.external_id, m2=first.m2)
+    incomplete["geocode_precision"] = "street"
+    incomplete["raw_metadata"] = {
+        "address_label": "Calle sin certificación",
+        "geocode_precision": "street",
+    }
+    last = await process_listing(incomplete, **repos(session))
+    assert last.coordinates == first.coordinates and last.geocode_precision == "unknown"
+
+
+async def test_generic_refresh_capture_independent_of_uf_no_additional_http(engine, enabled):
+    from workers.refresh_scraper import _capture_portal_refresh_geo
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed(2)
+    ident = await seed(factory, d["external_id"])
+    async with factory() as s:
+        listing = await SqlAlchemyListingRepository(s).find_by_id(ident)
+    before = listing.last_seen_at
+    await _capture_portal_refresh_geo(
+        listing,
+        (FIX.parent / "portal_detail_real_2_sanitized.html").read_text(encoding="utf-8"),
+        session_factory=factory,
+        observed_at=T + timedelta(days=1),
+    )
+    async with factory() as s:
+        row = await s.get(ListingORM, ident)
+        assert row.lat == -33.476406 and row.price_clp == 160000000
+        assert row.last_seen_at == before.replace(tzinfo=None)
+        assert (await s.scalar(select(func.count()).select_from(ListingObservationORM))) == 2
+
+
+@pytest.mark.parametrize("xy,status", [((None, None), "MISSING"), ((-33.45, -70.65), "UNCERTAIN")])
+def test_missing_and_uncertain_quality_are_distinct(xy, status):
+    assert assess(*xy)["status"] == status
+
+
+def test_usable_requires_explicit_declared_accuracy():
+    assert (
+        assess(
+            -33.45,
+            -70.65,
+            source="portal:location.map_info.location",
+            identity_match=True,
+            precision="address",
+            declared_precision=True,
+        )["status"]
+        == "USABLE"
+    )
+    assert (
+        assess(
+            -33.45,
+            -70.65,
+            source="portal:location.map_info.location",
+            identity_match=True,
+            precision="address",
+        )["status"]
+        == "UNCERTAIN"
+    )
+
+
+@pytest.mark.parametrize("value", [{"name": "Santiago"}, [], 123])
+def test_malformed_optional_commune_does_not_break_commercial_parser(value):
+    ev = evidence(
+        -33.45, -70.65, publication_id="MLC-1", source="portal:location.map_info.location"
+    )
+    ev["map_commune"] = value
+    checked = validate_context(ev, "Santiago")
+    assert checked["quality"]["status"] == "UNCERTAIN"
+
+
+def test_quarantined_archived_evidence_cannot_become_eligible_on_replay():
+    from infrastructure.db.portal_geography import recover_metadata
+
+    ev = evidence(
+        -33.45, -70.65, publication_id="MLC-1", source="portal:location.map_info.location"
+    )
+    ev["quality"] = {
+        "status": "UNCERTAIN",
+        "reason": "centroid_or_repeated_coordinate",
+        "local_eligible": False,
+    }
+    assert recover_metadata({"coordinates_evidence": ev}, "MLC-1") is None
+
+
+async def test_history_failure_rolls_back_recovered_canonical_point(engine, enabled, monkeypatch):
+    import infrastructure.db.portal_geography as geo
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed(2)
+    ident = await seed(factory, d["external_id"])
+
+    async def fail(*args, **kwargs):
+        raise RuntimeError("simulated history storage failure")
+
+    monkeypatch.setattr(geo, "append_observation", fail)
+    with pytest.raises(RuntimeError):
+        async with factory() as s:
+            row = await s.get(ListingORM, ident)
+            await geo.apply_geography(
+                s, row, d["raw_metadata"]["coordinates_evidence"], origin="archive"
+            )
+            await s.commit()
+    async with factory() as s:
+        assert (await s.get(ListingORM, ident)).lat is None
+        assert await s.scalar(select(func.count()).select_from(ListingObservationORM)) == 1
+
+
+async def test_normal_refresh_loop_captures_geo_without_uf_or_second_request(engine, enabled):
+    from workers.refresh_scraper import run_refresh_scraper
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed(2)
+    ident = await seed(factory, d["external_id"])
+    calls = []
+
+    def handler(r):
+        calls.append(str(r.url))
+        return httpx.Response(
+            200,
+            text=(FIX.parent / "portal_detail_real_2_sanitized.html").read_text(encoding="utf-8"),
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await run_refresh_scraper(
+            factory,
+            http_client=client,
+            source="portalinmobiliario",
+            only_active=True,
+            only_missing_coordinates=True,
+            now=T + timedelta(days=40),
+            rate_limiter=NoWait(),
+        )
+    assert len(calls) == 1
+    async with factory() as s:
+        row = await s.get(ListingORM, ident)
+        assert row.lat == -33.476406 and row.price_clp == 160000000
+        assert row.last_seen_at.replace(tzinfo=UTC) == T
+
+
+async def test_raw_detail_components_in_history_recover_without_http(engine, enabled):
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    d = parsed(2)
+    raw = raw_for(d["external_id"])
+    raw["_source_evidence"] = d["_source_evidence"]
+    async with factory() as s:
+        item = await process_listing(raw, **repos(s))
+        await s.commit()
+        ident = item.id
+
+    def forbidden(r):
+        raise AssertionError("stored raw is sufficient")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(forbidden)) as client:
+        stats = await enrich_geography(
+            session_factory=factory, client=client, limiter=NoWait(), budget=1, now=T
+        )
+    assert stats["geo_recovered_archive"] == 1
+    async with factory() as s:
+        row = await s.get(ListingORM, ident)
+        assert row.lat == -33.476406
+        assert (
+            row.raw_metadata["coordinates_evidence"]["observed_at"]
+            == d["_source_evidence"]["observed_at"]
+        )
+
+
+def test_stored_raw_reuses_multi_point_conflict_validation():
+    from infrastructure.db.portal_geography import recover_metadata
+
+    raw = {
+        "platform_id": "MLC1",
+        "components": {
+            "location": {"map_info": {"location": {"latitude": -33.45, "longitude": -70.65}}},
+            "location_and_points": {
+                "map_info": {"location": {"latitude": -33.40, "longitude": -70.55}}
+            },
+        },
+    }
+    ev = recover_metadata({"source_evidence": {"raw": raw}}, "MLC-1")
+    assert ev["quality"]["reason"] == "source_map_components_conflict"
+    assert not ev["quality"]["local_eligible"]
+    assert ev["observed_at"] is None
+
+
+def test_visible_challenge_overrides_stale_detail_json_not_passive_scripts():
+    from infrastructure.scrapers.portalinmobiliario import classify_portal_detail_page_state
+
+    original = FIX.read_text(encoding="utf-8")
+    assert classify_portal_detail_page_state(original) == "detail"
+    challenged = '<html><body><div class="g-recaptcha">Complete the captcha</div><script type="application/ld+json">{"@type":"Product","productID":"MLC123","offers":{"price":3000}}</script></body></html>'
+    assert classify_portal_detail_page_state(challenged) == "captcha_visible"

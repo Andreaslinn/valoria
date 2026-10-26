@@ -1,0 +1,67 @@
+"""Rename only the user-authorized stale Docker socket; never delete it."""
+import ctypes
+import subprocess
+import sys
+from ctypes import wintypes
+
+SOURCE = r'C:\Users\heiko\AppData\Local\Docker\run\dockerInference'
+DESTINATION = SOURCE + '.property-life-backup-20261016'
+
+if '--handle' in sys.argv:
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    close = kernel.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    # Open the reparse point itself, rather than resolving its inaccessible target.
+    source_handle = create(SOURCE, 0x00010000, 7, None, 3, 0x02200000, None)
+    if source_handle == ctypes.c_void_p(-1).value:
+        code = ctypes.get_last_error()
+        print(f'Opening socket reparse point failed: Windows {code}: {ctypes.FormatError(code)}', flush=True)
+        raise SystemExit(1)
+    directory_handle = create(SOURCE.rsplit('\\', 1)[0], 0, 7, None, 3, 0x02000000, None)
+    if directory_handle == ctypes.c_void_p(-1).value:
+        close(source_handle)
+        code = ctypes.get_last_error()
+        print(f'Opening parent failed: Windows {code}: {ctypes.FormatError(code)}', flush=True)
+        raise SystemExit(1)
+    target_name = DESTINATION.rsplit('\\', 1)[1]
+    class RenameInfo(ctypes.Structure):
+        _fields_ = [('Flags', wintypes.DWORD), ('RootDirectory', wintypes.HANDLE),
+                    ('FileNameLength', wintypes.DWORD), ('FileName', wintypes.WCHAR * (len(target_name) + 1))]
+    info = RenameInfo(0, directory_handle, len(target_name) * 2, target_name)
+    change = kernel.SetFileInformationByHandle
+    change.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    change.restype = wintypes.BOOL
+    try:
+        if not change(source_handle, 3, ctypes.byref(info), ctypes.sizeof(info)):
+            code = ctypes.get_last_error()
+            print(f'Handle rename failed: Windows {code}: {ctypes.FormatError(code)}', flush=True)
+            raise SystemExit(1)
+        print(f'Renamed socket reparse point to {DESTINATION}', flush=True)
+    finally:
+        close(source_handle)
+        close(directory_handle)
+elif '--native' in sys.argv:
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    rename = kernel.MoveFileExW
+    rename.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+    rename.restype = ctypes.c_int
+    # No replace-existing flag: an existing backup is never overwritten.
+    if not rename(SOURCE, DESTINATION, 0):
+        code = ctypes.get_last_error()
+        print(f'Native rename failed: Windows {code}: {ctypes.FormatError(code)}', flush=True)
+        raise SystemExit(1)
+    print(f'Renamed to {DESTINATION}', flush=True)
+else:
+    try:
+        mode = '--handle' if '--try-handle' in sys.argv else '--native'
+        result = subprocess.run([sys.executable, __file__, mode],
+                                capture_output=True, text=True, timeout=20)
+        print(result.stdout, result.stderr)
+        raise SystemExit(result.returncode)
+    except subprocess.TimeoutExpired:
+        print('Native rename did not finish within 20 seconds; child stopped.')
+        raise SystemExit(2)

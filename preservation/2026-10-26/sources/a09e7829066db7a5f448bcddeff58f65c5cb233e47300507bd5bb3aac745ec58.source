@@ -1,0 +1,2 @@
+from pathlib import Path
+p=Path('frontend-v2/src/features/listing-url/workspace.tsx');s=p.read_text(encoding='utf-8');s=s.replace('{analysis&&<Button disabled={!!m.busy} onClick={()=>void m.report()}>','{analysis&&<Button disabled={!!m.busy||analysis.report_status.analysis_report_available===false} onClick={()=>void m.report()}>');p.write_text(s,encoding='utf-8')

@@ -1,0 +1,39 @@
+import ast,json,sqlite3,csv,os,zipfile,re,collections
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/geografia-existente-1261-6'
+def save(n,o):(OUT/n).write_text(json.dumps(o,ensure_ascii=False,indent=2,default=str),encoding='utf8')
+def literal(path,name):
+    tree=ast.parse(Path(path).read_text(encoding='utf-8-sig'))
+    return next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id==name for t in n.targets))
+comunas=literal('C:/Users/heiko/Documents/AVM/geocoding.py','COMUNA_COORDS')
+micro=literal('C:/Users/heiko/Documents/AVM/micro_location.py','LOCATION_MAP')
+anchors=set(comunas.values())|set(micro.values())
+old=[]
+for p in [Path('C:/Users/heiko/Documents/AVM/tasador.db'),Path('C:/Users/heiko/Documents/tasador_simple/beta/tasador.db')]:
+    with sqlite3.connect(p.resolve().as_uri()+'?mode=ro',uri=True) as c:
+        rows=c.execute('SELECT lat,lon,comuna FROM listings WHERE lat IS NOT NULL AND lon IS NOT NULL').fetchall()
+    old.append({'path':str(p),'coordinate_rows':len(rows),'coordinates_equal_known_fixed_anchor':sum((a,b) in anchors for a,b,comuna in rows),'other_coordinates_unverified':sum((a,b) not in anchors for a,b,comuna in rows),'vitacura_coordinate_rows':sum('vitacura' in (comuna or '').lower() for a,b,comuna in rows),'vitacura_fixed_comuna_rows':sum((a,b)==comunas['vitacura'] and 'vitacura' in (comuna or '').lower() for a,b,comuna in rows)})
+save('anclas-antiguas.json',{'fixed_comuna_coordinates':comunas,'fixed_microzone_coordinates':micro,'counts':old})
+snapshot=json.loads((ROOT/'closing-confidence-20261019/canonical-pool-verified-local.json').read_text(encoding='utf8'))
+rows=snapshot['rows'];selected=json.loads((ROOT.parent/'outputs/auditoria-vitacura-1261-6/publicaciones-20.json').read_text(encoding='utf8'))
+save('geografia-snapshot-anuncios.json',{'total':len(rows),'with_coordinates':sum(bool(r['coordinates']) for r in rows),'vitacura_count':sum(r['comuna']=='vitacura' for r in rows),'vitacura_with_coordinates':sum(r['comuna']=='vitacura' and bool(r['coordinates']) for r in rows),'vitacura_precision':dict(collections.Counter(r['geocode_precision'] for r in rows if r['comuna']=='vitacura')),'selected':[{'id':r['id'],'coordinates':r['coordinates'],'geocode_precision':r['geocode_precision'],'target_distance_component':r['distance_component'],'microzone_bonus':r['microzone_bonus'],'rol':None,'address':None} for r in selected]})
+csvpath=Path('C:/Users/heiko/Documents/Codex/2026-10-11/in/outputs/published-fields/addresses-baseline-full.csv')
+with csvpath.open(encoding='utf-8-sig',newline='') as f:csvrows=list(csv.DictReader(f))
+matched=[r for r in csvrows if any(str(r.get('id'))==str(s['id']) and r.get('source')==s['source'] for s in selected)]
+save('interseccion-anuncios-archivo-direcciones.json',{'path':str(csvpath),'match_count':len(matched),'rows':matched})
+roots=[Path('C:/Users/heiko/Downloads'),Path('C:/Users/heiko/Documents/AVM'),Path('C:/Users/heiko/Desktop/Tasacion inmobiliaria')]
+skip={'node_modules','.git','Cache','cache','Default','User Data','GPUPersistentCache','.venv','venv','site-packages','__pycache__'}
+archive_checks=[]
+for root in roots:
+    for parent,dirs,files in os.walk(root):
+        dirs[:]=[d for d in dirs if d not in skip and not d.startswith('playwright')]
+        for name in files:
+            if not name.lower().endswith('.zip'):continue
+            p=Path(parent)/name
+            try:
+                with zipfile.ZipFile(p) as z:names=z.namelist()
+                hits=[n for n in names if re.search(r'\.(shp|gpkg|geojson|kml|kmz|gml|mbtiles|fgb|pbf|wkt|wkb)$',n,re.I) or re.search('hark',n,re.I) or re.search(r'(osm|georef|coorden|manzana|poligon|addresses).*\.(csv|json|parquet)$',n,re.I)]
+                archive_checks.append({'path':str(p),'members':len(names),'spatial_or_hark_matches':hits})
+            except (OSError,zipfile.BadZipFile) as e:archive_checks.append({'path':str(p),'error':str(e)})
+save('inventario-ZIP.json',archive_checks)
+print(json.dumps({'old_anchor_counts':old,'selected_matching_old_address_csv':len(matched),'ZIP_checked':len(archive_checks),'ZIP_hits':[r for r in archive_checks if r.get('spatial_or_hark_matches')]},ensure_ascii=False,indent=2))

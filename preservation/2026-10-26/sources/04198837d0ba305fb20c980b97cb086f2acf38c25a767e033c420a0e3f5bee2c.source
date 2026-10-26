@@ -1,0 +1,320 @@
+import json,hashlib,subprocess,shutil,ast,csv,re,html,zipfile
+from pathlib import Path
+from datetime import datetime,timezone
+ROOT=Path(__file__).resolve().parent;REPO=ROOT/'valoria';OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+def load(n):return json.loads((OUT/n).read_text(encoding='utf8'))
+def save(n,o):(OUT/n).write_text(json.dumps(o,indent=2,ensure_ascii=False,default=str),encoding='utf8')
+summary=load('hallazgos-verificados.json');selected=load('cierres-SII-10.json');pubs=load('publicaciones-20-enriquecidas.json');sens=load('sensibilidad-verificada.json')
+def table(headers,rows):return '| '+' | '.join(headers)+' |\n| '+' | '.join('---' for _ in headers)+' |\n'+'\n'.join('| '+' | '.join(str(v) for v in row)+' |' for row in rows)
+def n(x,d=2):return f'{float(x):,.{d}f}'.replace(',','X').replace('.',',').replace('X','.')
+files=['api/v1/tasar.py','api/v1/valuations.py','api/sii_closing_contract.py','services/valuation.py','services/sii/role_lookup.py','services/sii/address_details.py','services/sii/closing_opinion.py','services/sii/closing_knn.py','services/sii/closing_confidence.py','services/sii/rebuild.sql','services/sii/parsing.py','services/sii/jobs.py','scripts/validate_sii_closing.py','scripts/export_sii_address_facts.py','domain/valuation/engines/canonical_comparables.py','domain/valuation/canonical_price.py','domain/valuation/comparables.py','domain/valuation/scoring.py','domain/valuation/robust_price_m2.py','domain/valuation/price_surface.py','domain/valuation/product_classification.py','core/entities/listing.py','config/constants.py','config/valuation_flags.py','frontend-v2/src/features/valuation/property-form.tsx','frontend-v2/src/features/valuation/address-autofill.tsx','frontend-v2/src/features/valuation/result.tsx','frontend-v2/src/features/valuation/sii-closing-opinion.tsx','infrastructure/db/repositories/listing_repo.py']
+files+=['tests/unit/test_valuation_service.py','scripts/compare_sii_canonical.py']
+code_manifest=[];traces=[]
+for rel in files:
+    p=REPO/rel
+    if not p.is_file():continue
+    dest=OUT/'codigo'/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(p,dest)
+    digest=hashlib.sha256(p.read_bytes().replace(b'\r\n',b'\n')).hexdigest();code_manifest.append({'file':rel,'sha256_LF':digest})
+    if p.suffix=='.py':
+        for node in ast.walk(ast.parse(p.read_text(encoding='utf-8-sig'))):
+            if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                traces.append({'file':rel,'function':node.name,'line':node.lineno,'end_line':node.end_lineno})
+save('code-manifest.json',code_manifest);save('code-functions.json',traces)
+original_hashes=load('canonical-snapshot-provenance.json')['code_sha256']
+assert all(next(x['sha256_LF'] for x in code_manifest if x['file']==f)==v for f,v in original_hashes.items())
+head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip();status=subprocess.check_output(['git','status','--porcelain'],cwd=REPO,text=True).strip()
+assert status=='',status
+data_files=[ROOT/'closing-validation-final/address-index.sqlite',ROOT/'closing-validation-final/address-details.sqlite',ROOT/'closing-validation-final/closings.json',ROOT/'closing-confidence-20261019/canonical-pool-verified-local.json',REPO/'reports/sii/closing_confidence_20261019/frozen-rule.json']
+inputs=[]
+for p in data_files:
+    h=hashlib.sha256()
+    with p.open('rb') as f:
+        while b:=f.read(1024*1024):h.update(b)
+    inputs.append({'path':str(p),'bytes':p.stat().st_size,'sha256':h.hexdigest()})
+save('execution-manifest.json',{'audit_utc':datetime.now(timezone.utc).isoformat(),'git_head':head,'git_worktree_clean':True,'inputs':inputs,'database_control':load('database-control.json'),'code_matches_captured_baseline':True,'production_accessed':False,'algorithms_modified':False,'parameters_modified':False,'original_files_modified':False,'prior_report_used_as_ground_truth':False})
+for name in ('audit_1261_target.py','verify_audit_1261.py','audit_1261_sources.py','audit_1261_canonical.py','audit_1261_http.py','audit_1261_analyse.py','audit_1261_verify_files.py','build_audit_1261_report.py'):
+    dest=OUT/'reproducir'/name;dest.parent.mkdir(exist_ok=True);shutil.copyfile(ROOT/name,dest)
+shutil.copyfile(ROOT/'tasar_demo.py',OUT/'reproducir/tasar_demo.py')
+shutil.copyfile(ROOT/'export_canonical_pool_readonly.py',OUT/'reproducir/export_canonical_pool_readonly.py')
+old=OUT/'canonical-result.json'
+if old.exists():old.unlink() # Temporary incomplete-input probe, not the audited result.
+sii_table=table(['#','Rol','Dirección catastral','Fecha FE','UF','Cerrados m²','Terreno m²','Score','Peso %'],[[r['rank'],r['rol'],r['direccion'],r['fecha'],n(r['precio_UF_motor']),r['construccion_cerrada_m2'],r['terreno_m2'],n(r['score'],6),n(r['normalized_weight']*100)] for r in selected])
+pub_table=table(['#','ID','Construidos / genéricos m²','Terreno m²','Precio UF','Geo','Similitud','Peso %'],[[r['rank'],r['listing_id'],r['construccion_m2'] if r['construccion_m2'] is not None else str(r['m2_generico'])+' (genérico)',r['terreno_m2'] if r['terreno_m2'] is not None else 'ND',n(r['precio_UF_nativo']),r['geocode_precision'],n(r['similarity'],6),n(r['normalized_weight']*100)] for r in pubs])
+senstable=table(['Terreno m²','Publicaciones UF','SII UF','Avisos con terreno /20','Cambian vs 850'],[[r['terreno_m2'],n(r['valor_publicaciones_UF']),n(r['valor_SII_UF']),r['seleccionados_con_terreno'],len(r['nuevos_vs_850'])] for r in sens])
+report=f'''# Auditoría local · Vitacura, rol 1261-6
+
+**Laura Tromben 5631 · Ejecución reconstruida el 20 de octubre de 2026.**
+
+## 1. Conclusión demostrada y alcance
+
+Se reprodujeron los valores observados: **25.313,03 UF en publicaciones** y **28.118,303571 UF en SII**, que la interfaz presenta como 25.313 y 28.118 UF. No se modificaron algoritmos, pesos, reglas, parámetros ni archivos originales. No se consultó producción, no hubo merge, deploy ni cambios al PR. Todo este expediente es local.
+
+La causa técnica de estos números es reproducible: el principal calcula una media ponderada de precio por m² construido con publicaciones de la comuna; carece de coordenadas del objetivo y admite avisos sin terreno. El SII calcula una mediana ponderada por m² H cerrado, sin variable de terreno y con una ubicación que distingue edificio/manzana/comuna, sin distancia métrica. **No se ha demostrado que el valor de mercado correcto sea 35.000–40.000 UF**, ni que haya que mover una estimación hacia ese rango.
+
+Dos supuestos quedan refutados por los registros: A. Denegri 5630 y 5698 **sí fueron seleccionados**, en puestos 1 y 6. Laura Tromben 5665 tiene un cierre elegible de 2026, pero quedó en puesto 72, por score. No se usó un informe anterior como evidencia: se contrastaron índices, código, SQL, tablas de origen y bytes de los archivos SII.
+
+**Límites explícitos:** no hay coordenadas verificadas del objetivo o de los cierres auditados en `sii.geo_predio`. Se exporta distancia como ND, nunca como cero. No puede certificarse un radio exhaustivo de 500 metros. El entorno extendido se define de forma textual y separada: misma manzana, o calle Denegri/Tromben con variantes y número entre 5331 y 5931. El número cívico no equivale a metros. Se examinaron **89 transferencias** de ese entorno, incluyendo las **27 de la manzana 1261**. La copia usada por el demo omite direcciones y URLs originales de publicaciones; esos campos se exportan ND, con ID y huella rastreables.
+
+## 2. Entradas exactas y procedencia
+
+La ficha observada en el navegador contiene: comuna `vitacura`, casa, rol `1261-6`, construcción cerrada **221 m²**, terreno **850 m²**, **5 dormitorios, 5 baños y 2 estacionamientos**, precio publicado vacío. Se preservó su DOM en `tasacion-observada-dom.txt` sin modificar la ficha.
+
+El código SII de Vitacura es **15160**. `resolve_role` normaliza el rol corto a `15160-1261-6` y ejecuta:
+
+```sql
+SELECT * FROM role WHERE rol=? AND comuna=?;
+-- parámetros: 15160-1261-6, 15160
+```
+
+No hay búsqueda aproximada ni geocodificación en esta rama. La fila única corresponde a `L TROMBER 5631`, manzana 1261, tipo casa, año mínimo 1965, source N **9**, semestre **2026-2**. Esa grafía está en el original; no demuestra una asociación errónea con otra casa.
+
+`address_details` consulta terreno mediante:
+
+```sql
+SELECT land_area_m2,source_period FROM facts WHERE rol=? AND source_id=?;
+-- parámetros: 15160-1261-6, 9
+```
+
+Es una unión exacta por rol y versión. El terreno es 850 m². Las líneas NL de source **20** contienen H=140 m² (1965), H=28 (1967), H=53 (1999), y otra línea de 49 m² con destino vacío. Por tanto **140+28+53=221 m² H**, abiertos H=0 y cerrados H=221. Los 49 m² de destino vacío no entran en la superficie H. No se afirma que esos 49 m² sean habitables: hace falta comprobar su naturaleza para equiparar catastro con superficie construida comercial.
+
+El año es el mínimo de líneas, no una edad efectiva tras ampliaciones o reformas. Baños/dormitorios/estacionamientos proceden del usuario, no del SII.
+
+El demo usa el stock privado congelado de **3.895 publicaciones**, capturado el 19/10/2026. Su UF de presentación es **41.183,94 CLP/UF**, con fecha de calendario 19/10/2026. El arnés la conserva fija; no consulta la UF actual. Su `UFRateInfo` no informa fecha y la respuesta deja `uf_rate_date` vacío: falta de trazabilidad de presentación del demo, no una conversión SII por fecha equivocada. Las 20 publicaciones finales tienen precio UF nativo `scraped`; cambiar la UF de presentación coherentemente no cambia su precio nativo en UF.
+
+## 3. Recorrido del motor principal y fórmula
+
+`PropertySearch` → `useAddressDetails` → `POST /api/v1/tasar/rol-details` → `address_details`/`resolve_role` → autocompletado. `PropertyForm.submit` envía `sii_rol` y los atributos manuales a `POST /api/v1/valuations`. Las peticiones y respuestas exactas están en `api-inference-850.json`.
+
+`api.v1.valuations.valuate` construye `ValuationInput` **sin rol, dirección ni año** y llama a `ValuationService.valuate_property(..., valuation_strategy="canonical_only")`. El `Property` objetivo contiene comuna, tipo, superficies y piezas; sus coordenadas son `None` y no tiene señales de microzona. El rol identifica la capa SII, pero no sitúa el principal en esa parcela.
+
+El repositorio del demo filtra en memoria `status=active`, comuna y tipo sobre la captura. La SQL original que produjo la captura fue:
+
+```sql
+SELECT id,property_id,source,external_id,title,url,comuna,property_type,
+       m2,built_area_m2,land_area_m2,usable_area_m2,bedrooms,bathrooms,parking,
+       lat,lon,geocode_precision,price_clp,price_uf,price_currency,
+       price_uf_confidence,price_uf_source,price_recovery_method,status,
+       fingerprint,raw_metadata,scraped_at,last_seen_at,
+       last_refresh_attempted_at,last_refresh_status
+FROM listings WHERE status='active' AND comuna=%s AND property_type=%s;
+```
+
+Esta SQL documenta el origen ya capturado; **no se volvió a ejecutar en producción**. El exportador local de procedencia está incluido. El replay usa exactamente el mismo orden capturado para empates.
+
+`ComparablesCanonicalEngine`, variante `outliers`, versión `phase4a_canonical_outliers_v1`, aplica:
+
+- **428** casas activas de Vitacura → **130** estructuralmente elegibles: 271 fuera del ±30% de construcción (intervalo 154,7–287,3 m²) y 27 fuera del ±30% de terreno (595–1105 m²). El terreno se filtra **solo si ambos valores existen**. Un candidato sin terreno permanece elegible.
+- Deduplicación por fingerprint; si falta, source/external_id; después URL, o identidad del objeto. No hubo descarte formal por duplicado en este caso. No existe rol del objetivo en esta selección ni `target_listing_id` informado.
+- `valuation_price_basis`: **112** precios canónicos usables; se excluyen 18 legados UF sin precio recuperable. UF nativa fiable se conserva; CLP se divide por la UF de la inferencia. Los 20 finales son UF nativa. Se excluyen monedas desconocidas, UF débil y procedencia fallback.
+- Clasificación de producto diagnosticada, pero **filtro duro de producto desactivado** para esta variante. El objetivo queda `unknown` al carecer de señales textuales, lo que afecta confianza; no se usan características de casa reformada, demolición o calidad constructiva.
+- Filtro robusto: **112 → 111**. Referencia de 75 avisos: P25=3.896.910,72, P75=5.062.192,62, IQR=1.165.281,91 CLP/m². Umbrales finales 1.593.897,68–7.392.756,44 CLP/m²; IQR×2, suelos/techos relativos a mediana y techo de casa×1,85. Se excluye por arriba ID **7024**, sin recuperación relajada. El top 20 y su valor son iguales antes y después de este filtro: **ese outlier no causó una reducción del precio de esta tasación**.
+- Ranking por similitud, top **20**; 91 candidatos válidos quedan fuera. Sin coordenadas del objetivo no se aplica el corte de 5 km, distancia recibe score neutro 0,5 y el bono de microzona es 0 en todos los elegidos.
+
+Para casas, `scoring._area_score` usa `b=max(0,1-|B-Bi|/B)` y `l=max(0,1-|L-Li|/L)`: si existe terreno de ambos, `area_score=0,55b+0,45l`; si falta, `area_score=0,65b`. El score total es:
+
+```text
+s_i = 0,40*area_score + 0,25*distance_score
+    + 0,15/(1+|5-bed_i|) + 0,10/(1+|5-bath_i|)
+    + 0,10/(1+|2-parking_i|) + bono_microzona
+w_i = s_i / sum(s_j)
+valor_CLP = 221 * sum(w_i * precio_CLP_canonico_i / construccion_i)
+valor_UF = round(round(valor_CLP) / 41183,94, 2)
+```
+
+La suma de contribuciones es **25.313,026014 UF**, se redondea a **1.042.490.145 CLP** y **25.313,03 UF**. El ajuste de superficie auxiliar no se aplica: `policy:vitacura_no_adjust`, peso 0. El rango principal es **18.654,97–31.971,08 UF**, calculado como valor ± desviación estándar poblacional de precio/m² de los seleccionados ×221. No es un intervalo de cobertura estadística demostrado. Confianza final 0,355; etiqueta «Datos limitados».
+
+## 4. Las 20 publicaciones utilizadas
+
+{pub_table}
+
+Exportaciones: `publicaciones-20.csv` y `publicaciones-20-enriquecidas.json`. Incluyen fechas, piezas, precio CLP del snapshot y canónico, precio UF, procedencia, coordenadas disponibles, precisión, fingerprint, ID, score completo, peso y contribución. Solo **5/20 tienen terreno**, **5/20 precisión address**; 14 figuran a comuna y 1 a calle. En 4 se usa `m2` genérico porque falta `built_area_m2`; esa equivalencia no fue validada de nuevo contra el anuncio original.
+
+La captura elimina títulos originales, URL y external_id deliberadamente. Una etiqueta de producto proyectada no es un título de anuncio. Los CSV lo distinguen y no inventan direcciones a partir de coordenadas. No se puede demostrar cercanía a Laura Tromben para esas publicaciones sin georreferenciar el objetivo.
+
+IDs **7722 y 2031** comparten coordenadas (-33,389214; -70,566444), construcción 183 y terreno 740 m², pero tienen fingerprints distintos y precios 32.000 y 32.500 UF. Juntos pesan **9,79%**. Son sospechosos de representar la misma casa, no duplicados demostrados. La deduplicación actual no los colapsa. Su efecto causal sobre el precio no se cuantificó eliminándolos, porque eso alteraría el conjunto de inferencia solicitado.
+
+## 5. Recorrido SII, SQL, filtros y fórmula
+
+Después del principal, el router llama a `build_opinion`. Con rol único usa **221 m² y año 1965 del catastro**, aunque el área enviada por el cliente sea distinta. El terreno no se pasa a esa función. Construye objetivo `15160|1261|L TROMBER|5631`, fecha de valoración **2026-10-20**, rol excluido `15160-1261-6`.
+
+El pool JSON exportado contiene **62.926** cierres. Su SQL de construcción es la de `scripts/validate_sii_closing.py`, con unión exacta por versión de predio y rol:
+
+```sql
+SELECT t.raw_id,t.rol,t.comuna,t.manzana AS block,t.tipo AS kind,
+       t.fecha::text AS date,t.fi::text AS fi,t.monto_uf::float8 AS uf,
+       t.m2_cerrado::float8 AS area,p.anio_min AS year,p.direccion_raw
+FROM sii.transferencia t JOIN sii.predio p ON
+ (t.predio_source_file_id,t.comuna,t.manzana,t.predio)=
+ (p.source_file_id,p.comuna,p.manzana,p.predio)
+WHERE t.cierre_comparable AND t.tipo IN ('depto','casa')
+  AND t.comuna=ANY(%s) AND t.fecha>=DATE '2024-01-01'
+ORDER BY t.raw_id;
+```
+
+No es un JOIN solo por manzana ni un cruce con una publicación. El source N activo es la pareja N/NL completa más reciente por comuna. Las transferencias usan el F2890 más reciente, source **25**, ZIP del 01/10/2026. El rebuild conserva crudos y derivados; la auditoría **solo leyó su SQL, nunca lo ejecutó**.
+
+En el rebuild: `fecha=coalesce(FE,FI)`; si hay UF nativa positiva se usa; si solo CLP, `monto_uf=CLP/UF(fecha)` con calendario exacto. FE inválida no se sustituye silenciosamente. `m2_cerrado = m2_H − m2_H_abierta`. Excluye, entre otros: duplicado rol-FE-FI (ganador mayor monto, desempate raw ID), sin catastro/precio/fecha/UF exacta, tipo no residencial, UF/m² H fuera 15–500, monto idéntico repetido en grupo, paquete depto+auxiliares sin monto, lote ≥10 deptos y ≥3 casas en manzana-fecha. La agrupación es un **proxy**, no identifica escrituras o derechos vendidos.
+
+`ClosingKNN.__init__` exige superficie, UF y año positivos, edificio y fecha desde 2024. Vitacura/casa tiene **1.144** filas válidas de base; `estimate` deja **748** candidatas con:
+
+```text
+misma comuna y tipo; 0,5 <= area_i/221 <= 1,5
+fecha_i < 2026-10-20; rol_i != 15160-1261-6
+```
+
+No hay filtro de terreno ni radio geográfico. Similitudes y score exactos:
+
+```text
+A = max(0, 1 - |ln(area_i/221)| / ln(1,5))
+L = 1 mismo edificio; 0,7 misma manzana; 0,2 misma comuna
+E = max(0, 1 - |año_i-1965|/20)
+F = max(0, 1 - días_desde_cierre/(365,25*2))
+s_i = 0,30*A + 0,30*L + 0,30*E + 0,10*F
+```
+
+K=10 por score descendente; empate por raw ID ascendente, independiente del precio. El límite ±50% es elegibilidad; la similitud logarítmica no es simétrica en diferencias porcentuales y queda en cero en parte de su extremo inferior. Los precios no intervienen en el ranking. El peso de la mediana es el score positivo, sin transformaciones.
+
+## 6. Los diez cierres SII seleccionados
+
+{sii_table}
+
+`cierres-SII-10.csv` incluye además CLP **declarado** (ND cuando la fuente trae solo UF), UF nativa, UF CLP de la fecha, UF realmente usada, fechas FE/FI, conversión recalculada, CLP equivalente derivado identificado como tal, H/abiertos/cerrados, componentes de score, distancia ND y motivo, source IDs, hashes, fila F2890 y calidad. No se presenta un CLP calculado como si hubiese sido declarado.
+
+Hay **2/10** en la manzana, con **20,78%** del peso; los otros 8 reciben solo la coincidencia comunal. **6/10** tienen terreno fuera del ±30% del objetivo, sin que SII lo filtre. Tres cierres tienen UF/m² cerrados bajos (33,88; 41,65; 50,11); sus montos existen en la fuente. Un monto bajo no demuestra conversión equivocada ni una venta a precio de mercado de la totalidad del dominio.
+
+Para cada seleccionado `q_i=UF_i/area_cerrada_i`. Se ordena por q y se toma el primer valor cuyo peso acumulado alcanza 25%, 50% y 75%. En el quinto precio ordenado se llega a **49,6675%**; el sexto es Recife 1923, raw **3653001**, 28.500/224=**127,232142857 UF/m²**, y acumula 59,2948%. Por tanto:
+
+```text
+mediana ponderada = 127,232142857 UF/m²
+valor = 127,232142857 * 221 = 28.118,303571 UF
+P25 = (11.125/222) * 221 = 11.074,887387 UF
+P75 = (30.000/219) * 221 = 30.273,972603 UF
+```
+
+La tabla completa de acumulación está en `SII-mediana-acumulada.csv`. Estos percentiles describen comparables, no probabilidad de que la casa valga dentro del rango. No hay recorte adicional de precios por el kNN. La mediana es discreta y puede saltar al cambiar un peso o vecino.
+
+## 7. Las tres direcciones y el entorno descartado
+
+| Dirección | Rol | FE | Precio UF | Resultado exacto |
+| --- | --- | --- | --- | --- |
+| A. Denegri 5630 | 1261-20 | 07/07/2026 | 43.250 | Incluido, puesto 1, score 0,734084 |
+| Laura Tromben 5665 | 1261-9 | 09/01/2026 | 40.500 | Elegible, puesto 72, score 0,516553; fuera del top 10 |
+| A. Denegri 5698 | 1261-26 | 24/04/2025 | 34.840,828764 | Incluido, puesto 6, score 0,686191 |
+
+Tromben 5665 tiene 316 m² y año 1971. Su razón 316/221=1,429864 **sí pasa** el ±50%, pero A=0,118100; L=0,7; E=0,7; F=0,611225. Suma 0,516553, por debajo del décimo 0,640613. No fue descartado por terreno, falta de precio, paquete, área fuera de límite ni por ser de 2026. Su venta de 2020 (38.200 UF) queda fuera por fecha anterior a 2024.
+
+Se exportan todas las 89 filas del entorno textual y sus razones por etapa; 27 son de la manzana del objetivo. Se distingue `motivos_exclusion` de ingesta, corte temporal del exportador, elegibilidad kNN y top 10. Los descartes incluyen operaciones sin monto/UF histórica exacta, anteriores a 2024, áreas incompatibles y otras elegibles fuera del ranking. **No se concluye que todas las casas cercanas fueran excluidas**. El rol objetivo tiene una transferencia histórica sin monto (2000), y además se excluye explícitamente del kNN por rol.
+
+Archivos: `cierres-entorno-decisiones.csv`, `cierres-entorno-descartados.csv`, `tres-direcciones-verificadas.csv`, originales JSON y `text-neighbourhood-definition.json`. Las 89 filas crudas locales tienen sus 89 derivadas: no se detectaron filas crudas de este subconjunto perdidas en la derivación. Sin coordenadas no puede afirmarse que esta selección textual cubra todos los cierres físicamente inmediatos de otras calles.
+
+## 8. Verificaciones de calidad: resultado y límites
+
+| Control | Evidencia y conclusión |
+| --- | --- |
+| UF/CLP SII | 7 montos UF nativos; 3 CLP convertidos. Recalculados con Decimal; diferencia menor que 1e-8 UF. No error de unidad detectado. |
+| Fecha de conversión | Las tres conversiones usan FE exacta: 24/04/2025 UF 39.036,45; 25/08/2026 UF 40.865,87; 26/06/2026 UF 40.809,44. FI es posterior y no se usó. |
+| Unidades primario | Los 20 finales tienen UF nativa scraped. La UF fija del demo se usa coherentemente para CLP de salida. Falta fecha explícita en metadatos de respuesta del arnés. |
+| Fuente física | SHA-256 de ZIP F2890 y archivos N/NL coincide con source_file. Releídas del ZIP las 97 filas F2890 seleccionadas/entorno, con montos parseados iguales. Releídas 63 filas N, incluidos objetivo y seleccionados, con dirección y terreno iguales. |
+| Join rol-casa | Coincidencia de source ID, comuna SII, manzana y predio; ninguna duplicación del join ni cambio de tipo/área/año entre snapshot y original en los 10 seleccionados. |
+| Superficies | Para los 10, suma de líneas H menos abiertas coincide con m² usado. El objetivo usa 221 H, no los 270 m² de todas las líneas. Para publicaciones hay 4 fallbacks a m² genérico, pendientes de semántica original. |
+| Temporalidad | La construcción y terreno son del catastro 2026-2, incluso para cierres 2025. Es una unión de catastro actual, no superficie necesariamente vigente a fecha de venta. Riesgo de reformas posteriores, no error demostrado de estos roles. |
+| Multirrol/paquetes | Los 10 seleccionados tienen grupo manzana-FE-FI de una sola fila, sin paquete ni motivo de exclusión; sin duplicado exacto de rol-fecha. F2890 no prueba tipo de acto, cuota vendida, parentesco, ni que todo el precio pertenezca a una casa. Esos riesgos permanecen abiertos. |
+| Clase de producto | SII clasifica casa por destino H y ausencia de tokens de depto/auxiliares, no por estado o uso económico. Principal variante outliers no activa filtrado duro de producto. Calidad y reformas no observadas. |
+| Geografía | Objetivo canónico sin coordenadas; distancia neutral. Cierres SII sin coordenadas locales verificadas; solo manzana/comuna. No hay distancia en metros demostrable. |
+| Duplicados | Ningún duplicado formal seleccionado en SII; fingerprints únicos en principal. Par 7722/2031 sospechoso con 9,79% de peso, pendiente de comprobar identidad real. La unicidad de fingerprint no demuestra unicidad de inmueble. |
+| Outliers | Principal elimina un alto (7024), sin cambiar top 20 ni precio base. SII pasa umbral global 15–500 UF/m² H y controles de grupos; no revisa mercado específico ni elimina bajos del kNN. No se pueden llamar errores a esos bajos solo porque incomoden al valor esperado. |
+| Calendario UF | Verificada igualdad con la tabla local fechada y su source `sii.cl`. No se realizó una segunda descarga independiente del calendario ni una validación legal de cada acto. |
+
+`source-byte-verification.json` contiene hashes y líneas físicas; `audit-sql.json` documenta SQL y parámetros; `selected-closings-original.json` y los originales del entorno conservan campos crudos. `execution-manifest.json` fija commit **{head}**, archivos de entrada, hashes y transacción `READ ONLY`. Los cuatro archivos del motor principal comparados con los hashes de la captura coinciden.
+
+## 9. Sensibilidad al terreno, sin cambiar los demás datos
+
+Se ejecutaron los routers locales reales para cada escenario (misma construcción 221, comuna, tipo, rol y piezas 5/5/2). No se editaron bases, parámetros, regla de confianza ni el formulario del usuario. Peticiones/respuestas completas en `api-inference-450/650/850/1050.json`.
+
+{senstable}
+
+En el principal responden **tres piezas**: (a) filtro duro ±30% cuando el candidato informa terreno; (b) componente de área del score, con terreno pesando 0,40×0,45=0,18 del score total si existe; (c) los cambios de pool cambian la referencia robusta, ranking y pesos. Faltar terreno no excluye: multiplica el componente construido por 0,65. No existe término hedónico ni aditivo `UF/m²_terreno × terreno` y el valor final se multiplica exclusivamente por **221 m² construidos**.
+
+Por eso la respuesta puede ser no monótona. En estos escenarios los avisos con terreno caen de 13 a 11, 5 y 2 de los 20 a medida que aumenta el terreno objetivo; el conjunto seleccionado cambia. No es que los metros adicionales tengan un precio negativo explícito: cambia la mezcla de referencias. Estos cuatro puntos no permiten interpolar una curva de precio causal ni elegir un terreno para obtener una cifra deseada.
+
+El SII queda exactamente en 28.118,303571 UF en los cuatro: terreno no está en el contrato de `ClosingKNN` ni se pasa desde el router a `build_opinion`. La superficie catastral identificada domina su base; una edición de terreno no altera esa capa.
+
+## 10. Por qué SII no reemplaza el precio principal
+
+Es una separación explícita del contrato: el router calcula el principal, construye `ValuationResponse`, y después agrega `response.sii_closing_opinion`. No asigna `estimated_price_uf`, no incorpora cierres a los motores canónicos ni a su consenso. `ValuationResult` muestra `result.estimated_price_uf`; `SiiClosingOpinion` presenta otro panel. La etiqueta de confianza solo describe SII; no le da peso en el precio principal.
+
+Aquí la celda congelada es **commune/40+/35+**, con 0 cierres del mismo edificio, 2 de manzana, edad 61 y dispersión **68,28%**. No está autorizada como alta confianza: validación 2025H2 **n=1.267, MdAPE=23,91%**. La etiqueta Referencial es coherente con la regla. Poner este resultado como precio principal sin guardas trasladaría una referencia no confiable al resultado destacado.
+
+Para darle prioridad en el futuro haría falta diseñar y validar, sin implementarlo ahora:
+
+1. Un contrato de objetivo compartido que propague rol, geografía con precisión, superficie/base/versiones, año y terreno a los modelos que deban usarlos; preservar qué dato es manual y cuál catastral.
+2. Un adaptador de motor SII con trazabilidad y un selector explícito de precio final, con reglas de disponibilidad, confianza, desacuerdo y fallback; evitar doble conteo en un consenso de motores dependientes.
+3. Cambiar coherentemente los campos canónicos de respuesta y su procedencia, rango, confianza, descarga de informe y presentación. La adición del campo SII por sí sola no basta.
+4. Revalidar temporalmente esa política con conjuntos separados por rol/operación, precios de cierre y todos los casos con abstención. La regla congelada actual no permite declarar confiable este caso; no debe relajarse mirando el resultado de esta casa.
+
+## 11. Causa raíz, hipótesis pendientes y corrección generalizable
+
+**Demostrado:** la identificación por rol es exacta; los importes auditados y superficies H se reproducen desde fuentes. No se detectó un fallo UF/CLP o un join accidental que explique las dos cifras. La limitación principal es la **representación y selección de comparables para casas**: geografía del objetivo ausente en el principal, mayoría de avisos sin terreno, uso de precio por m² construido para capturar conjuntamente casa y suelo, y SII que ignora terreno y reduce ubicación a tres categorías. A esto se suma una mediana discreta SII con referencias comunales heterogéneas y alta dispersión. Eso demuestra cómo se generan los números, **no un error contra un precio verdadero todavía desconocido**.
+
+**Pendiente de evidencia:** titularidad/porcentaje o tipo de acto de las ventas bajas; estado/reformas de las casas; identidad del par de avisos sospechoso; semántica de cuatro superficies genéricas; situación de la línea del objetivo con destino vacío; superficies vigentes a fecha de cada cierre; coordenadas precisas y exhaustividad del entorno; direcciones/títulos/URLs originales que la captura no conserva. Ninguna de estas hipótesis se usó para borrar registros ni subir una tasación.
+
+**Propuesta generalizable, por etapas:**
+
+- Completar observabilidad: guardar un paquete de auditoría privado por inferencia con IDs, fuente/versiones, reglas, motivo de cada descarte, UF fechada, conjunto y pesos. Devolver al producto la procedencia adecuada sin exponer datos ajenos.
+- Resolver geografía fiable por rol y propagarla con precisión/certeza; abstenerse de afirmar proximidad con centroides o con números cívicos. Revisar si bloque catastral representa bien el mercado de casas.
+- Separar m² H cerrados, construidos comerciales, genéricos y terreno. Conservar incertidumbre en vez de tratar ausencias como equivalencias. Investigar la vinculación de avisos al inmueble y deduplicación entre publicaciones.
+- Validar una especificación de valor para casas que modele terreno y construcción separadamente o mediante ajustes defendibles, con restricciones/pruebas de sensibilidad, cobertura de terreno y control de ubicación. Comparar alternativas con validación temporal independiente; no cambiar K/pesos a partir de este objetivo.
+- Aislar operaciones cuyo precio completo no esté probado: flags y abstención ante evidencia insuficiente; revisar agrupación por escritura cuando exista identificador. Un precio bajo por sí solo no es criterio para eliminar una venta.
+- Solo después evaluar prioridad SII bajo una política congelada en validación, medir sesgo, MdAPE/P95 y cobertura fuera de muestra, y probar estabilidad de respuesta. El objetivo es error/robustez general, **no alcanzar 35.000–40.000 UF**.
+
+## 12. Expediente y reproducción
+
+Entradas/salidas y controles están en esta carpeta. Los CSV son UTF-8 con BOM, decimal punto para cálculo y encabezados de unidades explícitas. ND se guarda como celda vacía y tiene razón en el campo correspondiente. JSON conserva precisión y estructuras; los decimales monetarios originales se guardan como texto para no perder dígitos.
+
+- `cierres-SII-10.csv`: diez seleccionados, precios, fechas, atributos, score/peso, IDs, fuentes y calidad.
+- `cierres-entorno-decisiones.csv` y `cierres-entorno-descartados.csv`: 89 filas del ámbito textual, con decisiones por etapa.
+- `tres-direcciones-verificadas.csv`: comprobación específica de las tres direcciones.
+- `publicaciones-20.csv`: veinte publicaciones efectivas, no las del control sin piezas.
+- `sensibilidad-terreno.csv`: cuatro inferencias sin cambiar algoritmo o parámetros.
+- `api-inference-*.json`, `canonical-engine-*.json`, `SII-mediana-acumulada.csv`: trazas numéricas.
+- `audit-sql.json`, `source-byte-verification.json`, `execution-manifest.json`, `codigo/` y `reproducir/`: trazabilidad técnica.
+
+Los scripts se ejecutaron desde el `work/` original; las copias en `reproducir/` son evidencia de lo ejecutado. Para repetirlos, usar ese directorio con los mismos snapshots y la base `valoria_sii_local` en loopback 55432, y **una carpeta de salida nueva** para conservar este expediente. El arnés local usa autenticación sintética exclusivamente en memoria. No debe copiarse a producción. El SQL de rebuild incluido en `codigo/` es referencia del origen; no se requiere ejecutarlo para esta auditoría.
+'''
+report=report.replace('0,640613','0,640606')
+report=report.replace('incluidos objetivo y seleccionados, con dirección y terreno iguales. |','incluidos objetivo y seleccionados, con dirección y terreno iguales; 287 líneas NL coinciden con sus bytes originales. |')
+report=report.replace('Los cuatro archivos del motor principal comparados con los hashes de la captura coinciden.','Los cuatro archivos del motor principal comparados con los hashes de la captura coinciden. **36 controles de auditoría correctos**, detallados en `CONTROLES.txt` y `CONTROLES.json`.')
+(OUT/'INFORME.md').write_text(report,encoding='utf8')
+
+# Standalone HTML, no external dependencies or network assets.
+def inline(s):
+    s=html.escape(s)
+    s=re.sub(r'`([^`]+)`',r'<code>\1</code>',s)
+    s=re.sub(r'\*\*([^*]+)\*\*',r'<strong>\1</strong>',s)
+    return s
+parts=[];lines=report.splitlines();i=0
+while i<len(lines):
+    line=lines[i]
+    if line.startswith('```'):
+        block=[];i+=1
+        while i<len(lines) and not lines[i].startswith('```'):block.append(lines[i]);i+=1
+        parts.append('<pre><code>'+html.escape('\n'.join(block))+'</code></pre>')
+    elif line.startswith('#'):
+        level=len(line)-len(line.lstrip('#'));parts.append(f'<h{level}>'+inline(line[level:].strip())+f'</h{level}>')
+    elif line.startswith('|'):
+        rows=[]
+        while i<len(lines) and lines[i].startswith('|'):
+            cells=[c.strip() for c in lines[i].strip('|').split('|')]
+            if not all(re.fullmatch(r'[- :]+',c) for c in cells):rows.append(cells)
+            i+=1
+        parts.append('<div class="scroll"><table>'+''.join('<tr>'+''.join(('<th>' if j==0 else '<td>')+inline(c)+('</th>' if j==0 else '</td>') for c in row)+'</tr>' for j,row in enumerate(rows))+'</table></div>');continue
+    elif line.startswith('- '):parts.append('<ul><li>'+inline(line[2:])+'</li></ul>')
+    elif re.match(r'^\d+\. ',line):parts.append('<p class="step">'+inline(line)+'</p>')
+    elif line.strip():parts.append('<p>'+inline(line)+'</p>')
+    i+=1
+links=''.join('<a href="'+html.escape(p.name)+'">'+html.escape(p.name)+'</a>' for p in sorted(OUT.glob('*.csv')))
+style='body{font:17px/1.65 system-ui,sans-serif;color:#192d35;background:#f4f7f6;margin:0}main{max-width:1150px;margin:40px auto;padding:48px;background:white;border-radius:18px}h1{font-size:34px;line-height:1.2}h2{margin-top:48px;color:#155f57}p{max-width:1000px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #dbe5e2;vertical-align:top}th{background:#e5f2ed}tr:nth-child(even){background:#f7faf9}.scroll{overflow:auto;margin:24px 0}pre{white-space:pre-wrap;background:#122c31;color:#e4faf0;padding:20px;font-size:14px;border-radius:10px}code{font-size:.9em;overflow-wrap:anywhere}ul{margin:8px 0}nav{display:flex;flex-wrap:wrap;gap:10px;margin:24px 0}a{color:#126b61}nav a{background:#e5f2ed;padding:8px 12px;border-radius:8px;font-size:14px}.label{color:#526a68;text-transform:uppercase;font-size:12px;letter-spacing:2px}@media(max-width:700px){main{margin:0;padding:24px;border-radius:0}body{font-size:16px}h1{font-size:28px}}@media print{main{margin:0;padding:0}body{background:white}h2{break-after:avoid}table{font-size:11px}pre{color:black;background:#eee}nav{display:none}}'
+(OUT/'INFORME.html').write_text('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Auditoría Valoria · Vitacura 1261-6</title><style>'+style+'</style><main><div class="label">Expediente privado · Solo local · Sin cambios al modelo</div><nav>'+links+'</nav>'+''.join(parts)+'</main></html>',encoding='utf8')
+trace_table=table(['Archivo','Función','Línea inicial','Línea final'],[[r['file'],r['function'],r['line'],r['end_line']] for r in traces])
+(OUT/'INDICE_CODIGO.md').write_text('# Funciones auditadas\n\nCopia del código en `codigo/`; hashes en `code-manifest.json`.\n\n'+trace_table,encoding='utf8')
+print('Report written; clean code; baseline code hashes match; input hashes recorded')

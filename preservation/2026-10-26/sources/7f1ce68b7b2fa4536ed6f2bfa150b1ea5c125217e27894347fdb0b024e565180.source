@@ -1,0 +1,29 @@
+"""Use existing Git credentials in memory; never print/save credential material."""
+import subprocess,os,json,urllib.request,urllib.error,pathlib
+repo=pathlib.Path('work/oracle-ingestion-resilience')
+branch='fix/oracle-uf-resilient-ingestion-20261015'
+base='release/canonical-only-reproducible-20261013'
+env=dict(os.environ,GIT_TERMINAL_PROMPT='0')
+r=subprocess.run(['git','credential','fill'],input='protocol=https\nhost=github.com\npath=Andreaslinn/valoria.git\n\n',cwd=repo,env=env,capture_output=True,text=True,timeout=45)
+if r.returncode:raise SystemExit('Git credential lookup unavailable; no credentials printed')
+credential=dict(line.split('=',1) for line in r.stdout.splitlines() if '=' in line)
+token=credential.get('password')
+if not token:raise SystemExit('No GitHub credential available')
+def api(path,body=None,method=None):
+ req=urllib.request.Request('https://api.github.com/repos/Andreaslinn/valoria'+path,
+       data=json.dumps(body).encode() if body is not None else None,method=method,
+       headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'Valoria-Resilience-Review','Content-Type':'application/json'})
+ try:
+  with urllib.request.urlopen(req,timeout=30) as response:return json.load(response)
+ except urllib.error.HTTPError as exc:raise SystemExit('GitHub API returned HTTP '+str(exc.code))
+tip=api('/branches/'+base.replace('/','%2F'))
+if tip['commit']['sha']!='3e6782a16d92b6f2284e96b47b429bf8cb6c27c3':raise SystemExit('Requested base moved; rebase review required')
+existing=api('/pulls?state=open&head=Andreaslinn%3A'+branch)
+body=pathlib.Path('work/resilience-pr-body.md').read_text(encoding='utf-8')
+if existing:
+ pr=api('/pulls/'+str(existing[0]['number']),{'body':body},method='PATCH')
+else:
+ pr=api('/pulls',{'title':'Evitar que la caída de UF detenga Portal y degrade Yapo','head':branch,'base':base,'body':body,'draft':True})
+proof={'url':pr['html_url'],'number':pr['number'],'base':pr['base']['ref'],'base_sha':pr['base']['sha'],'head_sha':pr['head']['sha'],'draft':pr['draft']}
+pathlib.Path('outputs/oracle-resilience-20261015/pr.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+print(json.dumps(proof))

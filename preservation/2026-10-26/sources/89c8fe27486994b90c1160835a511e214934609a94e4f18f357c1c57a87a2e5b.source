@@ -1,0 +1,68 @@
+import json
+import os
+import subprocess
+from pathlib import Path
+import httpx
+
+base=Path(__file__).parent
+repo=base/'valoria'
+branch='feature/sii-linkage-phase2a-20261019'
+release='release/canonical-only-reproducible-20261013'
+assert subprocess.check_output(['git','branch','--show-current'],cwd=repo,text=True).strip()==branch
+sha=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip()
+os.environ['GIT_TERMINAL_PROMPT']='0';os.environ['GCM_INTERACTIVE']='never'
+r=subprocess.run(['git','credential','fill'],input='protocol=https\nhost=github.com\n\n',text=True,capture_output=True,cwd=repo,timeout=20)
+if r.returncode:raise SystemExit('GitHub credential unavailable; output suppressed')
+credential=dict(x.split('=',1) for x in r.stdout.splitlines() if '=' in x)
+token=credential.get('password')
+if not token:raise SystemExit('GitHub credential unavailable')
+root='https://api.github.com/repos/Andreaslinn/valoria'
+d=json.loads((base/'sii-phase2a-step0-production.json').read_text(encoding='utf-8-sig'))
+assert d['gate']['stop']
+report=f'https://github.com/Andreaslinn/valoria/blob/{sha}/reports/sii/phase2a_step0.md'
+body=f'''El control previo de fase 2a encuentra cobertura insuficiente en producción y detiene el enlace aviso→rol según el criterio del encargo: **7 de 8 comunas están bajo 40%** de dirección exacta o coordenadas publicadas del PR #5. Añade un auditor aislado, pruebas y evidencia por comuna y portal; los pasos de geocodificación, enlace y muestra de 100 quedan detenidos.
+
+Parte del release `24b56dc6fe626d19834bcd6707a9b77d1d3d44c7`, que incorpora el PR #9 mediante el merge expresamente autorizado. No se hizo deploy. Este PR permanece en borrador.
+
+### Control de producción
+
+Corte `{d['as_of_utc']}` (19/10, 17:49 Europe/Berlin). Transacción `REPEATABLE READ, READ ONLY`, guardia `transaction_read_only=on`, timeouts 20 s / lock 1 s y rollback. Script ejecutado por stdin con `python -B` en el contenedor API existente; sin instalar archivos, modificar configuración persistente o ejecutar scrapers, migraciones ni tasaciones.
+
+| Métrica sobre 2.107 departamentos activos | Resultado |
+|---|---|
+| Calle y número exactos | 287 · 13,62% |
+| Coordenadas publicadas | 309 · 14,67% |
+| m² útil explícito | 143 · 6,79% |
+| Dirección O coordenadas publicadas | **536 · 25,44%** |
+| Ubicación y m² útil explícito | 126 · 5,98% |
+| Los tres campos | 15 · 0,71% |
+
+Cobertura de ubicación por comuna: Vitacura 36,34%; Las Condes 15,95%; Ñuñoa 27,82%; Providencia 40,00%; La Florida 28,51%; Santiago 23,60%; San Miguel 31,63%; Estación Central 9,54%.
+
+Portal: 325/601 (54,08%). Yapo: 211/1.506 (14,01%). Hay 1.537 avisos sin una observación PR #5 vinculada y solo 126 con detalle vinculado. Esto demuestra una brecha en datos almacenados; no acredita que las fuentes jamás publiquen los campos ni identifica por sí solo un fallo particular del scraper.
+
+Se cuentan coordenadas publicadas de precisión `unknown` como disponibilidad observada, sin certificar edificio; las 309 tienen esa precisión desconocida. La unión con cualquier coordenada canónica se muestra aparte (40,67% global), pues no equivale a procedencia publicada del PR #5.
+
+### Cambios y validación
+
+- `scripts/audit_sii_linkage_readiness.py`: requiere `SII_LINKAGE_ENABLED=true` y `--production-readonly` antes de leer la conexión; apagado por defecto. Solo SELECTs con controles de sesión y salida agregada más cinco ejemplos por comuna.
+- Distingue m² útil explícito de superficies genéricas y rechaza el número de departamento usado como número cívico; vincula hechos a la misma publicación.
+- **46 pruebas pasadas**: siete del control y regresiones de valoración canónica. Ruff correcto. Código y rutas de Tasar/Radar/valoración sin cambios.
+- [Informe completo, causas y cinco avisos de ejemplo por comuna]({report}); CSV y JSON adyacentes en `reports/sii/`.
+
+El criterio de enlaces ≥40%, la precisión ≥90% en muestra de 100 y la idempotencia de enlaces **no se evaluaron**: no se generaron enlaces, tablas nuevas ni muestra al fallar Paso 0. El siguiente trabajo es investigar/recuperar los campos publicados faltantes antes de reanudar geocodificación y enlace. Sin merge ni deploy de este PR.
+'''
+(base/'phase2a-pr-body.md').write_text(body,encoding='utf8')
+headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+with httpx.Client(headers=headers,timeout=30,follow_redirects=False) as c:
+    prerequisite=c.get(root+'/pulls/9');prerequisite.raise_for_status();assert prerequisite.json()['merged']
+    existing=c.get(root+'/pulls',params={'state':'open','head':'Andreaslinn:'+branch,'base':release});existing.raise_for_status()
+    if existing.json():
+        p=existing.json()[0];assert p['draft']
+    else:
+        response=c.post(root+'/pulls',json={'title':'SII fase 2a: control previo y parada por cobertura insuficiente','head':branch,'base':release,'body':body,'draft':True})
+        if response.status_code!=201:raise SystemExit(f'PR creation refused: HTTP {response.status_code}')
+        p=response.json()
+    result={'url':p['html_url'],'number':p['number'],'draft':p['draft'],'head':p['head']['sha'],'base':p['base']['ref']}
+    (base/'phase2a-pr-created.json').write_text(json.dumps(result,indent=2),encoding='utf8')
+    print(json.dumps(result))

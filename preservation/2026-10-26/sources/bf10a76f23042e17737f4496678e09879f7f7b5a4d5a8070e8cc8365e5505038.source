@@ -1,0 +1,412 @@
+"""Opt-in real PostgreSQL tests; no source HTTP, production URL or pytest needed.
+
+Run as a script inside the ARM64 validation image. Every test gets a disposable
+schema in the specifically named validation database, never the public schema.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+import json
+import os
+from pathlib import Path
+import unittest
+from unittest.mock import AsyncMock, patch
+from uuid import uuid4
+
+import httpx
+from sqlalchemy import func, select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from config import get_settings
+from domain.geocoding.source_quality import evidence
+from infrastructure.db.base import Base
+from infrastructure.db.models import ListingORM, ListingObservationORM
+from infrastructure.db.portal_geography import STATE_KEY, apply_geography, claim
+from infrastructure.scrapers.portalinmobiliario import (
+    classify_portal_detail_page_state,
+)
+from workers.portal_geo_enrichment import enrich_geography
+
+T = datetime(2026, 10, 11, 12, tzinfo=UTC)
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/portal_detail_real_2_sanitized.html"
+HTML = FIXTURE.read_text(encoding="utf-8")
+POINT = (-33.476406, -70.6484696)
+
+
+class NoWait:
+    async def wait(self):
+        pass
+
+
+def detail_html(external_id, *, missing=False):
+    # Reuse a real archived page. Only publication IDs/absence are synthetic.
+    page = HTML.replace("MLC3621878454", external_id.replace("-", "")).replace(
+        "MLC-3621878454", external_id
+    )
+    if missing:
+        # A real detail page with all map points removed, not a challenge page.
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(page, "html.parser")
+        node = soup.find("script", id="__NORDIC_RENDERING_CTX__")
+        from infrastructure.scrapers.portalinmobiliario import _extract_first_json_object
+
+        payload = json.loads(_extract_first_json_object(node.string))
+
+        def remove_points(value):
+            if isinstance(value, dict):
+                value.pop("map_info", None)
+                for child in value.values():
+                    remove_points(child)
+            elif isinstance(value, list):
+                for child in value:
+                    remove_points(child)
+
+        remove_points(payload)
+        node.string = json.dumps(payload)
+        page = str(soup)
+    return page
+
+
+def point_evidence(external_id):
+    return evidence(*POINT, publication_id=external_id, source="portal:location.map_info.location")
+
+
+@unittest.skipUnless(os.getenv("PORTAL_GEO_TEST_DATABASE_URL"), "isolated PostgreSQL opt-in")
+class PostgreSQLGeography(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        asyncio.get_running_loop().set_debug(False)  # QEMU speed is not a timing gate.
+        url = make_url(os.environ["PORTAL_GEO_TEST_DATABASE_URL"])
+        # Refuse any URL other than this dedicated disposable validation service.
+        assert url.host in {"portal-geo-pg-op-20261011", "127.0.0.1"}
+        assert url.database == "portal_geo_validation" and url.username == "geo_validation"
+        self.schema = "portal_geo_op_" + uuid4().hex
+        self.admin = create_async_engine(url)
+        async with self.admin.begin() as c:
+            assert (await c.scalar(text("SELECT current_database()"))) == "portal_geo_validation"
+            version = await c.scalar(text("SHOW server_version"))
+            assert version.startswith("16.14"), version
+            await c.execute(text(f'CREATE SCHEMA "{self.schema}"'))
+        self.engine = create_async_engine(
+            url,
+            pool_size=8,
+            connect_args={
+                "server_settings": {
+                    "search_path": self.schema,
+                    "statement_timeout": "30000",  # QEMU client round trips; lock timeout stays strict.
+                    "lock_timeout": "1500",
+                    "application_name": "portal_geo_operational_test",
+                }
+            },
+        )
+        async with self.engine.begin() as c:
+            await c.run_sync(Base.metadata.create_all)
+        self.factory = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.history_before = get_settings().ingestion_observation_history_enabled
+        get_settings().ingestion_observation_history_enabled = True
+
+    async def asyncTearDown(self):
+        get_settings().ingestion_observation_history_enabled = self.history_before
+        await self.engine.dispose()
+        async with self.admin.begin() as c:
+            assert self.schema.startswith("portal_geo_op_") and len(self.schema) == 46
+            await c.execute(text(f'DROP SCHEMA "{self.schema}" CASCADE'))
+        await self.admin.dispose()
+
+    async def seed(self, n=1, *, lat=None, lon=None, metadata=None, status="active"):
+        ids = []
+        async with self.factory() as s:
+            for number in range(n):
+                ext = f"MLC-{8000000000 + number}"
+                row = ListingORM(
+                    source="portalinmobiliario",
+                    external_id=ext,
+                    title="Offline fixture",
+                    url=f"https://www.portalinmobiliario.com/{ext}-offline",
+                    comuna="santiago",
+                    property_type="apartment",
+                    m2=63,
+                    bedrooms=2,
+                    bathrooms=2,
+                    parking=1,
+                    price_clp=Decimal("160000000"),
+                    fingerprint=f"offline-{ext}",
+                    status=status,
+                    raw_metadata=metadata or {},
+                    scraped_at=T,
+                    last_seen_at=T,
+                    lat=lat,
+                    lon=lon,
+                    geocode_precision="unknown" if lat is not None else None,
+                )
+                s.add(row)
+                await s.flush()
+                ids.append(row.id)
+            await s.commit()
+        return ids
+
+    async def row(self, ident):
+        async with self.factory() as s:
+            return await s.get(ListingORM, ident)
+
+    async def count_events(self, kind):
+        async with self.factory() as s:
+            return await s.scalar(
+                select(func.count())
+                .select_from(ListingObservationORM)
+                .where(ListingObservationORM.event_kind == kind)
+            )
+
+    async def run_worker(self, handler, **kwargs):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await enrich_geography(
+                session_factory=self.factory,
+                client=client,
+                limiter=NoWait(),
+                now=kwargs.pop("now", T),
+                budget=kwargs.pop("budget", 1),
+                **kwargs,
+            )
+
+    async def test_two_workers_same_publication_one_request_no_network_lock(self):
+        (ident,) = await self.seed()
+        entered, release = asyncio.Event(), asyncio.Event()
+        calls = []
+
+        async def slow(request):
+            calls.append(str(request.url))
+            entered.set()
+            await release.wait()
+            return httpx.Response(200, text=detail_html("MLC-8000000000"))
+
+        first = asyncio.create_task(self.run_worker(slow))
+        try:
+            await asyncio.wait_for(entered.wait(), 30)
+            # A different DB session can lock the row during HTTP: no I/O-held lock.
+            async with self.factory() as s:
+                row = await s.scalar(
+                    select(ListingORM).where(ListingORM.id == ident).with_for_update(nowait=True)
+                )
+                self.assertEqual(row.raw_metadata[STATE_KEY]["attempts"], 1)
+            second = await asyncio.wait_for(self.run_worker(slow), 30)
+            self.assertEqual(second["geo_details_requested"], 0)
+        finally:
+            release.set()
+        result = await asyncio.wait_for(first, 30)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["geo_enriched"], 1)
+        row = await self.row(ident)
+        self.assertAlmostEqual(row.lat, POINT[0])
+        self.assertEqual(
+            row.raw_metadata["coordinates_evidence"]["source_listing_id"], row.external_id
+        )
+        self.assertEqual(
+            row.raw_metadata["coordinates_evidence"]["source"], "portal:location.map_info.location"
+        )
+        self.assertEqual(row.geocode_precision, "unknown")
+        self.assertEqual(await self.count_events("geo_enriched"), 1)
+
+    async def test_two_workers_respect_each_budget_and_distinct_publications(self):
+        await self.seed(6)
+        calls = []
+
+        async def handler(request):
+            key = request.url.path.split("/")[1].split("-offline")[0]
+            calls.append(key)
+            await asyncio.sleep(0.03)
+            return httpx.Response(200, text=detail_html(key))
+
+        results = await asyncio.wait_for(
+            asyncio.gather(self.run_worker(handler, budget=1), self.run_worker(handler, budget=1)),
+            60,
+        )
+        self.assertEqual([r["geo_details_requested"] for r in results], [1, 1])
+        self.assertEqual(len(set(calls)), 2)
+        self.assertEqual(await self.count_events("geo_enriched"), 2)
+
+    async def test_concurrent_writers_idempotent_canonical_and_history(self):
+        (ident,) = await self.seed()
+
+        async def write():
+            async with self.factory() as s:
+                row = await s.scalar(
+                    select(ListingORM).where(ListingORM.id == ident).with_for_update()
+                )
+                result = await apply_geography(
+                    s, row, point_evidence(row.external_id), recovered_at=T
+                )
+                await asyncio.sleep(0.02)
+                await s.commit()
+                return result
+
+        results = await asyncio.wait_for(asyncio.gather(write(), write()), 30)
+        self.assertCountEqual(results, ["enriched", "already_geolocated"])
+        self.assertEqual(await self.count_events("geo_enriched"), 1)
+        row = await self.row(ident)
+        self.assertEqual((row.lat, row.lon), POINT)
+        self.assertEqual(row.price_clp, Decimal("160000000"))
+        self.assertIsNone(row.property_id)
+        self.assertEqual(row.last_seen_at, T)
+
+    async def test_interruption_before_claim_commit_rolls_back(self):
+        (ident,) = await self.seed()
+        async with self.factory() as s:
+            row = await s.scalar(select(ListingORM).where(ListingORM.id == ident).with_for_update())
+            self.assertTrue(await claim(s, row, now=T))
+            # Closing a session simulates lost transaction without commit.
+        self.assertNotIn(STATE_KEY, (await self.row(ident)).raw_metadata)
+        async with self.factory() as s:
+            row = await s.scalar(select(ListingORM).where(ListingORM.id == ident).with_for_update())
+            self.assertTrue(await claim(s, row, now=T))
+            await s.commit()
+
+    async def test_interruption_after_claim_persists_cooldown_and_retry_limit(self):
+        (ident,) = await self.seed()
+        for day in range(3):
+            async with self.factory() as s:
+                row = await s.scalar(
+                    select(ListingORM).where(ListingORM.id == ident).with_for_update()
+                )
+                self.assertTrue(await claim(s, row, now=T + timedelta(days=day)))
+                await s.commit()  # crash before I/O, reservation must survive
+            async with self.factory() as s:
+                row = await s.scalar(
+                    select(ListingORM).where(ListingORM.id == ident).with_for_update()
+                )
+                self.assertFalse(
+                    await claim(s, row, now=T + timedelta(days=day, hours=23, minutes=59))
+                )
+        async with self.factory() as s:
+            row = await s.scalar(select(ListingORM).where(ListingORM.id == ident).with_for_update())
+            self.assertFalse(await claim(s, row, now=T + timedelta(days=4)))
+        self.assertEqual((await self.row(ident)).raw_metadata[STATE_KEY]["attempts"], 3)
+        self.assertEqual(await self.count_events("geo_enriched"), 0)
+
+    async def test_cancelled_http_releases_locks_and_preserves_reservation(self):
+        (ident,) = await self.seed()
+        entered = asyncio.Event()
+
+        async def interrupted(request):
+            entered.set()
+            await asyncio.Future()
+
+        task = asyncio.create_task(self.run_worker(interrupted))
+        await asyncio.wait_for(entered.wait(), 30)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        row = await self.row(ident)
+        self.assertEqual(row.raw_metadata[STATE_KEY]["attempts"], 1)
+        self.assertIsNone(row.lat)
+        calls = []
+        result = await self.run_worker(lambda request: calls.append(request))
+        self.assertEqual(calls, [])
+        self.assertEqual(result["geo_details_requested"], 0)
+
+    async def test_history_failure_rolls_back_point_but_not_reserved_attempt(self):
+        (ident,) = await self.seed()
+        with patch(
+            "infrastructure.db.portal_geography.append_observation",
+            new=AsyncMock(side_effect=RuntimeError("injected history failure")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "injected history failure"):
+                await self.run_worker(
+                    lambda r: httpx.Response(200, text=detail_html("MLC-8000000000"))
+                )
+        row = await self.row(ident)
+        self.assertIsNone(row.lat)
+        self.assertEqual(row.raw_metadata[STATE_KEY]["attempts"], 1)
+        self.assertEqual(await self.count_events("geo_enriched"), 0)
+        async with self.factory() as s:
+            row = await s.scalar(
+                select(ListingORM).where(ListingORM.id == ident).with_for_update(nowait=True)
+            )
+            self.assertIsNone(row.lon)
+
+    async def test_interruption_after_flush_rolls_back_point_and_history(self):
+        (ident,) = await self.seed()
+        async with self.factory() as s:
+            row = await s.scalar(select(ListingORM).where(ListingORM.id == ident).with_for_update())
+            self.assertEqual(
+                await apply_geography(s, row, point_evidence(row.external_id), recovered_at=T),
+                "enriched",
+            )
+            self.assertEqual(
+                await s.scalar(select(func.count()).select_from(ListingObservationORM)), 1
+            )
+            # No commit: both canonical data and appended evidence roll back.
+        self.assertIsNone((await self.row(ident)).lat)
+        self.assertEqual(await self.count_events("geo_enriched"), 0)
+
+    async def test_missing_location_exhausts_after_three_actual_requests(self):
+        (ident,) = await self.seed()
+        calls = []
+
+        def handler(request):
+            calls.append(request)
+            return httpx.Response(200, text=detail_html("MLC-8000000000", missing=True))
+
+        for day in range(4):
+            await self.run_worker(handler, now=T + timedelta(days=day))
+            await self.run_worker(handler, now=T + timedelta(days=day, hours=23))
+        row = await self.row(ident)
+        self.assertEqual(len(calls), 3)
+        self.assertIsNone(row.lat)
+        self.assertTrue(row.raw_metadata[STATE_KEY]["exhausted"])
+        self.assertEqual(row.raw_metadata[STATE_KEY]["outcome"], "missing")
+        self.assertEqual(await self.count_events("geo_enrichment_result"), 3)
+
+    async def test_existing_point_and_incomplete_response_are_non_destructive(self):
+        (ident,) = await self.seed(
+            lat=POINT[0], lon=POINT[1], metadata={"prior_evidence": "retained"}
+        )
+        async with self.factory() as s:
+            row = await s.scalar(select(ListingORM).where(ListingORM.id == ident).with_for_update())
+            self.assertEqual(await apply_geography(s, row, None), "unbound")
+            other = evidence(
+                -33.44,
+                -70.64,
+                publication_id=row.external_id,
+                source="portal:location.map_info.location",
+            )
+            self.assertEqual(await apply_geography(s, row, other), "already_geolocated")
+            await s.commit()
+        calls = []
+        await self.run_worker(lambda r: calls.append(r))
+        self.assertEqual(calls, [])
+        row = await self.row(ident)
+        self.assertEqual((row.lat, row.lon), POINT)
+        self.assertEqual(row.raw_metadata["prior_evidence"], "retained")
+        self.assertEqual(await self.count_events("geo_enriched"), 0)
+
+    async def test_zero_budget_no_claim_no_http_even_when_history_on(self):
+        (ident,) = await self.seed()
+        calls = []
+        result = await self.run_worker(lambda r: calls.append(r), budget=0)
+        self.assertEqual(dict(result), {})
+        self.assertEqual(calls, [])
+        self.assertNotIn(STATE_KEY, (await self.row(ident)).raw_metadata)
+
+    async def test_live_challenges_and_403_429_stop_with_no_coordinates(self):
+        ident = (await self.seed(2))[0]
+        # Test real request handling for an explicit visible challenge + stale product JSON.
+        challenge = '<html><body><div class="g-recaptcha">Complete the captcha</div><script type="application/ld+json">{"@type":"Product","productID":"MLC8000000000","offers":{"price":3000}}</script></body></html>'
+        self.assertEqual(classify_portal_detail_page_state(HTML), "detail")
+        self.assertEqual(classify_portal_detail_page_state(challenge), "captcha_visible")
+        calls = []
+        result = await self.run_worker(
+            lambda r: (calls.append(r), httpx.Response(200, text=challenge))[1], budget=5
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["geo_stopped"], 1)
+        self.assertIsNone((await self.row(ident)).lat)
+        for status in (403, 429):
+            self.assertEqual(classify_portal_detail_page_state(HTML, status_code=status), "blocked")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

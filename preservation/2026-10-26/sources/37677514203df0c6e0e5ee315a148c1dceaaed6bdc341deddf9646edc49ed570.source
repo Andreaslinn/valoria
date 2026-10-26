@@ -1,0 +1,25 @@
+import json
+from pathlib import Path
+p=Path('core/assessment/warning_definitions.json');d=json.loads(p.read_text())
+entries={
+'property_type_not_allowed':('datos','Tipo fuera del modelo complementario','El modelo complementario no admite este tipo de propiedad. Se conserva el método disponible; revisa su cobertura.','warning'),
+'delta_vs_baseline_too_high':('precio','Diferencia entre modelos','El modelo complementario difiere demasiado de la referencia y no se utiliza. La discrepancia requiere revisión.','warning'),
+'published_price_not_provided':('precio','Sin precio de comparación','Puedes estimar el valor, pero falta el precio publicado para evaluar descuento o sobreprecio.','info'),
+'blocked_comuna':('ubicacion','Modelo restringido en esta comuna','El modelo complementario está restringido por fiabilidad en esta comuna; se utiliza la referencia disponible.','warning'),
+'insufficient_valid_comparables':('comparables','Comparables insuficientes','No hay suficientes comparables válidos para este modelo. Su resultado no respalda la estimación.','risk'),
+'pool_dispersion_too_high':('comparables','Muestra demasiado dispersa','Los precios varían demasiado para utilizar este modelo con fiabilidad. Se conserva la referencia disponible.','warning'),
+'robust_estimate_unavailable':('datos','Modelo robusto no disponible','Los datos no permiten calcular la estimación robusta. Revisa la referencia y la cobertura.','warning'),
+'quality_v2_p90_risk_comuna':('ubicacion','Fiabilidad limitada en la comuna','La validación del modelo detectó mayor error en esta comuna. Usa el resultado con cautela.','warning'),
+'mode_off':('beta','Modelo complementario desactivado','El modelo complementario está desactivado y no interviene en el resultado.','info'),
+'unsupported_property_type':('datos','Tipo no admitido por este modelo','Este modelo no admite el tipo de propiedad y se abstiene de estimar. No implica cobertura de otros modelos.','warning'),
+'insufficient_target_data':('datos','Ficha insuficiente','Faltan atributos del inmueble necesarios para este modelo. Completa la ficha antes de usar su resultado.','risk'),
+'insufficient_training_data':('datos','Cobertura de entrenamiento insuficiente','La muestra de entrenamiento no permite respaldar este modelo en el segmento consultado.','warning'),
+'missing_land_area':('superficie','Terreno no informado','Falta la superficie de terreno necesaria para separar suelo y construcción.','warning'),
+'insufficient_trend_data':('datos','Historia insuficiente','La historia disponible no permite estimar una tendencia fiable.','warning'),
+}
+for code,(cat,label,description,sev) in entries.items():d[code]=dict(category=cat,label=label,description=description,severity=sev)
+p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+p=Path('frontend-v2/src/features/valuation/warning-taxonomy.ts');s=p.read_text(encoding='utf-8');start=s.index('export const WARNING_DEFINITIONS:');end=s.index('\nexport function mapWarningCodes',start)
+s='import definitions from "../../../../core/assessment/warning_definitions.json";\n'+s[:start]+'const WARNING_DEFINITIONS = definitions as Record<string, Omit<WarningDetail, "code" | "known">>;\n'+s[end:]
+s=s.replace('severity: "info",','severity: "warning",')
+p.write_text(s,encoding='utf-8')

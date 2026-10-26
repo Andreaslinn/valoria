@@ -1,0 +1,25 @@
+"""Loopback-only SII valuation preview; no listing or external data requests."""
+import os, sys
+from pathlib import Path
+from types import SimpleNamespace
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+os.environ['DATABASE_URL']='sqlite+aiosqlite:///:memory:'
+os.environ['SYNC_DATABASE_URL']='sqlite:///:memory:'
+os.environ['JWT_SECRET_KEY']='local-geography-preview-only-000000000000000000000'
+os.environ['sii_closing_layer']='true'
+os.environ['SII_CLOSING_DATA_DIR']=str(ROOT.parent/'outputs/integrated/vitacura')
+os.environ['SII_GEOGRAPHY_DATA_DIR']=str(ROOT.parent/'outputs/integrated/vitacura')
+os.environ['SII_MICROMARKET_DIR']=str(ROOT.parent/'outputs/micromarkets')
+os.environ['SII_HOUSE_RULES_DIR']=str(ROOT.parent/'outputs/house-rules')
+from fastapi import FastAPI
+from api import deps
+from api.v1 import tasar
+app=FastAPI()
+app.dependency_overrides[deps._resolve_current_user]=lambda:SimpleNamespace(id=None)
+app.include_router(tasar.router,prefix='/api/v1')
+@app.get('/api/v1/auth/me')
+async def me():return {'id':1,'email':'geo-local@example.test','role':'beta_user','is_active':True}
+if __name__=='__main__':
+    import uvicorn
+    uvicorn.run(app,host='127.0.0.1',port=8772,access_log=False)

@@ -1,0 +1,17 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+code='''import subprocess,json
+def run(args):
+ p=subprocess.run(args,capture_output=True,text=True,timeout=25);return {'exit':p.returncode,'stdout':p.stdout.strip(),'stderr':p.stderr[-300:]}
+out={}
+for unit in ['valoria-yapo-discovery.service','valoria-portal-discovery.service']:
+ out[unit]=run(['systemctl','show',unit,'--property=ActiveState,SubState,Result,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp'])
+cs=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1','valoria_oracle_beta-postgres-1','valoria_oracle_beta-redis-1','valoria_oracle_beta-thumbnails-1'],text=True))
+out['containers']=[{'name':c['Name'],'image':c['Image'],'tag':c['Config']['Image'],'started':c['State']['StartedAt'],'health':c['State'].get('Health',{}).get('Status'),'volumes':[m.get('Name',m.get('Source')) for m in c['Mounts']]} for c in cs]
+out['candidate']=run(['docker','image','inspect','valoria-remediation:candidate-20261012-v3','--format','{{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}}'])
+out['rollback']=run(['docker','image','inspect','valoria-remediation-rollback:20261012','--format','{{.Id}}'])
+print(json.dumps(out,indent=2))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=70)
+p=Path(__file__).with_name('oracle-final-state.json');p.write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr);raise SystemExit(r.returncode)

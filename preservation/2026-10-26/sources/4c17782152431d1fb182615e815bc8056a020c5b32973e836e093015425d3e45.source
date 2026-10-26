@@ -1,0 +1,16 @@
+# Definición de cohorte moderna v1
+No se usa fecha de corte, ni errores/modelos. Función exacta: `ingestion.py::cohort` / `is_modern_ingestion`.
+
+**Procedencia moderna**: Yapo con `raw_metadata.parser_source` en `yapo_search_payload`, `yapo_search_dom`, `yapo_detail_payload`; Portal con `portal_card_first` o `accepted_rm`. En nuevas observaciones experimentales: fuente Yapo/Portal, stage live_card/live_detail, versión identity-evidence-v1, hash de RAW y hash de build. Los fixtures no ingresan al benchmark.
+
+**Candidato AVM**: procedencia anterior + source/external_id/URL + moneda original explícita + precio positivo nativo UF o CLP publicado >=10.000.000 (límite productivo existente) + área disponible 10..1000 m² + baños positivos + dormitorios positivos o estudio explícito. El universo principal de esta fase se restringe a departamentos activos del snapshot Oracle. No se cambia el precio ni se ejecuta conversión nueva. UF permanece en UF, CLP permanece en CLP: antes de entrenar deberá registrarse una conversión fechada verificable; aquí NO se construye un target común con una tasa fija.
+
+Se excluyen precios recuperados/estimados, `legacy_unrecoverable` y UF sin monto nativo positivo. No se reconstruye legacy. Sin marcador verificable: `unverified`, aunque el precio sea utilizable. `area_parser_v2`, schema 0020, created_at/updated_at y `price_uf_source=scraped` solos NO prueban origen moderno. Los marcadores actuales no son firma histórica: metadata puede mezclarse entre observaciones; la cohorte se considera candidata, no dataset certificado.
+
+Historia verificable: Yapo 6f6ce4e (29/09) introdujo estructura moderna; 49c1c83 preservó UF sin conversión; 5288dde corrigió agrupación DOM. Portal 462c133 (17/07) y 32f23a6 (23/07) introdujeron HTTP y card-first; c7e63d7 (28/09) añadió coordenadas. Se verificaron hashes de 9 archivos desplegados contra local (normalizando LF): todos coinciden. Estos commits explican comportamiento; no convierten fechas en criterio de selección.
+
+Resultados: 4.908 activos, 2.082 con procedencia moderna (todos los tipos). Departamentos: 897 modernos, 1.147 legacy, 282 no verificables. 892 modernos cumplen filtros físicos/monetarios: 447 Yapo + 445 Portal. Cinco modernos quedan fuera de aptitud física. 788 están cotizados en UF y 104 en CLP. No se asume que CLP sea ya comparable con UF.
+
+Sensibilidad sin performance (`cohort_boundary_sensitivity.csv`): excluyendo DOM Yapo quedan 328 Yapo + 445 Portal =773; permitiendo precio nativo sin procedencia de parser (solo techo exploratorio) serían 709+445=1.154. No se congela este techo. El snapshot local contiene 4.196 activos y ningún marcador de parser moderno Yapo: no se mezcla automáticamente con Oracle ni se usa para completar evidencia ausente.
+
+Precaución de área: los 447 Yapo obtienen usable_area de raw.built_area_m2 y los 445 Portal de raw.m2.fallback. 100% de campo poblado NO equivale a 100% superficie útil declarada. `surface_semantics.csv` separa presencia de semántica. Antes de benchmark se debe preregistrar qué área representa el target físico y qué incertidumbre se admite, sin inferir contra performance.

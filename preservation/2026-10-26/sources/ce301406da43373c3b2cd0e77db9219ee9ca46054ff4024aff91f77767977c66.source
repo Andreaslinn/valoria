@@ -1,0 +1,60 @@
+import json,socket
+from pathlib import Path
+import pytest
+from services.sii.pure_valuation import sii_valuation
+from services.sii.house_rules import area_at,prepare
+
+ROOT=Path(__file__).resolve().parents[4];OUT=ROOT/'outputs/house-rules';GEO=ROOT/'outputs/integrated/vitacura'
+
+
+@pytest.fixture
+def active(monkeypatch):
+    if not (OUT/'policy.json').exists():pytest.skip('Local frozen house artifacts required')
+    monkeypatch.setenv('SII_GEOGRAPHY_DATA_DIR',str(GEO));monkeypatch.setenv('SII_HOUSE_RULES_DIR',str(OUT))
+    monkeypatch.delenv('SII_MICROMARKET_DIR',raising=False)
+    monkeypatch.setattr(socket,'create_connection',lambda *a,**k:pytest.fail('External network request'))
+
+
+@pytest.mark.parametrize('rol',['1261-6','1261-7','2481-13'])
+def test_cases_use_frozen_hard_rules_without_promoting(active,rol):
+    result=sii_valuation(rol=rol,data_dir=GEO)
+    assert result['status']=='available' and result['model_used']=='baseline'
+    house=result['house_rules_candidate'];assert house['status']=='ok' and house['promoted'] is False
+    expected=next(c for c in json.loads((OUT/'cases.json').read_text()) if c['target']['rol']=='15160-'+rol)
+    assert house['value_uf']==expected['prediction']['value_uf']
+    assert house['effective_n']>0
+    assert all(.75<=c['land_m2']/house['land_m2']<=1.35 and .6<=c['m2']/house['area_m2']<=1.6
+        and c['distance_m']<=1000 and 'rol' not in c and 20<=c['uf']/c['m2']<=400
+        and 2000<=c['uf']<=300000 for c in house['comparables'])
+    assert house['controls']['appraisal']['n']>0 and house['controls']['land']['n']>0
+
+
+def test_departments_bitwise_unchanged_when_house_policy_enabled(active,monkeypatch):
+    rol=next(r['rol'] for r in json.loads((GEO/'closings.json').read_text()) if r['kind']=='depto')
+    with_house=sii_valuation(rol=rol,data_dir=GEO)
+    monkeypatch.delenv('SII_HOUSE_RULES_DIR')
+    assert with_house==sii_valuation(rol=rol,data_dir=GEO)
+    assert 'house_rules_candidate' not in with_house
+
+
+def test_all_evaluation_sales_match_and_no_label_leakage(active):
+    p=json.loads((OUT/'predictions.json').read_text());e=json.loads((OUT/'evaluation.json').read_text())
+    ids=[r['raw_id'] for r in p['baseline']]
+    assert len(ids)==818 and len(set(ids))==818
+    for name in ['candidate','published_baseline']:assert [r['raw_id'] for r in p[name]]==ids
+    for r in p['candidate']:
+        for c in r['prediction']['comparables']:
+            assert c['rol']!=r['rol'] and c['fecha']<r['date'] and c['fi']<r['date']
+        if r['prediction']['status']=='ok':assert r['prediction']['training_max_date']<'2024-01-01'
+        else:assert 'value_uf' not in r['prediction'] and 'controls' in r['prediction']
+    assert not e['promotion'] and not e['promotion_checks']['coverage_loss_at_most_5pp']
+
+
+def test_promoted_insufficient_signal_never_falls_back_to_a_published_price(active,monkeypatch):
+    import services.sii.house_opinion as house
+    monkeypatch.setattr(house,'apply_house_policy',lambda *args:(
+        {'status':'unavailable','reason':'fewer_than_5_within_1000m','comparables':[]},
+        {'house_rules_candidate':{'promoted':True,'status':'unavailable'},'confidence_override':True},221))
+    r=sii_valuation(rol='1261-6',data_dir=GEO)
+    assert r['status']=='unavailable' and r['message']=='Señal insuficiente'
+    assert 'value_uf' not in r

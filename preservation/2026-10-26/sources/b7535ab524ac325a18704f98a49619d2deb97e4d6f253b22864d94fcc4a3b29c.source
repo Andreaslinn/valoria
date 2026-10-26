@@ -1,0 +1,28 @@
+import json,pathlib,shutil
+root=pathlib.Path('outputs/discovery-same-day')
+target=pathlib.Path('work/oracle-ingestion-resilience/deploy/discovery-same-day/validation')
+combined=[]
+for source in ['portalinmobiliario','yapo']:
+ p=root/(source+'-cycle-proof.json')
+ proof=json.loads(p.read_text(encoding='utf8'))
+ row=proof['outcomes'][0]
+ assert row['source']==source
+ row['requests']=sum(row['statuses'].values())
+ row['requests_count_method']='observed HTTP response hooks; all requests completed without fetch errors'
+ row['total_cycle_gets_including_reused_measurement']=row['requests']+row['cached_measurement_requests']
+ if source=='portalinmobiliario':
+  row['previous_max_gets']=18
+  row['extra_gets_vs_previous_max']=row['total_cycle_gets_including_reused_measurement']-18
+ else:
+  row['extra_gets_vs_previous_detail_budget']=max(0,row['counters'].get('same_day_detail_requests',0)-5)
+ assert row['error_type'] is None,row
+ assert row['capture_percent'] is not None and row['capture_percent']>=80,row
+ assert not any(row['statuses'].get(str(code),0) for code in (302,403,429)),row
+ assert not any(row['counters'].get(k,0) for k in ['blocked_or_captcha','fetch_errors','unexpected_errors']),row
+ combined.append(row)
+result={'passed':True,'outcomes':combined,'production_writes':0,'isolated_database':'SQLite in RAM','resources_per_source':{'memory_mib':384,'cpu':0.25,'pids':96},'new_admission_fixture':'production snapshot with one in ten eligible active IDs withheld in isolated copy'}
+(root/'final-cycle-proof.json').write_text(json.dumps(result,indent=2),encoding='utf8')
+shutil.copyfile(root/'final-cycle-proof.json',target/'final-cycle-proof.json')
+for name in ['reference-same-snapshot.json','individual-card-measurement.json']:
+ shutil.copyfile(root/name,target/name)
+print(json.dumps({'passed':True,'sources':[{k:r[k] for k in ['source','new_isolated_apartments','with_detail_published_fields','capture_percent','requests']} for r in combined]}))

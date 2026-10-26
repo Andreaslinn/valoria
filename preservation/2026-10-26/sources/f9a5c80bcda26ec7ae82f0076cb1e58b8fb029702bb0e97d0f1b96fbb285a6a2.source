@@ -1,0 +1,8 @@
+from pathlib import Path
+old='published-fields-deploy-20261016';new='discovery-redeploy-20261016'
+s=Path('work/published_preflight_remote.py').read_text().replace(old,new).replace("startswith('c55f4b6')","startswith('80bd8a9')")
+s=s.replace("assert health['status']=='ok'", "assert health['status']=='ok' or (health['sources']['yapo']['status']=='ok' and health['sources']['portalinmobiliario']['last_run']['finished_at'] is None and not health['sources']['portalinmobiliario']['last_run']['errors']), 'Unexpected baseline health failure'")
+s=s.replace("print(json.dumps(proof))","import shutil\nproof['disk_free_bytes']=shutil.disk_usage(ROOT).free\nassert proof['disk_free_bytes']>10_000_000_000\n(B/'preflight.json').write_text(json.dumps(proof,indent=2))\nprint(json.dumps(proof))")
+Path('work/redeploy_preflight_remote.py').write_text(s)
+s=Path('work/published_backup_remote.py').read_text().replace(old,new).replace('valoria-published-fields-restore','valoria-discovery-redeploy-restore')
+Path('work/redeploy_backup_remote.py').write_text(s)

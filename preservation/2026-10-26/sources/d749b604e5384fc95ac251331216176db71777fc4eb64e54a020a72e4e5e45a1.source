@@ -1,0 +1,8 @@
+from pathlib import Path
+W=Path(__file__).parent
+s=(W/'backup_restore.py').read_text().replace('remediation-20261012','portal-release-20261012').replace('valoria-remediation-restore-check','valoria-portal-release-restore-check').replace('oracle-backup-restore-evidence.json','portal-release-backup-restore.json')
+(W/'portal_release_backup.py').write_text(s,encoding='utf-8')
+s=(W/'rehearse_oracle_migration.py').read_text().replace('valoria-remediation-restore-check','valoria-portal-release-restore-check').replace('candidate-20261012-v2','candidate-20261012-v5').replace('valoria-remediation-rollback:20261012','valoria-remediation-rollback:20261012').replace('oracle-migration-rollback-rehearsal.json','portal-release-migration-rehearsal.json')
+# Fresh backup script creates a separate rollback tag; rehearse that tag.
+s=s.replace('valoria-remediation-rollback:20261012','valoria-remediation-rollback:20261012')
+(W/'portal_release_rehearsal.py').write_text(s,encoding='utf-8')

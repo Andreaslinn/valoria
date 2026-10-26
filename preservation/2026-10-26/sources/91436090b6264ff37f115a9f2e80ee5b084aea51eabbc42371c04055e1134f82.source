@@ -1,0 +1,30 @@
+import subprocess,json,pathlib
+code=r'''
+import subprocess,json,pathlib,urllib.request,os
+def run(args):return subprocess.check_output(args,text=True,timeout=45)
+memory={line.split(':')[0]:int(line.split()[1]) for line in pathlib.Path('/proc/meminfo').read_text().splitlines() if line.startswith(('MemTotal:','MemAvailable:'))}
+try:
+ req=urllib.request.Request('http://169.254.169.254/opc/v2/instance/',headers={'Authorization':'Bearer Oracle'})
+ with urllib.request.urlopen(req,timeout=3) as response:meta=json.load(response)
+ shape={k:meta.get(k) for k in ['shape','shapeConfig','region']}
+except Exception:shape={'metadata_unavailable':True}
+print(json.dumps({'memory_kib':memory,'logical_cpus':os.cpu_count(),'shape':shape,'disk':run(['df','-B1','/']),'docker_usage':run(['docker','system','df']),'private_sizes':run(['du','-sb','/home/ubuntu/apps/valoria/private/ingestion-errors','/home/ubuntu/apps/valoria/private/published-fields-deploy-20261016','/home/ubuntu/apps/valoria/private/ingestion-deploy-20261015']),'containers':run(['docker','stats','--no-stream','--format','{{.Name}} {{.MemUsage}} {{.CPUPerc}}'])}))
+sql=r"""import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  size=(await s.execute(text('SELECT pg_database_size(current_database())'))).scalar_one()
+  tables=[dict(r) for r in (await s.execute(text("SELECT relname,pg_total_relation_size(relid) AS bytes FROM pg_catalog.pg_statio_user_tables ORDER BY bytes DESC LIMIT 8"))).mappings().all()]
+  stock=(await s.execute(text('SELECT count(*) FROM listings'))).scalar_one()
+  print(json.dumps({'database_bytes':size,'listings':stock,'tables':tables}))
+  await s.rollback()
+asyncio.run(main())"""
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input=sql,text=True,capture_output=True,timeout=60)
+assert r.returncode==0,'Read-only capacity SQL failed'
+print(r.stdout)
+'''
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -'],input=code,text=True,encoding='utf8',capture_output=True,timeout=120)
+pathlib.Path('outputs/discovery-same-day/capacity-readonly.jsonl').write_text(r.stdout,encoding='utf8')
+print(r.stdout if r.returncode==0 else 'Capacity observation failed')

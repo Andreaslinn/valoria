@@ -1,0 +1,48 @@
+from lab import *
+from kernels import *
+from avm01.isolation import LabelCustody,dependency_hash
+from avm01.splits import inner_folds,Split
+from analyze import metrics,interval
+GRID=[{'length':l,'alpha':a,'spatial':s} for s in [False,True] for l in [.5,1.] for a in [.1,1.,10.]]
+NAMES=['A','Kphys','Kgeo','Kselected','HybridK']
+def config(c,seed,names=NAMES):return {'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':names,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'kernel_protocol.json')}
+def choose(ds,outer,c,seed):
+ ic=LabelCustody(ds,());errors=[defaultdict(list) for _ in GRID]
+ for k,s in enumerate(inner_folds(ds,outer,seed=seed)):
+  names=[f'Kgrid{j:02}' for j in range(len(GRID))];batch=ic.issue(ds,s,config(c,seed,names),(),outer=outer);ts=list(batch.targets);pred=[]
+  for g in GRID:pred.append(Kernel(batch,**g).predict_log(ts))
+  # Complete receipt for the predeclared family grid BEFORE label evaluation.
+  iv={n:{t.row_id:math.exp(float(pred[z][j])) for j,t in enumerate(ts)} for z,n in enumerate(names)};ic.record_predictions(batch,iv);truth=ic.complete(iv,s.test)
+  for z,lv in enumerate(pred):
+   for t,v in zip(ts,lv):errors[z][t.features['source']].append(abs(float(v)-math.log(truth[t.row_id])))
+ score=[sum(w*np.mean(e[source]) for source,w in [('portalinmobiliario',.6),('yapo',.4)] if e[source]) for e in errors]
+ choices=[min([j for j,g in enumerate(GRID) if g['spatial']==s],key=lambda j:(score[j],-GRID[j]['alpha'],j)) for s in [False,True]]
+ selected=min(choices,key=lambda j:(score[j],j));return choices+[selected],score
+def batch_predict(batch,choices,old):
+ ts=list(batch.targets);logs=[Kernel(batch,**GRID[j]).predict_log(ts) for j in choices];vals={n:{} for n in NAMES}
+ for k,t in enumerate(ts):
+  a=old[t.row_id];vals['A'][t.row_id]=a
+  for name,lv in zip(['Kphys','Kgeo','Kselected'],logs):vals[name][t.row_id]=math.exp(float(lv[k]))
+  from temporal_run import supported
+  vals['HybridK'][t.row_id]=a if a is not None else vals['Kselected'][t.row_id] if supported(t,list(batch.rows)) else None
+ return vals
+def evaluate(rows):
+ summary={}
+ for label,subset in [('all',rows),('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('Yapo',[r for r in rows if r['source']=='yapo']),('geo',[r for r in rows if r['geo']]),('A_abstentions',[r for r in rows if r['predictions']['A'] is None])]:
+  summary[label]={'n':len(subset),'full':{n:metrics(subset,n) for n in NAMES},'paired':{n:interval(subset,'A',n) for n in NAMES if n!='A'}}
+ return summary
+def run(seed):
+ c=read(HERE/'kernel_protocol.json');verify();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],seed);old={r['row_id']:r['predictions']['A']['prediction'] for r in prior(seed)}
+ out=HERE/f'kernel-{seed}.json.dpapi';assert not out.exists();custody=LabelCustody(ds,());rows=[];tuning=[]
+ for f,s in enumerate(plan.folds):
+  print(json.dumps({'phase':'kernel-inner','seed':seed,'fold':f}),flush=True);choices,scores=choose(ds,s,c,seed);batch=custody.issue(ds,s,config(c,seed),());vals=batch_predict(batch,choices,old);custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test)
+  tuning.append({'fold':f,'choices':choices,'parameters':[GRID[j] for j in choices],'inner_scores':scores})
+  for t in batch.targets:rows.append({'row_id':t.row_id,'group':batch.components[t.row_id],'fold':f,'source':t.features['source'],'comuna':t.features['comuna'],'area':math.exp(t.features['log_area']),'geo':t.latitude is not None,'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}})
+ encrypt(out,rows);summary=evaluate(rows);summary['tuning']=tuning;write(HERE/f'kernel-{seed}-summary.json',summary);print(json.dumps({'seed':seed,'full':summary['all']['full'],'paired':{n:{k:v for k,v in z.items() if k not in ['A','B']} for n,z in summary['all']['paired'].items()}}),flush=True)
+def temporal():
+ from temporal_prepare import temporal_data
+ c=read(HERE/'kernel_protocol.json');ds,train,test,_=temporal_data();seed=20261009;s=Split(train,test,'temporal',seed,ds.hash(),dependency_hash(ds));choices,scores=choose(ds,s,c,seed)
+ old={r['row_id']:r['predictions']['A'] for r in decrypt(HERE/'temporal_predictions.json.dpapi')};custody=LabelCustody(ds,());batch=custody.issue(ds,s,config(c,seed),());vals=batch_predict(batch,choices,old);custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test)
+ rows=[{'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'comuna':t.features['comuna'],'area':math.exp(t.features['log_area']),'geo':t.latitude is not None,'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}} for t in batch.targets]
+ out=HERE/'kernel-temporal.json.dpapi';assert not out.exists();encrypt(out,rows);summary=evaluate(rows);summary['tuning']={'choices':choices,'parameters':[GRID[j] for j in choices],'inner_scores':scores};write(HERE/'kernel-temporal-summary.json',summary);print(json.dumps(summary['all']['full']))
+if __name__=='__main__':temporal() if sys.argv[1]=='temporal' else run(int(sys.argv[1]))

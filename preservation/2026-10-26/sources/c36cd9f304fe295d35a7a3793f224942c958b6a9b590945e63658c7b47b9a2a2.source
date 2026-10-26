@@ -1,0 +1,209 @@
+import unittest,math,tempfile,json,hashlib
+from dataclasses import replace,asdict
+from pathlib import Path
+import numpy as np
+from unittest.mock import patch
+from avm01.data import InvalidExperiment,RealExecutionBlocked,load_snapshot
+from avm01.fixtures import synthetic
+from avm01.metrics import metrics,compare,grouped_bootstrap_delta
+from avm01.splits import Split,make_plan,validate_split,inner_folds
+from avm01.engines import LearnedEngine,FrozenA,Prediction,matrix
+from avm01.harness import run,run_split,CONFIG,nested_tune_synthetic,prepare_stress
+from avm01.readiness import diagnose
+from avm01.isolation import prepare_batch,index_ids
+
+def aligned(record,**changes):
+    r=replace(record,**changes)
+    target=dict(r.canonical_target);listing=dict(r.canonical_listing)
+    for p in [target,listing]:
+        for key in ['comuna','bedrooms','bathrooms','parking']:p[key]=r.features[key]
+    target['m2']=target['built_area_m2']=listing['m2']=listing['built_area_m2']=math.exp(r.features['log_area'])
+    listing['url']=r.canonical_url
+    return replace(r,canonical_target=target,canonical_listing=listing)
+
+class MetricsTests(unittest.TestCase):
+    def test_known_metrics(self):
+        r=metrics({'a':100,'b':100},{'a':100,'b':150})
+        self.assertEqual(r['MdAPE'],25);self.assertEqual(r['MAPE'],25)
+        self.assertEqual(r['P90'],45);self.assertEqual(r['P95'],47.5)
+        self.assertAlmostEqual(r['MAE_log'],math.log(1.5)/2)
+        self.assertEqual(r['within_20_pct']['rate'],.5)
+    def test_partial_coverage_denominators(self):
+        r=metrics({'a':100,'b':100},{'a':100})
+        self.assertEqual(r['coverage'],.5);self.assertEqual(r['within_20_pct']['denominator_predicted'],1)
+        self.assertEqual(r['within_20_pct']['eligible_success_rate'],.5)
+    def test_null_invalid(self):
+        for v in [None,0,-1,float('nan'),float('inf'),True]:
+            with self.subTest(v=v):self.assertEqual(metrics({'a':1},{'a':v})['predicted_n'],0)
+    def test_invalid_gold_rejected(self):
+        for v in [None,0,float('nan'),float('inf')]:
+            with self.assertRaises(InvalidExperiment):metrics({'a':v},{})
+    def test_empty_universe(self):self.assertIsNone(metrics({},{})['MdAPE'])
+    def test_foreign_predictions(self):
+        with self.assertRaises(InvalidExperiment):metrics({'a':1},{'b':1})
+    def test_universes_not_comparable(self):
+        r=compare({'a':100,'b':100},{'A':{'a':110},'C1':{'a':120,'b':90}})
+        self.assertEqual(r['warning'],'NON_COMPARABLE_SUCCESS_UNIVERSES');self.assertEqual(r['common_n'],1)
+        self.assertEqual(r['pairs']['A__C1']['paired_n'],1)
+    def test_group_bootstrap_seed(self):
+        t={'a':100,'b':100,'c':100};a={i:100 for i in t};b={i:110 for i in t};g={'a':'one','b':'one','c':'two'}
+        r=grouped_bootstrap_delta(t,a,b,g,replicates=50)
+        self.assertEqual(r,grouped_bootstrap_delta(t,a,b,g,replicates=50));self.assertEqual(r['groups_n'],2)
+        self.assertEqual(r['interval_95'],[10,10])
+    def test_group_bootstrap_missing_groups(self):
+        with self.assertRaises(InvalidExperiment):grouped_bootstrap_delta({'a':100},{'a':100},{'a':100},{})
+
+class IntegrityTests(unittest.TestCase):
+    def setUp(self):self.ds=synthetic();self.plan=make_plan(self.ds);self.split=self.plan.folds[0]
+    def modified(self,row):return replace(self.ds,records=(row,)+self.ds.records[1:])
+    def test_duplicate_rows(self):
+        with self.assertRaises(InvalidExperiment):replace(self.ds,records=self.ds.records+(self.ds.records[0],)).validate()
+    def test_readiness_is_not_certificate(self):
+        d=diagnose(replace(self.ds,origin='modern_real'))
+        self.assertFalse(d['real_training_allowed']);self.assertEqual(d['reobserved_publications'],30)
+        self.assertEqual(d['certification'],'NOT_CERTIFIED_BY_THIS_DIAGNOSTIC')
+    def test_duplicate_observations(self):
+        with self.assertRaises(InvalidExperiment):self.modified(replace(self.ds.records[0],observation_id=self.ds.records[2].observation_id)).validate()
+    def test_ambiguous_or_unassigned(self):
+        for changes in [{'identity_status':'ambiguous'},{'identity_status':'contradicted'},{'group_id':None}]:
+            with self.assertRaises(InvalidExperiment):self.modified(replace(self.ds.records[0],**changes)).require_synthetic()
+    def test_property_id_not_ground_truth(self):
+        with self.assertRaises(InvalidExperiment):replace(self.ds,grouping_policy='property_id').validate()
+    def test_cross_group(self):
+        with self.assertRaisesRegex(InvalidExperiment,'Group crosses'):validate_split(self.ds,Split(('fixture-000-0',),('fixture-000-1',)))
+    def test_listing_dependency_even_wrong_groups(self):
+        row=replace(self.ds.records[1],group_id='mislabelled')
+        ds=replace(self.ds,records=(self.ds.records[0],row)+self.ds.records[2:])
+        with self.assertRaisesRegex(InvalidExperiment,'dependency'):validate_split(ds,Split(('fixture-000-0',),('fixture-000-1',)))
+    def test_physical_dependency_despite_distinct_listing(self):
+        row=replace(self.ds.records[2],physical_identity=self.ds.records[0].physical_identity)
+        ds=replace(self.ds,records=self.ds.records[:2]+(row,)+self.ds.records[3:])
+        with self.assertRaisesRegex(InvalidExperiment,'dependency'):validate_split(ds,Split(('fixture-000-0',),('fixture-001-0',)))
+    def test_url_dependency(self):
+        row=aligned(self.ds.records[2],canonical_url=self.ds.records[0].canonical_url)
+        ds=replace(self.ds,records=self.ds.records[:2]+(row,)+self.ds.records[3:])
+        with self.assertRaisesRegex(InvalidExperiment,'dependency'):validate_split(ds,Split(('fixture-000-0',),('fixture-001-0',)))
+    def test_future_feature_at_target(self):
+        with self.assertRaisesRegex(InvalidExperiment,'Future'):self.modified(replace(self.ds.records[0],feature_available_at={'parking':'2026-01-11T00:00:00+00:00'})).validate()
+    def test_future_training_label(self):
+        ds=self.modified(replace(self.ds.records[0],price_available_at='2026-01-11T00:00:00+00:00'))
+        with self.assertRaisesRegex(InvalidExperiment,'Temporal training'):validate_split(ds,Split(('fixture-000-0',),('fixture-001-0',)))
+    def test_naive_timestamp(self):
+        with self.assertRaises(InvalidExperiment):self.modified(replace(self.ds.records[0],available_at='2026-01-01')).validate()
+    def test_target_derived_feature(self):
+        with self.assertRaisesRegex(InvalidExperiment,'allowlist'):self.modified(replace(self.ds.records[0],features=dict(self.ds.records[0].features,price_m2=50))).validate()
+    def test_area_overflow(self):
+        with self.assertRaises(InvalidExperiment):self.modified(replace(self.ds.records[0],features=dict(self.ds.records[0].features,log_area=1000))).validate()
+    def test_holdout_not_train_or_tune(self):
+        with self.assertRaisesRegex(InvalidExperiment,'Holdout'):validate_split(self.ds,Split(self.split.train+(self.plan.holdout[0],),self.split.test),self.plan.holdout)
+    def test_holdout_requires_configuration_lock(self):
+        f=Split(self.plan.development,self.plan.holdout,'final_holdout')
+        with self.assertRaisesRegex(InvalidExperiment,'sealed'):validate_split(self.ds,f,self.plan.holdout)
+        validate_split(self.ds,f,self.plan.holdout,locked_config_hash='locked',config_hash='locked')
+        with self.assertRaises(InvalidExperiment):validate_split(self.ds,f,self.plan.holdout,locked_config_hash='x',config_hash='y')
+    def test_deterministic_plan(self):
+        self.assertEqual(self.plan,make_plan(self.ds));self.assertNotEqual(self.plan,make_plan(self.ds,seed=43))
+    def test_inner_excludes_outer_test_holdout(self):
+        for f in inner_folds(self.ds,self.split,reserved_holdout=self.plan.holdout):
+            self.assertFalse((set(f.train)|set(f.test))&(set(self.split.test)|set(self.plan.holdout)))
+    def test_real_cohort_blocked_every_entry(self):
+        real=replace(self.ds,origin='modern_real',grouping_evidence_hash='even_claimed_certified')
+        for fn in [lambda:run(real),lambda:make_plan(real),lambda:inner_folds(real,self.split),lambda:prepare_batch(real,self.split,CONFIG,self.plan.holdout)]:
+            with self.assertRaises(RealExecutionBlocked):fn()
+        for engine in [FrozenA(),LearnedEngine('C1')]:
+            with self.assertRaises(InvalidExperiment):engine.fit(real,self.split.train)
+    def test_snapshot_roundtrip_hash(self):
+        p=Path(__file__).resolve().parents[1]/'artifacts/test-snapshot.json'
+        p.parent.mkdir(exist_ok=True)
+        try:
+            p.write_text(json.dumps(asdict(self.ds)))
+            d=load_snapshot(p,hashlib.sha256(p.read_bytes()).hexdigest());self.assertEqual(d.hash(),self.ds.hash())
+            with self.assertRaises(InvalidExperiment):load_snapshot(p,'wrong')
+        finally:p.unlink(missing_ok=True)
+    def test_spatial_stress_disjoint_communes(self):
+        with self.assertRaisesRegex(InvalidExperiment,'Spatial'):prepare_stress(self.ds,['fixture-000-0'],['fixture-001-0'],'spatial')
+        r=aligned(self.ds.records[2],features=dict(self.ds.records[2].features,comuna='heldout-comuna'))
+        ds=replace(self.ds,records=self.ds.records[:2]+(r,)+self.ds.records[3:])
+        prepare_stress(ds,['fixture-000-0'],['fixture-001-0'],'spatial')
+    def test_temporal_stress(self):
+        rows=tuple(replace(r,observed_at='2026-01-02T00:00:00+00:00') if r.row_id=='fixture-001-0' else r for r in self.ds.records if r.row_id.endswith('-0'))
+        ds=replace(self.ds,records=rows)
+        prepare_stress(ds,['fixture-000-0'],['fixture-001-0'],'temporal')
+        with self.assertRaisesRegex(InvalidExperiment,'Temporal order'):prepare_stress(ds,['fixture-001-0'],['fixture-000-0'],'temporal')
+
+class EngineTests(unittest.TestCase):
+    def setUp(self):self.ds=synthetic();self.plan=make_plan(self.ds);self.f=self.plan.folds[0];self.idx=self.ds.indexed()
+    def batch(self,ds=None,train=None,config=None):
+        return prepare_batch(ds or self.ds,Split(self.f.train if train is None else train,self.f.test),config or CONFIG,self.plan.holdout)
+    def test_four_families_predict(self):
+        for name in ['A','C1','C1-flex','C2']:
+            config=dict(CONFIG,engines=[name]);v,t=run_split(self.ds,self.f,config,self.plan.holdout)
+            self.assertTrue(all(x is not None and x>0 for x in v[name].values()),name)
+    def test_preprocessing_only_training(self):
+        i=self.f.test[0];r=aligned(self.idx[i],features=dict(self.idx[i].features,comuna='never-trained',parking=999))
+        ds=replace(self.ds,records=tuple(r if x.row_id==i else x for x in self.ds.records))
+        m=LearnedEngine('C1').fit(self.batch(ds))
+        cat=m.preprocess.named_transformers_['categorical'].categories_[0]
+        self.assertNotIn('never-trained',cat)
+        imputer=m.preprocess.named_transformers_['numeric'].named_steps['impute']
+        self.assertEqual(imputer.statistics_[3],1)
+        self.assertGreater(m.predict(r.inference()).value_uf,0)
+    def test_missing_and_zero_distinguished(self):
+        r=aligned(self.idx[self.f.train[0]],features=dict(self.idx[self.f.train[0]].features,parking=None))
+        zero=replace(r,features=dict(r.features,parking=0));x=matrix([r,zero])
+        self.assertTrue(math.isnan(x[0,3]));self.assertEqual(x[1,3],0);self.assertEqual(x[0,6],1);self.assertEqual(x[1,6],0)
+        ds=replace(self.ds,records=tuple(r if x.row_id==r.row_id else x for x in self.ds.records))
+        m=LearnedEngine('C1').fit(self.batch(ds));self.assertGreater(m.predict(self.idx[self.f.test[0]].inference()).value_uf,0)
+    def test_predict_does_not_receive_gold(self):
+        i=self.idx[self.f.test[0]].inference()
+        self.assertFalse(hasattr(i,'price_uf'));self.assertFalse(hasattr(i,'group_id'))
+    def test_a_pool_and_surface_train_only(self):
+        a=FrozenA().fit(self.batch());r=a.predict(self.idx[self.f.test[0]].inference())
+        self.assertEqual(set(r.trace['available_pool_ids']),set(self.f.train));self.assertTrue(set(r.trace['selected_ids'])<=set(self.f.train))
+        self.assertIn('surface',r.trace['diagnostics']['result'])
+    def test_a_adapter_matches_direct_frozen_engine(self):
+        a=FrozenA().fit(self.batch())
+        with patch.object(a.engine,'valuate',wraps=a.engine.valuate) as call:
+            pred=a.predict(self.idx[self.f.test[0]].inference())
+            args=call.call_args.args
+        original=a.engine.valuate(*args)
+        self.assertEqual(pred.value_uf,float(original.estimated_price_uf))
+        self.assertEqual(pred.status,original.status)
+    def test_a_filters_future_label(self):
+        i=self.f.train[0];r=replace(self.idx[i],price_available_at='2026-01-11T00:00:00+00:00')
+        ds=replace(self.ds,records=tuple(r if x.row_id==i else x for x in self.ds.records))
+        with self.assertRaisesRegex(InvalidExperiment,'Temporal training'):FrozenA().fit(self.batch(ds))
+    def test_a_abstains_insufficient(self):
+        r=FrozenA().fit(self.batch(train=self.f.train[:2])).predict(self.idx[self.f.test[0]].inference())
+        self.assertIsNone(r.value_uf);self.assertEqual(r.reason,'insufficient_data')
+    def test_secondary_target_and_geo_separate(self):
+        m=LearnedEngine('C1',target='log_uf_m2',geo=True).fit(self.batch(config=dict(CONFIG,target='log_uf_m2',geo_ablation=True)))
+        p=m.predict(self.idx[self.f.test[0]].inference());self.assertGreater(p.value_uf,0)
+        self.assertEqual(p.trace['target'],'log_uf_m2');self.assertTrue(p.trace['geo_ablation'])
+    def test_engine_failure_no_hidden_fallback(self):
+        class Broken:
+            def fit(self,*_):return self
+            def predict(self,_):raise RuntimeError('injected')
+        p,t=run_split(self.ds,self.f,dict(CONFIG,engines=['broken']),self.plan.holdout,lambda *_:Broken())
+        self.assertTrue(all(v is None for v in p['broken'].values()));self.assertTrue(all(v['status']=='prediction_error' for v in t['broken'].values()))
+    def test_training_failure_explicit(self):
+        class Broken:
+            def fit(self,*_):raise RuntimeError('injected')
+        p,t=run_split(self.ds,self.f,dict(CONFIG,engines=['broken']),self.plan.holdout,lambda *_:Broken())
+        self.assertTrue(all(v['status']=='training_error' for v in t['broken'].values()))
+    def test_invalid_engine_output_rejected(self):
+        class Broken:
+            def fit(self,*_):return self
+            def predict(self,target):return Prediction(float('inf'),'ok',row_id=target.row_id)
+        p,t=run_split(self.ds,self.f,dict(CONFIG,engines=['broken']),self.plan.holdout,lambda *_:Broken())
+        self.assertTrue(all(v is None for v in p['broken'].values()));self.assertTrue(all(v['status']=='invalid_prediction' for v in t['broken'].values()))
+    def test_nested_tuning_does_not_open_holdout(self):
+        r=nested_tune_synthetic(self.ds,self.f,'C1',[{'alpha':1.0},{'alpha':10.0}],holdout=self.plan.holdout)
+        self.assertEqual(set(r['evaluated_ids']),set(self.f.train));self.assertTrue(r['holdout_untouched'])
+    def test_deterministic_full_run(self):
+        c=dict(CONFIG,bootstrap_replicates=20)
+        a=run(self.ds,c);b=run(self.ds,c)
+        self.assertEqual(a['result_sha256'],b['result_sha256']);self.assertFalse(a['holdout_evaluated'])
+        self.assertFalse(set(a['predictions']['C2'])&set(a['plan']['holdout']))
+
+if __name__=='__main__':unittest.main()

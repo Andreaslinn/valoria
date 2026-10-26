@@ -1,0 +1,32 @@
+from pathlib import Path
+import subprocess
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner='''import asyncio,json,httpx,time
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+from infrastructure.external.uf_client import UFClient
+from services.valuation import ValuationService,ValuationInput
+from services.radar import RadarService
+from services.listing_url_lookup import listing_to_form_data
+from services.listing_analysis import analyze_listing_lookup,_valuation_input
+async def main():
+ async with get_session_factory()() as s,httpx.AsyncClient() as http:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  repo=SqlAlchemyListingRepository(s)
+  uf=UFClient(api_url='https://mindicador.cl/api/uf',http_client=http,redis=None,session_factory=get_session_factory())
+  svc=ValuationService(listing_repo=repo,uf_service=uf)
+  started=time.perf_counter();rows=await RadarService(listing_repo=repo,uf_service=uf).opportunities(limit=20)
+  out={'radar_seconds':round(time.perf_counter()-started,2),'comparisons':[]}
+  selected=[x for x in rows if x.listing_id==1130]+[x for x in rows if x.listing_id!=1130][:2]
+  for row in selected:
+   listing=await repo.find_by_id(row.listing_id);data=listing_to_form_data(listing);inp,missing=_valuation_input(data);assert not missing
+   current=await svc.valuate_property(inp,valuation_strategy='current')
+   canonical=await svc.valuate_property(inp,valuation_strategy='consensus_v1')
+   analysis=await analyze_listing_lookup(data,valuation_service=svc)
+   out['comparisons'].append({'listing_id':row.listing_id,'price_uf':row.price_uf,'radar_screening_uf':row.estimated_price_uf,'radar_enrichment_uf':row.estimated_value_uf,'radar_discount_pct':row.discount_pct,'current_valuation_uf':current.estimated_price_uf,'tasar_consensus_uf':canonical.estimated_price_uf,'analysis_uf':analysis.valuation['estimated_value_uf'],'consensus_used':canonical.consensus_used,'surface_adjustment_applied':current.surface_adjustment_applied,'comparable_ids':[x.listing_id for x in canonical.comparables]})
+  print(json.dumps(out,default=str))
+asyncio.run(main())
+'''
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=150)\nprint(r.stdout)\nif r.returncode:print('Consistency probe failed; error details withheld');raise SystemExit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=170);Path(__file__).with_name('radar-consistency-baseline.json').write_text(r.stdout,encoding='utf-8');print(r.stdout);r.check_returncode()

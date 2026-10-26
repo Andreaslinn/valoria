@@ -1,0 +1,212 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from types import SimpleNamespace
+
+import pytest
+import httpx
+
+from config.portal_targets import PORTAL_TARGETS
+from config.settings import Settings
+from core.ports.uf_service import UFRateInfo
+from domain.ingestion.data_cleaning import clean_listing
+from domain.ingestion.pipeline import process_listing
+from infrastructure.db.models import PriceHistoryORM
+from infrastructure.db.repositories import (
+    SqlAlchemyListingRepository,
+    SqlAlchemyPriceHistoryRepository,
+    SqlAlchemyPropertyRepository,
+)
+from scripts.portal_canary import (
+    CanaryUFResolution,
+    PortalCanaryReject,
+    portal_detail_to_raw,
+    preflight_database,
+    run_canary,
+)
+from scripts.portal_http_dry_run import PortalDryRunResult
+
+
+def _target(operation: str = "venta") -> dict:
+    return {
+        **PORTAL_TARGETS[0],
+        "operation": operation,
+        "property_type": "apartment",
+    }
+
+
+def _detail(currency: str = "UF") -> dict:
+    return {
+        "state": "detail",
+        "external_id": "MLC-portal-canary-1",
+        "title": "Departamento Portal Santiago",
+        "canonical_url": "https://www.portalinmobiliario.com/MLC-portal-canary-1-x",
+        "comuna": "Santiago",
+        "location": "Santiago, Región Metropolitana",
+        "description": "Departamento con buena conectividad.",
+        "usable_area_m2": 55.0,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "parking": 1,
+        "currency_original": currency,
+        "price_currency": currency,
+        "price_uf": 3000.0 if currency == "UF" else None,
+        "price_clp": None if currency == "UF" else 120_000_000,
+        "price_clp_published": None if currency == "UF" else 120_000_000,
+        "raw_metadata": {},
+    }
+
+
+def _uf_info() -> UFRateInfo:
+    return UFRateInfo(
+        rate=Decimal("41000"), source="test-real", fetched_at=datetime.now(UTC), is_stale=False
+    )
+
+
+def test_portal_http_settings_default_to_disabled():
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        sync_database_url="sqlite:///:memory:",
+        jwt_secret_key="x" * 32,
+    )
+
+    assert settings.portal_http_enabled is False
+    assert settings.portal_http_max_details == 50
+    assert settings.portal_http_max_pages_per_target == 1
+
+
+def test_portal_uf_detail_transforms_to_clean_listing_with_explicit_provenance():
+    raw = portal_detail_to_raw(_detail(), _target(), uf_info=_uf_info())
+    cleaned = clean_listing(raw)
+
+    assert cleaned.source == "portalinmobiliario"
+    assert cleaned.external_id == "MLC-portal-canary-1"
+    assert cleaned.comuna == "santiago"
+    assert cleaned.price_uf == Decimal("3000.00")
+    assert cleaned.price_currency == "UF"
+    assert cleaned.price.clp == Decimal("123000000")
+    assert raw["raw_metadata"]["price_clp_provenance"] == "derived_from_uf_real_rate"
+    assert raw["raw_metadata"]["uf_rate_used"] == "41000"
+
+
+def test_published_clp_does_not_get_relabeled_as_uf_conversion():
+    raw = portal_detail_to_raw(_detail("CLP"), _target(), uf_info=None)
+
+    assert raw["price_clp"] == 120_000_000
+    assert raw["raw_metadata"]["price_clp_provenance"] == "published"
+    assert "uf_rate_used" not in raw["raw_metadata"]
+
+
+def test_invalid_portal_coordinate_hint_is_dropped_without_invalidating_listing():
+    detail = _detail()
+    detail["raw_metadata"] = {"lat": "-334569685", "lon": "-706697457"}
+
+    raw = portal_detail_to_raw(detail, _target(), uf_info=_uf_info())
+
+    assert raw["lat"] is None
+    assert raw["lon"] is None
+    assert clean_listing(raw).coordinates is None
+
+
+@pytest.mark.parametrize("external_id", ["MLC-3225344318", "MLC-3252270364"])
+def test_out_of_range_portal_parking_is_audited_and_normalized_before_database(external_id):
+    detail = _detail()
+    detail["external_id"] = external_id
+    detail["parking"] = int(external_id.split("-")[1])
+
+    raw = portal_detail_to_raw(detail, _target(), uf_info=_uf_info())
+
+    assert raw["parking"] == 0
+    assert raw["raw_metadata"]["parking_rejection_reason"] == "out_of_range"
+    assert raw["raw_metadata"]["parking_raw_rejected"] == external_id.split("-")[1]
+
+
+def test_uf_without_real_rate_is_rejected_without_inventing_clp():
+    with pytest.raises(PortalCanaryReject, match="missing_real_uf_rate"):
+        portal_detail_to_raw(_detail(), _target(), uf_info=None)
+
+
+def test_non_rm_and_rent_never_reach_pipeline_contract():
+    detail = _detail()
+    detail["comuna"] = None
+    with pytest.raises(PortalCanaryReject, match="unknown_comuna"):
+        portal_detail_to_raw(detail, _target(), uf_info=_uf_info())
+    with pytest.raises(PortalCanaryReject, match="operation_out_of_pipeline_scope"):
+        portal_detail_to_raw(_detail(), _target("arriendo"), uf_info=_uf_info())
+
+
+async def test_portal_pipeline_is_idempotent_and_uf_rate_only_change_has_no_new_history(session):
+    raw = portal_detail_to_raw(_detail(), _target(), uf_info=_uf_info())
+    repos = {
+        "listing_repo": SqlAlchemyListingRepository(session),
+        "property_repo": SqlAlchemyPropertyRepository(session),
+        "price_history_repo": SqlAlchemyPriceHistoryRepository(session),
+    }
+    first = await process_listing(raw, **repos)
+    await session.commit()
+
+    changed_rate = UFRateInfo(rate=Decimal("42000"), source="test-real", fetched_at=datetime.now(UTC))
+    second_raw = portal_detail_to_raw(_detail(), _target(), uf_info=changed_rate)
+    second = await process_listing(second_raw, **repos)
+    await session.commit()
+
+    history = (await session.execute(__import__("sqlalchemy").select(PriceHistoryORM))).scalars().all()
+    assert second.id == first.id
+    assert len(history) == 1
+    assert second.price.clp == Decimal("126000000")
+    assert second.price_uf == Decimal("3000.00")
+
+
+async def test_canary_keeps_processing_after_an_individual_transform_failure(monkeypatch):
+    import scripts.portal_canary as canary
+
+    bad_detail = _detail()
+    bad_detail["usable_area_m2"] = "not-a-number"
+    runner_result = PortalDryRunResult(
+        report={"metrics": {"details_ok": 2}},
+        accepted=(
+            {"target": _target(), "detail": _detail()},
+            {"target": _target(), "detail": bad_detail},
+        ),
+    )
+
+    class FakeRunner:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def run_with_records(self):
+            return runner_result
+
+    async def fake_uf(*_args, **_kwargs):
+        return CanaryUFResolution(info=_uf_info())
+
+    monkeypatch.setattr(canary, "PortalHttpDryRun", FakeRunner)
+    monkeypatch.setattr(canary, "resolve_real_uf_rate", fake_uf)
+    async with httpx.AsyncClient() as client:
+        report = await run_canary(
+            apply=False,
+            max_details=20,
+            max_pages_per_target=1,
+            pause_s=0,
+            settings=SimpleNamespace(portal_http_enabled=False),
+            http_client=client,
+        )
+
+    assert report["canary"]["accepted_rm"] == 2
+    assert report["canary"]["errors"] == {"transform:ValidationError": 1}
+
+
+async def test_apply_preflight_stops_before_http_when_database_is_unavailable():
+    class BrokenFactory:
+        def __call__(self):
+            raise ConnectionRefusedError("local postgres unavailable")
+
+    settings = SimpleNamespace(
+        database_url="postgresql+asyncpg://[USER]:[PASSWORD]@localhost:5432/avm",
+    )
+    available, endpoint, error = await preflight_database(settings=settings, session_factory=BrokenFactory())
+
+    assert available is False
+    assert endpoint == {"host": "localhost", "port": 5432, "database": "avm"}
+    assert error == "ConnectionRefusedError: database connection unavailable"

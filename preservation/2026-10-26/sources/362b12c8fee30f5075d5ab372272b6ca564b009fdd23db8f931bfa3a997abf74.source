@@ -1,0 +1,24 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { API_BASE_URL } from "@/lib/config";
+import type { ThumbnailRef } from "@/types/thumbnail";
+
+export function ListingThumbnail({ thumbnail }: { thumbnail?: ThumbnailRef | null }) {
+  const [failed, setFailed] = useState(false);
+  const url = thumbnail?.url ?? "";
+  useEffect(() => setFailed(false), [url]);
+  const safe = /^\/sandbox\/assets\/[a-f0-9]{64}\.webp$/.test(url);
+  return (
+    <div className="mb-4 flex h-28 w-full items-center justify-center overflow-hidden rounded-lg border border-line bg-white/[0.04]" data-thumbnail-slot>
+      {safe && !failed ? (
+        // Fixed slot preserves layout; object-contain keeps the full property view.
+        // Browser receives only normalized local assets, never a portal/CDN URL.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={`${API_BASE_URL}${url}`} width={thumbnail?.width} height={thumbnail?.height}
+          alt="Vista de la propiedad" loading="lazy" decoding="async"
+          className="h-full w-full object-contain" onError={() => setFailed(true)} />
+      ) : <span className="text-xs text-muted" role="img" aria-label="Imagen no disponible">Sin imagen</span>}
+    </div>
+  );
+}

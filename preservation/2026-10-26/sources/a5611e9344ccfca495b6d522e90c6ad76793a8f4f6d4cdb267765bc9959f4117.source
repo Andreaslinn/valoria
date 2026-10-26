@@ -1,0 +1,37 @@
+"""Bounded, aggregate-only Oracle read; no scrape or remote file writes."""
+import subprocess,json
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+CODE='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  await s.execute(text("SET LOCAL statement_timeout='15s'"))
+  await s.execute(text("SET LOCAL lock_timeout='1s'"))
+  ro=(await s.execute(text('SHOW transaction_read_only'))).scalar()
+  assert ro=='on'
+  q="""SELECT source, property_type, status, COALESCE(geocode_precision,'missing') AS precision,
+  count(*) AS n, count(*) FILTER (WHERE lat IS NOT NULL AND lon IS NOT NULL) AS numeric_coords,
+  count(*) FILTER (WHERE created_at > '2026-10-04T16:09:18Z') AS created_since_snapshot,
+  min(created_at)::text AS first_created,max(updated_at)::text AS latest_update
+  FROM listings GROUP BY 1,2,3,4 ORDER BY 1,2,3,4"""
+  counts=[dict(r) for r in (await s.execute(text(q))).mappings()]
+  cols=[dict(r) for r in (await s.execute(text("SELECT table_name,column_name FROM information_schema.columns WHERE table_name IN ('listing_observations','listing_observation_history') ORDER BY 1,ordinal_position"))).mappings()]
+  provenance=[dict(r) for r in (await s.execute(text("""SELECT source, COALESCE(raw_metadata::jsonb->>'coordinates_source',raw_metadata::jsonb->>'location_source','missing') AS coordinate_source, count(*) AS n FROM listings WHERE status='active' AND property_type='apartment' GROUP BY 1,2 ORDER BY 1,2"""))).mappings()]
+  print(json.dumps({'transaction_read_only':ro,'counts':counts,'history_columns':cols,'provenance':provenance},default=str))
+asyncio.run(main())
+'''
+if __name__=='__main__':
+ cmd=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','docker exec -i valoria_oracle_beta-api-1 python -B -']
+ try:
+  p=subprocess.run(cmd,input=CODE.encode(),capture_output=True,timeout=60)
+  if p.returncode:raise RuntimeError('ReadOnlyProbeFailed')
+  data=json.loads(p.stdout)
+  (HERE/'oracle_readonly_inventory.json').write_text(json.dumps(data,indent=2),encoding='utf-8')
+  print(json.dumps(data))
+ except Exception as e:
+  data={'available':False,'error_type':type(e).__name__,'raw_diagnostics':'withheld'}
+  (HERE/'oracle_readonly_inventory.json').write_text(json.dumps(data),encoding='utf-8')
+  print(json.dumps(data))

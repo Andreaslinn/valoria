@@ -1,0 +1,5 @@
+# Límites explícitos de los outputs
+
+Los CSV de target/features/source/comuna describen dos snapshots históricos locales, no las últimas observations. Cuando llega un export local completo, una tercera scope se calcula sin mezclarlas. El cached aggregate del 8 octubre permite acumulación/cobertura de señales; no listing count exacto, target revisions, cambios de atributos, identidad física ni composición comunal. Esos campos son null/unknown y el manifest identifica esa ausencia.
+
+G1/G2/G3 se reutilizan como censo histórico; no se ejecutan nuevos matchers ni groupings físicos con datos incompletos. La muestra monetariamente ciega no utiliza errores/predicciones, que nunca se cargan. El script lee solo metadata del manifiesto AVM, no synthetic-results ni benchmarks de performance. Concentración por comuna moderna histórica HHI=0.12912988397112346; no es N efectivo de inmuebles ni un peso de población.

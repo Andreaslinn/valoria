@@ -1,0 +1,69 @@
+from pathlib import Path
+R=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled');W=Path(__file__).parent
+# Reuse the deployed loader byte-for-byte; scraper remains the sole writer.
+(R/'scripts/portal_session.py').write_bytes((W/'portal-session-source/scripts/portal_session.py').read_bytes())
+p=R/'services/listing_url_lookup.py';s=p.read_text(encoding='utf-8')
+s=s.replace('from infrastructure.scrapers.yapo import', 'from infrastructure.scrapers.portal_acquisition import PortalAcquisitionError, portal_lookup_client\nfrom infrastructure.scrapers.yapo import')
+s=s.replace('    raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)\n    if raw is None:', '''    try:
+        raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)
+    except PortalAcquisitionError as exc:
+        return _result("upstream_unavailable", url=url, source=source, warnings=[exc.reason])
+    if raw is None:''',1)
+# Legacy parser is used by freshness jobs; do not change its optional-result interface.
+start=s.index('async def parse_listing_from_url(');a=s[:start];b=s[start:]
+b=b.replace('    raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)', '''    try:
+        raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)
+    except PortalAcquisitionError:
+        return None''',1);s=a+b
+s=s.replace('    owns_client = http_client is None', '''    if source == "portalinmobiliario" and http_client is None:
+        async with portal_lookup_client() as client:
+            return await _parse_portal_url(url, client)
+    owns_client = http_client is None''')
+s=s.replace('        response = await client.get(current, follow_redirects=False)\n        if response.status_code in {403, 429}:\n            return None', '''        try:
+            response = await client.get(current, follow_redirects=False)
+        except httpx.TimeoutException as exc:
+            raise PortalAcquisitionError("portal_timeout") from exc
+        except httpx.HTTPError as exc:
+            raise PortalAcquisitionError("portal_transport_error") from exc
+        if response.status_code in {401, 403}:
+            raise PortalAcquisitionError("portal_access_denied")
+        if response.status_code == 429:
+            raise PortalAcquisitionError("portal_rate_limited")
+        if response.status_code in {404, 410}:
+            raise PortalAcquisitionError("portal_listing_unavailable")
+        if response.status_code >= 500:
+            raise PortalAcquisitionError("portal_upstream_error")''')
+s=s.replace('        if classify_portal_detail_page_state(response.text, status_code=response.status_code) != "detail":\n            return None', '''        page_state = classify_portal_detail_page_state(response.text, status_code=response.status_code)
+        if page_state in {"login_page", "captcha_visible", "verification_visible", "blocked"}:
+            raise PortalAcquisitionError("portal_access_denied")
+        if page_state != "detail":
+            return None''')
+p.write_text(s,encoding='utf-8')
+p=R/'api/v1/listings.py';s=p.read_text(encoding='utf-8');pos=s.index('@router.post("/lookup-url"')
+s=s[:pos]+'''def _raise_upstream_lookup_error(result) -> None:
+    if result.status != "upstream_unavailable":
+        return
+    reason = result.warnings[0]
+    errors = {
+        "portal_session_unavailable": (503, "La sesión verificada de Portal no está disponible. Puedes ingresar los datos en Tasar."),
+        "portal_reverification_required": (503, "Portal requiere renovar la verificación oficial. No se consultó la publicación."),
+        "portal_access_denied": (503, "Portal rechazó el acceso a la publicación. No podemos confirmar sus datos actuales."),
+        "portal_rate_limited": (503, "Portal limitó temporalmente las consultas. Intenta más tarde."),
+        "portal_listing_unavailable": (404, "La publicación no está disponible en Portal. No se creó una propiedad activa."),
+        "portal_timeout": (504, "Portal no respondió a tiempo. Puedes volver a consultar más tarde."),
+        "portal_transport_error": (502, "No se pudo conectar con Portal. Intenta más tarde."),
+        "portal_upstream_error": (502, "Portal no pudo responder a la consulta. Intenta más tarde."),
+    }
+    code, message = errors[reason]
+    raise HTTPException(status_code=code, detail={"code": reason, "message": message})
+
+
+'''+s[pos:]
+s=s.replace('    if result.status == "failed":','    _raise_upstream_lookup_error(result)\n    if result.status == "failed":').replace('    if lookup.status == "failed":','    _raise_upstream_lookup_error(lookup)\n    if lookup.status == "failed":')
+p.write_text(s,encoding='utf-8')
+p=R/'frontend-v2/src/lib/api/client.ts';s=p.read_text(encoding='utf-8').replace('    if (typeof detail === "string") {','    if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") return detail.message;\n    if (typeof detail === "string") {');p.write_text(s,encoding='utf-8')
+p=R/'frontend-v2/src/features/listing-url/use-listing-url.ts';s=p.read_text(encoding='utf-8').replace('  if(error.status===401', '''  const detail=(error.payload as {detail?:{code?:string}}|null)?.detail;
+  if(typeof detail?.code==="string"&&detail.code.startsWith("portal_"))return error.message;
+  if(error.status===401''');p.write_text(s,encoding='utf-8')
+p=R/'services/v2_contract.py';s=p.read_text(encoding='utf-8').replace('"services/listing_url_lookup.py", "services/valuation.py",','"services/listing_url_lookup.py", "scripts/portal_session.py",\n                 "infrastructure/scrapers/portal_acquisition.py", "services/valuation.py",');p.write_text(s,encoding='utf-8')
+print('Reused production session loader; candidate lookup now requires verified readonly session and preserves error reasons.')

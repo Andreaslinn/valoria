@@ -1,0 +1,12 @@
+from pathlib import Path
+import json
+scope={};exec(Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];pr=api('/pulls/7');head='0eb2aaa412e34c3b56c5c6e103544ce828122d6a'
+assert pr['head']['sha']==head and pr['base']['ref']=='release/canonical-only-reproducible-20261013'
+assert pr['base']['sha']=='fdd23f882bb603d1115232fb27ede0da1929a8a6'
+if not pr['merged']:
+ result=api('/pulls/7/merge',{'sha':head,'merge_method':'merge','commit_title':'Merge PR #7: source identity admission and HTTP evidence'},method='PUT')
+ assert result.get('merged');commit=result['sha']
+else:commit=pr['merge_commit_sha']
+out={'commit':commit,'head':head,'base':pr['base']['ref'],'pr':pr['html_url']}
+Path('outputs/discovery-redeploy-20261016/merge-proof.json').write_text(json.dumps(out,indent=2));print(json.dumps(out))

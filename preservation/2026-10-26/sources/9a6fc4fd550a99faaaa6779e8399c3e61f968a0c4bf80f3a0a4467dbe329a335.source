@@ -1,0 +1,226 @@
+"""Pure local diagnostics. No AVM, DB, network, fitting, partitions or scheduler imports."""
+import json,hashlib,math,re
+from collections import Counter,defaultdict
+from datetime import datetime,timezone
+from itertools import combinations
+from frozen_identity import sanitize,features,graph,distance,contradictions,canonical_url
+
+VERSION='readiness-v1'
+class InvalidSnapshot(ValueError):pass
+def sha(value):return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False,allow_nan=False,separators=(',',':')).encode()).hexdigest()
+def number(v):
+    try:return float(v) if not isinstance(v,bool) and math.isfinite(float(v)) else None
+    except (ValueError,TypeError):return None
+def positive(v):return number(v) is not None and number(v)>0
+def stamp(v):
+    try:t=datetime.fromisoformat(v)
+    except (TypeError,ValueError):raise InvalidSnapshot('Invalid observation timestamp')
+    if t.tzinfo is None:raise InvalidSnapshot('Observation timestamp requires timezone')
+    return t.astimezone(timezone.utc)
+
+def identity_projection(row):
+    """Allowlist BEFORE matching; price/UF/fingerprint/property_id never enter."""
+    m=row.get('raw_metadata') or {}
+    meta={k:sanitize(m[k]) for k in ['address','address_label','street_hint','location_text','description'] if m.get(k) is not None}
+    xy=row.get('coordinates') or {}
+    return {'id':row['id'],'source':row.get('source'),'external_id':str(row.get('external_id') or ''),'url':row.get('url'),
+            'title':sanitize(row.get('title')),'comuna':row.get('comuna'),'property_type':row.get('property_type'),
+            'built_area_m2':row.get('built_area_m2'),'usable_area_m2':row.get('usable_area_m2'),'m2':row.get('m2'),
+            'bedrooms':row.get('bedrooms'),'bathrooms':row.get('bathrooms'),'parking':row.get('parking'),
+            'stored_lat':row.get('lat',row.get('stored_lat',xy.get('lat'))),'stored_lon':row.get('lon',row.get('stored_lon',xy.get('lon'))),
+            'geocode_precision':row.get('geocode_precision'),'raw_metadata':meta}
+
+def identity_signals(rows):
+    """Reuse parser; downgrade source pins. No new physical grouping is computed."""
+    result=[]
+    for r in rows:
+        f=features(identity_projection(r))
+        # Historical precision labels were not externally verified. Strong geo only with explicit review evidence.
+        f['trusted_geo']=bool(r.get('geo_precision_verified') is True and f.get('trusted_geo'))
+        f.pop('old_property_id',None);f.pop('old_fingerprint',None)
+        result.append(f)
+    return result
+
+def dependency_components(rows):
+    """Observable statistical lineage only. Never infer that a component is one physical unit."""
+    ids=[r['id'] for r in rows]
+    if len(set(ids))!=len(ids):raise InvalidSnapshot('Duplicate row identifiers')
+    keys=defaultdict(list);edges=[]
+    for r in rows:
+        if r.get('source') and r.get('external_id'):keys[('publication',r['source'],str(r['external_id']))].append(r['id'])
+        if r.get('listing_id') is not None:keys[('canonical_listing',str(r['listing_id']))].append(r['id'])
+        if r.get('url'):keys[('url',canonical_url(r['url']))].append(r['id'])
+    for members in keys.values():
+        for i in members[1:]:edges.append((members[0],i))
+    return graph(ids,edges)
+
+def geographic_conflicts(rows,components):
+    signals={r['id']:r for r in identity_signals(rows)};groups=defaultdict(list);hard=potential=0
+    for i,g in components.items():groups[g].append(i)
+    for members in groups.values():
+        for i,j in combinations(members,2):
+            a,b=signals[i],signals[j];d=distance(a,b)
+            if d is not None and d>500:
+                if a['trusted_geo'] and b['trusted_geo']:hard+=1
+                else:potential+=1
+    return {'hard_verified_geo_pairs':hard,'unverified_geo_jump_pairs':potential,'threshold_m':500,
+            'threshold_origin':'existing identity-offline-1; unverified jumps are review flags, not certified contradictions'}
+
+def normalize_observations(snapshot):
+    seen={};assignments={};duplicates=0;records=[];status_events=0
+    docs=snapshot.get('observations')
+    if not isinstance(docs,list):raise InvalidSnapshot('Local observations array required')
+    cutoff=stamp(snapshot['captured_at'])
+    for d in docs:
+        doc=d.get('document',d)
+        oid=doc.get('observation_id') or d.get('observation_id')
+        if not oid:raise InvalidSnapshot('Missing observation identifier')
+        h=sha(doc)
+        if oid in seen:
+            if seen[oid]!=h:raise InvalidSnapshot('Conflicting payloads for observation identifier')
+            if assignments[oid]!=d.get('cycle_id',doc.get('cycle_id')):raise InvalidSnapshot('Conflicting cycle assignment for observation identifier')
+            duplicates+=1;continue
+        seen[oid]=h
+        assignments[oid]=d.get('cycle_id',doc.get('cycle_id'))
+        if doc.get('event_kind')!='listing_seen':status_events+=1;continue
+        for key in ['source','external_id','listing_id','observed_at']:
+            if doc.get(key) is None or doc.get(key)=='':raise InvalidSnapshot('Missing observation lineage')
+        if stamp(doc['observed_at'])>cutoff:raise InvalidSnapshot('Observation after snapshot cutoff')
+        p=doc.get('parsed_state') or {};raw=doc.get('raw_state') or {};e=raw.get('_source_evidence') or {};payload=(e.get('raw') or {}).get('payload') or {}
+        m=p.get('raw_metadata') or {};xy=p.get('coordinates') or {}
+        rows=dict(p,id=len(records)+1,source=doc['source'],external_id=str(doc['external_id']),listing_id=doc['listing_id'],
+                  observation_id=oid,observed_at=doc['observed_at'],cycle_id=d.get('cycle_id',doc.get('cycle_id')),
+                  url=p.get('url') or raw.get('url'),lat=xy.get('lat'),lon=xy.get('lon'),
+                  geo_precision_verified=False,raw_metadata=m,
+                  image_present=bool(payload.get('images') or (e.get('parsed_signals') or {}).get('image_urls')),
+                  provenance=doc.get('provenance') or {})
+        records.append(rows)
+    return records,{'duplicate_observations_ignored':duplicates,'status_events':status_events,'listing_seen_unique':len(records)}
+
+def observation_diagnostics(snapshot):
+    records,counts=normalize_observations(snapshot);publications=defaultdict(list);listing_pubs=defaultdict(set)
+    for r in records:
+        key=(r['source'],r['external_id']);publications[key].append(r);listing_pubs[r['listing_id']].add(key)
+    repeated=sum(len(v)>1 for v in publications.values());cycles=snapshot.get('cycles',[])
+    valid={c['cycle_id'] for c in cycles if c.get('normal_pipeline') is True and c.get('completed') is True and c.get('unexpected_errors')==0}
+    all_ids=[c.get('cycle_id') for c in cycles]
+    if None in all_ids or len(set(all_ids))!=len(all_ids):raise InvalidSnapshot('Duplicate or missing cycle identifiers')
+    if any(r.get('cycle_id') and r['cycle_id'] not in all_ids for r in records):raise InvalidSnapshot('Observation references unknown cycle')
+    n3=sum(len({r['cycle_id'] for r in pool if r.get('cycle_id') in valid})>=3 for pool in publications.values())
+    comp=dependency_components(records)
+    changes={k:0 for k in ['price_uf','m2','bedrooms','bathrooms','parking']}
+    for pool in publications.values():
+        for k in changes:
+            if len({str(r.get(k)) for r in pool})>1:changes[k]+=1
+    return {'counts':dict(counts,observations=len(snapshot['observations'])-counts['duplicate_observations_ignored'],
+                          publications=len(publications),canonical_listings=len(listing_pubs),physical_units=None,
+                          observable_dependency_components=len(set(comp.values()))),
+            'reobserved_publications':repeated,'repeat_observations':len(records)-len(publications),
+            'reobservation_coverage':repeated/len(publications) if publications else None,
+            'publications_in_three_valid_cycles':n3,'valid_cycles':len(valid),'completed_cycles':sum(c.get('completed') is True for c in cycles),
+            'cycle_assignment_complete':all(r.get('cycle_id') is not None for r in records),
+            'listing_multiple_publications':sum(len(p)>1 for p in listing_pubs.values()),
+            'geo_conflicts':geographic_conflicts(records,comp),'temporal_field_change_publications':changes,
+            'by_source':dict(Counter(r['source'] for r in records)),
+            'by_comuna':dict(Counter(r.get('comuna') or 'unknown' for r in records))}
+
+def quality(rows,scope):
+    target=[];feat=[];coverage=[]
+    sources=sorted({r.get('source') or 'unknown' for r in rows})
+    for source in sources:
+        pool=[r for r in rows if (r.get('source') or 'unknown')==source];cat=Counter();dates=rates=bad=0;values=[]
+        for r in pool:
+            m=r.get('raw_metadata') or {};currency=r.get('price_currency') or m.get('currency_original')
+            basis=r.get('price_basis');v=r.get('price_uf_canonical',r.get('price_uf'));p=number(v)
+            exclusion=r.get('existing_strict_price_exclusion') or ('legacy_unrecoverable' if m.get('price_uf_source')=='legacy_unrecoverable' else '')
+            origin=r.get('price_uf_source') or m.get('price_uf_source') or ''
+            if exclusion:kind='existing_exclusion_'+exclusion
+            elif 'recover' in origin:kind='recovered_reference_requires_review'
+            elif currency in ['UF','CLF'] and positive(v):kind='native_UF_value_preserved'
+            elif currency=='CLP' or basis=='canonical_clp_converted':kind='CLP_requires_dated_conversion'
+            elif currency in ['UF','CLF']:kind='UF_missing_invalid'
+            else:kind='currency_ambiguous'
+            cat[kind]+=1
+            date=r.get('uf_rate_date') or m.get('uf_rate_date');rate=r.get('uf_rate_used') or m.get('uf_rate_used') or m.get('price_recovery_rate')
+            dates+=bool(date);rates+=positive(rate);bad+=v not in [None,''] and not positive(v)
+            if p is not None and p>0:values.append(p)
+        for kind,n in sorted(cat.items()):target.append({'scope':scope,'source':source,'category':kind,'n':n,'denominator':len(pool),'rate':n/len(pool),
+            'uf_date_present_n':dates,'uf_rate_present_n':rates,'invalid_uf_value_n':bad,'min_positive_uf':min(values) if values else None,'max_positive_uf':max(values) if values else None,
+            'limit':'preserved/native numeric value does not independently certify raw label; no conversion or repair executed'})
+        for key in ['m2','built_area_m2','usable_area_m2','land_area_m2','bedrooms','bathrooms','parking']:
+            vals=[number(r.get(key)) for r in pool];good=[v for v in vals if v is not None]
+            feat.append({'scope':scope,'source':source,'feature':key,'n':len(pool),'present_n':sum(r.get(key) not in [None,''] for r in pool),'numeric_n':len(good),
+                         'missing_n':sum(r.get(key) in [None,''] for r in pool),'zero_n':sum(v==0 for v in good),'negative_n':sum(v<0 for v in good),
+                         'invalid_numeric_n':sum(r.get(key) not in [None,''] and number(r.get(key)) is None for r in pool),
+                         'min':min(good) if good else None,'max':max(good) if good else None,
+                         'semantic':'area proxy, declared useful/total not certified' if 'm2' in key else 'zero/missing not recoded; extremes require review'})
+        validgeo=invalidgeo=coords=equalarea=area_conflict=0
+        for r in pool:
+            xy=r.get('coordinates') or {};raw_a=r.get('lat',r.get('stored_lat',xy.get('lat')));raw_b=r.get('lon',r.get('stored_lon',xy.get('lon')))
+            a=number(raw_a);b=number(raw_b)
+            present=raw_a not in [None,''] or raw_b not in [None,''];coords+=present
+            valid= a is not None and b is not None and -90<=a<=90 and -180<=b<=180 and (a,b)!=(0,0)
+            validgeo+=valid;invalidgeo+=present and not valid
+            built=number(r.get('built_area_m2'));usable=number(r.get('usable_area_m2'))
+            equalarea+=built is not None and usable is not None and built==usable
+            area_conflict+=built is not None and usable is not None and usable>built
+        feat.append({'scope':scope,'source':source,'feature':'coordinates','n':len(pool),'present_n':coords,'numeric_n':validgeo,'missing_n':len(pool)-coords,'invalid_coordinates_n':invalidgeo,'semantic':'numeric validity is not verified precision'})
+        feat.append({'scope':scope,'source':source,'feature':'area_semantics','n':len(pool),'equal_built_usable_n':equalarea,'usable_gt_built_n':area_conflict,'semantic':'equality can be fallback propagation; not declared useful area'})
+    counts=Counter((r.get('source') or 'unknown',r.get('comuna') or 'unknown') for r in rows)
+    for (source,comuna),n in sorted(counts.items()):coverage.append({'scope':scope,'source':source,'comuna':comuna,'n_publication_rows':n,'share':n/len(rows),'independent_units':None})
+    return target,feat,coverage
+
+def gate(state,evidence,metrics,thresholds,provenance,limitations,blockers,action):
+    if state not in ['READY','CONDITIONAL','NOT_READY']:raise ValueError('Invalid gate state')
+    return dict(state=state,evidence=evidence,metrics=metrics,thresholds=thresholds,threshold_provenance=provenance,
+                limitations=limitations,blockers=blockers,recommended_action=action)
+
+def evaluate_gates(aggregate,thresholds,*,identity_results,harness_findings,hashes_valid=True,full_observations=None):
+    cycles=aggregate['natural_cycle_journal']['cycles'];normal=sum(c.get('errores_inesperados')==0 and c.get('finished_at') is not None for c in cycles)
+    n3=aggregate.get('publications_at_least_3_UTC_days');cov=aggregate.get('coverage_by_source') or {};n=aggregate['listing_seen_scanned']
+    ids=sum(v.get('external_id:available_preserved',0) for v in cov.values());url=sum(v.get('url:available_preserved',0) for v in cov.values());images=sum(v.get('images:available_preserved',0) for v in cov.values())
+    rates={'identity_URL_observation_coverage':min(ids,url)/n if n else None,'images_observation_coverage':images/n if n else None}
+    operational_met=normal>=thresholds['normal_cycles'] and n3 is not None and n3>=thresholds['publications_in_three_cycles'] and all(v is not None and v>=thresholds['identity_URL_coverage'] if k.startswith('identity') else v is not None and v>=thresholds['origin_images_coverage'] for k,v in rates.items())
+    # Observation-based coverage is not the publication denominator requested for final certification.
+    accumulation=gate('CONDITIONAL' if operational_met else 'NOT_READY',['cached read-only aggregate',aggregate['at_utc']],
+        dict(normal_cycles=normal,publications_in_three_UTC_days=n3,**rates),thresholds,'user AVM-01 section3 and History final operational trigger',
+        ['not a live production check','UTC-day association validated only for cached single daily cycles','coverage denominator is observations; remeasure unique publications','no power justification inferred'],
+        [] if operational_met else ['existing accumulation thresholds not met in available evidence'],'continue existing collection; do not change cadence; obtain approved local export')
+    gates={'G_ACCUMULATION':accumulation}
+    gates['G_IDENTITY']=gate('NOT_READY',['historical and modern identity audits'],identity_results,None,'no accepted residual-contamination threshold',
+        ['singletons not independent by proof','cross-source risk not globally identifiable','origin image identifiers not content hashes'],
+        ['no reviewed dependence policy and residual-risk assessment'],'price-blind adjudication; distinguish lineage from physical identity; do not wait indefinitely for unchanged cards')
+    gates['G_TARGET']=gate('CONDITIONAL',['historic candidates + modern snapshot 2 October'],{'current_row_level_targets_available':full_observations is not None},None,'existing monetary provenance rules; no new threshold',
+        ['new accumulation aggregate has no target values or conversion lineage','published prices, not closing prices'],
+        ['current eligible native/converted UF cohort not certified'],'export observed RAW/PARSED/provenance; propose native UF diagnostic subset, retain CLP separate until verified conversion')
+    gates['G_FEATURES']=gate('CONDITIONAL',['historical/modern local field profiles'],{},None,'no semantics threshold invented',
+        ['area proxy and zero semantics','new field revisions unavailable without observation documents'],['current semantic inclusion policy not approved'],
+        'document area/missingness by source and field availability; no silent cleanup')
+    gates['G_REPRESENTATIVENESS']=gate('CONDITIONAL',['historical source×comuna counts','cached modern accumulation'],{'latest_sources':list(cov)},None,'no population weights or balance threshold approved',
+        ['modern history only Yapo','market population ground truth absent'],['cannot claim generalization to both sources from new Yapo history alone'],
+        'declare supported population, report source×comuna concentration; do not reactivate Portal')
+    gates['G_SPLITS']=gate('CONDITIONAL',['historical G1/G2/G3 summaries'],{'preferred_K':None},None,'K=5 initial protocol; adequacy not certified by row counts',
+        ['no real folds assigned','group count does not equal effective sample size'],['dependency uncertainty and sparse strata'],
+        'analyze K=3/4/5 capacity without assignments; prefer K=3 pilot pending approved grouping; no automatic final selection')
+    gates['G_LEAKAGE']=gate('NOT_READY',['identity audits','static harness review'],{'physical_units_unknown':True},None,'no contamination tolerance or trusted availability policy approved',
+        ['temporal/spatial splits are not duplicate detectors','legacy snapshot labels already explored'],['cross-group unknown links; real A mapping missing; holdout custody incomplete'],
+        'purge reviewed dependencies, seal prospective labels, validate target/feature availability and A real roundtrip')
+    gates['G_REPRODUCIBILITY']=gate('READY' if hashes_valid else 'NOT_READY',['input hashes','frozen matcher','versioned thresholds'],{'input_hashes_valid':hashes_valid},None,'exact hashes and deterministic local outputs',
+        ['reproducibility does not imply validity or currentness'],[] if hashes_valid else ['input drift'],'repeat manually on an approved immutable local snapshot')
+    gates['G_HARNESS']=gate('NOT_READY',['AVM-01 static contracts','synthetic tests'],harness_findings,None,'real input parity and isolation guarantees, not numeric threshold',
+        ['synthetic tests only; no real fitting'],['A reconstruction synthetic-only','holdout related groups not fully reserved','no enforcement of approved eligible primary observation projection'],
+        'prepare isolated corrections and real read-only roundtrip contract; do not change frozen A or product')
+    global_state='NOT_READY' if any(g['state']=='NOT_READY' for g in gates.values()) else 'CONDITIONAL' if any(g['state']=='CONDITIONAL' for g in gates.values()) else 'READY'
+    return {'schema':VERSION,'verdict':'MODIFY_SCOPED','evidence_cutoff_utc':aggregate['at_utc'],'oracle_access':False,
+            'gates':gates,'global':global_state,'exploratory_research':'CONDITIONAL','confirmatory_benchmark':global_state,'production':'NOT_READY',
+            'real_training_authorized':False,'real_partitions_created':False,'final_holdout_frozen':False}
+
+def delta(previous,current):
+    changes={k:{'previous':previous.get(k),'current':current.get(k),'delta':current[k]-previous[k] if isinstance(current.get(k),(int,float)) and isinstance(previous.get(k),(int,float)) else None} for k in sorted(set(previous)|set(current)) if previous.get(k)!=current.get(k)}
+    return {'comparable_schema':True,'changes':changes,'physical_independence_not_inferred':True}
+
+def run_delta(previous,current):
+    """Compare scoped diagnostics, never invent recovered targets from counts."""
+    changes=delta(previous['latest_history'],current['latest_history'])
+    changes['population_scope']='same observation history lineage; historical cohorts remain separate'
+    return changes

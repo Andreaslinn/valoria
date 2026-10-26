@@ -1,0 +1,41 @@
+from pathlib import Path
+p=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled\docs\audits\valoria-v2-remediation.md')
+p.parent.mkdir(parents=True,exist_ok=True)
+issues=[(1,'P1','Self-comparables'),(2,'P1','Portal URL analysis'),(20,'P1','Oracle compatibility'),(5,'P2','Withdrawn lifecycle'),(6,'P2','Last observed serialization'),(3,'P2','Temporal reconciliation'),(4,'P2','Radar versus Tasar valuation'),(7,'P2','Model warnings'),(9,'P2','Report data preservation'),(13,'P2','Saved-state initialization'),(8,'P2','Global search'),(15,'P2','Alert history'),(14,'P2','Thumbnails'),(12,'UX','Analyzer prefill'),(10,'P3','Report messaging'),(11,'P3','Radar V2 wording'),(19,'P3','Documentation'),(17,'Investigation','Office coverage'),(18,'Unconfirmed','Listing 6842 type'),(16,'Product','Patrimonial scope'),(21,'Validation','Desktop scenarios')]
+s='''# Valoria V2 remediation ledger
+
+Started 2026-10-12 (Europe/Berlin). One active finding at a time, in the requested order.
+
+Repository: `C:/Users/heiko/Documents/Codex/2026-09-05/vamos-a-ped/valoria-reconciled`.
+Baseline HEAD: `5288dde`. Existing uncommitted frontend V2 work, Portal lookup/tests, and spatial work were present before this remediation. Preserve them; do not commit them as this task's work.
+
+## Runtime baseline
+
+Read-only SSH inspection succeeded. Oracle API container `valoria_oracle_beta-api-1`, image `valoria-portal-geo:0ceeb1e-20261011`, healthy. Thumbnails, Caddy, PostgreSQL, Redis running. No production mutation or deployment performed.
+Served OpenAPI SHA256: `17b00a425efc18d39ea6ebe39688af7aed453a7361ca242848c5e5fffaf48c83`; API version 0.1.0 (not a unique release identity).
+Running Python request schema lacks `target_listing_id`; deployed source detector returns None for Portal. These are confirmed production capability gaps.
+Listing 1130 exists and is active. Listing 298 exists, status `removed`, last seen 2026-06-05T16:23:39.110704Z. Active Portal records exist, including 3633.
+Read-only database inspection used `SET TRANSACTION READ ONLY`. Never invoke URL freshness endpoints as read-only smoke: they can update listing state.
+
+## Findings
+
+'''
+for n,sev,title in issues:
+ status='LOCALLY_VERIFIED' if n==1 else 'INVESTIGATING' if n==2 else 'PENDING'
+ s+=f'### #{n} — {title} [{sev}]\n\n- Status / final classification: {status}; '+('deployment not verified.' if n==1 else 'not closed.')+'\n'
+ if n==1:
+  s+='''- Initial behavior: local code excluded only the target database ID; Oracle ignores the absent field.
+- Reproduction: `python -m pytest tests/unit/test_target_listing_exclusion.py -q -p no:cacheprovider`; existing 13 tests passed. Duplicate publication cases were missing.
+- Root cause: candidate pool identity filtering used row ID alone. Deployed code additionally predates the local target-ID contract.
+- Affected files/contracts: `services/valuation.py`, new `core/normalization/publication_identity.py`, `tests/unit/test_target_listing_exclusion.py`; existing request/frontend/analysis/portfolio target identity propagation inspected.
+- Correction: resolve target with repository lookup (including inactive targets); exclude ID, same source/external ID, and canonical publication URL before baseline, price surface, challenger, and consensus consume candidates. Never match property_id, title, coordinates, or similar attributes.
+- Tests added: six duplicate identity/strategy cases; inactive target/active duplicate; source namespace independence. Existing same-property-ID cases retained.
+- Test results: focused exclusion plus valuation service: **46 passed**. Synthetic target uses ID 1130; actual Oracle target not yet validated after correction.
+- Oracle compatibility: FAILED baseline; request field absent. Local code requires deployment.
+- Deployment: NOT DEPLOYED; safe additive Python change, no migration or extra services. Deployment gates still pending.
+- Remaining limitations: no target identity can be resolved for unknown IDs; unchanged existing behavior excludes exact ID only. Publication equivalence cannot establish cross-source identity without reliable metadata.
+'''
+ else:
+  s+='- Initial behavior / reproduction / root cause: pending sequential investigation.\n- Affected files and contracts / correction / tests: not yet established.\n- Test results: NOT TESTED.\n- Oracle compatibility / deployment: NOT VERIFIED; no deployment.\n- Remaining limitations: acceptance criteria from the supplied request remain open.\n'
+ s+='\n'
+p.write_text(s,encoding='utf-8')

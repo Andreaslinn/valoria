@@ -1,0 +1,35 @@
+"""Reproduce UF-unavailable execution on retained images, without network or production writes."""
+import subprocess, json
+images=["sha256:22081087e836574f11091c45a164f6dbe6891f095cf55e6c6945c38c49f90f69",
+        "sha256:2aa86cd937c507681b65b9dff0453b6ef76ab9e30eadfb9cc2fc75eaa7c2c9fb"]
+root='/home/ubuntu/apps/valoria/scripts/portal_session_runtime'
+code='''import asyncio,json,traceback
+from pathlib import Path
+import httpx
+from redis.asyncio import Redis
+class EmptyCache:
+ async def get(self,*a,**kw):return None
+ async def aclose(self):pass
+Redis.from_url=lambda *a,**kw:EmptyCache()
+async def outage(self,*a,**kw):raise httpx.ReadTimeout("controlled unavailable UF provider")
+httpx.AsyncClient.get=outage
+import scripts.portal_session as auth
+auth.portal_client=auth.portal_client
+auth.save_session=lambda *a,**kw:None
+from scripts.portal_card_first import run
+try:
+ asyncio.run(run(apply=False,max_pages=1,max_details=0,pause_s=3,max_geo_details=0))
+ print(json.dumps({"unexpected_success":True}))
+except Exception as exc:
+ print(json.dumps({"error_type":type(exc).__name__,"message":str(exc) if type(exc).__name__=="UFServiceError" else "withheld", "frames":[{"file":Path(f.filename).name,"line":f.lineno,"function":f.name} for f in traceback.extract_tb(exc.__traceback__)][-7:]}))
+'''
+for image in images:
+ args=['docker','run','--rm','-i','--network=none','--memory=384m','--memory-swap=384m','--cpus=0.25','--pids-limit=96','--cap-drop=ALL','--security-opt=no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=32m',
+       '-e','DATABASE_URL=sqlite+aiosqlite:///:memory:','-e','SYNC_DATABASE_URL=sqlite:///:memory:',
+       '-e','JWT_SECRET_KEY='+'0'*32,'-e','PORTAL_HTTP_ENABLED=true','-e','PORTAL_GEO_DETAIL_BUDGET=0',
+       '--volume',root+'/scripts/portal_card_first.py:/app/scripts/portal_card_first.py:ro',
+       '--volume',root+'/scripts/portal_session.py:/app/scripts/portal_session.py:ro',
+       '--volume',root+'/workers/portal_geo_enrichment.py:/app/workers/portal_geo_enrichment.py:ro',
+       '--entrypoint','python',image,'-B','-']
+ r=subprocess.run(args,input=code,capture_output=True,text=True,timeout=100)
+ print(json.dumps({'image':image,'process_exit':r.returncode,'stdout':r.stdout.strip(),'stderr_error_classes':[l.split(':',1)[0] for l in r.stderr.splitlines() if l.startswith(('ImportError:','ModuleNotFoundError:','ValueError:'))]}))

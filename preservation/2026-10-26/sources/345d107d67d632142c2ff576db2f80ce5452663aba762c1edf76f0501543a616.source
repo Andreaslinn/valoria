@@ -1,0 +1,113 @@
+"""Own metadata and schema. Does not import the existing application database."""
+
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    UniqueConstraint,
+    create_engine,
+)
+
+from services.property_life_config import local_url
+
+metadata = MetaData(schema="property_life")
+source_file = Table(
+    "source_file",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("filename", Text, nullable=False),
+    Column("sha256", Text, nullable=False),
+    Column("version_date", Date, nullable=False),
+    Column("imported_at", DateTime, nullable=False),
+    Column("row_count", BigInteger, nullable=False),
+    UniqueConstraint("kind", "sha256"),
+)
+property = Table(
+    "property",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("source_file_id", ForeignKey("property_life.source_file.id"), nullable=False),
+    Column("comuna", Integer, nullable=False),
+    Column("mz", Integer, nullable=False),
+    Column("pr", Integer, nullable=False),
+    Column("dir", Text, nullable=False),
+    Column("tipo", Text, nullable=False),
+    Column("m2", Float),
+    Column("terreno", Float),
+    Column("anio", Integer),
+    Column("avaluo", Float),
+    Column("contribucion", Float),
+    Column("data", JSON, nullable=False),
+    UniqueConstraint("source_file_id", "comuna", "mz", "pr"),
+)
+construction_line = Table(
+    "construction_line",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("source_file_id", ForeignKey("property_life.source_file.id"), nullable=False),
+    Column("row_number", Integer, nullable=False),
+    Column("comuna", Integer, nullable=False),
+    Column("mz", Integer, nullable=False),
+    Column("pr", Integer, nullable=False),
+    Column("data", JSON, nullable=False),
+    UniqueConstraint("source_file_id", "row_number"),
+)
+transfer_raw = Table(
+    "transfer_raw",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("source_file_id", ForeignKey("property_life.source_file.id"), nullable=False),
+    Column("row_number", Integer, nullable=False),
+    Column("raw_line", Text, nullable=False),
+    Column("data", JSON, nullable=False),
+    UniqueConstraint("source_file_id", "row_number"),
+)
+transfer = Table(
+    "transfer",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("dataset_key", Text, nullable=False),
+    Column("source_file_ids", JSON, nullable=False),
+    Column("reference_date", Date, nullable=False),
+    Column("property_id", ForeignKey("property_life.property.id"), nullable=False),
+    Column("fecha", Date, nullable=True),
+    Column("uf_principal", Float),
+    Column("uf_total", Float),
+    Column("confianza", Text, nullable=False),
+    Column("motivo_exclusion", Text),
+    Column("usable", Boolean, nullable=False),
+    Column("data", JSON, nullable=False),
+    Column("operation_key", Text, nullable=False),
+    UniqueConstraint("dataset_key", "property_id", "operation_key"),
+)
+transfer_unit = Table(
+    "transfer_unit",
+    metadata,
+    Column("transfer_id", ForeignKey("property_life.transfer.id"), primary_key=True),
+    Column("property_id", ForeignKey("property_life.property.id"), primary_key=True),
+)
+uf_daily = Table(
+    "uf_daily",
+    metadata,
+    Column("source_file_id", ForeignKey("property_life.source_file.id"), primary_key=True),
+    Column("fecha", Date, primary_key=True),
+    Column("value", Float, nullable=False),
+)
+Index("ix_life_property_rol", property.c.comuna, property.c.mz, property.c.pr)
+Index("ix_life_raw_source", transfer_raw.c.source_file_id)
+Index("ix_life_transfer_dataset", transfer.c.dataset_key)
+
+
+def engine():
+    return create_engine(local_url(), pool_pre_ping=True, connect_args={"connect_timeout": 5})

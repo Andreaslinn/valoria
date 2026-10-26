@@ -1,0 +1,178 @@
+"""Temporal, grouped SII baseline/geographic comparison. No external calls."""
+from __future__ import annotations
+import argparse,hashlib,itertools,json,time
+from collections import Counter
+from dataclasses import asdict
+from pathlib import Path
+import numpy as np
+from services.sii.closing_knn import ClosingKNN
+from services.sii.geographic_knn import GeographicKNN,GeoParameters,load_geography,historical_filter
+
+
+def save(path,data):
+    path.write_text(json.dumps(data,indent=2,allow_nan=False),encoding='utf8')
+
+
+def digest(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def metrics(rows):
+    values=[r for r in rows if r['prediction']['status']=='ok']
+    e=np.array([(r['prediction']['value_uf']/r['actual_uf']-1)*100 for r in values])
+    return {'n':len(rows),'predicted':len(values),'coverage_pct':100*len(values)/len(rows) if rows else 0.,
+        'mdape_pct':float(np.median(np.abs(e))) if len(e) else None,
+        'mape_pct':float(np.mean(np.abs(e))) if len(e) else None,
+        'median_bias_pct':float(np.median(e)) if len(e) else None,
+        'mean_bias_pct':float(np.mean(e)) if len(e) else None,
+        'p90_ape_pct':float(np.percentile(np.abs(e),90)) if len(e) else None,
+        'geographic_predictions':sum(r['prediction'].get('model_used')=='geographic' for r in values)}
+
+
+def evaluate(model,targets):
+    rows=[]
+    for target in targets:
+        # Whitelist features: no price or registration label is passed to estimate.
+        features={k:target[k] for k in ['rol','comuna','block','kind','date','area','year','building']}
+        t=time.perf_counter();prediction=model.estimate(features);elapsed=(time.perf_counter()-t)*1000
+        for c in prediction.get('comparables',[]):
+            assert c['rol']!=target['rol'] and c['fecha']<target['date']
+        rows.append({'raw_id':target['raw_id'],'rol':target['rol'],'kind':target['kind'],
+            'date':target['date'],'actual_uf':target['uf'],'area':target['area'],'year':target['year'],
+            'prediction':prediction,'elapsed_ms':elapsed})
+    return rows
+
+
+def folds(rows,controls,start,end,outer_roles):
+    targets=[r for r in rows if start<=r['date']<end and r['fi']<end and r['rol'] not in outer_roles]
+    target_roles={r['rol'] for r in targets}
+    pool=[r for r in rows if r['date']<start and r['fi']<start and r['rol'] not in target_roles|outer_roles]
+    safe_targets=historical_filter(targets,controls)
+    safe_pool=historical_filter(pool,controls)
+    assert not ({r['rol'] for r in safe_pool}&{r['rol'] for r in safe_targets})
+    assert all(r['date']<start and r['fi']<start for r in safe_pool)
+    return safe_pool,safe_targets,{'targets_raw':len(targets),'targets_safe':len(safe_targets),
+        'pool_raw':len(pool),'pool_safe':len(safe_pool),'excluded_target_roles':len(target_roles),
+        'excluded_outer_roles':len(outer_roles)}
+
+
+def guards(base,candidate):
+    return bool(base['n']>=30 and candidate['n']==base['n'] and
+        candidate['coverage_pct']>=base['coverage_pct'] and
+        candidate['mdape_pct'] is not None and base['mdape_pct']-candidate['mdape_pct']>=.5 and
+        candidate['mape_pct']<=base['mape_pct']+1 and
+        abs(candidate['mean_bias_pct'])<=abs(base['mean_bias_pct'])+3)
+
+
+def paired_summary(baseline,candidate):
+    pairs=[(b,c) for b,c in zip(baseline,candidate,strict=True)
+           if b['prediction']['status']==c['prediction']['status']=='ok']
+    assert all(b['raw_id']==c['raw_id'] for b,c in pairs)
+    b=np.array([abs(x['prediction']['value_uf']/x['actual_uf']-1)*100 for x,_ in pairs])
+    c=np.array([abs(x['prediction']['value_uf']/x['actual_uf']-1)*100 for _,x in pairs])
+    if not len(b):return {'n':0}
+    rng=np.random.default_rng(20261025)
+    samples=rng.integers(0,len(b),size=(1000,len(b)))
+    improvement=np.median(b[samples],axis=1)-np.median(c[samples],axis=1)
+    return {'n':len(pairs),'baseline':metrics([x for x,_ in pairs]),'candidate':metrics([x for _,x in pairs]),
+        'mdape_improvement_95pct_bootstrap_pp':[float(x) for x in np.percentile(improvement,[2.5,97.5])],
+        'note':'Exploratory paired bootstrap; not a promotion optimization target.'}
+
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--data',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--protocol',type=Path,required=True);p.add_argument('--phase',choices=['development','holdout'],required=True)
+    args=p.parse_args();args.output.mkdir(parents=True,exist_ok=True)
+    protocol=json.loads(args.protocol.read_text(encoding='utf8'))
+    raw=json.loads((args.data/'closings.json').read_text(encoding='utf8'))
+    controls=json.loads((args.data/'historical-controls.json').read_text(encoding='utf8'))['controls']
+    geo=load_geography(args.data)
+    hashes={f:digest(args.data/f) for f in ['closings.json','geography.sqlite','historical-controls.json','address-index.sqlite']}
+    hashes['protocol']=digest(args.protocol)
+    hashes['baseline_code']=digest(Path(__file__).parents[1]/'services/sii/closing_knn.py')
+    hashes['geographic_code']=digest(Path(__file__).parents[1]/'services/sii/geographic_knn.py')
+    final_start,final_end=protocol['final_holdout']
+    outer_roles={r['rol'] for r in raw if final_start<=r['date']<final_end}
+    grid=[GeoParameters(*x) for x in itertools.product(*[protocol['candidate_grid'][k] for k in ['scale_m','radius_m','blend']])]
+    if args.phase=='development':
+        baseline=[];trials=[[] for _ in grid];fold_audits=[]
+        for start,end in protocol['development_folds']:
+            pool,targets,audit=folds(raw,controls,start,end,outer_roles)
+            fold_audits.append({'start':start,'end':end,**audit})
+            baseline+=evaluate(ClosingKNN(pool),targets)
+            for i,params in enumerate(grid):trials[i]+=evaluate(GeographicKNN(pool,geo,params),targets)
+        selection={};trial_metrics={};selected_records=[]
+        for kind in ['casa','depto']:
+            base=metrics([r for r in baseline if r['kind']==kind])
+            def fold_objective(records):
+                ms=[metrics([r for r in records if r['kind']==kind and start<=r['date']<end])
+                    for start,end in protocol['development_folds']]
+                return float(np.mean([m['mdape_pct'] for m in ms])) if all(m['n']>=30 and m['mdape_pct'] is not None for m in ms) else 1e9
+            base_objective=fold_objective(baseline)
+            variants=[{'parameters':asdict(params),'metrics':metrics([r for r in trial if r['kind']==kind])}
+                      for params,trial in zip(grid,trials,strict=True)]
+            for variant,trial in zip(variants,trials,strict=True):variant['mean_fold_mdape_pct']=fold_objective(trial)
+            # All tuning occurs before the final holdout is evaluated.
+            ranked=sorted(variants,key=lambda v:(v['mean_fold_mdape_pct'],v['metrics']['mape_pct'],v['parameters']['radius_m']))
+            eligible=[v for v in ranked if guards({**base,'mdape_pct':base_objective},
+                {**v['metrics'],'mdape_pct':v['mean_fold_mdape_pct']}) and v['metrics']['geographic_predictions']>=30]
+            selected=eligible[0] if eligible else ranked[0]
+            selection[kind]={'candidate':selected['parameters'],'development_promotable':bool(eligible),
+                'baseline':base,'candidate_metrics':selected['metrics'],
+                'baseline_mean_fold_mdape_pct':base_objective,'candidate_mean_fold_mdape_pct':selected['mean_fold_mdape_pct']}
+            chosen_index=next(i for i,g in enumerate(grid) if asdict(g)==selected['parameters'])
+            selected_records += [r for r in trials[chosen_index] if r['kind']==kind]
+            selection[kind]['by_fold']=[{'start':start,'end':end,
+                'baseline':metrics([r for r in baseline if r['kind']==kind and start<=r['date']<end]),
+                'candidate':metrics([r for r in trials[chosen_index] if r['kind']==kind and start<=r['date']<end])}
+                for start,end in protocol['development_folds']]
+            trial_metrics[kind]=variants
+        report={'phase':'development','hashes':hashes,'folds':fold_audits,'selection':selection,'trials':trial_metrics,
+            'protocol':protocol,'target_role_exclusion':'All 2026 holdout roles excluded from all development data; each development fold additionally excludes every target role from its pool.'}
+        save(args.output/'development.json',report)
+        save(args.output/'development-predictions.json',{'baseline':baseline,'candidate':selected_records})
+        sealed={'hashes':hashes,'selection':selection,'development_sha256':digest(args.output/'development.json')}
+        save(args.output/'sealed-candidates.json',sealed)
+        print(json.dumps(selection,indent=2));return
+    sealed=json.loads((args.output/'sealed-candidates.json').read_text(encoding='utf8'))
+    assert sealed['hashes']==hashes,'Inputs changed after candidate freeze'
+    pool,targets,audit=folds(raw,controls,final_start,final_end,set())
+    baseline=evaluate(ClosingKNN(pool),targets)
+    candidates=[]
+    for kind in ['casa','depto']:
+        params=GeoParameters(**sealed['selection'][kind]['candidate'])
+        candidates+=evaluate(GeographicKNN(pool,geo,params),[r for r in targets if r['kind']==kind])
+    by_id={r['raw_id']:r for r in candidates};candidates=[by_id[r['raw_id']] for r in baseline]
+    summary={};policy={};chosen=[]
+    for kind in ['casa','depto']:
+        b=[r for r in baseline if r['kind']==kind];c=[r for r in candidates if r['kind']==kind]
+        bm,cm=metrics(b),metrics(c)
+        promote=sealed['selection'][kind]['development_promotable'] and guards(bm,cm)
+        policy[kind]={'model':'geographic' if promote else 'baseline','parameters':sealed['selection'][kind]['candidate'],
+            'reason':'Development and untouched temporal holdout pass prespecified guards' if promote else 'Geography did not pass development and final holdout guards',
+            'baseline_metrics':bm,'candidate_metrics':cm}
+        summary[kind]={'baseline':bm,'geographic_candidate':cm,'deployed_local_model':policy[kind]['model'],
+            'paired':paired_summary(b,c)}
+        chosen+=c if promote else b
+    # Append-only evidence: reruns may reproduce metrics but never silently replace a frozen holdout.
+    result={'phase':'final_holdout','hashes':hashes,'sealed_candidates_sha256':digest(args.output/'sealed-candidates.json'),
+        'fold':{'start':final_start,'end':final_end,**audit},'by_kind':summary,
+        'baseline_overall':metrics(baseline),'candidate_overall':metrics(candidates),'selected_overall':metrics(chosen),
+        'latency_ms':{'baseline_p95':float(np.percentile([r['elapsed_ms'] for r in baseline],95)),
+                      'candidate_p95':float(np.percentile([r['elapsed_ms'] for r in candidates],95))},
+        'limitations':['Current 2026 cadastral attributes with declared construction-year controls, not vintage 2024 snapshots.',
+                       'OSM/current geography treated as static; no price label used to audit geometry.',
+                       'Single commune and finite temporal holdout; no production promotion or external accuracy guarantee.']}
+    path=args.output/'holdout.json'
+    if path.exists():
+        previous=json.loads(path.read_text(encoding='utf8'))
+        assert {k:v for k,v in previous.items() if k!='latency_ms'}=={k:v for k,v in result.items() if k!='latency_ms'},'Holdout changed: use a separately versioned investigation, not retuning'
+    else:save(path,result)
+    save(args.output/'predictions.json',{'baseline':baseline,'candidate':candidates})
+    save(args.data/'geographic-policy.json',{'version':protocol['version'],'hashes':hashes,'types':policy,
+        'holdout_summary_sha256':digest(path),'training_cutoff_exclusive':'2026-10-01',
+        'note':'Parameters frozen on development. Per-type fallback to unchanged baseline on failed final guards.'})
+    print(json.dumps(result,indent=2))
+
+
+if __name__=='__main__':main()

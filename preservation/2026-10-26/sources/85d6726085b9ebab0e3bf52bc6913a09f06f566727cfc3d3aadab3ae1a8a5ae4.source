@@ -1,0 +1,7 @@
+from pathlib import Path
+import json
+from netlify_bridge import netlify_client
+with netlify_client() as c:
+ res=c.get('/sites/0af3d12f-a75b-494e-b75a-333a6165db68/deploys');res.raise_for_status()
+ out=[{k:d.get(k) for k in ['id','state','context','branch','commit_ref','error_message','deploy_ssl_url','published_at']} for d in res.json()]
+ print(json.dumps(out,indent=2));Path(__file__).with_name('netlify-preview-status.json').write_text(json.dumps(out,indent=2))

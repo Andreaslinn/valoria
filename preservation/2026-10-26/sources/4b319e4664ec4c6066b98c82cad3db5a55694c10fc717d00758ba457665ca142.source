@@ -1,0 +1,16 @@
+import sys,pathlib,json,re
+sys.path.pop(0)
+from bs4 import BeautifulSoup
+r=json.loads(pathlib.Path('outputs/discovery-same-day/yapo-rejected-detail-private.json').read_text())
+soup=BeautifulSoup(r['html'],'lxml');chunks=[]
+for script in soup.find_all('script'):
+ m=re.fullmatch(r'\s*self\.__next_f\.push\((.*)\);?\s*',script.get_text(),re.S)
+ if m:
+  value=json.loads(m[1])
+  if len(value)==2 and value[0]==1: chunks.append(value[1])
+for line in ''.join(chunks).splitlines():
+ if '32464028' not in line: continue
+ body=line.partition(':')[2]
+ try:
+  value=json.loads(body);print('valid',line[:50],len(line))
+ except ValueError as exc: print('invalid',line[:50],len(line),str(exc),repr(body[max(0,exc.pos-100):exc.pos+100]))

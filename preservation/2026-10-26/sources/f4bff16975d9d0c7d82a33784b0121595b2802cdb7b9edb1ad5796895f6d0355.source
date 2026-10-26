@@ -1,0 +1,6 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+
+code="import subprocess\nq=\"SELECT source,status,count(*) FROM listings WHERE source ILIKE '%portal%' GROUP BY source,status;\"\nr=subprocess.run(['docker','exec','valoria_oracle_beta-postgres-1','sh','-c','exec psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -At -c '+__import__('shlex').quote(q)],capture_output=True,text=True);assert r.returncode==0;print(r.stdout)"
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=35);print(r.stdout);print(r.stderr);r.check_returncode()

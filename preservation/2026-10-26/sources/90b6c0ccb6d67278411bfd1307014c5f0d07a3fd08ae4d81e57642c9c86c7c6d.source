@@ -1,0 +1,14 @@
+"""Read-only production SELECT; no remote files, configs, ORM or valuation."""
+import subprocess,json
+from datetime import datetime,timezone
+from common import H,save,sha
+from extract_local import SQL
+if __name__=='__main__':
+    out=H/'private/oracle_current_snapshot.json'
+    if out.exists(): raise SystemExit('Refusing overwrite')
+    remote="docker exec -i valoria_oracle_beta-postgres-1 sh -c 'exec psql --no-psqlrc -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -qAt -v ON_ERROR_STOP=1'"
+    cmd=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245',remote]
+    p=subprocess.run(cmd,input=SQL.encode(),capture_output=True,check=True)
+    d=json.loads(p.stdout); d['captured_at']=datetime.now(timezone.utc).isoformat(); d['environment']='oracle_production_READ_ONLY_rollback'
+    out.parent.mkdir(exist_ok=True);save('private/oracle_current_snapshot.json',d)
+    print('Read-only Oracle:',len(d['listings']),'active rows; SHA256',sha(out.read_bytes()))

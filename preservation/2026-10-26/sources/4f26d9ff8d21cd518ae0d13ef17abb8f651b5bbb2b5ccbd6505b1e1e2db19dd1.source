@@ -1,0 +1,9 @@
+from pathlib import Path
+import subprocess
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+s=Path('work/github-release/scripts/diagnose_canonical_price_basis.py').read_text(encoding='utf-8')
+s=s.replace('if __name__ == "__main__":\n    asyncio.run(main())',"async def run_dated():\n    from datetime import date\n    async with get_session_factory()() as session:\n        await session.execute(text('SET TRANSACTION READ ONLY'))\n        row=(await session.execute(text('SELECT date, value_clp FROM uf_rates ORDER BY date DESC LIMIT 1'))).one()\n        assert row[0] == date.today(), 'No current-day UF snapshot; refusing stale rate'\n    import sys\n    sys.argv=['diagnosis','--uf-rate',str(row[1]),'--uf-date',str(row[0])]\n    await main()\nasyncio.run(run_dated())")
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(s)+",text=True,capture_output=True,timeout=60)\nprint(r.stdout);print(r.stderr if r.returncode else '');raise SystemExit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=80)
+Path('work/canonical-price-basis-diagnostic.json').write_text(r.stdout,encoding='utf-8');print(r.stdout);r.check_returncode()
+

@@ -1,0 +1,147 @@
+# Preserve reference dataframe names and record construction for direct comparison.
+# ruff: noqa: N806
+"""Reference-compatible SII parsers; supplied paths only."""
+
+import re
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from .engine import UNIT_ALIASES, norm
+
+
+def parse_catastro(n_path, l_path):
+    Ncols = [
+        "c",
+        "mz",
+        "pr",
+        "dir",
+        "avaluo",
+        "contrib",
+        "dest",
+        "exento",
+        "bc1c",
+        "bc1m",
+        "bc1p",
+        "bc2c",
+        "bc2m",
+        "bc2p",
+        "supter",
+        "ubic",
+        "pc",
+        "pm",
+        "pp",
+    ]
+    N = pd.read_csv(
+        n_path,
+        sep="|",
+        header=None,
+        names=[*Ncols, "x"],
+        usecols=range(19),
+        dtype=str,
+        encoding="latin1",
+    )
+    for k in ["c", "mz", "pr"]:
+        N[k] = N[k].astype(int)
+    N["dir"] = N["dir"].map(norm)
+    N["dest"] = N["dest"].str.strip()
+    for k in ["avaluo", "contrib", "supter"]:
+        N[k] = pd.to_numeric(N[k], errors="coerce")
+    am = N["dir"].str.extract(r"^(.*?\D)\s*(\d+)\s*(.*)$")
+    N["calle"], N["num"], N["resto"] = (
+        am[0].str.strip(),
+        pd.to_numeric(am[1], errors="coerce"),
+        am[2].fillna(""),
+    )
+    ut = N["resto"].str.extract(r"^([A-Z]+)\s*(\w+)")
+    N["utok"] = ut[0].map(lambda t: UNIT_ALIASES.get(t, t) if isinstance(t, str) else None)
+    N["unum"] = ut[1].str.lstrip("0")
+    Lcols = ["c", "mz", "pr", "lin", "mat", "cal", "anio", "sup", "dest", "cond", "pisos"]
+    L = pd.read_csv(
+        l_path,
+        sep="|",
+        header=None,
+        names=[*Lcols, "x"],
+        usecols=range(11),
+        dtype=str,
+        encoding="latin1",
+    )
+    for k in ["c", "mz", "pr"]:
+        L[k] = L[k].astype(int)
+    L["sup"] = pd.to_numeric(L.sup, errors="coerce")
+    L["anio"] = pd.to_numeric(L.anio, errors="coerce")
+    for k in ["dest", "mat", "cal", "cond"]:
+        L[k] = L[k].fillna("").str.strip()
+    H = L[(L.dest == "H") & (L.sup > 0)]
+    agg = (
+        H.groupby(["mz", "pr"])
+        .agg(m2=("sup", "sum"), anio=("anio", "min"), anio_max=("anio", "max"))
+        .reset_index()
+    )
+    N = N.merge(agg, on=["mz", "pr"], how="left")
+    N["tipo"] = np.select(
+        [
+            N.utok.isin(["BOX"]),
+            N.utok.isin(["BOD"]),
+            (N.dest == "H") & N.utok.fillna("").str.match(r"^(DP|DPTO|DEPTO|TORRE|TO|OF)"),
+            N.dest == "H",
+        ],
+        ["estac", "bodega", "depto", "casa"],
+        "otro",
+    )
+    return N, L
+
+
+def parse_uf(paths):
+    rows = []
+    meses = [
+        "ENERO",
+        "FEBRERO",
+        "MARZO",
+        "ABRIL",
+        "MAYO",
+        "JUNIO",
+        "JULIO",
+        "AGOSTO",
+        "SEPTIEMBRE",
+        "OCTUBRE",
+        "NOVIEMBRE",
+        "DICIEMBRE",
+    ]
+    for f in sorted(map(str, paths)):
+        y = int(re.search(r"uf(\d{4})", f).group(1))
+        h = Path(f).read_text(encoding="utf-8", errors="ignore")
+        parts = re.split(r"<h2>\s*([A-Za-z]+)\s*</h2>", h)
+        for i in range(1, len(parts) - 1, 2):
+            mes = norm(parts[i])
+            if mes not in meses:
+                continue
+            mo = meses.index(mes) + 1
+            for d, v in re.findall(
+                r"<strong>(\d+)</strong></th>\s*<td[^>]*>([\d.]+,\d+)</td>", parts[i + 1]
+            ):
+                rows.append(
+                    (pd.Timestamp(y, mo, int(d)), float(v.replace(".", "").replace(",", ".")))
+                )
+    if not rows:
+        return pd.Series(dtype=float)
+    return pd.Series(dict(rows)).sort_index()
+
+
+def parse_f2890(path, nombre, mzs):
+    rows = []
+    with open(path, encoding="latin1") as fh:
+        fh.readline()
+        for raw_line in fh:
+            p = raw_line.rstrip("\n").split(";")
+            if p[0] == nombre and int(p[1]) in mzs:
+                rows.append(p)
+    F = pd.DataFrame(rows, columns=["COMUNA", "MANZANA", "PREDIO", "FI", "FE", "CLP", "UF"])
+    F["mz"] = F.MANZANA.astype(int)
+    F["pr"] = F.PREDIO.astype(int)
+    F["fi"] = pd.to_datetime(F.FI, format="%Y%m%d", errors="coerce")
+    F["fe"] = pd.to_datetime(F.FE, format="%Y%m%d", errors="coerce")
+    F["CLP"] = pd.to_numeric(F.CLP, errors="coerce")
+    F["UF"] = pd.to_numeric(F.UF, errors="coerce")
+    return F.drop_duplicates(["mz", "pr", "FI", "FE", "CLP", "UF"])

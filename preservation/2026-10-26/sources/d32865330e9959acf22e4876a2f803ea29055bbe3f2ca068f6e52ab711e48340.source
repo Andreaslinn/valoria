@@ -1,0 +1,74 @@
+"""Keep row-level evidence local; prepare aggregate-only GitHub artifacts."""
+import json
+import shutil
+from pathlib import Path
+
+base = Path(__file__).resolve().parent
+repo = base/'valoria'
+reports = repo/'reports/sii/closing_layer_20261019'
+private = base/'private_closing_evidence'
+private.mkdir(exist_ok=True)
+# All source and target paths are verified within this task workspace before moving.
+for name in ('address-sample.csv','address-validation.json','holdout-predictions.csv',
+             'holdout-validation.json.gz','report.md','summary.json'):
+    source = (reports/name).resolve()
+    target = (private/name).resolve()
+    assert source.is_relative_to(base) and target.is_relative_to(base)
+    if source.exists():
+        assert not target.exists()
+        shutil.move(str(source),str(target))
+d = json.loads((base/'closing-validation-final/summary.json').read_text(encoding='utf8'))
+a_by = {r['comuna']:r for r in d['address']['by_commune']}
+rows = []
+for r in d['holdout']['by_commune']:
+    rows.append({k:v for k,v in r.items() if k!='failed_examples'})
+    rows[-1]['address_sample_n'] = a_by[r['comuna']]['n']
+    rows[-1]['address_resolution_pct'] = a_by[r['comuna']]['resolution_pct']
+public = {'passed':False,'address_passed':d['address']['passed'],
+          'resolution_global_pct':d['address']['resolution_pct'],'sample_n':300,
+          'roles_indexed':d['metadata']['roles_indexed'],'as_of_utc':d['metadata']['as_of_utc'],
+          'snapshot_sha256':d['snapshot_sha256'],'by_commune':rows,
+          'holdout_roles':d['holdout']['holdout_roles'],'pool_rows':d['holdout']['pool_rows'],
+          'tests':'105 passed','flag_default':'off','step_4':'stopped',
+          'row_level_evidence':'Delivered locally; excluded from GitHub publication.'}
+(reports/'summary.json').write_text(json.dumps(public,ensure_ascii=False,indent=2),encoding='utf8')
+lines = ['# Segunda capa SII — resultado agregado, integración detenida','',
+         '**No cumple MdAPE ≤10% en las ocho comunas. PR en borrador, sin merge ni deploy.**','',
+         'Base: `24b56dc` sobre `release/canonical-only-reproducible-20261013`, con PR #9 incluido. '
+         'Se construyeron índice y estimador offline. El paso 4 se detuvo al fallar el holdout: '
+         'no se cambió ningún endpoint, servicio de tasación, formulario ni vista de resultados. '
+         'El flag `sii_closing_layer` está apagado por defecto y encenderlo todavía no muestra una segunda opinión.','',
+         '## Métricas','',
+         '| Comuna | Muestra dirección | Resolución % | Holdout | Predichos | MdAPE % | P95 error % |',
+         '|---|---:|---:|---:|---:|---:|---:|']
+for r in rows:
+    lines.append(f"| {r['name']} | {r['address_sample_n']} | {r['address_resolution_pct']:.2f} | {r['n']} | {r['predicted']} | {r['mdape_pct']:.2f} | {r['p95_ape_pct']:.2f} |")
+lines += ['', '**Dirección: 281/300 = 93,67% global.** Cumple la meta numérica global; '
+          'Estación Central y Ñuñoa presentan menores tasas en el desglose. '
+          'Las reescrituras son automáticas de estilo humano y la identidad esperada usa el catastro: '
+          'no es certificación independiente de edificio físico. OSM no tenía extracto local y no se evaluó recuperación.', '',
+          '**Holdout: 13.135 cierres, 12.881 predicciones y 254 abstenciones.** '
+          'Seis comunas superan MdAPE 10%. Ñuñoa y La Florida sí cumplen ese umbral. '
+          'MdAPE y P95 se calculan sobre predichos; los totales conservan las abstenciones.', '',
+          '## Error por tramo de edad','',
+          '| Comuna | Edad en 2026 | n | Predichos | MdAPE % | P95 % |',
+          '|---|---|---:|---:|---:|---:|']
+for r in rows:
+    for band,m in r['by_age'].items():
+        f = lambda v: '—' if v is None else f'{v:.2f}'
+        lines.append(f"| {r['name']} | {band} | {m['n']} | {m['predicted']} | {f(m['mdape_pct'])} | {f(m['p95_ape_pct'])} |")
+lines += ['', '## Método y diagnóstico','',
+          '- Índice de 1.673.327 roles desde la dirección original del último par N/NL completo. Normaliza tildes, abreviaturas y prefijos, separa edificio y unidad, y devuelve candidatos ante ambigüedad. No infiere unidad a partir del piso.',
+          '- kNN K=10, pesos área/ubicación/edad/fecha 0,30/0,30/0,30/0,10, escalas y ecuaciones en `docs/sii_closing_layer.md`. UF/m² sobre superficie H cerrada. Mediana y P25–P75 ponderados, sin calibración sobre el holdout.',
+          '- Todos los roles con cierres efectivos en 2026 se excluyen del pool 2024–2025, incluidas sus ventas previas. Se rechazan además comparables del mismo rol o con fecha posterior.',
+          '- Los residuos mayores muestran precios por m² muy diferentes a sus vecinos, incluso con coincidencias de edificio. El modelo no explica esas diferencias; su causa económica o registral no fue verificada.',
+          '- Las direcciones fallan principalmente por ambigüedad entre manzanas, formatos de bloque/torre no interpretados o ausencia de dirección. No se elige un candidato arbitrariamente.',
+          '- La evidencia individual, cinco fallos de valoración por comuna y sus motivos, muestra de 300 direcciones, rangos y diez comparables por predicción se entregan en archivos locales al solicitante. **No se publican direcciones, roles ni registros de transacciones en este PR.**','',
+          '## Validación y límites','',
+          '- 105 pruebas unitarias/regresión pasadas: índice, kNN, ingesta SII, servicio canónico real, guardia release, endpoint y ruta compartida Radar. No se ejecutó la suite completa.',
+          '- Ruff y diff check correctos; todos los comparables se verificaron contra exclusión de roles del holdout y fechas estrictamente anteriores. P25 ≤ valor ≤ P75 en todas las predicciones.',
+          '- Endpoints, servicio y ambas interfaces idénticos byte a byte a la release (normalizando CRLF). Sin integración experimental, flag apagado y ausencia de dirección conservan exactamente el mismo camino.',
+          '- Solo lectura del SII local, SQLite desechable; sin escrituras en producción, nuevas migraciones, jobs, merge ni deploy.',
+          '- Pendientes: anotación independiente de edificios, respaldo OSM con datos locales, resolución segura de formatos y candidatos, investigación de errores de precio, y paso 4 tras superar los controles.', '']
+(reports/'report.md').write_text('\n'.join(lines),encoding='utf8')
+print(json.dumps({'publication':'aggregate_only','row_evidence_kept_local':True,'repo_report_files':sorted(p.name for p in reports.iterdir())}))

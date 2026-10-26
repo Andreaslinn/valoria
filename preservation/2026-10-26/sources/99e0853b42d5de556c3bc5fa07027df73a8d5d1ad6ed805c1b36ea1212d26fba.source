@@ -1,0 +1,10 @@
+# Stage A only. Apply only after explicit production deployment approval.
+# Preserve all existing compose files (ingestion v3 and thumbnails included).
+services:
+  api:
+    image: ${PORTAL_GEO_RELEASE_IMAGE:?Set the explicitly approved image tag}
+    environment:
+      PORTAL_HTTP_ENABLED: "false"
+      PORTAL_GEO_DETAIL_BUDGET: "0"
+      PORTAL_GEO_MAX_ATTEMPTS: "3"
+      PORTAL_GEO_COOLDOWN_HOURS: "24"

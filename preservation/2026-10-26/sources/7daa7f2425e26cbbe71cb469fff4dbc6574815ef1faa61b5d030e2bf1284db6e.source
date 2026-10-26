@@ -1,0 +1,14 @@
+from pathlib import Path
+import json,hashlib
+from .data import InvalidExperiment
+ROOT=Path(__file__).resolve().parents[2]
+def locked():
+ p=ROOT/'protocol.json'
+ if hashlib.sha256(p.read_bytes()).hexdigest()!=(ROOT/'protocol.sha256').read_text().strip():raise InvalidExperiment('Protocol changed')
+ return json.loads(p.read_text())
+def authorize_dataset(ds):
+ if ds.hash() not in locked()['dataset_sha256'].values():raise InvalidExperiment('Unregistered dataset')
+def authorize_config(c):
+ p=locked()
+ if c.get('real_execution_enabled') is not True or not set(c.get('engines',[]))<=set(p['allowed_engines']):raise InvalidExperiment('Wrong boundary')
+ if c.get('experiment_protocol_sha256')!=(ROOT/'protocol.sha256').read_text().strip():raise InvalidExperiment('Wrong protocol')

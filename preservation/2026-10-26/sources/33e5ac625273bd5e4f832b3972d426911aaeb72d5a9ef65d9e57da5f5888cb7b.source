@@ -1,0 +1,12 @@
+import pathlib,subprocess,json,base64
+root=pathlib.Path(__file__).resolve().parent/'patch'
+files={str(p.relative_to(root)).replace('\\','/'):base64.b64encode(p.read_bytes()).decode() for p in root.rglob('*.py')}
+code='''import pathlib,base64,json
+root=pathlib.Path('/home/ubuntu/apps/valoria/scripts/portal_session_runtime')
+for name,data in json.loads(PAYLOAD).items():
+ p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(base64.b64decode(data))
+print('Scraper patch staged; production unchanged')
+'''.replace('PAYLOAD',repr(json.dumps(files)))
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -']
+r=subprocess.run(ssh,input=code.encode(),capture_output=True,timeout=60)
+print(r.stdout.decode(),r.stderr.decode());raise SystemExit(r.returncode)

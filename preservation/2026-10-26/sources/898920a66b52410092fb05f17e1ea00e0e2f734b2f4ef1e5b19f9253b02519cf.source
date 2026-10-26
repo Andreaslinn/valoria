@@ -1,0 +1,11 @@
+import pathlib,json,hashlib,subprocess
+root=pathlib.Path('outputs/discovery-final-redeploy-20261016');commit=json.loads((root/'merge-proof.json').read_text())['commit']
+blob=(root/'release.tar.gz').read_bytes();sha=hashlib.sha256(blob).hexdigest()
+remote="import pathlib,sys,hashlib;p=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-final-redeploy-20261016/release.tar.gz');p.write_bytes(sys.stdin.buffer.read());p.chmod(0o600);assert hashlib.sha256(p.read_bytes()).hexdigest()=="+repr(sha)
+args=['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -c '+"'"+remote.replace("'","'\"'\"'")+"'"]
+r=subprocess.run(args,input=blob,capture_output=True,timeout=120);assert r.returncode==0,'Upload failed'
+s=pathlib.Path('work/published_build_remote.py').read_text().replace('published-fields-deploy-20261016','discovery-final-redeploy-20261016').replace('80bd8a9aae5c1af733778f524ce880efcb5d815e',commit).replace('valoria-published-fields:','valoria-discovery:').replace('f1958e27da8224a9e2fd93d7de56211320ff0eea8277d659d416884729bc4ebb',sha)
+pathlib.Path('work/final_build_remote.py').write_text(s)
+s=pathlib.Path('work/published_rehearsal_remote.py').read_text().replace('published-fields-deploy-20261016','discovery-final-redeploy-20261016').replace('valoria-published-fields-restore','valoria-discovery-final-restore').replace('rollback_c55f4b6_rehearsed','rollback_80bd8a9_rehearsed')
+pathlib.Path('work/final_rehearsal_remote.py').write_text(s)
+print(json.dumps({'commit':commit,'package_sha256':sha,'uploaded':True}))

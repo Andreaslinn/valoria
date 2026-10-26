@@ -1,0 +1,199 @@
+"""Pure target-free matching. No price, valuation, DB or product imports."""
+import re, math, unicodedata, hashlib
+from urllib.parse import urlsplit,urlunsplit,parse_qsl,urlencode,unquote
+
+RULES={
+ 'version':'identity-offline-1',
+ 'geo_strong_contradiction_m':500,
+ 'G1':'publication OR same explicit street+number+unit, structure compatible, no contradiction',
+ 'G2':'G1 OR same street+number plus distinctive text and tight structure; OR address-grade <=25m plus distinctive text and tight structure',
+ 'G3':'G2 OR address-grade <=50m plus looser distinctive text and structure; OR same street+number with looser text and structure',
+ 'text_G2_jaccard':.8,'text_G3_jaccard':.6,'text_min_shared_distinctive':3,
+ 'tight_area_relative':.02,'tight_area_absolute':1.0,'loose_area_relative':.05,'loose_area_absolute':2.0,
+ 'blocking_geo_radius_m':1000,'sampling_seed':20261002,
+ 'high_without_unit':'not permitted: same building/floorplan can have identical attributes and text',
+ 'property_id_and_historical_fingerprint':'audit only; never matching keys',
+}
+
+def sanitize(text):
+    text=unicodedata.normalize('NFKC',str(text or ''))
+    number=r'\d+(?:[.,]\d+)*(?:\s\d{3}(?=\s|[.,]|$))*'
+    patterns=[rf'(?:M\s*\$|\$|CLP(?=\W|\d|$)|UF(?=\W|\d|$)|CLF(?=\W|\d|$))\s*[:=]?\s*{number}',
+              rf'{number}\s*(?:UF\b|CLP\b|CLF\b|pesos?\b|mill[oó]n(?:es)?\b)',
+              rf'\b(?:precio|valor|venta\s+por|desde|rebajad[oa]\s+a)\s*[:=]?\s*(?:\$|UF|CLP)?\s*{number}(?:\s*(?:mill[oó]n(?:es)?|pesos?|UF|CLP))?',
+              r'\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b',
+              r'\b(?:whatsapp|wsp|telefono|tel|contacto|celular)\s*[:+]?\s*[\d\s()+-]{7,}',
+              r'(?<!\d)\+?56[\s()-]*9(?:[\s()-]*\d){8}(?!\d)']
+    for p in patterns: text=re.sub(p,' ',text,flags=re.I)
+    return re.sub(r'\s+',' ',text).strip()
+
+def normalize(text):
+    text=sanitize(text).lower()
+    text=re.sub(r'\bn\s*[°º]\s*','numero ',text)
+    text=''.join(c for c in unicodedata.normalize('NFKD',text) if not unicodedata.combining(c))
+    text=re.sub(r'\bav(?:da)?\.?\b','avenida',text)
+    text=re.sub(r'\b(?:dpto|depto|apt|apto)\.?\b','departamento',text)
+    text=re.sub(r'[^a-z0-9]+',' ',text)
+    return re.sub(r'\s+',' ',text).strip()
+
+STOP=set('departamento departamentos depto dpto apartamento apartment venta vende vendo comprar compra arriendo arrendar oportunidad inversion inversionistas hermoso hermosa amplio amplia comodo comoda excelente lindo linda nuevo nueva propiedad propiedades dormitorio dormitorios bano banos estacionamiento estacionamientos m2 mts metros superficie sector comuna region metropolitana santiago chile yapo portal inmobiliario portalinmobiliario avenida calle pasaje con para del las los una uno unos unas muy mas por sin tiene incluye en el la de al se y a o uf clp pesos precio valor financiable'.split())
+
+def text_tokens(text):
+    # Bare numbers are excluded from matching even if not recognized as money.
+    return set(t for t in normalize(text).split() if len(t)>=3 and t.isalpha() and t not in STOP)
+
+def address_parts(text):
+    normalized=normalize(text)
+    unit=None
+    m=re.search(r'\b(?:departamento|unidad|apartamento)\s*(?:numero|nro|no|n)\s*(\d+[a-z]?)\b',normalized)
+    if not m:
+        m=re.search(r'\bunidad\s+(\d+[a-z]?)\b|\bdepartamento\s+(\d{3,5}[a-z]?)\b',normalized)
+    if m:
+        suffix=normalized[m.end():].strip()
+        if not re.match(r'^(?:dormitorios?|ambientes?|banos?|m2|mts|metros)\b',suffix): unit=next(g for g in m.groups() if g is not None)
+    # Street number is extracted only with an explicit road introducer.
+    sm=re.search(r'\b(avenida|calle|pasaje|camino)\s+([a-z][a-z ]{2,65}?)\s+(?:numero\s+|nro\s+|n\s+)?(\d{1,5})\b',normalized)
+    street=number=None
+    if sm:
+        tail=normalized[sm.end():].strip()
+        if not re.match(r'^(?:dormitorios?|banos?|m2|mts|metros|uf|millones?)\b',tail):
+            street=sm.group(1)+' '+sm.group(2).strip(); number=sm.group(3)
+    if street is None:
+        sm=re.search(r'\b(avenida|calle|pasaje|camino)\s+([a-z][a-z ]{2,65})',normalized)
+        if sm:
+            tail=re.split(r'\b(?:con|departamento|piso|en|cerca|metro)\b',sm.group(2))[0].strip()
+            if len(tail.split())>=1: street=sm.group(1)+' '+tail
+    return dict(normalized=normalized,street=street,number=number,unit=unit,
+                full_key=f'{street}|{number}' if street and number else None)
+
+def canonical_url(url):
+    try:
+        p=urlsplit(str(url or '').strip())
+        host=p.netloc.lower().removeprefix('www.')
+        if not host: return None
+        path=re.sub('/+','/',unquote(p.path)).rstrip('/')
+        query=[(k,v) for k,v in parse_qsl(p.query,keep_blank_values=True)
+               if not k.lower().startswith('utm_') and k.lower() not in ['gclid','fbclid','msclkid']]
+        return urlunsplit(('https',host,path,urlencode(sorted(query)),''))
+    except ValueError: return None
+
+def number(x):
+    try:
+        x=float(x); return x if math.isfinite(x) else None
+    except (TypeError,ValueError): return None
+
+def distance(a,b):
+    if a.get('lat') is None or b.get('lat') is None or a.get('lon') is None or b.get('lon') is None: return None
+    lat1,lon1,lat2,lon2=map(math.radians,[a['lat'],a['lon'],b['lat'],b['lon']])
+    h=math.sin((lat2-lat1)/2)**2+math.cos(lat1)*math.cos(lat2)*math.sin((lon2-lon1)/2)**2
+    return 6371000*2*math.asin(min(1,math.sqrt(h)))
+
+def features(row,repeated=None):
+    """Allowlist projection: prohibited inputs never reach matching features."""
+    meta=row.get('raw_metadata') or {}
+    address=str(meta.get('address') or meta.get('address_label') or meta.get('street_hint') or '')
+    loc=str(meta.get('location_text') or '')
+    ap=address_parts(address)
+    # Location text is accepted only if it supplies an explicit full address; never infer from title.
+    lp=address_parts(loc)
+    if not ap['full_key'] and lp['full_key']: ap=lp
+    title=sanitize(row.get('title')); tp=address_parts(title)
+    # Explicit road+number in a title is an identity field, never a bare numeric title token.
+    if not ap['full_key'] and tp['full_key']: ap=tp
+    explicit_title_unit=tp['unit'] if re.search(r'\b(?:departamento|unidad|apartamento)\s*(?:numero|nro|no|n)\s*\d',tp['normalized']) else None
+    coords=row.get('coordinates') or {}
+    lat=number(row.get('stored_lat',coords.get('lat'))); lon=number(row.get('stored_lon',coords.get('lon')))
+    valid=lat is not None and lon is not None and -90<=lat<=90 and -180<=lon<=180 and (lat,lon)!=(0,0)
+    precision=str(row.get('geocode_precision') or '').lower()
+    if precision in ['exact','street_address']: precision='address'
+    repeated_count=(repeated or {}).get((row.get('comuna'),round(lat,7),round(lon,7)),0) if valid else 0
+    far=distance(dict(lat=lat,lon=lon),dict(lat=-33.45,lon=-70.65))>100000 if valid else False
+    trusted=valid and precision=='address' and repeated_count<5 and not far
+    description=sanitize(meta.get('description'))
+    # Description is inventoried but not used for matching: noisy text and only 82 candidate observations.
+    return dict(id=int(row['id']),source=row.get('source'),external_id=str(row.get('external_id') or ''),
+        canonical_url=canonical_url(row.get('url')),comuna=row.get('comuna'),property_type=row.get('property_type'),
+        area=number(row.get('built_area_m2') or row.get('usable_area_m2') or row.get('m2')),
+        m2=number(row.get('m2')),bedrooms=number(row.get('bedrooms')),bathrooms=number(row.get('bathrooms')),
+        parking=number(row.get('parking')),lat=lat if valid else None,lon=lon if valid else None,
+        precision=precision,trusted_geo=trusted,repeated_count=repeated_count,geo_far_flag=far,
+        address_normalized=ap['normalized'],street=ap['street'] or tp['street'],street_number=ap['number'],unit=ap['unit'] or explicit_title_unit,
+        address_key=ap['full_key'],title_sanitized=title,title_tokens=text_tokens(title),
+        description_present=bool(description),description_tokens=text_tokens(description),
+        # Audit-only IDs: pair_rules does not read these.
+        old_property_id=row.get('property_id'),old_fingerprint=row.get('fingerprint'))
+
+def physical(a,b,loose=False):
+    if a.get('comuna')!=b.get('comuna') or a.get('property_type')!=b.get('property_type'): return False
+    if a.get('area') is None or b.get('area') is None or min(a['area'],b['area'])<=0: return False
+    absolute=RULES['loose_area_absolute'] if loose else RULES['tight_area_absolute']
+    relative=RULES['loose_area_relative'] if loose else RULES['tight_area_relative']
+    if abs(a['area']-b['area'])>max(absolute,relative*min(a['area'],b['area'])): return False
+    for key in ['bedrooms','bathrooms','parking']:
+        # Zero is ambiguous; do not use agreement at zero as strong affirmative evidence.
+        x,y=a.get(key),b.get(key)
+        if x is not None and y is not None and x>0 and y>0 and x!=y: return False
+    if not (a.get('bedrooms',0)>0 and b.get('bedrooms',0)>0 and a.get('bathrooms',0)>0 and b.get('bathrooms',0)>0): return False
+    return True
+
+def contradictions(a,b):
+    why=[]; dist=distance(a,b)
+    if a.get('comuna')!=b.get('comuna'): why.append('different_comuna')
+    if a.get('property_type')!=b.get('property_type'): why.append('different_property_type')
+    same_full=bool(a.get('address_key') and a.get('address_key')==b.get('address_key'))
+    same_local_street=bool(a.get('street') and a.get('street')==b.get('street') and dist is not None and dist<=50
+                           and a.get('trusted_geo') and b.get('trusted_geo'))
+    if a.get('unit') and b.get('unit') and a['unit']!=b['unit'] and (same_full or same_local_street):
+        why.append('explicit_different_unit_same_local_anchor')
+    if a.get('address_key') and b.get('address_key') and a['address_key']!=b['address_key']:
+        why.append('incompatible_explicit_street_number')
+    if dist is not None and a.get('trusted_geo') and b.get('trusted_geo') and dist>RULES['geo_strong_contradiction_m']:
+        why.append('address_grade_coordinates_gt500m')
+    if a.get('area') and b.get('area') and abs(a['area']-b['area'])>max(10,.2*min(a['area'],b['area'])):
+        why.append('area_difference_gt20pct_and10m2')
+    for k in ['bedrooms','bathrooms','parking']:
+        x,y=a.get(k),b.get(k)
+        if x is not None and y is not None and x>0 and y>0 and x!=y: why.append('different_known_'+k)
+    return why
+
+def pair_rules(a,b):
+    dist=distance(a,b); why=contradictions(a,b)
+    pub=bool((a['source']==b['source'] and a['external_id'] and a['external_id']==b['external_id']) or
+             (a['canonical_url'] and a['canonical_url']==b['canonical_url']))
+    shared=len(a['title_tokens'] & b['title_tokens']); union=len(a['title_tokens'] | b['title_tokens'])
+    jac=shared/union if union else 0
+    full=bool(a['address_key'] and a['address_key']==b['address_key'])
+    unit=bool(full and a['unit'] and a['unit']==b['unit'])
+    tight=physical(a,b); loose=physical(a,b,True)
+    text2=shared>=RULES['text_min_shared_distinctive'] and jac>=RULES['text_G2_jaccard']
+    text3=shared>=RULES['text_min_shared_distinctive'] and jac>=RULES['text_G3_jaccard']
+    geo25=bool(dist is not None and dist<=25 and a['trusted_geo'] and b['trusted_geo'])
+    geo50=bool(dist is not None and dist<=50 and a['trusted_geo'] and b['trusted_geo'])
+    high=unit and tight and not why
+    con=(full or geo25) and tight and text2 and not why
+    very=(full or geo50) and loose and text3 and not why
+    category='deterministic' if pub else 'high' if high else 'conservative' if con else 'very_conservative' if very else 'rejected' if why else 'weak'
+    reasons=[]
+    if pub: reasons.append('stable_publication_identifier')
+    if high: reasons.append('explicit_address_number_unit_and_structure')
+    if con: reasons.append('full_address_or_geo25_plus_structure_and_distinctive_title')
+    if very and not con: reasons.append('full_address_or_geo50_plus_loose_structure_and_distinctive_title')
+    return dict(id_a=a['id'],id_b=b['id'],category=category,publication=pub,high=high,
+        G1=pub or high,G2=pub or high or con,G3=pub or high or con or very,
+        distance_m=dist,both_trusted_geo=a['trusted_geo'] and b['trusted_geo'],shared_title_tokens=shared,title_jaccard=jac,
+        same_address_normalized=bool(a['address_normalized'] and a['address_normalized']==b['address_normalized']),
+        same_street=bool(a['street'] and a['street']==b['street']),same_address_number=full,same_unit=unit,
+        tight_structure=tight,loose_structure=loose,identity_contradiction=bool(why),contradiction_reason='|'.join(why),match_reason='|'.join(reasons))
+
+def graph(ids,edges):
+    parent={i:i for i in ids}
+    def root(i):
+        while parent[i]!=i: parent[i]=parent[parent[i]]; i=parent[i]
+        return i
+    for a,b in edges:
+        x,y=root(a),root(b)
+        if x!=y: parent[max(x,y)]=min(x,y)
+    return {i:root(i) for i in sorted(ids)}
+
+def stable_sample(values,n,key):
+    return sorted(values,key=lambda v:hashlib.sha256(f"{RULES['sampling_seed']}:{key(v)}".encode()).hexdigest())[:n]

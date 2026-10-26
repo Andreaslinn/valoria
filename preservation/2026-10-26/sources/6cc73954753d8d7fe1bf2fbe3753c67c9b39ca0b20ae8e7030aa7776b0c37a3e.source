@@ -1,0 +1,24 @@
+from pathlib import Path
+import shutil, subprocess
+
+source = Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\private-preservation-20260925\local-complete')
+dest = Path('outputs/valoria').resolve()
+names = subprocess.check_output(['git', '-C', str(source), 'ls-files', '--cached', '--others', '--exclude-standard', '-z']).decode().split('\0')
+for name in names:
+    p = Path(name)
+    if not name or p.name == '.env' or p.name.startswith('.env.') and p.name != '.env.example':
+        continue
+    # Snapshot source, tests and project metadata; omit local databases and exports.
+    if p.suffix.lower() not in {'.py', '.toml', '.ini', '.txt', '.md', '.tsx', '.ts', '.css', '.json', '.html', '.yml', '.yaml'}:
+        continue
+    if p.parts[0] in {'deploy_artifacts', 'reports', 'exports', 'logs', 'audit_export', 'releases'}:
+        continue
+    src = source / p
+    if src.is_file():
+        target = dest / p
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+ref = Path('work/reference-local')
+target = dest / 'tests/property_life/reference'
+shutil.copytree(ref, target, dirs_exist_ok=True)
+print('Snapshot prepared; existing .env files were excluded.')

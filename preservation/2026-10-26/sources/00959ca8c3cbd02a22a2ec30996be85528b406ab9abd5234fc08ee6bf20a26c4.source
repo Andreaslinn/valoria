@@ -1,0 +1,9 @@
+from pathlib import Path
+source=Path('work/persist_published_sample_oracle.py').read_text(encoding='utf8')
+start=source.index('remote=')
+end=source.index('if r.returncode:')
+source=source[:start]+'''import sys
+r=subprocess.run([sys.executable, '-B', '-'], input=code, text=True, encoding='utf8', capture_output=True, timeout=550, cwd=root)
+'''+source[end:]
+source=source.replace('Oracle; candidate in memory, isolated SQLite database', 'Local offline replay of saved Oracle HTTP observations; isolated SQLite database')
+exec(compile(source,__file__,'exec'))

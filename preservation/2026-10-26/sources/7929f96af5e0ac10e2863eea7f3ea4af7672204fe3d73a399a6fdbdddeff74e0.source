@@ -1,0 +1,20 @@
+import ast,json
+from pathlib import Path
+root=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+codes=set()
+for folder in ['services/valuation.py','domain/valuation','core/assessment']:
+ p=root/folder
+ for f in ([p] if p.is_file() else p.rglob('*.py')):
+  try:tree=ast.parse(f.read_text(encoding='utf-8'))
+  except Exception:continue
+  for node in ast.walk(tree):
+   values=[]
+   if isinstance(node,ast.Call):
+    if isinstance(node.func,ast.Attribute) and isinstance(node.func.value,ast.Name) and 'warning' in node.func.value.id:values+=node.args
+    for kw in node.keywords:
+     if kw.arg in ['warnings','fallback_reason']:values.append(kw.value)
+   for value in values:
+    for item in ast.walk(value):
+     if isinstance(item,ast.Constant) and isinstance(item.value,str) and '_' in item.value and ' ' not in item.value:codes.add(item.value)
+d=json.loads((root/'core/assessment/warning_definitions.json').read_text(encoding='utf-8'))
+print('Static warning inventory:',len(codes));print('Untranslated codes:',sorted(codes-d.keys()))

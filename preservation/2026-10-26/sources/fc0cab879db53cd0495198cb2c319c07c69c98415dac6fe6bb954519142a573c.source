@@ -1,0 +1,20 @@
+import subprocess,json,pathlib
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-final-redeploy-20261016')
+release=json.loads((B/'release.json').read_text());old=json.loads((B/'rollback-image.json').read_text())
+def run(args,timeout=180):
+ r=subprocess.run(args,capture_output=True,text=True,timeout=timeout)
+ if r.returncode:
+  (B/'rehearsal-error-private.log').write_text(r.stdout+r.stderr);(B/'rehearsal-error-private.log').chmod(0o600)
+  raise RuntimeError('Isolated rehearsal failed: '+r.stderr[-1200:])
+ return r.stdout
+common=['docker','run','--rm','--network','container:valoria-discovery-final-restore','--memory=384m','--memory-swap=384m','--cpus=0.25','--pids-limit=96','--cap-drop=ALL','--security-opt=no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=32m','-e','DATABASE_URL=postgresql+asyncpg://postgres@127.0.0.1/valoria_restore','-e','SYNC_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1/valoria_restore','-e','JWT_SECRET_KEY='+'0'*32,'--entrypoint','python']
+def references(image):
+ # The restored snapshot has today's UF calendar, while uf_rates is daily.
+ # Adapt only the read-only verification query in this disposable process.
+ probe="from pathlib import Path;p=Path('/app/scripts/verify_canonical_live.py');s=p.read_text();s=s.replace('SELECT value_clp FROM uf_rates WHERE date=CURRENT_DATE',\"SELECT COALESCE((SELECT value FROM ingestion_uf_calendar WHERE date=(CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::date),(SELECT value_clp FROM uf_rates WHERE date<=CURRENT_DATE ORDER BY date DESC LIMIT 1))\");exec(compile(s,str(p),'exec'),{'__file__':str(p),'__name__':'__main__'})"
+ result=json.loads(run(common+[image,'-B','-c',probe]))
+ return [{'comuna':c['comuna'],'estimated_uf':c['estimated_uf'],'uf_rate':c['uf_rate'],'comparables':c['debug']['comparable_calculation']} for c in result['cases']]
+before=references(old['image_id']);candidate=references(release['image_id']);rollback=references(old['image_id'])
+assert before==candidate==rollback,'Frozen backup valuation differs; do not deploy'
+proof={'restored_backup':True,'same_database_and_uf':True,'candidate_matches':True,'rollback_80bd8a9_rehearsed':True,'migration_changes':False,'uf_timer_changes':False,'cases':[{k:c[k] for k in ['comuna','estimated_uf','uf_rate']} for c in before]}
+(B/'rollback-proof.json').write_text(json.dumps(proof,indent=2));print(json.dumps(proof))

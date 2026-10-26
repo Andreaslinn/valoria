@@ -1,0 +1,13 @@
+from pathlib import Path
+import json
+scope={};exec(Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];base='release/canonical-only-reproducible-20261013';branch='fix/yapo-distinct-provider-property-reference'
+assert api('/branches/'+base.replace('/','%2F'))['commit']['sha']=='652e2e06c4fdcc3c7dbd551d9cdb35b2a003fc7c'
+body='''Los dos avisos de Pocuro tienen referencias HOUM distintas (176619 y 176620), descripciones y fotos distintas. El fingerprint genérico no basta para declararlos duplicados. La ingesta conserva la referencia nativa con procedencia e incorpora ese identificador al fingerprint solo para Yapo/HOUM; referencias distintas no colisionan y una misma referencia mantiene la deduplicación. No cambia código del motor de tasación.
+
+La entrada real de comuna es Región Metropolitana, Providencia. Discovery ahora usa el mismo detector de comuna que la ingesta, en vez de normalizar la cadena completa como un slug. Se reproduce en la regresión 32747182 y se prueban las dos referencias HOUM.
+
+Forma parte del redespliegue autorizado por Andy, con respaldo fresco restaurado, referencias sobre la misma DB/UF y rollback 80bd8a9. No cambia refresher, timers o presupuestos. La alarma de disco queda explícitamente fuera. Si no queda desplegado, release se alinea con producción y se marcan los PRs revertidos. Procedimiento en deploy/discovery-same-day/REDEPLOY.md.'''
+pr=api('/pulls',{'title':'Separar referencias HOUM distintas y reconocer ubicación nativa de Yapo','head':branch,'base':base,'body':body,'draft':False})
+out=Path('outputs/discovery-final-redeploy-20261016');out.mkdir(parents=True,exist_ok=True)
+(out/'pr.json').write_text(json.dumps({'url':pr['html_url'],'number':pr['number'],'head':pr['head']['sha'],'base':pr['base']['sha']},indent=2));print(json.dumps({'url':pr['html_url'],'number':pr['number'],'head':pr['head']['sha']}))

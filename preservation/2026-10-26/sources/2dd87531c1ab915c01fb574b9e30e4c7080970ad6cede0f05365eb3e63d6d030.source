@@ -1,0 +1,14 @@
+import type {AlertItem} from "@/types/alerts";
+import type {PatrimonyAlert} from "@/types/summary";
+import {formatUf,formatClp} from "@/lib/formatters";
+export type AlertView={key:string;id:number;source:"watchlist"|"patrimony";title:string;property:string;message:string;createdAt:string;type:string;severity:string;read:boolean;previousPrice:string|null;newPrice:string|null;dropPct:number|null};
+const finite=(v:unknown):v is number=>typeof v==="number"&&Number.isFinite(v);
+export function watchlistView(a:AlertItem):AlertView{
+ const p=a.payload??{},uf=String(p.change_basis??"").startsWith("uf");
+ const old=uf?(p.canonical_previous_price??p.previous_price_uf):(p.canonical_previous_price??p.previous_price_clp_snapshot);
+ const next=uf?(p.canonical_new_price??p.new_price_uf):(p.canonical_new_price??p.new_price_clp_snapshot);
+ const format=uf?formatUf:formatClp;
+ return {key:`watchlist:${a.id}`,id:a.id,source:"watchlist",title:a.alert_type==="price_drop"?"Bajó el precio de una propiedad":"Una novedad en tu seguimiento",property:a.title||"Publicación guardada",message:a.message,createdAt:a.created_at,type:a.alert_type,severity:"info",read:a.is_read,previousPrice:finite(old)?format(old):null,newPrice:finite(next)?format(next):null,dropPct:finite(p.drop_pct)?p.drop_pct:null};
+}
+export function patrimonyView(a:PatrimonyAlert):AlertView{return {key:`patrimony:${a.id}`,id:a.id,source:"patrimony",title:a.title,property:a.property_name||"Patrimonio",message:a.message,createdAt:a.created_at,type:a.alert_type,severity:a.severity,read:!!a.read_at,previousPrice:null,newPrice:null,dropPct:null};}
+export const severityLabel=(value:string)=>({critical:"Crítica",high:"Alta",warning:"Atención",medium:"Media",low:"Baja",info:"Informativa"} as Record<string,string>)[value]??"Sin nivel informado";

@@ -1,0 +1,60 @@
+"""Read existing local pg archive to stdout, then project identity-only data.
+
+No database connection, restore, remote access or container filesystem writes.
+Unprojected pg_restore stdout is held in memory only and is never printed/saved.
+"""
+from pathlib import Path
+import subprocess,json,re,hashlib
+from identity import sanitize
+H=Path(__file__).resolve().parent
+BASE=H.parents[1]
+dump=BASE/'private-preservation-20260925/production-avm.dump'
+
+def pg_text(v):
+    if v==r'\N': return None
+    escapes={'n':'\n','t':'\t','r':'\r','b':'\b','f':'\f','v':'\v','\\':'\\'}
+    return re.sub(r'\\([0-7]{1,3}|x[0-9a-fA-F]{1,2}|.)',
+        lambda m: chr(int(m[1],8)) if re.fullmatch('[0-7]{1,3}',m[1]) else chr(int(m[1][1:],16)) if m[1].startswith('x') and len(m[1])>1 else escapes.get(m[1],m[1]),v)
+
+def main():
+    if (H/'historical_identity_snapshot.json').exists():
+        raise RuntimeError('Frozen historical projection exists; use a new experimental folder for another extraction')
+    command=['docker','exec','-i','valoria-v2-dev-postgres-1','pg_restore','--data-only','--no-owner',
+             '--table=listings','--table=properties','--table=price_history','--file=-']
+    p=subprocess.run(command,input=dump.read_bytes(),capture_output=True)
+    if p.returncode: raise RuntimeError('pg_restore stdout extraction failed; unredacted diagnostics withheld')
+    sql=p.stdout.decode('utf-8'); table=None; columns=[]; out={'listings':[],'properties':[],'history_relationships':[]}
+    safe_cols={'id','property_id','source','external_id','title','url','comuna','property_type','m2','built_area_m2','usable_area_m2',
+               'bedrooms','bathrooms','parking','lat','lon','status','created_at','updated_at','scraped_at','last_seen_at','geocode_precision'}
+    safe_meta={'address','address_label','street_hint','location_text','location','coordinates_source','location_source',
+               'geocode_precision','building_name','project_name','unit','unit_number','street_number','normalized_address'}
+    for line in sql.splitlines():
+        if line.startswith('COPY '):
+            m=re.match(r'COPY (?:public\.)?(\w+) \((.+)\) FROM stdin;',line)
+            if m: table=m[1]; columns=[x.strip().strip('"') for x in m[2].split(',')]
+            continue
+        if line==r'\.': table=None; continue
+        if table not in ['listings','properties','price_history']: continue
+        values=line.split('\t')
+        if len(values)!=len(columns): raise ValueError('Unexpected COPY row layout')
+        # Price fields are deliberately not decoded or interpreted.
+        if table=='price_history':
+            row={k:pg_text(v) for k,v in zip(columns,values) if k in ['id','listing_id','observed_at','created_at']}
+            out['history_relationships'].append(row); continue
+        row={k:pg_text(v) for k,v in zip(columns,values) if k in safe_cols}
+        if table=='listings':
+            if row.get('title'): row['title']=sanitize(row['title'])
+            if 'raw_metadata' in columns:
+                v=pg_text(values[columns.index('raw_metadata')]); meta=json.loads(v) if v else {}
+                row['raw_metadata']={k:sanitize(v) if isinstance(v,str) else v for k,v in meta.items() if k in safe_meta}
+                # Only exact existing image URL identifier hash; not downloaded/content fingerprint.
+                if meta.get('main_image_url'):
+                    row['existing_image_identifier_hash']=hashlib.sha256(str(meta['main_image_url']).encode()).hexdigest()
+            out['listings'].append(row)
+        else: out['properties'].append(row)
+    out['provenance']={'archive':str(dump),'sha256':hashlib.sha256(dump.read_bytes()).hexdigest(),
+       'source':'existing 2026-09-25 local backup, streamed with pg_restore -f -; no DB restore',
+       'price_values':'not decoded, not exported, not matching inputs'}
+    (H/'historical_identity_snapshot.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+    print({k:len(v) for k,v in out.items() if isinstance(v,list)})
+if __name__=='__main__': main()

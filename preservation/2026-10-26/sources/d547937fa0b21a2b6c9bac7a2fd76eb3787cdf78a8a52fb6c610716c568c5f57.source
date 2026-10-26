@@ -1,0 +1,10 @@
+import subprocess, json
+from pathlib import Path
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+try:
+    r = subprocess.run(ssh[:1]+['-vv','-o','IPQoS=none']+ssh[1:]+['true'],capture_output=True,text=True,timeout=25)
+    print(json.dumps({'rc':r.returncode,'diagnostic':r.stderr[-9000:]}))
+except subprocess.TimeoutExpired as exc:
+    value=exc.stderr or b''
+    if isinstance(value,bytes): value=value.decode(errors='replace')
+    print(json.dumps({'timeout':True,'diagnostic':value[-9000:]}))

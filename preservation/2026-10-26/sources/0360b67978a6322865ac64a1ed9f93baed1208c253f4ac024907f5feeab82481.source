@@ -1,0 +1,31 @@
+"""Nonlinear physical compatibility, optionally spatial. No prices in kernel."""
+from models import *
+from scipy.linalg import cho_factor,cho_solve
+def geo(rows,training_pins):
+ out=[];valid=[]
+ for r in rows:
+  x,y=r.latitude,r.longitude;payload=r.canonical_target if hasattr(r,'canonical_target') else r.canonical_listing
+  precision=payload.get('geocode_precision')
+  ok=x is not None and y is not None and math.isfinite(x+y) and -90<=x<=90 and -180<=y<=180 and precision not in ['comuna','comuna_centroid'] and training_pins.get((round(x,7),round(y,7)),0)<5
+  out.append((x*111.,y*111.*math.cos(math.radians(-33.45))) if ok else (0.,0.));valid.append(ok)
+ return np.array(out),np.array(valid)
+class Kernel:
+ def __init__(self,batch,length,alpha,spatial=False):
+  self.batch=require_batch(batch);self.rows=list(batch.rows);self.targets={t.row_id:digest(asdict(t)) for t in batch.targets};self.length=length;self.alpha=alpha;self.spatial=spatial
+  X=matrix(self.rows)[:,:7].astype(float);self.med=np.nanmedian(X,axis=0);self.med=np.nan_to_num(self.med);X=np.where(np.isnan(X),self.med,X);self.mean=X.mean(axis=0);self.scale=X.std(axis=0);self.scale[self.scale==0]=1.;self.X=(X-self.mean)/self.scale
+  self.com=np.array([r.features['comuna'] for r in self.rows]);self.pins=Counter((round(r.latitude,7),round(r.longitude,7)) for r in self.rows if r.latitude is not None)
+  self.geo,self.valid=geo(self.rows,self.pins);y=np.log([r.price_uf for r in self.rows]);self.offset=float(y.mean())
+  K=self.kernel(self.X,self.com,self.geo,self.valid)
+  with threadpool_limits(limits=1):self.beta=cho_solve(cho_factor(K+alpha*np.eye(len(K)),lower=True),y-self.offset)
+ def kernel(self,X,commune,xy,valid):
+  distance=np.maximum(0.,np.sum(X*X,axis=1)[:,None]+np.sum(self.X*self.X,axis=1)[None,:]-2*X@self.X.T)
+  phys=np.exp(-distance/(2*self.length**2));same=commune[:,None]==self.com[None,:]
+  k=phys*(.25+.75*same)
+  if self.spatial:
+   d=np.sum((xy[:,None,:]-self.geo[None,:,:])**2,axis=2);g=np.exp(-d/2)*valid[:,None]*self.valid[None,:]
+   k=k+.5*g*phys
+  return k
+ def predict_log(self,targets):
+  if any(self.targets.get(t.row_id)!=digest(asdict(t)) for t in targets):raise InvalidExperiment('Unissued inference')
+  X=matrix(targets)[:,:7].astype(float);X=np.where(np.isnan(X),self.med,X);X=(X-self.mean)/self.scale;xy,valid=geo(targets,self.pins)
+  with threadpool_limits(limits=1):return self.offset+self.kernel(X,np.array([t.features['comuna'] for t in targets]),xy,valid)@self.beta

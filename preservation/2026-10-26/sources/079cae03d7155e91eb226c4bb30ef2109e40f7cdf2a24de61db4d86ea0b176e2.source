@@ -1,0 +1,11 @@
+FROM valoria-production-reference:e8eff534
+WORKDIR /app
+RUN python -m pip install --no-cache-dir Pillow==12.3.0
+COPY infrastructure/thumbnails ./infrastructure/thumbnails
+COPY services/thumbnails.py ./services/thumbnails.py
+COPY api/v1/thumbnails.py ./api/v1/thumbnails.py
+COPY validation/thumbnail_lab/__init__.py validation/thumbnail_lab/server.py validation/thumbnail_lab/test_pipeline.py ./validation/thumbnail_lab/
+COPY validation/thumbnail_lab/fixtures ./validation/thumbnail_lab/fixtures
+COPY validation/container_persistence.py ./validation/container_persistence.py
+COPY validation/spawn_budget.py ./validation/spawn_budget.py
+CMD ["python", "-m", "unittest", "validation.thumbnail_lab.test_pipeline", "-q"]

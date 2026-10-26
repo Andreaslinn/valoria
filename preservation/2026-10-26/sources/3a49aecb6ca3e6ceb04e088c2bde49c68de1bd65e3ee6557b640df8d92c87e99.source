@@ -1,0 +1,118 @@
+"""Finite nested group CV. No network, scraping, DB or productive imports."""
+from common import *
+from experimental import FoldModel,BASE,cfg,override,W0,clear_price_surface_cache
+from avm01.isolation import LabelCustody
+from avm01.splits import inner_folds
+from avm01.engines import FrozenA
+import numpy as np,time,math,sys
+LOCAL=cfg('AM-local',selector='radius',radius=1.,compat=True,min_neff=4.5)
+ADAPT=cfg('AM-adaptive',selector='adaptive',compat=True,min_neff=4.5,retrieval=8)
+GRID=[BASE,LOCAL,ADAPT,
+ override(ADAPT,'adaptive-k8',k=8),override(ADAPT,'adaptive-k12',k=12),
+ override(ADAPT,'adaptive-k5',k=5),override(ADAPT,'adaptive-min8',minimum=8,min_neff=7.5),
+ override(ADAPT,'adaptive-area20',area_tolerance=.2),
+ override(ADAPT,'adaptive-k12-area20',k=12,area_tolerance=.2),
+ override(ADAPT,'adaptive-no-hard-layout',compat=False),
+ override(ADAPT,'adaptive-same-commune',scope='commune'),
+ override(ADAPT,'adaptive-support12',retrieval=12),
+ override(ADAPT,'nearest40',selector='nearest',retrieval=40),
+ override(LOCAL,'radius2',radius=2.),override(LOCAL,'radius5',radius=5.)]
+CRYPTO=module('am_cipher',ROOT/'private-ingestion-production-20261004/recovery_tools.py')
+def encrypt(path,obj):
+ raw=json.dumps(obj,sort_keys=True,allow_nan=False,default=str).encode()
+ Path(path).write_bytes(CRYPTO.protect(raw));return hashlib.sha256(raw).hexdigest()
+def decrypt(path):return json.loads(CRYPTO.unprotect(Path(path).read_bytes()))
+def config(c,seed,names):
+ return dict(seed=seed,target='log_uf_total',geo_ablation=False,real_execution_enabled=True,
+  engines=names,index_policy='first_observation_v1',uf_reference=c['uf_reference'],experiment_protocol_sha256=sha(HERE/'protocol.json'))
+def metric(truth,pred):
+ pairs=[(truth[i],pred[i]) for i in truth if pred.get(i) is not None]
+ if not pairs:return {'n':0,'coverage_pct':0.}
+ y,v=map(np.array,zip(*pairs));spe=100*(v/y-1);ape=np.abs(spe)
+ return dict(n=len(pairs),coverage_pct=100*len(pairs)/len(truth),abstentions=len(truth)-len(pairs),
+  MdAPE=float(np.median(ape)),MAPE=float(np.mean(ape)),MAE_log=float(np.mean(np.abs(np.log(v/y)))),
+  P90=float(np.percentile(ape,90)),P95=float(np.percentile(ape,95)),bias_median_pct=float(np.median(spe)),
+  gt20_pct=float(np.mean(ape>20)*100),gt30_pct=float(np.mean(ape>30)*100),gt50_pct=float(np.mean(ape>50)*100))
+def tune(ds,outer,c,seed,idx):
+ names=['g'+str(i) for i in range(len(GRID))];custody=LabelCustody(ds,())
+ allpred={n:{} for n in names};truth={};audit=[]
+ for split in inner_folds(ds,outer,seed,n_folds=3,reserved_holdout=()):
+  batch=custody.issue(ds,split,config(c,seed,names),(),outer)
+  model=FoldModel(batch,c['uf_reference']['value']);vals={n:{} for n in names}
+  for i in split.test:
+   b=model.bundle(batch.target(i))
+   for name,g in zip(names,GRID):vals[name][i]=b.predict(g)['prediction']
+  custody.record_predictions(batch,vals)
+  # Only inner labels opened, after every candidate has completed this partition.
+  truth.update(custody.complete(vals,split.test))
+  for n in names:allpred[n].update(vals[n])
+  audit.append({'train':digest(sorted(split.train)),'test':digest(sorted(split.test)),'stage':'inner','group_overlap':0})
+ loss=[]
+ for j,n in enumerate(names):
+  value=0.;eligible=True
+  for source,w in [('portalinmobiliario',.6),('yapo',.4)]:
+   ids=[i for i in truth if idx[i].features['source']==source]
+   if sum(allpred[n][i] is not None for i in ids)<sum(allpred['g0'][i] is not None for i in ids):eligible=False
+   common=[i for i in ids if allpred[n][i] is not None and allpred['g0'][i] is not None]
+   if not common:eligible=False;continue
+   value+=w*np.mean([abs(math.log(allpred[n][i]/truth[i])) for i in common])
+  loss.append(float(value) if eligible else None)
+ best=min((j for j,x in enumerate(loss) if x is not None),key=lambda j:(round(loss[j],12),j))
+ return GRID[best],{'chosen':GRID[best],'inner_losses':loss,'fold_audit':audit}
+def run(grouping,seed,tag,native_check=False):
+ for path,h in read(HERE/'execution_seal_v2.json').items():assert sha(path)==h,'Executable changed after registration'
+ c=verify();p,(datasets,cohort,maps,_)=load();ds=datasets[grouping];idx=ds.indexed()
+ plan=p.create_plan(ds,cohort,maps[grouping],seed);custody=LabelCustody(ds,());rows=[];params=[]
+ output=HERE/(tag+'.json.dpapi');assert not output.exists(),'Refuse result overwrite'
+ start=time.monotonic();names=['A','AM-local','AM-adaptive','AM-tuned','AM-frozen'];native_matches=0
+ for fold,split in enumerate(plan.folds):
+  print(json.dumps({'run':tag,'fold':fold,'phase':'inner','elapsed_s':round(time.monotonic()-start)}),flush=True)
+  chosen,audit=tune(ds,split,c,seed,idx);params.append({'fold':fold,**audit})
+  print(json.dumps({'run':tag,'fold':fold,'chosen':chosen['name'],'phase':'outer_predict'}),flush=True)
+  batch=custody.issue(ds,split,config(c,seed,names),());model=FoldModel(batch,c['uf_reference']['value'])
+  native=FrozenA().fit(batch) if native_check else None
+  profiles=[BASE,LOCAL,ADAPT,chosen,override(chosen,'frozen',surface='frozen')]
+  vals={n:{} for n in names};traces={}
+  for number,i in enumerate(split.test):
+   inference=batch.target(i);b=model.bundle(inference);traces[i]={}
+   for name,g in zip(names,profiles):
+    trace=b.predict(g);traces[i][name]=trace;vals[name][i]=trace['prediction']
+    assert set(trace['selected_ids'])<=set(split.train) and i not in trace['selected_ids']
+    assert not {batch.components[j] for j in trace['selected_ids']} & {batch.components[i]}
+   if native:
+    clear_price_surface_cache();expected=native.predict(inference)
+    if vals['A'][i]!=expected.value_uf:raise AssertionError('Native A parity failed: '+i+' '+str((vals['A'][i],expected.value_uf)))
+    assert sorted(traces[i]['A']['selected_ids'])==sorted(expected.trace['selected_ids'])
+    native_matches+=1
+   if number and number%60==0:print(json.dumps({'run':tag,'fold':fold,'completed':number}),flush=True)
+  custody.record_predictions(batch,vals)
+  truth=custody.complete(vals,split.test)
+  for i in split.test:
+   r=idx[i];rows.append({'row_id':i,'group':r.group_id,'source':r.features['source'],'comuna':r.features['comuna'],
+    'fold':fold,'target_uf':truth[i],'coordinates_present':r.latitude is not None and r.longitude is not None,
+    'predictions':traces[i]})
+ summary={'grouping':grouping,'seed':seed,'native_parity_checks':native_matches,'rows':len(rows),
+  'elapsed_s':round(time.monotonic()-start,2),'metrics':summarize(rows),'selected_per_fold':params}
+ summary['predictions_plaintext_sha256']=encrypt(output,rows)
+ write(HERE/(tag+'-summary.json'),summary);print(json.dumps({'run':tag,'complete':True,'rows':len(rows),'metrics':summary['metrics']['global']}),flush=True)
+ return summary
+def summarize(rows):
+ result={}
+ for source in ['global','portalinmobiliario','yapo']:
+  subset=[r for r in rows if source=='global' or r['source']==source];truth={r['row_id']:r['target_uf'] for r in subset}
+  result[source]={}
+  for name in ['A','AM-local','AM-adaptive','AM-tuned','AM-frozen']:
+   vals={r['row_id']:r['predictions'][name]['prediction'] for r in subset}
+   common=[r for r in subset if r['predictions']['A']['prediction'] is not None and vals[r['row_id']] is not None]
+   paired_truth={r['row_id']:r['target_uf'] for r in common}
+   good=[r['predictions'][name] for r in subset if r['predictions'][name]['prediction'] is not None]
+   result[source][name]={'coverage':metric(truth,vals),'paired':metric(paired_truth,vals),
+    'paired_A':metric(paired_truth,{r['row_id']:r['predictions']['A']['prediction'] for r in common}),
+    'local_n':sum(not r['predictions'][name]['fallback'] and r['predictions'][name]['strategy']!='commune' for r in subset),
+    'fallback_n':sum(r['predictions'][name]['fallback'] for r in subset),
+    'comparables_median':float(np.median([z['used'] for z in good])) if good else None,
+    'neff_median':float(np.median([z['neff'] for z in good])) if good else None,
+    'distance_km_median':float(np.median([z['median_distance'] for z in good if z['median_distance'] is not None])) if any(z['median_distance'] is not None for z in good) else None}
+ return result
+if __name__=='__main__':
+ grouping,seed,tag=sys.argv[1:4];run(grouping,int(seed),tag,'--native-check' in sys.argv)

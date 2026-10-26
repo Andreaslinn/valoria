@@ -1,0 +1,19 @@
+import json,hashlib,zipfile,html
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent
+out=ROOT.parent/'outputs'
+report=(out/'SII_TASAR_RESULTADOS.md').read_text(encoding='utf8')
+cards=''
+for slug,label in [('alta','Confianza alta'),('referencial','Referencial'),('sin-datos','Sin datos'),('ambigua','Dirección ambigua')]:
+    cards+=f'<section><h2>{label}</h2><a href="sii-tasar-{slug}.jpg">Captura completa</a><img loading="lazy" src="sii-tasar-{slug}-detalle.jpg" alt="Tasar local: {label}"></section>'
+page=f'''<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tasar · Evidencia local SII</title><style>body{{margin:32px;background:#0d171c;color:#e5ecea;font:16px system-ui}}h1{{font-size:30px}}p{{max-width:900px;line-height:1.6}}a{{color:#cafa73}}main{{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}}section{{background:#152328;border:1px solid #34494f;border-radius:16px;padding:16px}}h2{{margin:0 0 12px}}img{{display:block;width:100%;height:auto;margin-top:16px}}footer{{margin:32px 0}}</style><h1>Segunda opinión con cierres SII · Tasar local</h1><p>Interfaz y motores reales en localhost, con stock capturado y catastro local. Flag apagado por defecto en el código. PR #11 en borrador, sin merge ni deploy. El valor canónico se conserva. Capturas y registros individuales exclusivamente locales.</p><p><a href="SII_TASAR_RESULTADOS.md">Informe y tabla de sesgo</a> · <a href="SII_TASAR_RESUMEN.json">Resumen de verificaciones</a></p><main>{cards}</main><footer>145 pruebas en verde. TypeScript correcto en ambas interfaces. 2.284 comparaciones byte a byte correctas contra la release: 1.142 con flag apagado y 1.142 sin dirección.</footer></html>'''
+(out/'SII_TASAR_CAPTURAS.html').write_text(page,encoding='utf8')
+files=[p for p in out.iterdir() if p.name!='SII_TASAR_MANIFEST.json' and p.name.startswith(('SII_TASAR_','sii-tasar-')) and p.suffix.lower() in {'.md','.json','.txt','.html','.jpg'}]
+manifest={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+(out/'SII_TASAR_MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf8')
+with zipfile.ZipFile(out/'SII_TASAR_EVIDENCIA_LOCAL.zip','w',compression=zipfile.ZIP_DEFLATED) as z:
+    for p in files+[out/'SII_TASAR_MANIFEST.json']:
+        z.write(p,p.name)
+    for p in [ROOT/'verify_tasar_release_local.py',ROOT/'tasar_demo.py',ROOT/'find_tasar_cases.py',ROOT/'sii-tasar-cases-local.json']:
+        z.write(p,'local-only/'+p.name)
+print(f'Local evidence packaged: {len(files)} deliverables, four UI branches')

@@ -1,0 +1,19 @@
+import subprocess,json,pathlib,hashlib
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/published-fields-deploy-20261016')
+proof={k:json.loads((B/name).read_text()) for k,name in [('deployment','deployment-state.json'),('backup','backup-proof.json'),('rollback_rehearsal','rollback-proof.json'),('coverage','coverage-current.json')]}
+api=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+assert api['Config']['Labels']['org.opencontainers.image.revision']==proof['deployment']['commit']
+assert api['State']['Health']['Status']=='healthy'
+proof['production_image_id']=api['Image']
+proof['health']=json.loads(subprocess.check_output(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]))
+assert proof['health']['status']=='ok'
+assert not any('PORTAL_SESSION_EXPIRED' in str(v.get('alarms',[])) for v in proof['health']['sources'].values())
+for unit in ['valoria-uf-calendar','valoria-yapo-discovery','valoria-portal-discovery']:
+ env=subprocess.check_output(['systemctl','show',unit+'.service','--property=Environment'],text=True)
+ assert 'VALORIA_INGESTION_IMAGE=valoria-published-fields:'+proof['deployment']['commit'][:12] in env
+scratch=json.loads(subprocess.check_output(['docker','inspect','valoria-published-fields-restore']))[0]
+assert scratch['Name']=='/valoria-published-fields-restore' and scratch['HostConfig']['NetworkMode']=='none'
+subprocess.run(['docker','rm','-f','valoria-published-fields-restore'],capture_output=True,check=True)
+proof['isolated_restore_removed']=True
+(B/'final-proof.json').write_text(json.dumps(proof,indent=2));(B/'final-proof.json').chmod(0o600)
+print(json.dumps(proof))

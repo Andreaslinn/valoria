@@ -1,0 +1,12 @@
+import pathlib,json
+scope={}
+exec(pathlib.Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];base='release/canonical-only-reproducible-20261013';branch='fix/discovery-same-day-published-fields'
+tip=api('/branches/'+base.replace('/','%2F'))
+assert tip['commit']['sha']=='80bd8a9aae5c1af733778f524ce880efcb5d815e','Release base changed'
+body=pathlib.Path('work/discovery-pr-body.md').read_text(encoding='utf8')
+existing=api('/pulls?state=open&head=Andreaslinn%3A'+branch)
+if existing:pr=api('/pulls/'+str(existing[0]['number']),{'body':body},method='PATCH')
+else:pr=api('/pulls',{'title':'Capturar campos de nuevas altas dentro de discovery y reutilizar tarjeta/mapa','head':branch,'base':base,'body':body,'draft':True})
+proof={'url':pr['html_url'],'number':pr['number'],'base_sha':pr['base']['sha'],'head_sha':pr['head']['sha'],'draft':pr['draft']}
+pathlib.Path('outputs/discovery-same-day/pr.json').write_text(json.dumps(proof,indent=2),encoding='utf8');print(json.dumps(proof))

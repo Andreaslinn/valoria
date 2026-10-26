@@ -1,0 +1,45 @@
+import subprocess,json,pathlib,datetime,re,hashlib
+
+def run(args):return subprocess.check_output(args,text=True,timeout=100)
+proof={'at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+proof['image']=run(['docker','inspect','valoria_oracle_beta-api-1','--format','{{.Config.Image}}']).strip()
+proof['units']={}
+for name in ['uf-calendar','portal-discovery','yapo-discovery']:
+ unit='valoria-'+name
+ proof['units'][name]={'timer':run(['systemctl','show',unit+'.timer','--property=ActiveState,LastTriggerUSec,NextElapseUSecRealtime']),'service':run(['systemctl','show',unit+'.service','--property=ActiveState,Result,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp'])}
+ journal=run(['journalctl','-u',unit+'.service','--since','2026-10-16 15:34:45 UTC','--no-pager','-o','cat','-n','70'])
+ proof['units'][name]['journal']=[line for line in journal.splitlines() if any(k in line for k in ['Starting','Finished','Failed','exit_code','calendar_days_saved','Deactivated'])]
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  runs=(await s.execute(text("SELECT id,source,started_at,finished_at,successful,counters,errors FROM ingestion_runs WHERE started_at > '2026-10-16 15:34:45+00' ORDER BY id"))).mappings().all()
+  rows=(await s.execute(text("SELECT source,comuna,raw_metadata,lat,lon FROM listings WHERE source IN ('yapo','portalinmobiliario') AND status='active' AND property_type='apartment' AND comuna IN ('santiago','nunoa','providencia','las_condes','vitacura','la_florida','san_miguel','estacion_central')"))).mappings().all()
+  uf=(await s.execute(text('SELECT date,value,source,fetched_at FROM ingestion_uf_calendar ORDER BY fetched_at DESC LIMIT 2'))).mappings().all()
+  coverage={}
+  for row in rows:
+   item=coverage.setdefault(row['source'],dict(active=0,published=0,detail=0,coordinates=0,useful=0,total=0,age_year=0,floor=0,exact_address=0))
+   item['active']+=1
+   meta=row['raw_metadata'] or {};p=meta.get('published_fields') or {};d=meta.get('published_detail_fields') or p
+   item['published']+=bool(p);item['detail']+=d.get('stage')=='detail'
+   item['coordinates']+=p.get('latitude') is not None and p.get('longitude') is not None and (p.get('latitude'),p.get('longitude'))!=(0,0)
+   for field,key in [('useful','useful_area_m2'),('total','total_area_m2'),('floor','floor')]:item[field]+=p.get(key) is not None
+   item['age_year']+=p.get('age_years') is not None or p.get('construction_year') is not None
+   item['exact_address']+=p.get('address_type')=='exact'
+  print(json.dumps({'runs':[dict(r) for r in runs],'coverage':coverage,'uf':[dict(r) for r in uf]},default=str))
+asyncio.run(main())'''
+proof['db']=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',code]))
+proof['health']=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]))
+proof['launchers']={}
+for source,folder in [('portalinmobiliario','portal-session'),('yapo','yapo-runtime')]:
+ last=json.loads(pathlib.Path('/home/ubuntu/apps/valoria/private',folder,'last_run.json').read_text())
+ entry={k:last.get(k) for k in ['at','exit_code','counts','image','image_id','stderr_log','error']}
+ name=last.get('stderr_log')
+ if name:
+  p=pathlib.Path('/home/ubuntu/apps/valoria/private/ingestion-errors')/name
+  if p.exists():
+   raw=p.read_bytes();log=raw.decode(errors='replace');entry.update(stderr_bytes=len(raw),stderr_sha256=hashlib.sha256(raw).hexdigest(),blocked_status_lines=len(re.findall(r'HTTP/\S+\s+(?:302|403|429)\b',log)),session_alarm='PORTAL_SESSION_EXPIRED' in log)
+ proof['launchers'][source]=entry
+print(json.dumps(proof,default=str))

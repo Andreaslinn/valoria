@@ -1,0 +1,113 @@
+"""Small orchestration, grouped OOF only; real execution is unconditionally blocked."""
+from dataclasses import asdict
+from collections import defaultdict
+from itertools import combinations
+import math
+from statistics import median,pstdev
+from .data import digest,InvalidExperiment,positive,timepoint
+from .splits import make_plan,validate_split,inner_folds,Split,validate_plan
+from .isolation import LabelCustody,dependency_components,validate_config
+from .engines import create_engine,Prediction,LearnedEngine
+from .metrics import compare,metrics,grouped_bootstrap_delta
+
+CONFIG={'version':'AVM-01-v1','seed':42,'target':'log_uf_total','geo_ablation':False,
+        'n_folds':5,'holdout_fraction':.2,'bootstrap_replicates':200,'real_execution_enabled':False,
+        'engines':['A','C1','C1-flex','C2'],'tuning':'none_fixed_provisional_parameters','index_policy':'first_observation_v1',
+        'uf_reference':{'value':'41040.82','effective_date':'2026-01-10','available_at':'2026-01-01T00:00:00+00:00','source':'CONTROLLED_FIXTURE_ONLY'}}
+
+def run_split(ds,split,config,holdout=(),factory=create_engine,*,custody=None,outer=None):
+    ds.require_synthetic();validate_config(config)
+    custody=custody or LabelCustody(ds,holdout)
+    batch=custody.issue(ds,split,config,holdout,outer);result={};traces={}
+    for name in config['engines']:
+        result[name]={};traces[name]={}
+        engine=factory(name,config)
+        try:engine.fit(batch)
+        except InvalidExperiment:raise
+        except Exception as exc:
+            for i in split.test:result[name][i]=None;traces[name][i]={'status':'training_error','reason':type(exc).__name__}
+            continue
+        for i in split.test:
+            try:p=engine.predict(batch.target(i))
+            except InvalidExperiment:raise
+            except Exception as exc:p=Prediction(None,'prediction_error',type(exc).__name__,row_id=i)
+            if not isinstance(p,Prediction) or p.row_id!=i:raise InvalidExperiment('Prediction/observation ID mismatch')
+            valid=positive(p.value_uf) and p.status in ['ok','success']
+            result[name][i]=p.value_uf if valid else None
+            traces[name][i]={'status':p.status if valid or p.value_uf is None else 'invalid_prediction','reason':p.reason,'trace':p.trace}
+    custody.record_predictions(batch,result)
+    return result,traces
+
+def segments(ds,ids,by_engine,truth):
+    idx=ds.indexed();buckets=defaultdict(list)
+    for i in ids:
+        r=idx[i];a=math.exp(r.features['log_area']);p=truth[i]
+        freshness=(timepoint(r.prediction_at)-timepoint(r.observed_at)).total_seconds()/86400
+        tags={'property_type':r.property_type,'comuna':r.features['comuna'],'source':r.features['source'],
+              'price_band':'<3000' if p<3000 else '3000-6000' if p<6000 else '>=6000',
+              'area_band':'<50' if a<50 else '50-90' if a<90 else '>=90',
+              'coordinates':'available_unverified' if r.latitude is not None and r.longitude is not None else 'missing',
+              'density':r.comparable_density,'freshness':'<=7d' if freshness<=7 else '8-30d' if freshness<=30 else '>30d'}
+        for k,v in tags.items():buckets[f'{k}:{v}'].append(i)
+    out={}
+    for key,members in sorted(buckets.items()):
+        groups=len({idx[i].group_id for i in members})
+        out[key]={'eligible_n':len(members),'groups_n':groups,'sample_status':'descriptive_sufficient_n' if groups>=30 else 'exploratory_small_n',
+                  'comparison':compare({i:truth[i] for i in members},{e:{i:p.get(i) for i in members} for e,p in by_engine.items()})}
+    return out
+
+def run(ds,config=None,factory=create_engine):
+    ds.require_synthetic();c=dict(CONFIG if config is None else config)
+    validate_config(c)
+    plan=make_plan(ds,c['seed'],c['n_folds'],c['holdout_fraction']);validate_plan(ds,plan,seed=c['seed']);idx=ds.indexed()
+    custody=LabelCustody(ds,plan.holdout)
+    predictions={e:{} for e in c['engines']};folds=[];traces={}
+    for j,f in enumerate(plan.folds):
+        values,trace=run_split(ds,f,c,plan.holdout,factory,custody=custody)
+        for e,p in values.items():predictions[e].update(p)
+        traces[str(j)]=trace
+        folds.append({'fold':j,'train_n':len(f.train),'test_n':len(f.test),'comparison':compare(custody.complete(values,f.test),values)})
+    truth=custody.complete(predictions,plan.development);comp=dependency_components(ds);groups={i:comp[i] for i in plan.development}
+    uncertainty={}
+    for a,b in combinations(sorted(predictions),2):
+        if len({groups[i] for i in truth if positive(predictions[a].get(i)) and positive(predictions[b].get(i))})>=2:
+            uncertainty[f'{a}__{b}']=grouped_bootstrap_delta(truth,predictions[a],predictions[b],groups,c['seed'],c['bootstrap_replicates'])
+        else:uncertainty[f'{a}__{b}']={'status':'insufficient_paired_groups'}
+    stability={}
+    for e in predictions:
+        values=[f['comparison']['per_engine'][e]['MdAPE'] for f in folds if f['comparison']['per_engine'][e]['MdAPE'] is not None]
+        stability[e]={'folds_with_predictions':len(values),'MdAPE_by_fold':values,'median':median(values) if values else None,
+                      'range':[min(values),max(values)] if values else None,'population_std':pstdev(values) if values else None,
+                      'interpretation':'descriptive only; folds are not independent replicates'}
+    result={'warning':'SYNTHETIC STRUCTURAL CHECK ONLY - NO REAL ACCURACY OR WINNER','config':c,'config_sha256':digest(c),
+            'snapshot_id':ds.snapshot_id,'snapshot_sha256':ds.hash(),'plan':asdict(plan),'holdout_evaluated':False,
+            'predictions':predictions,'folds':folds,'fold_stability':stability,'comparison':compare(truth,predictions),
+            'segments':segments(ds,plan.development,predictions,truth),'bootstrap':uncertainty,'traces':traces,'custody_audit':custody.audit,
+            'observation_index_policy':ds.index_policy,'original_observations_n':len(ds.records),'index_observations_n':len(plan.development)+len(plan.holdout)}
+    result['result_sha256']=digest(result);return result
+
+def prepare_stress(ds,train,test,kind,holdout=()):
+    """Explicit synthetic stress partitions: no implicit real assignment."""
+    ds.require_synthetic()
+    if kind not in ['spatial','temporal']:raise InvalidExperiment('Unknown stress design')
+    split=Split(tuple(train),tuple(test),kind)
+    validate_split(ds,split,holdout,spatial=kind=='spatial');return split
+
+def nested_tune_synthetic(ds,outer,engine_name,grid,config=None,holdout=()):
+    """Structural test of inner grouped tuning; never used by the fixed demo."""
+    ds.require_synthetic();validate_split(ds,outer,holdout)
+    if engine_name=='A' or not grid:raise InvalidExperiment('A cannot be tuned')
+    c=dict(CONFIG if config is None else config);validate_config(c);scores=[]
+    folds=inner_folds(ds,outer,c['seed'],reserved_holdout=holdout)
+    for parameters in grid:
+        pred={};truth={};trial=dict(c,engines=[engine_name],parameters={engine_name:parameters});custody=LabelCustody(ds,holdout)
+        for f in folds:
+            def factory(name,config):return LearnedEngine(name,seed=config['seed'],target=config['target'],geo=config['geo_ablation'],parameters=parameters)
+            values,_=run_split(ds,f,trial,holdout,factory,custody=custody,outer=outer)
+            pred.update(values[engine_name]);truth.update(custody.complete(values,f.test))
+        m=metrics(truth,pred)
+        scores.append({'parameters':parameters,'inner_MdAPE':m['MdAPE'],'coverage':m['coverage']})
+    eligible=[s for s in scores if s['coverage']==1 and s['inner_MdAPE'] is not None]
+    if not eligible:raise InvalidExperiment('No complete inner tuning candidate')
+    return {'selected':min(eligible,key=lambda s:(s['inner_MdAPE'],digest(s['parameters'])))['parameters'],
+            'trials':scores,'evaluated_ids':sorted(truth),'outer_test_untouched':True,'holdout_untouched':True}

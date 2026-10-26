@@ -1,0 +1,96 @@
+import csv
+import json
+import shutil
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+base=Path(__file__).parent
+repo=base/'valoria'
+out=base.parent/'outputs'
+dest=repo/'reports/sii'
+d=json.loads((base/'sii-phase2a-step0-production.json').read_text(encoding='utf-8-sig'))
+assert d['transaction_read_only'] and d['gate']['stop']
+cut=datetime.fromisoformat(d['as_of_utc']).astimezone(ZoneInfo('Europe/Berlin'))
+names={'vitacura':'Vitacura','las_condes':'Las Condes','nunoa':'Ñuñoa','providencia':'Providencia','la_florida':'La Florida','santiago':'Santiago','san_miguel':'San Miguel','estacion_central':'Estación Central'}
+def num(v,n=2):return '—' if v is None else f'{float(v):,.{n}f}'.translate(str.maketrans(',.','.,'))
+def pct(r,k):return '—' if r['porcentajes'][k] is None else num(r['porcentajes'][k])+'%'
+keys=('direccion','coordenadas_publicadas','m2_util_explicito','direccion_o_coordenadas','localizado_y_m2_util','los_tres_campos','snapshot_PR5','detalle_PR5','coordenadas_canonicas','direccion_o_coordenadas_canonicas','coordenadas_precision_desconocida','proyecto_publicado')
+header=['alcance','comuna','comuna_sii','portal','activos']
+for key in keys:header.extend([key,key+'_pct'])
+with (out/'SII_FASE2A_COBERTURA.csv').open('w',encoding='utf-8-sig',newline='') as f:
+    w=csv.writer(f);w.writerow(header)
+    for scope,rows in [('comuna',d['por_comuna']),('portal',d['por_portal']),('comuna_portal',d['por_comuna_y_portal'])]:
+        for r in rows:
+            values=[scope,r.get('comuna'),r.get('comuna_sii'),r.get('portal'),r['activos']]
+            for key in keys:values.extend([r['conteos'][key],r['porcentajes'][key]])
+            w.writerow(values)
+with (out/'SII_FASE2A_EJEMPLOS.csv').open('w',encoding='utf-8-sig',newline='') as f:
+    w=csv.writer(f);w.writerow(['comuna','id','portal','external_id','url','direccion_raw','calle','numero','direccion','coordenadas_publicadas','m2_util_explicito','motivos'])
+    for name,examples in d['cinco_ejemplos_sin_ubicacion'].items():
+        assert len(examples)==5
+        for r in examples:
+            w.writerow([name,r['id'],r['source'],r['external_id'],r['url'],r['direccion_raw'],r['calle'],r['numero'],r['direccion'],r['coordenadas_publicadas'],r['m2_util_explicito'],'; '.join(r['motivos'])])
+
+t=d['total']; c=t['conteos']
+lines=['# SII Fase 2a · Control previo de producción · 19/10/2026','',
+ '**Resultado: PARADA EN PASO 0.** Siete de ocho comunas están bajo el 40% de dirección exacta o coordenadas publicadas en los campos del PR #5. Se aplica la condición de parada del encargo; los pasos de geocodificación, enlace y muestra de 100 no se ejecutan.','',
+ f"Corte de datos: **{cut.strftime('%d/%m/%Y %H:%M:%S')} Europe/Berlin**, `{d['as_of_utc']}`. Una transacción PostgreSQL `REPEATABLE READ, READ ONLY`, comprobada mediante `transaction_read_only=on`, con statement timeout de 20 s, lock timeout de 1 s y rollback. El script se ejecuta por stdin con `python -B` en el contenedor API existente. No se instala código ni se despliega una imagen.",'',
+ '## Base y merge autorizado','',
+ 'El PR #9 se marcó listo y se mergeó a `release/canonical-only-reproducible-20261013`, commit `24b56dc6fe626d19834bcd6707a9b77d1d3d44c7`, sin deploy. Se verificó que el release no contiene workflows de GitHub Actions. La nueva rama `feature/sii-linkage-phase2a-20261019` parte de ese merge.','',
+ '## Definiciones del control','',
+ '- Denominador: avisos con estado canónico `active` y tipo departamento en las ocho comunas. No equivale a vigencia comercial comprobada ni a inmuebles únicos.',
+ '- Dirección: calle y número cívico exactos, con procedencia y observación vinculada a la misma identidad de publicación; se excluyen rangos, cruces, marcadores de unidad y el caso de tomar el departamento como número de calle.',
+ '- Coordenadas publicadas: pareja válida para Chile en los campos del PR #5, vinculada a la misma publicación y con origen del portal. Se excluyen centroides/inferencias/oficinas identificados. Se incluyen las de precisión `unknown` como dato disponible; no certifican edificio ni exactitud.',
+ '- m² útil explícito: valor positivo con procedencia explícita, en un snapshot vinculado. No se sustituye por m² genérico, construido ni total. Se consideran `published_fields` y `published_detail_fields` válidos.',
+ '- Umbral: unión **dirección O coordenadas publicadas**, no suma y no intersección. Menos del 40% en al menos cinco de ocho comunas activa la parada; exactamente 40% pasa. No se usa redondeo para decidir.',
+ '- Se muestran aparte las coordenadas canónicas y su unión con dirección. Pueden tener procedencia/precisión distinta; no reemplazan los campos publicados del PR #5 en este control.','',
+ '## Resultado global','',
+ f"De **{num(t['activos'],0)} avisos activos**, {c['direccion']} tienen calle/número ({pct(t,'direccion')}), {c['coordenadas_publicadas']} coordenadas publicadas ({pct(t,'coordenadas_publicadas')}) y {c['m2_util_explicito']} m² útil explícito ({pct(t,'m2_util_explicito')}). La unión de dirección o coordenadas es **{c['direccion_o_coordenadas']}/{t['activos']} = {pct(t,'direccion_o_coordenadas')}**. Solo {c['localizado_y_m2_util']} tienen ubicación y m² útil explícito ({pct(t,'localizado_y_m2_util')}); {c['los_tres_campos']} reúnen los tres campos ({pct(t,'los_tres_campos')}).",'',
+ '## Por comuna','',
+ '| Comuna | Activos | Calle+número | Coord. publicadas | m² útil explícito | Dirección O coord. | Cobertura | Paso 0 |',
+ '|---|---:|---:|---:|---:|---:|---:|---|']
+for r in d['por_comuna']:
+    x=r['conteos']
+    lines.append(f"| {names[r['comuna']]} | {r['activos']} | {x['direccion']} | {x['coordenadas_publicadas']} | {x['m2_util_explicito']} | {x['direccion_o_coordenadas']} | {pct(r,'direccion_o_coordenadas')} | {'No pasa' if r['bajo_40'] else 'Pasa'} |")
+lines+=['','## Por portal','',
+ '| Portal | Activos | Calle+número | Coord. publicadas | m² útil explícito | Dirección O coord. | Cobertura |',
+ '|---|---:|---:|---:|---:|---:|---:|']
+for r in d['por_portal']:
+    x=r['conteos']; lines.append(f"| {r['portal']} | {r['activos']} | {x['direccion']} | {x['coordenadas_publicadas']} | {x['m2_util_explicito']} | {x['direccion_o_coordenadas']} | {pct(r,'direccion_o_coordenadas')} |")
+lines+=['','## Por comuna y portal','',
+ '| Comuna | Portal | Activos | Calle+número | Coord. publicadas | m² útil explícito | Dirección O coord. | Cobertura |',
+ '|---|---|---:|---:|---:|---:|---:|---:|']
+for r in d['por_comuna_y_portal']:
+    x=r['conteos']; lines.append(f"| {names[r['comuna']]} | {r['portal']} | {r['activos']} | {x['direccion']} | {x['coordenadas_publicadas']} | {x['m2_util_explicito']} | {x['direccion_o_coordenadas']} | {pct(r,'direccion_o_coordenadas')} |")
+lines+=['','## Causa observada y límites','',
+ f"**La brecha está en los datos publicados almacenados:** {t['activos']-c['snapshot_PR5']} de {t['activos']} avisos no tienen un snapshot PR #5 vinculado a la misma publicación. Solo {c['detalle_PR5']} tienen una observación de detalle vinculada. Yapo concentra 1.506 de los 2.107 avisos y su cobertura de ubicación publicada es 14,01%; Portal alcanza 54,08%, con denominadores muy desiguales por comuna. Las Condes no tiene departamentos activos de Portal en este corte. Estación Central tiene 232 avisos Portal, pero solo 20 tienen dirección o coordenadas publicadas.",'',
+ 'Esto no demuestra que el portal jamás publique esos campos ni identifica por sí solo una avería del scraper. Demuestra que la mayoría del inventario activo aún no los tiene almacenados con esa procedencia. Resolver el déficit requiere investigar/recuperar observaciones de avisos, antes de buscar roles en el catastro; esa recuperación no se ejecuta porque el encargo exige parar en este punto.','',
+ f"Todas las **{c['coordenadas_publicadas']} coordenadas publicadas** tienen precisión declarada `unknown`, incluso las contadas en el numerador. Tampoco se ha verificado que cada anuncio corresponda a una unidad: hay {c['proyecto_publicado']} marcados como proyecto en los snapshots publicados.",'',
+ f"Si se admitiera cualquier pareja canónica de lat/lon, aparecen {c['coordenadas_canonicas']} avisos con coordenadas ({pct(t,'coordenadas_canonicas')}) y la unión con dirección sube a {c['direccion_o_coordenadas_canonicas']} ({pct(t,'direccion_o_coordenadas_canonicas')}). Es una medición distinta: no acredita procedencia publicada ni exactitud de edificio. El CSV conserva ambas métricas para evitar confundirlas.",'',
+ '## Cinco avisos que fallan el control por comuna','',
+ 'Son avisos sin dirección exacta ni coordenadas publicadas verificables. No son enlaces intentados; no se genera un rol supuesto para completar una muestra. El CSV de ejemplos conserva los indicadores y la URL.','',
+ '| Comuna | ID | Portal | Aviso | Motivos |','|---|---:|---|---|---|']
+for name,examples in d['cinco_ejemplos_sin_ubicacion'].items():
+    for r in examples:
+        label=r['external_id'] or str(r['id']); url=r['url']
+        link=f'[{label}]({url})' if url else label
+        lines.append(f"| {names[name]} | {r['id']} | {r['source']} | {link} | {', '.join(r['motivos'])} |")
+lines+=['','## Estado de los criterios de fase 2a','',
+ '| Criterio | Estado |','|---|---|',
+ '| ≥40% con enlace a edificio en las ocho comunas | No evaluado: parada obligatoria en el control previo |',
+ '| Precisión ≥90% en muestra revisada de 100 | No evaluada: no se generaron enlaces ni muestra |',
+ '| Segunda ejecución sin filas nuevas de enlaces | No aplica: no se crearon tablas ni filas de enlaces |',
+ '| Pruebas del control y regresiones canónicas | 46 pasadas; Ruff correcto |',
+ '| Tasaciones actuales | Código y rutas de valoración sin cambios; regresiones canónicas en verde; sin deploy |','',
+ 'El único código nuevo es el auditor aislado de Paso 0, detrás de `SII_LINKAGE_ENABLED=false` por defecto. La activación en producción se limitó al proceso de lectura ejecutado por stdin; no cambia la configuración persistente de la API. No se incorporan consultas SII a Tasar, Radar ni al motor canónico.','',
+ '## Entregables y siguiente decisión','',
+ '- `SII_FASE2A_COBERTURA.csv`: conteos y porcentajes por comuna, portal y cruce de ambos.',
+ '- `SII_FASE2A_EJEMPLOS.csv`: cinco casos fallidos por comuna y sus motivos.',
+ '- `SII_FASE2A_CONTROL.json`: evidencia agregada y ejemplos de la transacción de producción.',
+ '- Nuevo PR en borrador: auditor y reporte del bloqueo. Los pasos 1–3 requieren que se resuelva el control o una nueva instrucción explícita sobre el alcance.','']
+(out/'SII_FASE2A_CONTROL.md').write_text('\n'.join(lines),encoding='utf8')
+(out/'SII_FASE2A_CONTROL.json').write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf8')
+for src,target in [('SII_FASE2A_CONTROL.md','phase2a_step0.md'),('SII_FASE2A_CONTROL.json','phase2a_step0.json'),('SII_FASE2A_COBERTURA.csv','phase2a_step0_coverage.csv'),('SII_FASE2A_EJEMPLOS.csv','phase2a_step0_examples.csv')]:
+    shutil.copyfile(out/src,dest/target)
+print(json.dumps({'gate':d['gate'],'cut_berlin':cut.isoformat(),'active':t['activos'],'located':c['direccion_o_coordenadas'],'outputs':str(out)},ensure_ascii=False))

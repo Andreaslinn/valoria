@@ -1,0 +1,27 @@
+"""Isolated research IO; no database, settings or valuation imports."""
+from pathlib import Path
+import json, hashlib, subprocess, csv
+H=Path(__file__).resolve().parent
+BASE=H.parents[1]
+REPO=BASE/'valoria-reconciled'
+def sha(data): return hashlib.sha256(data).hexdigest()
+def save(name, data): (H/name).write_text(json.dumps(data,ensure_ascii=False,indent=2,allow_nan=False,default=str),encoding='utf-8')
+def read(path): return json.loads(Path(path).read_text(encoding='utf-8'))
+def table(name,rows,columns=None):
+    cols=columns or list(dict.fromkeys(k for row in rows for k in row))
+    with (H/name).open('w',encoding='utf-8',newline='') as f:
+        w=csv.DictWriter(f,fieldnames=cols); w.writeheader(); w.writerows(rows)
+def inventory():
+    def git(*args): return subprocess.check_output(['git','-C',str(REPO),*args],stderr=subprocess.DEVNULL).decode()
+    names=git('ls-files','--cached','--others','--exclude-standard','-z').split('\0')
+    return dict(commit=git('rev-parse','HEAD').strip(),status=git('status','--porcelain=v1','--untracked-files=all'),hashes={n:sha((REPO/n).read_bytes()) for n in names if n and (REPO/n).is_file()})
+def research_inventory():
+    return {str(p.relative_to(BASE)):sha(p.read_bytes()) for folder in ['tasar_avm_audit_20261002','tasar_identity_20261002'] for p in (BASE/'research'/folder).rglob('*') if p.is_file()}
+if __name__=='__main__':
+    target=H/'integrity_before.json'
+    if not target.exists(): save(target.name,dict(product=inventory(),prior_research=research_inventory()))
+    else:
+        before=read(target); after=dict(product=inventory(),prior_research=research_inventory())
+        save('integrity_after.json',after)
+        assert before==after, 'Original files changed'
+        print('Original intact:',len(after['product']['hashes']),'files;',len(after['product']['status'].splitlines()),'status entries; prior research intact')

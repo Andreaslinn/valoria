@@ -1,0 +1,37 @@
+from pathlib import Path
+import subprocess,json,hashlib
+ROOT=Path(__file__).resolve().parents[1];O=ROOT/'outputs';W=ROOT/'work';R=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+result=subprocess.run(['node','--test','tests/frontend/remediation.test.cjs'],cwd=R,text=True,capture_output=True)
+(O/'acceptance-evidence/frontend-tests.log').write_text(result.stdout+result.stderr,encoding='utf-8');assert result.returncode==0
+summary='''# Valoria V2 continuation result
+
+**Release BLOCKED; candidate not deployed.** Required successful new live Portal acquisition remains unavailable: upstream403/candidate502. Indexed Portal URLs work. Production remains healthy on its previous image and still fails six V2 contract checks.
+
+- Backend1935 passed/0 failed; all four original failures resolved.
+- Frontend7 regressions passed and final production build passed.
+- Desktop16 controlled Playwright scenarios passed against actual isolated frontend/API/PostgreSQL.
+- Candidate image contracts and restored real1130/298/Portal3633 checks passed.
+- Nonzero temporal reconciliation passed for7/30/90 days.
+- Critical migration collision corrected: preserve production0021 history and use0022 for alert reads. Fresh backup restored; immutable history and old-application compatibility verified.
+- Candidate overlay commit41773aafbc2b731fbc5d4de5049697806c01ff96, image sha256:a3148c4ca46139f34f28d75a910c7c5e9ed51af86ac23ce56cdf131d0dc096a5. Built, never activated.
+- No production app restart/migration/user-data test writes. Scraper sessions/schedules preserved. Finding16 deferred; office coverage absent;6842 physical type unconfirmed.
+
+'''
+for name,label in [('final-acceptance-report.md','Final acceptance report'),('findings-acceptance-matrix.md','All21 finding statuses'),('contract-compatibility-matrix.md','Contract matrix'),('valoria-v2-remediation.md','Updated ledger')]:summary+=f'[{label}]({(O/name).as_posix()})\n\n'
+(O/'executive-summary.md').write_text(summary,encoding='utf-8')
+status=subprocess.check_output(['git','status','--short'],cwd=R,text=True)
+(O/'acceptance-evidence/final-working-tree.txt').write_text(status,encoding='utf-8')
+diff=subprocess.check_output(['git','diff','--stat'],cwd=R,text=True)
+(O/'acceptance-evidence/final-diff-stat.txt').write_text(diff,encoding='utf-8')
+for file in ['final-acceptance-report.md','contract-compatibility-matrix.md','findings-acceptance-matrix.md','valoria-v2-remediation.md']:
+ assert (O/file).is_file() and (O/file).stat().st_size>1000
+all_results=[]
+for n in ['results.json','extra-results.json','final-results.json']:all_results+=json.loads((O/'acceptance-evidence/e2e'/n).read_text(encoding='utf-8'))
+assert len(all_results)==16 and all(x['status']=='PASS' for x in all_results)
+# Explicitly preserve evidence that candidate overlay bytes still match the source.
+manifest=json.loads((W/'release-overlay-v3/manifest.json').read_text())
+assert all(hashlib.sha256((R/name).read_bytes()).hexdigest()==digest for name,digest in manifest['files'].items())
+(O/'acceptance-evidence/overlay-source-consistency.json').write_text(json.dumps({'all_manifest_files_match':True,'file_count':len(manifest['files']),'browser_final_passes':16},indent=2),encoding='utf-8')
+evidence=O/'acceptance-evidence';hashes={str(p.relative_to(evidence)):hashlib.sha256(p.read_bytes()).hexdigest() for p in evidence.rglob('*') if p.is_file()}
+(O/'acceptance-evidence-sha256.json').write_text(json.dumps(hashes,indent=2),encoding='utf-8')
+print('Verified16 final browser passes, unchanged overlay bytes, and final report files.')

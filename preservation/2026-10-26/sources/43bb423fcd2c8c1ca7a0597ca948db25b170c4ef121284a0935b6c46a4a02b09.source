@@ -1,0 +1,101 @@
+"""Read-only Oracle acquisition. Candidate modules exist only in the Python process."""
+import pathlib,subprocess,json
+root=pathlib.Path('work/oracle-ingestion-resilience')
+modules={p:(root/p).read_text(encoding='utf8') for p in ['domain/ingestion/published_fields.py','infrastructure/scrapers/published_fields.py']}
+cases=json.loads(pathlib.Path('outputs/field-availability-20261015/sample-60-fields.json').read_text(encoding='utf8'))
+fixed={'1778189475','2247746657','4578391212','33000977','33014082','33003203'}
+fixed=[r for r in cases if ''.join(c for c in r['id'] if c.isdigit()) in fixed]
+code=r"""
+import asyncio,json,sys,types,time,os,random
+from datetime import UTC,datetime
+from decimal import Decimal
+from bs4 import BeautifulSoup
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from infrastructure.scrapers.portalinmobiliario import _extract_nordic_initial_state,_components_by_id,PortalInmobiliarioScraper
+from infrastructure.scrapers.yapo_modern import payload_items
+from scripts.portal_session import portal_client
+from scripts.portal_smoke import DEFAULT_HEADERS
+from config.constants import SCRAPER_HTTP_TIMEOUT_SEC,SCRAPER_USER_AGENT
+import httpx
+SOURCES=SOURCE_VALUE
+FIXED=FIXED_VALUE
+for path,source in SOURCES.items():
+ name=path[:-3].replace('/','.')
+ module=types.ModuleType(name);module.__file__='/app/'+path;sys.modules[name]=module
+ exec(compile(source,'candidate:'+path,'exec'),module.__dict__)
+from infrastructure.scrapers.published_fields import portal_fields,yapo_fields
+os.environ['PORTAL_SESSION_READ_ONLY']='1'
+def emit(value):print(json.dumps(value,ensure_ascii=True,default=str),flush=True)
+last=0
+async def get(client,url):
+ global last
+ await asyncio.sleep(max(0,3.1-(time.monotonic()-last)))
+ last=time.monotonic()
+ r=await client.get(url,follow_redirects=False)
+ if r.status_code in (403,429):raise RuntimeError('source_blocked_'+str(r.status_code))
+ if r.status_code in (301,302,303,307,308):
+  from urllib.parse import urljoin,urlsplit
+  nxt=urljoin(str(r.url),r.headers.get('location',''))
+  if '/gz/account-verification' in nxt or 'login' in nxt:raise RuntimeError('portal_session_expired_302_account_verification')
+  if urlsplit(nxt).hostname not in {'www.portalinmobiliario.com','portalinmobiliario.com','www.mercadolibre.cl','articulo.mercadolibre.cl','www.yapo.cl','yapo.cl'}:return r
+  await asyncio.sleep(3.1);last=time.monotonic();r=await client.get(nxt,follow_redirects=False)
+ return r
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  rows=(await s.execute(text("SELECT source,external_id,url,comuna,m2,built_area_m2,usable_area_m2,raw_metadata FROM listings WHERE status='active' AND property_type='apartment' AND source IN ('yapo','portalinmobiliario') ORDER BY id"))).mappings().all()
+  rows=[dict(r) for r in rows];await s.rollback()
+ random.Random(20261015).shuffle(rows)
+ async with portal_client(headers=DEFAULT_HEADERS,timeout=30,follow_redirects=False) as portal,httpx.AsyncClient(timeout=SCRAPER_HTTP_TIMEOUT_SEC,headers={'User-Agent':SCRAPER_USER_AGENT},follow_redirects=False) as yapo:
+  candidates={s:[] for s in ['yapo','portalinmobiliario']}
+  for r in FIXED:candidates[r['source']].append(dict(r,external_id=r['id']))
+  for comuna in ['providencia','vitacura','la-florida','estacion-central','san-miguel','santiago','nunoa','macul']:
+   url='https://www.portalinmobiliario.com/venta/departamento/propiedades-usadas/'+comuna+'-metropolitana'
+   r=await get(portal,url)
+   report=PortalInmobiliarioScraper.parse_listings_detailed(r.text,uf_to_clp=Decimal('41162.73'))
+   for item in report['items']:candidates['portalinmobiliario'].append(dict(item,comuna=comuna))
+  for r in rows:candidates[r['source']].append(r)
+  for source in ['yapo','portalinmobiliario']:
+   seen=set();count=0
+   for row in candidates[source]:
+    url=row.get('url') or '';identity=''.join(c for c in str(row.get('external_id','')) if c.isdigit())
+    if not url or identity in seen:continue
+    seen.add(identity)
+    if not url.startswith('http'):url='https://'+url
+    try:
+     r=await get(yapo if source=='yapo' else portal,url)
+     if r.status_code!=200:
+      emit({'event':'skip','source':source,'id':identity,'status':r.status_code});continue
+     soup=BeautifulSoup(r.text,'lxml')
+     if source=='yapo':
+      item=next((i for i in payload_items(soup) if str(i.get('id'))==identity),None)
+      if not item or item.get('active') is False or item.get('rent') is True:continue
+      from infrastructure.scrapers.published_fields import yapo_description
+      safe={k:item.get(k) for k in ['id','link','title','price','location','exactAddress','square','lotSize','usableArea','age','floor','rooms','bathrooms','parking','subCategoryType','active','rent']}
+      safe['description']=yapo_description(soup,item)
+      fields=yapo_fields(item,soup)
+      inputs={'item':safe}
+     else:
+      state=_extract_nordic_initial_state(soup) or {};comp=_components_by_id(state.get('components'))
+      if comp.get('quotable_models'):continue
+      if ''.join(c for c in str(state.get('id','')) if c.isdigit())!=identity:continue
+      safe={k:comp[k] for k in ['technical_specifications','location_and_points','location','description'] if k in comp}
+      fields=portal_fields(state,comp,identity);inputs={'id':state['id'],'components':safe}
+     if fields is None:continue
+     count+=1
+     emit({'event':'detail','source':source,'id':identity,'url':str(r.url).split('?')[0],'comuna':row.get('comuna'),'checked_at':datetime.now(UTC).isoformat(),'fields':fields,'inputs':inputs,'before':{k:row.get(k) for k in ['m2','built_area_m2','usable_area_m2']}})
+     if count>=200:break
+    except RuntimeError:raise
+    except (httpx.HTTPError,ValueError,TypeError,KeyError) as exc:emit({'event':'error','source':source,'id':identity,'type':type(exc).__name__})
+   emit({'event':'source_done','source':source,'count':count})
+   if count<200:raise RuntimeError('insufficient_active_sample_'+source)
+ emit({'event':'complete','read_only_production':True})
+asyncio.run(main())
+""".replace('SOURCE_VALUE',repr(modules)).replace('FIXED_VALUE',repr(fixed))
+remote='import subprocess;r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-u","-"],input='+repr(code)+',text=True);raise SystemExit(r.returncode)'
+out=pathlib.Path('outputs/published-fields');out.mkdir(exist_ok=True)
+with (out/'acquisition.jsonl').open('w',encoding='utf8') as stream,(out/'acquisition.stderr').open('w',encoding='utf8') as errors:
+ r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=remote,text=True,encoding='utf8',stdout=stream,stderr=errors,timeout=7200)
+print(json.dumps({'exit_code':r.returncode,'output':str(out)}))
+raise SystemExit(r.returncode)

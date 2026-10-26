@@ -1,0 +1,131 @@
+"""Aggregate-only delivery; never loads labels, individual predictions or a network client."""
+from pathlib import Path
+import csv, hashlib, json
+from datetime import datetime, timezone
+
+HERE = Path(__file__).resolve().parent
+
+def read(name):
+    return json.loads((HERE / name).read_text(encoding='utf-8'))
+
+def main():
+    results = read('results.json')
+    assert all(v['input_contract_version'] == 'v2_missing_geo_matches_manual' for v in results.values())
+    verification = read('verification.json')
+    assert verification['source_code_seal_verified']
+    for filename, count in [('test-contracts.txt', 20), ('test-baseline.txt', 22)]:
+        assert f'{count} passed' in (HERE / filename).read_text(encoding='utf-16' if (HERE / filename).read_bytes().startswith(b'\xff\xfe') else 'utf-8-sig')
+    test_status = {
+        'contracts': '20 passed in a dedicated process',
+        'baseline': '22 passed in a dedicated process',
+        'combined_attempt': '41 passed, 1 failed: both archived sandboxes export a top-level lab module; pytest reused sys.modules[lab], causing a wrong verify() import. Original failure retained in test-results.txt. Suites passed separately; no baseline code modified.',
+        'required_execution': 'Use separate processes for the two isolated research runtimes.'
+    }
+    (HERE / 'test_status.json').write_text(json.dumps(test_status, indent=2), encoding='utf-8')
+    rows = []
+    for case, result in results.items():
+        for mode, stats in result['modalities'].items():
+            for subset in ['all', 'geo_available', 'no_geo', 'Yapo', 'Portal']:
+                for engine, metrics in stats[subset]['full'].items():
+                    rows.append({'case': case, 'mode': mode, 'subset': subset, 'engine': engine, **metrics})
+    with (HERE / 'metrics.csv').open('w', newline='', encoding='utf-8-sig') as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+    cat = results['catalog-temporal']['modalities']
+    table = ['| Modalidad | Salida | Casos / 149 | MdAPE % | MAPE % | MAE-log | P90 % | P95 % |', '|---|---|---:|---:|---:|---:|---:|---:|']
+    for mode, stats in cat.items():
+        for engine in ['A', 'AM', 'Blend', 'Final', 'FinalAM', 'FinalBlend']:
+            m = stats['all']['full'][engine]
+            table.append(f"| {mode} | {engine} | {m['n']} | {m['MdAPE']:.2f} | {m['MAPE']:.2f} | {m['MAE_log']:.4f} | {m['P90']:.2f} | {m['P95']:.2f} |")
+    intervals = ['| Comparación pareada | n | ΔMAPE puntos | IC95% por grupos |', '|---|---:|---:|---:|']
+    for mode, pair in [('manual', 'A__Blend'), ('manual', 'Final__FinalBlend'), ('located', 'A__AM'), ('located', 'Final__FinalAM'), ('enriched', 'A__Blend'), ('enriched', 'Final__FinalBlend')]:
+        p = cat[mode]['all']['pairs'][pair]
+        intervals.append(f"| {mode}: {pair} | {p['n']} | {p['delta_MAPE']:+.3f} | [{p['CI_MAPE'][0]:+.3f}; {p['CI_MAPE'][1]:+.3f}] |")
+    location = results['catalog-temporal']['input_availability_contrasts']['manual__located']
+    decision = {
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'status': 'NO_PRODUCT_WINNER; ENRICHED_CONTRACT_EXPLORATORY_CANDIDATE',
+        'first_required_answer': 'No demonstrated superiority for current manual Tasar with identical inputs, accessible catalog and final route. Enriched fixed blend has conditional exploratory MAPE/MAE-log benefit within its own contract, not demonstrated final-output superiority.',
+        'manual': cat['manual']['all']['pairs']['Final__FinalBlend'],
+        'located_AM': cat['located']['all']['pairs']['A__AM'],
+        'enriched_core': cat['enriched']['all']['pairs']['A__Blend'],
+        'enriched_final_value_ablation': cat['enriched']['all']['pairs']['Final__FinalBlend'],
+        'location_only': location,
+        'stopping_criterion': 'B, bounded to independent certification: existing cohorts already explored, frozen confirmatory holdout prohibited, Oracle READ ONLY aggregate confirms no new normal History observations since prior capture. Distinct physical/spatial/textual hypotheses already evaluated in this and prior preserved research. This is not impossibility of improving the AVM or a prohibition on later offline work.',
+        'next_action': 'Freeze the three input contracts and candidate, preregister a future temporal cut before viewing new target prices from normal ingestion. Assess complete final-route accuracy, coverage and tails by group/source/size. Investigate territorial/hedonic confidence calibration using development-only folds as a separate hypothesis, never as a correction inferred from these outer labels.',
+        'production_unchanged': read('production_unchanged.json'),
+        'new_independent_data_check': read('history_availability.json'),
+        'protected_holdout_evaluated': False,
+        'deployment_ready': False
+    }
+    (HERE / 'decision.json').write_text(json.dumps(decision, indent=2, ensure_ascii=False), encoding='utf-8')
+    report = '''# Valoria — correspondencia producto/benchmark e investigación, 11 octubre 2026
+
+**Conclusión:** no se demuestra una mejora del Tasar manual actual. El híbrido A + modelo físico/textual sigue siendo candidato exploratorio bajo el contrato enriquecido; no se certifica un ganador en la salida completa de Consensus.
+
+## Correspondencia comprobada
+
+Los cinco hallazgos Astra se confirmaron mediante código y configuración del contenedor activo. Manual y Analizar URL descartan geografía/texto del objetivo; Radar sí los conserva, pero utiliza otro recorrido. Consensus está realmente habilitado y el challenger está en modo guarded. La distancia desconocida contribuye una constante nominal 0,125. Los benchmarks ricos anteriores no representan el contrato manual ni la salida final de Tasar. Ver `contract_addendum.md` para los cinco recorridos, fallbacks, ajustes, fuentes y límites.
+
+Se implementaron manual / located / enriched sobre el runtime capturado. En cada comparación algorítmica se conservan entradas, población, catálogo y orden; las comparaciones entre modalidades se etiquetan como disponibilidad de información. El cambio de catálogo también se evalúa por separado. No hubo nueva búsqueda de pesos sobre outer-test.
+
+## Experimentos ejecutados
+
+- Dos particiones G3 sobre los mismos 791 objetivos archivados, tres modalidades cada una.
+- Cohorte temporal ya explorada de 149 publicaciones Yapo, con catálogo limpio de entrenamiento.
+- Puente con esos mismos 149 objetivos y catálogo completo archivado de 2.396 departamentos activos. El modelo aprendido mantiene las 791 referencias elegibles anteriores; cada motor aplica sus filtros nativos. Esto aproxima mejor el catálogo operativo, pero NO representa una muestra nueva ni la base actual.
+- A intacto; A-M fijo de la misma comuna; modelo físico sin texto en manual/located; modelo físico/TF-IDF en enriched; blend geométrico 50/50 fijo. A-M entre comunas queda como diagnóstico de cambio de pool en los folds originales, no prueba de mejora bajo pool constante.
+- Replay de la salida final con reglas y flags capturados. FinalAM/FinalBlend sustituyen solo el valor comparable, mantienen confianza original y escalan intervalos proporcionalmente: ablaciones de transmisión, no integración completa de los candidatos.
+
+## Resultados principales: catálogo completo archivado
+
+''' + '\n'.join(table) + '''
+
+`A`, `AM` y `Blend` comparten 130 casos tasables; `Final`, `FinalAM` y `FinalBlend` comparten 133. Cobertura 87,25% y 89,26%, respectivamente, con 19 y 16 abstenciones. No comparar métricas entre etapas con denominadores diferentes como si fueran efectos causales. `results.json` incluye comparaciones de A/Final sobre soporte común, folds, fuentes, sesgo, umbrales >20/>30/>50 y subconjuntos geográficos.
+
+''' + '\n'.join(intervals) + f'''
+
+Intervalos bootstrap pareados por grupos, 2.000 draws, condicionales a predicciones ya ajustadas. No incluyen incertidumbre de todo el entrenamiento ni corrigen selección múltiple. Son evidencia exploratoria, no confirmación independiente.
+
+**Ubicación manteniendo A fijo:** ΔMAPE {location['all']['A']['delta_MAPE']:+.3f} puntos, IC95% [{location['all']['A']['CI_MAPE'][0]:+.3f}; {location['all']['A']['CI_MAPE'][1]:+.3f}], n=130. En objetivos con coordenadas: {location['geo_available']['A']['delta_MAPE']:+.3f}, IC [{location['geo_available']['A']['CI_MAPE'][0]:+.3f}; {location['geo_available']['A']['CI_MAPE'][1]:+.3f}], n=92. No se demuestra beneficio predictivo por aportar esos pins al A actual. Son coordenadas registradas, no ubicación exacta certificada.
+
+**A-M:** mejora ligeramente la mediana del comparable localizado, pero no MAPE de manera robusta y empeora P95. Al intervenir la familia comparable de Consensus, la media del error sube. De los 149 objetivos, 49 hacen fallback por ubicación ausente y 21 por soporte local insuficiente; 79 usan selección adaptativa compatible.
+
+**Físico/textual:** la variante física manual reduce MAPE modestamente, con IC que incluye cero y mediana peor en catálogo ampliado. La variante enriquecida reduce MAPE 1,58 puntos y MAE-log 0,0215 en soporte común; IC exploratorios excluyen cero, pero el de MdAPE no. En la salida final, ΔMAPE -0,41 tiene IC [-0,97; +0,15] y P95 sube de 48,23% a 50,10%. No declarar mejora uniforme ni final confirmada. El texto disponible es mayormente título/contexto, no una ficha completa de edificio.
+
+## Diagnóstico y decisión
+
+La ruta importa: localizar el objetivo puede cambiar confianza/peso territorial y hedónico incluso cuando sus estimaciones permanecen comunales. En el catálogo ampliado esto ocurre en 95 casos. No es todavía prueba de un bug ni de que eliminar ese término mejore; es una hipótesis independiente sobre calibración y correlación de familias.
+
+El benchmark anterior servía para investigar A_core en publicaciones enriquecidas; no permitía afirmar superioridad en Tasar manual. El harness nuevo cierra la discrepancia de contratos y calcula la transmisión al final, con los límites explicitados. También se corrigió una contaminación del nuevo contrato located: sin coordenadas copiaba precisión y cambiaba confianza. Se conservaron v1 y protocolos; los resultados de esta entrega son v2. No se modificaron modelos según outcomes.
+
+No corresponde sustituir A ni agregar otra familia al consenso. Se conserva el candidato enriquecido fijo. La barrera material es **certificar generalización independiente ahora**: las cohortes disponibles ya fueron consumidas, el holdout sigue protegido y la comprobación READ ONLY de History da las mismas 3.824 observations, última 11 octubre 06:25:31 UTC. No hay nuevas observaciones normales para una validación independiente en esta revisión. Las alternativas físicas, espaciales, ajustes de comparables, kernels, agregaciones y texto examinadas previamente siguen preservadas. Esto no demuestra imposibilidad de mejorar el AVM.
+
+Siguiente acción: fijar por adelantado un corte temporal futuro del pipeline normal y el criterio de precisión/incertidumbre antes de ver nuevos precios. Evaluar contratos por separado y el final completo; conservar cobertura y colas como gates. Si se desarrolla una calibración de confianza de Consensus, ajustarla exclusivamente en desarrollo interno y evaluarla como otra hipótesis congelada. No seguir eligiendo pesos contra estas mismas etiquetas externas. No se programó scraping ni una automatización nueva.
+
+## Reproducción, integridad y seguridad
+
+20 tests de contratos y 22 del baseline pasan **en procesos separados**. La ejecución conjunta produjo una colisión entre módulos homónimos `lab` de dos sandboxes; se conserva su log y explicación en `test_status.json`. No se cambió el baseline para ocultarla. `verification.json` comprueba 5.640 recibos target×modalidad (no casos independientes), mismas particiones/labels/grupos, paridad del comparable nativo, roundtrip de checkpoints, 1.437 archivos previos y 145 fuentes capturados.
+
+Artefactos individuales cifrados DPAPI CurrentUser, excluidos de Git. Informes agregados sin secretos. Oracle solo se leyó; imagen, arranque, flags y hashes de valoración permanecen iguales. Sin migración, scraping, cambios de timers, History, producto ni evaluación del holdout.
+
+Desde la carpeta del proyecto, comandos sobre los archivos ya archivados:
+
+```powershell
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/product_contracts_20261011/verify_delivery.py
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/product_contracts_20261011/summarize.py
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/product_contracts_20261011/diagnose_routes.py
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/product_contracts_20261011/deliver.py
+```
+
+Los runners de preparación/entrenamiento rechazan sobrescribir resultados. Para repetir entrenamiento completo, usar otra carpeta aislada y registrar un nuevo protocolo, sin alterar este archivo. Los tests requieren pytest del Python del sistema con site-packages de `.venv-repro`, cada suite en proceso propio. `metrics.csv` y `results.json` contienen los agregados; `delivery_manifest.json` fija sus hashes y los del código/protocolos/resultados cifrados. Los scripts de captura Oracle no forman parte del replay offline.
+'''
+    (HERE / 'README.md').write_text(report, encoding='utf-8')
+    hashes = {}
+    for f in sorted(HERE.iterdir()):
+        if f.is_file() and f.name != 'delivery_manifest.json':
+            hashes[f.name] = {'bytes': f.stat().st_size, 'sha256': hashlib.sha256(f.read_bytes()).hexdigest()}
+    (HERE / 'delivery_manifest.json').write_text(json.dumps({'generated_at': datetime.now(timezone.utc).isoformat(), 'files': hashes, 'scope': 'Top-level delivery; oracle_runtime.json pins captured runtime; protocol.json pins original input files.'}, indent=2), encoding='utf-8')
+    print(json.dumps({'delivery': 'complete', 'metric_rows': len(rows), 'files_hashed': len(hashes), 'status': decision['status']}))
+
+if __name__ == '__main__':
+    main()

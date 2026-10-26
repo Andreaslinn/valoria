@@ -1,0 +1,46 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const ts = require("typescript");
+
+function load(relative, imports = {}) {
+  const context = { exports: {}, require: (name) => imports[name] ?? {} };
+  const source = fs.readFileSync(path.join(__dirname, "../src", relative), "utf8");
+  vm.runInNewContext(ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText, context);
+  return context.exports;
+}
+const { ApiError } = load("lib/api/client.ts");
+
+// Exercise each screen's real error formatter without rendering or network access.
+for (const [folder, component] of [["valuation", "Valuation"], ["radar", "Radar"],
+                                  ["listing-url", "ListingUrl"], ["portfolio", "Portfolio"]]) {
+  function format(error) {
+    const helperPath = path.join(__dirname, "../src/lib/api/uf-error.ts");
+    const helper = fs.existsSync(helperPath)
+      ? load("lib/api/uf-error.ts", { "@/lib/api/client": { ApiError } }) : {};
+    const source = fs.readFileSync(path.join(__dirname, `../src/features/${folder}/${component}Workspace.tsx`), "utf8");
+    const start = source.indexOf("function errorText(");
+    const code = ts.transpileModule(source.slice(start) + "\nexports.format = errorText;", {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const context = { exports: {}, ApiError, ...helper };
+    vm.runInNewContext(code, context);
+    return context.exports.format(error, "Error genérico");
+  }
+  test(`${component}: missing UF gets a clear message`, () => {
+    const message = format(new ApiError("UF real no disponible", 503, { detail: "UF real no disponible" }));
+    assert.match(message, /UF/);
+    assert.match(message, /Intenta/);
+    assert.doesNotMatch(message, /backend|API tuvo un problema/);
+  });
+  test(`${component}: unrelated failures are not labelled as missing UF`, () => {
+    for (const error of [new ApiError("maintenance", 503, { detail: "Mantenimiento" }),
+                         new ApiError("internal", 500), new ApiError("network", 0)]) {
+      assert.doesNotMatch(format(error), /UF/);
+    }
+  });
+}

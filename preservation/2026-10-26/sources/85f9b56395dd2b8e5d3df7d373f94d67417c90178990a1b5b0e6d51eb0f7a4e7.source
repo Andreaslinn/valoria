@@ -1,0 +1,41 @@
+import json, math
+from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+d=json.loads(Path('work/address-coverage-step0-production.json').read_text())
+names={'providencia':'Providencia','vitacura':'Vitacura','la_florida':'La Florida','estacion_central':'Estación Central','san_miguel':'San Miguel','santiago':'Santiago'}
+def display(c):return names.get(c,c.replace('_',' ').title())
+def cell(r):return 'Sin avisos' if not r['active_apartments'] else f"{r['address_geocoded_n']}/{r['active_apartments']} ({r['address_geocoded_pct']:.2f}%)"
+stamp=datetime.fromisoformat(d['generated_at_utc']).astimezone(ZoneInfo('Europe/Berlin')).strftime('%d-%m-%Y %H:%M %Z')
+lines=[f'# Tasar: cobertura de direcciones — paso 0\n',f'**Medición: {stamp}. Resultado: detener la implementación por el umbral solicitado.** Ninguna de las seis comunas alcanza el 40%, tampoco el conjunto: **287/1.417 = 20,25%**. No se modificaron Tasar, motores, flags ni producción. No se hicieron solicitudes a geocodificadores.\n',
+'Consulta de la base actual de Oracle, en transacción `REPEATABLE READ, READ ONLY`. Universo: `status=active`, `property_type=apartment`; ambas fuentes presentes son `portalinmobiliario` y `yapo`. Cobertura de dirección exige coordenadas válidas, precisión normalizada `address` (incluidos alias históricos) y excluye el centroide conocido. Tener texto de calle o coordenadas de comuna no cuenta. Es una auditoría de los datos persistidos, sin verificación de campo; la etiqueta de precisión por sí sola no prueba identidad de edificio.\n',
+'## Seis comunas solicitadas\n',
+'| Comuna | Portal: geocodificados/activos | Yapo: geocodificados/activos | Total | Faltan para 40% |',
+'|---|---:|---:|---:|---:|']
+for c in names:
+    total=next(x for x in d['by_comuna'] if x['comuna']==c)
+    seg={x['source']:x for x in d['by_comuna_source'] if x['comuna']==c}
+    lines.append(f"| {display(c)} | {cell(seg['portalinmobiliario'])} | {cell(seg['yapo'])} | {cell(total)} | {max(0,math.ceil(total['active_apartments']*.4)-total['address_geocoded_n'])} |")
+lines+=['\n“Sin avisos” significa denominador cero, no 0% de cobertura. Las cuatro comunas sin Portal son una brecha de adquisición además de geocodificación.\n',
+'**Control conservador:** si además se aplica la guardia existente que degrada coordenadas repetidas en cinco o más avisos, quedan **279/1.417 = 19,69%**. Santiago baja a 30/344 (8,72%) y San Miguel a 17/148 (11,49%). Esa guardia puede descartar un edificio legítimo; para distinguirlo de un centroide se necesita calle+número y procedencia verificable.\n',
+'## Edificios: evidencia disponible\n',
+'El extractor actual encuentra **65 direcciones textuales candidatas con número**. De ellas, **60** carecen de geocodificación de dirección. Hay **4 direcciones candidatas repetidas, con 8 avisos**: Santiago, 3 grupos/6 avisos (Portal); Vitacura, 1 grupo/2 avisos (Yapo). Las otras cuatro comunas tienen cero grupos detectados. **Ninguno de esos ocho avisos tiene geocodificación de dirección utilizable.**\n',
+'Son coincidencias candidatas por comuna y texto normalizado de calle+número; no edificios confirmados ni ocho departamentos distintos verificados. Pueden existir duplicados o errores de extracción. Las coordenadas iguales por sí solas no se contabilizaron como edificio. Esta cifra es un mínimo detectado con el extractor actual, no un censo exhaustivo: una pista vaga en metadata puede ocultar una dirección más precisa en otro campo.\n',
+'## Propuesta de costo cero\n',
+'1. **Recuperar antes de geocodificar.** Revisar los payloads ya persistidos de Portal y Yapo: dirección estructurada, calle+número y coordenadas originales con evidencia de precisión. Conservar procedencia, precisión, fecha y una clave de edificio normalizada por comuna/calle/número, separada del número de departamento. Corregir la elección de pistas para que una calle sin número no oculte una dirección completa en otro campo. No promover textos de barrio ni puntos aproximados a `address`.\n',
+'2. **Completar adquisición.** Priorizar detalles de avisos activos sin ubicación utilizable, mediante los mecanismos existentes de cada fuente y respetando sus restricciones. Cubrir Portal en Providencia, Vitacura, La Florida y San Miguel, donde hoy no hay deptos activos. Deduplicar publicaciones antes de contar pares del mismo edificio o realizar leave-one-out.\n',
+'3. **Priorizar la brecha medida.** Se necesitan al menos **282 geocodificaciones adicionales**, distribuidas como en la tabla, manteniendo el inventario actual. Aun si se resolvieran las 60 direcciones textuales detectadas, el conjunto llegaría solo a **347/1.417 = 24,49%**; el backfill del texto actual no basta por sí solo. La Florida y Vitacura están cerca del umbral, pero Estación Central y Santiago concentran la mayor brecha.\n',
+'4. **Geocodificación gratuita limitada.** Reutilizar primero coordenadas originales verificables y la caché existente. No ejecutar un backfill masivo sobre Nominatim público. Para verificaciones puntuales: máximo 1 solicitud/s global, caché compartida, identificación del cliente y pausa ante límites/errores; para volumen, evaluar datos abiertos locales con licencias adecuadas y sin servicios pagos. Los 60 candidatos no implican 60 aciertos garantizados.\n',
+'5. **Repetir el gate.** Exigir al menos 40% en cada una de las seis comunas y evaluar cantidad de edificios/vecinos independientes, no solo cobertura. Después implementar la dirección opcional bajo flag y ejecutar el backtest solicitado, excluyendo el aviso objetivo y sus duplicados. Mantener intacta la ruta sin dirección.\n',
+'## Backtest, cambios y PR\n',
+'**No ejecutados**, conforme a la regla explícita de detenerse si la cobertura queda bajo 40%. No hay métricas antes/después nuevas, mejora de 3 puntos demostrada ni revalidación nueva del benchmark HousePricing 7,9%. No se creó un PR de implementación ni se preparó otro despliegue: esta salida entrega únicamente medición y propuesta. El release canónico existente no se modificó.\n',
+'## Anexo: todas las comunas con deptos activos\n',
+'| Comuna | Portal: geocodificados/activos | Yapo: geocodificados/activos | Total |',
+'|---|---:|---:|---:|']
+for r in d['by_comuna']:
+    seg={x['source']:x for x in d['by_comuna_source'] if x['comuna']==r['comuna']}
+    lines.append(f"| {display(r['comuna'])} | {cell(seg['portalinmobiliario'])} | {cell(seg['yapo'])} | {cell(r)} |")
+lines+=['\nEvidencia agregada: `work/address-coverage-step0-production.json`. Consulta reproducible: `work/audit_address_coverage_step0.py` y puente de lectura `work/run_address_coverage_step0.py`. No se exportaron direcciones individuales, usuarios ni credenciales.']
+Path('outputs/tasar-address-coverage-step0.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
+print('outputs/tasar-address-coverage-step0.md')

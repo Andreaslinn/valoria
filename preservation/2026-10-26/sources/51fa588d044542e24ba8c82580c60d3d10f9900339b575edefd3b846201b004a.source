@@ -1,0 +1,29 @@
+"""Dependency diagnostics only. Neither grouping builder nor readiness certificate."""
+from collections import Counter,defaultdict
+
+def diagnose(ds):
+    ds.validate();keys=defaultdict(set);publications=defaultdict(list);listing_pubs=defaultdict(set)
+    urls=defaultdict(set)
+    for r in ds.records:
+        for k in r.keys():keys[k].add(r.group_id)
+        publications[r.publication_id].append(r)
+        listing_pubs[r.listing_id].add(r.publication_id)
+        if r.canonical_url:urls[r.publication_id].add(r.canonical_url)
+    # Contradiction/ambiguous states are supplied reviewed annotations; no price-based inference.
+    return {'snapshot_id':ds.snapshot_id,'snapshot_sha256':ds.hash(),'rows':len(ds.records),
+            'publications':len(publications),'canonical_listings':len(listing_pubs),
+            'observations':len({r.observation_id for r in ds.records}),
+            'supported_physical_identity_keys':len({r.physical_identity for r in ds.records if r.physical_identity}),
+            'declared_CV_groups':len({r.group_id for r in ds.records if r.group_id}),
+            'identity_status_counts':dict(Counter(r.identity_status for r in ds.records)),
+            'reobserved_publications':sum(len({r.observed_at for r in rows})>1 for rows in publications.values()),
+            'listing_multiple_publications':sum(len(p)>1 for p in listing_pubs.values()),
+            'lineage_keys_crossing_declared_groups':sum(len(g)>1 for g in keys.values()),
+            'publication_url_variants_gt1':sum(len(v)>1 for v in urls.values()),
+            'identifier_coverage':sum(bool(r.publication_id and r.listing_id and r.observation_id) for r in ds.records),
+            'url_coverage':sum(bool(r.canonical_url) for r in ds.records),
+            'image_evidence_coverage':sum(r.image_evidence for r in ds.records),
+            'missing_features':{k:sum(r.features[k] is None for r in ds.records) for k in ['bedrooms','bathrooms','parking']},
+            'grouping_policy':ds.grouping_policy,'grouping_evidence_hash':ds.grouping_evidence_hash,
+            'certification':'SYNTHETIC_KNOWN_ONLY' if ds.origin=='synthetic' else 'NOT_CERTIFIED_BY_THIS_DIAGNOSTIC',
+            'real_training_allowed':False,'candidate_pairs_not_inferred':True}

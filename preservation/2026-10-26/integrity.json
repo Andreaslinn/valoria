@@ -1,0 +1,13 @@
+{
+  "records": 2143,
+  "unique_source_blobs": 1257,
+  "paths_with_archived_variants": 99,
+  "all_stored_hashes_verified": true,
+  "unchanged_active_components": {
+    "config/valuation_flags.py": "213f44d70672cba0082350af8dce14289d9855f6338282c588fed2ea81d25308",
+    "services/valuation.py": "d4b50d27eb59e1198444315df569cd53319d71b9f04f85cfb21475b4b75fcc77",
+    "services/sii/closing_knn.py": "0e29cf44711c2cab8da612ca42ade263ca4f6aa10c4914c57a8ccd75423bd54f",
+    "services/sii/closing_opinion.py": "5adedbac620e9bf04b895ceca7f261c9a3456ac89203331bdef63d7424a13ac0",
+    "netlify.toml": "26660353c35959bbd2f7290445934c376261a64b55d7ed959df95b401e2557a2"
+  }
+}

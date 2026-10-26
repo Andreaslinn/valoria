@@ -1,0 +1,71 @@
+from lab import *
+from history_feasibility import normalize
+from dataclasses import replace
+def temporal_data():
+ p,(datasets,cohort,maps,_)=load();base=datasets['G3'];b=module('temporal_cohort',ROOT/'research/tasar_cohort_20261009T154414Z/build.py')
+ old=read(ROOT/b.POLICY['snapshot'])['listings'];hist=decrypt(HERE/'modern_history.json.dpapi')['rows'];first={}
+ for o in hist:first.setdefault((o['source'],o['external_id']),o)
+ index={o['observation_id']:o for o in first.values()};eligible=decrypt(HERE/'temporal_eligibility.json.dpapi')['eligible']
+ # Rebuild inference graph across ALL old and first modern observations, never labels.
+ combined=list(old);original={r['id']:r['id'] for r in old};mapping={};nextid=max(original)+1
+ for o in first.values():
+  r=normalize(o);r['id']=nextid;mapping[o['observation_id']]=nextid;combined.append(r);nextid+=1
+ fs,pairs,groups=b.dependencies(combined)
+ edges=[(q['id_a'],q['id_b']) for q in pairs if q['G3']]
+ # Extra conservative links: original listing aliases and the reviewed old G3 amendments.
+ for oid,j in mapping.items():
+  i=index[oid]['listing_id']
+  if i in original:edges.append((i,j))
+ buckets=defaultdict(list)
+ for r in base.records:buckets[r.group_id].append(int(r.listing_id))
+ for ids in buckets.values():edges.extend(zip(ids,ids[1:]))
+ graph=b.identity.graph(fs,edges);oldcomponents={graph[i] for i in original}
+ chosen=[oid for oid in eligible if graph[mapping[oid]] not in oldcomponents]
+ from avm01.data import Record,Dataset
+ from avm01.monetary_text import sanitize
+ train=[]
+ for r in base.records:train.append(replace(r,group_id=f'temporal-{graph[int(r.listing_id)]}'))
+ targets=[]
+ for oid in chosen:
+  o=index[oid];s=normalize(o);area,_=b.area(s);target={k:s.get(k) for k in ['comuna','m2','bedrooms','bathrooms','parking','property_type','built_area_m2','usable_area_m2','land_area_m2','geocode_precision']}
+  target['id']=s['id'];target['coordinates']=s.get('coordinates') or ({'lat':s['lat'],'lon':s['lon']} if s.get('lat') is not None and s.get('lon') is not None else None)
+  meta=s.get('raw_metadata') or {};target['raw_metadata']={k:sanitize(meta[k]) for k in ['address_label','street_hint','location_text'] if meta.get(k)};target['raw_metadata']['title']=sanitize(s.get('title'))
+  f={k:float(s[k]) if s.get(k) is not None else None for k in ['bedrooms','bathrooms','parking']};f.update(log_area=math.log(area),comuna=s['comuna'],source=s['source'])
+  # Targets deliberately have no canonical_listing: no held price payload can reach fit/inference.
+  targets.append(Record(row_id='modern-'+oid,publication_id=str(s['external_id']),listing_id=str(s['id']),observation_id='modern-'+oid,group_id=f'temporal-{graph[mapping[oid]]}',identity_status='cv_group_reviewed',features=f,price_uf=float(s['price_uf']),observed_at=o['observed_at'],available_at=o['observed_at'],prediction_at=o['observed_at'],price_available_at=o['observed_at'],canonical_url=s['url'],latitude=s['lat'],longitude=s['lon'],canonical_target=target))
+ ds=Dataset(tuple(train+targets),'real_retrospective_snapshot_candidate','modern-history-first-seen-'+sha(HERE/'modern_history.json.dpapi'),'temporal-entire-old-plus-modern-G3',digest({'old':b.POLICY['snapshot_sha256'],'history':sha(HERE/'modern_history.json.dpapi'),'edges':edges}),index_policy='first_observation_v1');ds.validate()
+ audit={'old_rows':len(old),'first_modern_nodes':len(first),'price_blind_pairs':len(pairs),'g3_edges_plus_aliases':len(edges),'direct_screen_eligible':len(eligible),'transitive_screen_eligible':len(targets),'train':len(train),'target_groups':len({r.group_id for r in targets}),'new_sources':dict(Counter(r.features['source'] for r in targets)),'new_comunas':dict(Counter(r.features['comuna'] for r in targets)),'geo_targets':sum(r.latitude is not None for r in targets),'target_dates':dict(Counter(r.observed_at[:10] for r in targets)),
+ 'policy':'All old 6283 + all1449 first modern nodes, G3 and listing alias bridges; exclude any target connected to any old row, also direct generic-candidate risk excluded; none chosen by price level or error; one earliest observation per publication',
+ 'limit':'Physical identity and coordinate precision not certified; source-only Yapo; 6-day temporal continuation, not transactions or confirmatory holdout'}
+ return ds,tuple(r.row_id for r in train),tuple(r.row_id for r in targets),audit
+def prepare():
+ c=verify();ds,train,test,audit=temporal_data();write(HERE/'temporal_identity_audit.json',audit)
+ path=HERE/'temporal_protocol.json';assert not path.exists(),'Refuse registration overwrite'
+ protocol={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':{'temporal':ds.hash()},'allowed_engines':c['allowed_engines']+['AM','Hybrid','MedianA','GeoMeanA'],'uf_reference':c['uf_reference'],'base_protocol_sha256':sha(HERE/'protocol.json'),'history_sha256':sha(HERE/'modern_history.json.dpapi'),'train_ids_sha256':digest(train),'test_ids_sha256':digest(test),'fit_policy':'Only Oct4 train labels. No adaptation to modern observations or evaluation targets. Same fixed iteration1 models and local residual cross-fit. A canonical parity for every target; A-M fixed prior adaptive. Hybrid=A if available else Flex. MedianA/GeoMeanA arithmetic aggregation ablations with A selected pool and same frozen surface factor.','decision':'Report all candidates, paired common and own-support; no temporal-label tuning; these data become consumed once evaluated. No claim on transactions or protected final holdout.'}
+ write(path,protocol);(HERE/'temporal_protocol.sha256').write_text(sha(path))
+ # Preserve original authorization guards; extend only this isolated runtime to TWO sealed authorized datasets.
+ (RUNTIME/'avm01/pilot_authorization.py').write_text('''from pathlib import Path
+import json,hashlib
+from .data import InvalidExperiment
+ROOT=Path(__file__).resolve().parents[2]
+def protocols():
+ out=[]
+ for stem in ['protocol','temporal_protocol']:
+  p=ROOT/(stem+'.json')
+  if not p.exists():continue
+  h=hashlib.sha256(p.read_bytes()).hexdigest()
+  if h!=(ROOT/(stem+'.sha256')).read_text().strip():raise InvalidExperiment('Protocol changed')
+  out.append((h,json.loads(p.read_text())))
+ return out
+def authorize_dataset(ds):
+ if not any(ds.hash() in p['dataset_sha256'].values() for h,p in protocols()):raise InvalidExperiment('Unregistered dataset')
+def authorize_config(c):
+ for h,p in protocols():
+  if c.get('experiment_protocol_sha256')==h and c.get('real_execution_enabled') is True and set(c.get('engines',[]))<=set(p['allowed_engines']):return
+ raise InvalidExperiment('Wrong boundary')
+''',encoding='utf-8')
+ # Sandbox copy of A-M, canonical source and original files unmodified.
+ text=(ROOT/'research/portal_geo_am_v0_20261010/experimental.py').read_text().replace('from common import *','from lab import *').replace("HERE/'integration/domain/geocoding/source_quality.py'","ROOT/'research/portal_geo_am_v0_20261010/integration/domain/geocoding/source_quality.py'")
+ (HERE/'am.py').write_text(text,encoding='utf-8');write(HERE/'temporal_code_seal.json',{str(f.relative_to(HERE)):sha(f) for f in [HERE/'models.py',HERE/'am.py',HERE/'temporal_prepare.py',RUNTIME/'avm01/pilot_authorization.py']})
+ print(json.dumps(audit))
+if __name__=='__main__':prepare()

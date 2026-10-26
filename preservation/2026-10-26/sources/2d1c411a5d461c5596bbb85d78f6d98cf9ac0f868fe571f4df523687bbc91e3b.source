@@ -1,0 +1,41 @@
+import json,pathlib,shutil
+root=pathlib.Path('outputs/discovery-same-day')
+repo=pathlib.Path('work/oracle-ingestion-resilience')
+proof=json.loads((root/'yapo-cycle-proof.json').read_text())
+assert proof['passed'] and proof['production_writes']==0
+row=proof['outcomes'][0]
+assert row['ledger_coherent'] and row['ledger']['successful']
+assert row['capture_percent']>=80 and not any(row['statuses'].get(str(k),0) for k in [302,403,429])
+reference=json.loads((root/'reference-same-snapshot.json').read_text())
+assert reference['passed'] and reference['before']==reference['after']
+proof['candidate_file_sha256']=reference['candidate_file_sha256']
+validation=repo/'deploy/discovery-same-day/validation'
+(validation/'yapo-cycle-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf8')
+pending=json.loads((validation/'yapo-final-cycle-pending.json').read_text())
+pending['historical_only']=True;pending['superseded_by']='yapo-cycle-proof.json'
+(validation/'yapo-final-cycle-pending.json').write_text(json.dumps(pending,indent=2),encoding='utf8')
+readme=repo/'deploy/discovery-same-day/README.md'
+readme.write_text(readme.read_text(encoding='utf8')+'''
+Resultado final del ciclo real aislado del 16-oct 10:42–10:47 UTC: **14/15
+altas individuales con detalle (93,33%)**, 43 respuestas 200 y cero
+302/403/429. El ledger exitoso coincide con los contadores del job: 15
+insertados, 389 actualizados, 149 omitidos y 10 rechazados por validación.
+Se realizaron 29 búsquedas y 14 fichas; frente a 29 búsquedas + hasta cinco
+fichas anteriores, son **9 solicitudes extra** en este ciclo. Las 14 fichas
+pedidas se capturaron; la aceptación usa el denominador conservador de las
+15 nuevas identidades de departamentos en las ocho comunas persistidas en
+aislamiento, sin excluir la que no tiene observación de detalle.
+
+Suite completa final: **1995 passed**, nueve advertencias de deprecación
+existentes. Con la misma base y UF 41.168,03: Santiago 70 m² = 3.247,47 UF,
+La Florida 82 m² = 3.878,19 UF, idénticos antes/después y mismos comparables.
+Los hashes de los ocho archivos candidatos se adjuntan con la evidencia.
+No hubo merge, despliegue, borrados ni escrituras de producción; se conservaron
+los contenedores de auditoría detenidos y sus logs, respetando la prohibición
+de borrar recursos de Oracle. El PR permanece en borrador y requiere OK nuevo.
+''',encoding='utf8')
+body=pathlib.Path('work/discovery-pr-body-final.md').read_text(encoding='utf8')
+body=body.replace('YAPO_FINAL_RESULT','Yapo: 14/15 altas con detalle (93,33%), 43 HTTP 200 y cero 302/403/429; ledger exitoso y coherente con 15 insertados y 389 actualizados. Son 29 búsquedas + 14 fichas: +9 GET frente al presupuesto previo de hasta cinco fichas. Las 14 fichas pedidas se capturaron; no se excluye del denominador la alta sin detalle.')
+body=body.replace('SUITE_FINAL_RESULT','Suite completa final: 1995 passed, nueve advertencias existentes.')
+pathlib.Path('work/discovery-pr-body.md').write_text(body,encoding='utf8')
+print(json.dumps({'passed':proof['passed'],'capture_percent':row['capture_percent'],'requests':row['requests'],'ledger_coherent':row['ledger_coherent']}))

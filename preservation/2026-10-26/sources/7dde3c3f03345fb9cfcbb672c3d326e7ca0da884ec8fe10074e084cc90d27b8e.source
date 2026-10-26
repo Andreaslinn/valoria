@@ -1,0 +1,18 @@
+import subprocess,pathlib,json
+root=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session')
+code='''import httpx,json,asyncio,sys
+from scripts.portal_smoke import DEFAULT_HEADERS
+from infrastructure.scrapers.portalinmobiliario import classify_portal_page_state,PortalInmobiliarioScraper
+from decimal import Decimal
+async def main():
+ data=json.load(sys.stdin);jar=httpx.Cookies()
+ for c in data['cookies']:jar.set(c['name'],c['value'],domain=c['domain'],path=c['path'])
+ async with httpx.AsyncClient(headers=DEFAULT_HEADERS,cookies=jar,follow_redirects=False,timeout=30) as client:
+  r=await client.get('https://www.portalinmobiliario.com/venta/departamento/santiago-metropolitana')
+  report=PortalInmobiliarioScraper.parse_listings_detailed(r.text,uf_to_clp=Decimal('40000')) if r.status_code==200 else {}
+  print(json.dumps({'status':r.status_code,'state':classify_portal_page_state(r.text,status_code=r.status_code),'cards':report.get('cards_detected',0),'items':len(report.get('items',[])),'redirect_path':r.headers.get('location','').split('?')[0]}))
+asyncio.run(main())
+'''
+# Session goes to the existing process through stdin, never logs or command arguments.
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-c',code],input=(root/'session.json').read_bytes(),capture_output=True)
+print(r.stdout.decode());print(r.stderr.decode()[-1000:])

@@ -1,0 +1,24 @@
+import subprocess,pathlib
+code='''import httpx,json,asyncio,sys
+from scripts.portal_smoke import DEFAULT_HEADERS
+from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal,classify_portal_detail_page_state
+from urllib.parse import urlsplit,urljoin
+async def main():
+ data=json.load(sys.stdin);jar=httpx.Cookies()
+ for c in data['cookies']:jar.set(c['name'],c['value'],domain=c['domain'],path=c['path'])
+ async with httpx.AsyncClient(headers=DEFAULT_HEADERS,cookies=jar,follow_redirects=False,timeout=30) as client:
+  url='https://www.portalinmobiliario.com/MLC-4082793840-venta-depto-1-dorm-1-bano-en-macul-_JM'
+  r=await client.get(url)
+  hops=[]
+  for _ in range(2):
+   if r.status_code not in (301,302,303,307,308):break
+   nxt=urljoin(str(r.url),r.headers.get('location',''));p=urlsplit(nxt)
+   hops.append({'status':r.status_code,'host':p.hostname,'path':p.path})
+   if p.hostname not in ('www.portalinmobiliario.com','www.mercadolibre.cl','articulo.mercadolibre.cl') or '4082793840' not in p.path:break
+   await asyncio.sleep(3);r=await client.get(nxt)
+  detail=parse_listing_detail_portal(r.text,str(r.url)) if r.status_code==200 else {}
+  print(json.dumps({'status':r.status_code,'state':classify_portal_detail_page_state(r.text,status_code=r.status_code),'hops':hops,'id':detail.get('external_id'),'coordinates':{k:v for k,v in detail.get('raw_metadata',{}).items() if 'coord' in k or 'geo' in k},'lat':detail.get('lat'),'lon':detail.get('lon')}))
+asyncio.run(main())
+'''
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-c',code],input=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session/session.json').read_bytes(),capture_output=True)
+print(r.stdout.decode(),r.stderr.decode()[-1000:])

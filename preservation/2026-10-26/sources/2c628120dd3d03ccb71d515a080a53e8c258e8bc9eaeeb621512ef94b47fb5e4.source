@@ -1,0 +1,92 @@
+# Experimento espacial offline A / A+ / B / B-frozen
+
+Implementación: `scripts/spatial_experiment.py`. No registrada en rutas, workers
+ni registry productivo. Se ejecuta en proceso dedicado; no es concurrente.
+
+## Reproducción
+
+Exportación autorizada exclusivamente desde la base LOCAL de desarrollo:
+
+```powershell
+docker exec -e PYTHONDONTWRITEBYTECODE=1 valoria-v2-dev-api-1 python -m scripts.spatial_experiment export --cutoff 2026-10-02T12:00:00Z > .local/spatial-snapshot-final-20261002.json
+```
+
+La exportación usa REPEATABLE READ, READ ONLY, orden estable y metadatos
+permitidos de ubicación/precio. No exporta .env ni credenciales. No debe
+reexportarse para reproducir resultados: conservar el JSON fijo y su SHA256.
+
+```powershell
+python -m scripts.spatial_experiment run --cutoff 2026-10-02T12:00:00Z --snapshot .local/spatial-snapshot-final-20261002.json --uf-rate 41040.82 --limit 2002 --progress-file .local/spatial-progress.json > .local/spatial-results-20261002.json 2> .local/spatial-run.log
+python -m scripts.spatial_report .local/spatial-results-20261002.json ../outputs/valoria-spatial-experiment-20261002.md --support ../outputs/spatial-support-20261002.json
+python -m pytest tests/unit/test_spatial_experiment.py tests/unit/test_comparables_canonical_engine.py tests/unit/test_comparables_legacy_engine.py tests/unit/test_scoring.py tests/unit/test_price_surface.py tests/unit/test_valuation_consensus_orchestrator.py tests/unit/test_valoria_consensus.py -q -p no:cacheprovider
+```
+
+La tasa 41040.82 proviene de la respuesta real archivada del proveedor
+mindicador.cl del 2026-09-28. Es un parámetro fijo de benchmark, NO una
+afirmación de UF vigente para producción el 2026-10-02. La referencia de error
+principal es el CLP almacenado del anuncio, como en el evaluador existente;
+conversiones históricas y calidad monetaria pueden sesgar sus errores.
+
+## Variantes
+
+- A reproduce el target reducido de Tasar y la familia
+  comparables_canonical_outliers sobre anuncios comunales del mismo tipo.
+- A+ modifica exclusivamente coordenadas y precisión del target cuando su
+  etiqueta normalizada es address. Esa etiqueta no verifica físicamente el pin.
+- B admite comunas distintas mediante un override experimental del filtro de
+  igualdad de comuna; no cambia las etiquetas de los anuncios. Ensaya 0.5, 1,
+  2 y 5 km. Conserva canonicalización, outliers, scoring y postprocesado.
+  El primer radio aceptado tiene al menos cinco comparables finales tras
+  agrupar coincidencias evidentes. La independencia física sigue sin verificarse.
+- Si ningún radio sirve, B devuelve A explícitamente. A+ insuficiente NO se
+  sustituye silenciosamente por A.
+- B-frozen reutiliza la superficie completa de A, incluyendo ausencia de
+  referencia, y conserva la referencia/pool que B habría calculado. Si A no
+  alcanzó postprocesado o B es fallback, frozen_applicable es false.
+
+## Instrumentación y atribución
+
+Cada resultado incluye pre/postajuste, delta/dirección, referencia completa,
+condiciones/peso del ajuste, IDs del pool final y IDs que contribuyen a la
+referencia efectiva. El pool puede tener anuncios vecinos que no contribuyen
+al bucket comunal seleccionado. El JSON fijo permite reconstruirlos.
+
+Se conservan estimaciones, errores y confianza de cada familia. La mezcla
+controlada congela pesos Y estrategia de A; la real mantiene las otras señales
+de A pero recalcula las reglas normales. Se capturan pesos del combinador
+directamente, antes de la sobrescritura del orquestador. El audit contiene los
+pesos base y modificadores de confianza, cobertura y desacuerdo.
+La confianza y cobertura de la mezcla controlada también se conservan de A;
+no se presentan como una recalibración de confianza de B.
+
+En este snapshot VALORIA_USE_CONSENSUS=false: ambas mezclas son contrafactuales
+offline, NO el resultado que hoy devuelve este dev. No se cambió ese flag.
+Se registra la puerta por insuficiencia del cálculo base, pero no se finge que
+este benchmark reproduce autenticación, proveedor UF ni toda la respuesta del
+servicio. Ninguna mezcla es una propuesta de activación automática.
+
+## Controles y límites
+
+- Mismo universo y referencias para todas las variantes; métricas globales y
+  sobre casos comunes, cobertura nativa y con fallback.
+- Exclusión transitoria de coincidencias de fingerprint, URL y external_id,
+  además del objetivo, como control de benchmark. A no recibe una nueva
+  deduplicación productiva. property_id se informa, no se asume correcto.
+- Estabilidad: retirar el comparable de mayor score y reevaluar; si quedan
+  insuficientes, informar ausencia de estimación, no cero cambio.
+- No decay temporal, microzonas nuevas, migraciones, índices o datos reparados.
+- Snapshot de anuncios actualmente activos con corte por scraped_at; NO
+  reconstrucción histórica de precios/estado a esa fecha, ni precios de cierre.
+- Densidad es oferta observada con coordenadas aptas, no densidad real del
+  mercado. Si falta ubicación del target, densidad es desconocida.
+- Tests sintéticos validan mecánica, no precisión real. Pocos casos espaciales
+  no justifican conclusiones globales ni calibración de pesos.
+- Interacciones pre/post y casos comparable-mejora/consenso-empeora están
+  explícitos en el JSON; no atribuir al selector una ganancia solo postajuste.
+
+## Artefactos
+
+Snapshot y resultados en `.local` (ignorados por Git). Conservar en privado con
+el hash y el código del experimento. No incluir el snapshot en commits: contiene
+datos de anuncios y metadatos de ubicación. Solo el script, tests y documentación
+son el diff experimental.

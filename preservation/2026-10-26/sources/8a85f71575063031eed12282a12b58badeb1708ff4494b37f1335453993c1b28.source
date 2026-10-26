@@ -1,0 +1,51 @@
+from common import *
+import shutil,platform
+from datetime import datetime,timezone
+assert not (HERE/'protocol.json').exists()
+shutil.copytree(OLD/'runtime',RUNTIME,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+p,(datasets,cohort,maps,identity)=load()
+inputs=p.original_checks()
+for path in OLD.rglob('*'):
+ if path.is_file() and '__pycache__' not in str(path):inputs[str(path)]=sha(path)
+for path in (RUNTIME/'frozen_a').rglob('*.py'):inputs[str(path)]=sha(path)
+local=Path(r'C:\Users\heiko\Downloads\AVM v3\Andy\AVM-v2')
+for path in (RUNTIME/'frozen_a').rglob('*.py'):
+ q=local/path.relative_to(RUNTIME/'frozen_a')
+ if q.is_file():inputs[str(q)]=sha(q)
+for name in ('A_mathematical_specification.md',):inputs[str(ROOT/name)]=sha(ROOT/name)
+config=dict(version='local-optimization-v1',registered_at=datetime.now(timezone.utc).isoformat(),
+ authorization_sha256=sha(Path(r'C:\Users\heiko\.codex\attachments\0dbe4937-9651-4739-871c-72dfbfac220b\Texto pegado.txt')),
+ dataset_sha256={g:ds.hash() for g,ds in datasets.items()},immutable_inputs=inputs,
+ baseline='unchanged native outliers A_core, validated per prediction against previous primary',
+ development='791 previously researched Oct4 T1 apartments; all results exploratory',
+ current_snapshot=read(HERE/'current_snapshot_manifest.json'),
+ validation='nested grouped 3x3 CV; G3 primary; seeds20261009,20261010; G1 sensitivity20261009. No reserved confirmatory holdout consumed.',
+ search='staged inner-only: K/min/surface and spatial -> constrained weights/refinement -> combinations; outer labels opened only after all profiles locked and predicted',
+ primary='paired common MdAPE Portal priority; noninferiority gates Yapo/global tails/coverage',
+ selection_gates={'max_coverage_drop_pp':1,'max_P90_increase_pp':2,'max_gt50_increase_pp':1,'max_Yapo_MdAPE_increase_pp':1},
+ search_budget={'weights_draws':16,'dirichlet_concentration':80,'maximum_phases':3},
+ stop='fixed finite search; prune family if inner score does not improve >=.25pp; no outer feedback or post-hoc parameter search',
+ geo_policy='declared address/street with numeric coordinates; exclude coordinates repeated >=5 within training; source label is not externally verified. Baseline untouched.',
+ independence='one training listing per supplied dependency component in experimental estimators; report group Neff; residual unobserved physical dependence remains',
+ snapshot_use='Current encrypted snapshot reserved for additional Yapo-after-Oct4 evaluation after development selection; old publicatons/reobservations are not new targets; no historical feature backdating',
+ uf_reference=read(OLD/'experiment_config.json')['uf_reference'],
+ environment={'python':platform.python_version(),'numpy':__import__('numpy').__version__,'sklearn':__import__('sklearn').__version__},
+ holdout_consumed=False)
+write(HERE/'protocol.json',config);(HERE/'protocol.sha256').write_text(sha(HERE/'protocol.json')+'\n')
+auth='''from pathlib import Path
+import json,hashlib
+from .data import InvalidExperiment
+ROOT=Path(__file__).resolve().parents[2]
+def locked():
+ p=ROOT/'protocol.json'
+ if hashlib.sha256(p.read_bytes()).hexdigest()!=(ROOT/'protocol.sha256').read_text().strip():raise InvalidExperiment('Protocol seal changed')
+ return json.loads(p.read_text())
+def authorize_dataset(ds):
+ if ds.hash() not in locked()['dataset_sha256'].values():raise InvalidExperiment('Unregistered dataset')
+def authorize_config(c):
+ if c.get('real_execution_enabled') is not True or c.get('engines')!=['A']:raise InvalidExperiment('Wrong experimental boundary')
+ if c.get('experiment_protocol_sha256')!=(ROOT/'protocol.sha256').read_text().strip():raise InvalidExperiment('Protocol mismatch')
+'''
+(RUNTIME/'avm01/pilot_authorization.py').write_text(auth,encoding='utf-8')
+write(HERE/'runtime_authorization.json',{'sha256':sha(RUNTIME/'avm01/pilot_authorization.py'),'reason':'new user-authorized scope; original runtime immutable'})
+print(json.dumps({'registered':True,'records':len(datasets['G3'].records),'groups':len({r.group_id for r in datasets['G3'].records}),'protocol':sha(HERE/'protocol.json')}))

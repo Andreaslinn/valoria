@@ -1,0 +1,45 @@
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+import httpx
+
+repo=Path(__file__).parent/'valoria'
+os.environ['GIT_TERMINAL_PROMPT']='0'
+os.environ['GCM_INTERACTIVE']='never'
+r=subprocess.run(['git','credential','fill'],input='protocol=https\nhost=github.com\n\n',text=True,capture_output=True,cwd=repo,timeout=20)
+if r.returncode: raise SystemExit('GitHub credential unavailable; output suppressed')
+credential=dict(x.split('=',1) for x in r.stdout.splitlines() if '=' in x)
+token=credential.get('password')
+if not token:raise SystemExit('GitHub credential unavailable')
+headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+root='https://api.github.com/repos/Andreaslinn/valoria'
+with httpx.Client(headers=headers,timeout=30,follow_redirects=False) as c:
+    p=c.get(root+'/pulls/9');p.raise_for_status();pr=p.json()
+    assert pr['base']['ref']=='release/canonical-only-reproducible-20261013'
+    assert pr['head']['ref']=='feature/sii-ingest-20261017'
+    assert pr['head']['sha']=='09a5862e14e3f34ea3010aca7e4098a0c8a60a7b'
+    if sys.argv[1]=='inspect':
+        branch=c.get(root+'/branches/'+pr['base']['ref']);branch.raise_for_status()
+        tree=c.get(root+'/git/trees/'+branch.json()['commit']['sha'],params={'recursive':1});tree.raise_for_status()
+        workflows=[x['path'] for x in tree.json()['tree'] if x['path'].startswith('.github/workflows/')]
+        status=c.get(root+'/commits/'+pr['head']['sha']+'/status');status.raise_for_status()
+        checks=c.get(root+'/commits/'+pr['head']['sha']+'/check-runs');checks.raise_for_status()
+        print(json.dumps({'number':9,'state':pr['state'],'merged':pr['merged'],'draft':pr['draft'],'head':pr['head']['sha'],'base':pr['base']['ref'],'base_sha':branch.json()['commit']['sha'],'mergeable':pr['mergeable'],'mergeable_state':pr['mergeable_state'],'workflows':workflows,'status':status.json()['state'],'checks':[{'name':x['name'],'status':x['status'],'conclusion':x['conclusion']} for x in checks.json()['check_runs']]}))
+    elif sys.argv[1]=='ready':
+        assert not pr['merged'] and pr['state']=='open'
+        if pr['draft']:
+            q=c.post('https://api.github.com/graphql',json={'query':'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{number isDraft}}}','variables':{'id':pr['node_id']}})
+            q.raise_for_status(); result=q.json()
+            if result.get('errors'): raise SystemExit('GitHub refused ready-for-review mutation')
+            print(json.dumps(result['data']))
+        else:print(json.dumps({'number':9,'draft':False}))
+    elif sys.argv[1]=='merge':
+        assert not pr['draft'] and not pr['merged'] and pr['state']=='open'
+        assert pr['mergeable'] is True and pr['mergeable_state'] in ('clean','unstable','has_hooks')
+        m=c.put(root+'/pulls/9/merge',json={'sha':pr['head']['sha'],'merge_method':'merge','commit_title':'Merge PR #9: local SII ingestion and validated comparison rules'})
+        if m.status_code!=200: raise SystemExit(f'GitHub merge refused: HTTP {m.status_code}')
+        data=m.json();assert data['merged'] is True
+        (Path(__file__).parent/'pr9-merge-result.json').write_text(json.dumps(data,indent=2),encoding='utf8')
+        print(json.dumps(data))

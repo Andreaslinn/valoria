@@ -1,0 +1,74 @@
+"""Fixed phase-2 routing and evaluation-only target quality labels.
+
+Neither target sale amount nor its quality label is an input to routing.
+The existing house estimator, baseline, and geography remain unchanged.
+"""
+from __future__ import annotations
+
+from decimal import Decimal
+import numpy as np
+
+from services.sii.house_rules import available, distances, point_kind
+
+
+def hybrid_prediction(target, house, baseline, geography):
+    """baseline is a prediction or a lazy callable using the frozen history pool."""
+    land = target.get('land')
+    if not land or land <= 0:
+        reason, confidence = 'sin_terreno', 'media'
+    elif not point_kind(geography.get(target['rol'])):
+        reason, confidence = 'geografia', 'baja'
+    elif house.get('status') == 'ok':
+        result = dict(house)
+        result.update(model_used='house_rules', motivo='reglas_r1_r11_ok',
+                      confianza='alta' if house['effective_n'] >= 8 else 'media')
+        return result
+    else:
+        reason = 'iqr' if house.get('reason') == 'fewer_than_5_after_iqr' else 'sin_comparables'
+        confidence = 'baja'
+    result = dict(baseline() if callable(baseline) else baseline)
+    result.update(model_used='baseline', motivo=reason, confianza=confidence,
+                  house_rules_reason=house.get('reason'), baseline_reason=result.get('reason'))
+    if result.get('comparables'):
+        comps = [dict(c) for c in result['comparables']]
+        weights = [c['similarity'] for c in comps]
+        total = sum(weights)
+        for c, w in zip(comps, weights, strict=True):
+            c['weight_share'] = w / total if total else 0
+        result.update(comparables=comps,
+                      effective_n=total**2 / sum(w*w for w in weights) if total else None)
+    return result
+
+
+def appraisal_at(target, history):
+    """Only explicitly dated historical fiscal valuations; no current proxy."""
+    matches = [r for r in history if r['rol'] == target['rol']
+               and r['valid_from'] <= target['date'] < r['valid_to']
+               and r.get('value_clp') and Decimal(str(r['value_clp'])) > 0]
+    values = {Decimal(str(r['value_clp'])) for r in matches}
+    if len(values) != 1:
+        return None
+    return next(iter(values))
+
+
+def target_quality(target, rows, geography, appraisal_history=()):
+    """Annotate only; never remove rows from training or prediction pools."""
+    prior = available(rows, target['date'], target['rol'])
+    local = [r for r in prior if r['block'] == target['block']]
+    scope = 'same_block'
+    if len(local) < 5:
+        scope = 'within_500m'
+        ds = distances(target, prior, geography)
+        local = [r for r, d in zip(prior, ds, strict=True) if d <= 500]
+    p10 = float(np.quantile([r['uf']/r['area'] for r in local], .10)) if local else None
+    low = target['uf']/target['area'] < p10 if p10 is not None else None
+    fiscal = appraisal_at(target, appraisal_history)
+    amount = Decimal(str(target['clp'])) if target.get('clp') else None
+    near = bool(fiscal*Decimal('.95') <= amount <= fiscal*Decimal('1.05')) if fiscal and amount else None
+    return {'monto_sospechoso': bool(low is True or near is True),
+            'reasons': (['uf_m2_below_prior_p10'] if low else []) + (['near_historical_fiscal_appraisal'] if near else []),
+            'uf_m2_below_prior_p10': low, 'prior_p10_uf_m2': p10,
+            'prior_sample_n': len(local), 'prior_scope': scope,
+            'near_historical_fiscal_appraisal': near,
+            'historical_appraisal_clp': str(fiscal) if fiscal else None,
+            'quality_label_complete': low is not None and near is not None}

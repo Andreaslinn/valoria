@@ -1,0 +1,290 @@
+# Valoria Warning Taxonomy Latest
+
+Fecha: 2026-06-18  
+Alcance: `PROPERTY_VALUATION`, `LISTING_ANALYSIS`  
+Modo de trabajo: auditoria conceptual. No se modifico codigo productivo, UI, base de datos, scrapers, migraciones ni commits.
+
+## Resumen ejecutivo
+
+Valoria ya calcula muchas advertencias utiles, pero hoy viven mezcladas en tres niveles: senales de producto, diagnosticos tecnicos y estados de UI. La principal deuda no es falta de informacion, sino falta de una capa canonica que traduzca codigos crudos a `evidence_flags` con contexto, severidad, visibilidad y efecto de score.
+
+La recomendacion es crear un contrato canonico `evidence_flags` que reciba los codigos actuales desde valuation, consensus, comparables, risk report, radar, alerts, listings, geocoding, microzones, watchlist, price history, adapters y API responses. Este contrato debe ocultar detalles tecnicos al usuario final y mantenerlos disponibles solo en modo avanzado, API o diagnostico interno.
+
+Punto critico: `PROPERTY_VALUATION` no debe penalizar por falta de URL, listing id, watchlist, historial de publicacion, historial de precio ni descuento. Esas senales son propias de `LISTING_ANALYSIS`.
+
+## Contrato canonico propuesto
+
+Campo recomendado: `evidence_flags`
+
+Estructura conceptual por flag:
+
+```json
+{
+  "code": "limited_geographic_precision",
+  "raw_codes": ["poor_geocoding_comparables", "weak_geolocation"],
+  "category": "location_quality",
+  "severity": "medium",
+  "contexts": ["PROPERTY_VALUATION", "LISTING_ANALYSIS"],
+  "score_effects": ["reduce_valuation_confidence_score"],
+  "user_visible": true,
+  "advanced_visible": true,
+  "copy": {
+    "title": "Precision geografica limitada",
+    "message": "La ubicacion o la ubicacion de los comparables no esta completamente precisa. Esto puede afectar la lectura por microzona."
+  }
+}
+```
+
+Principios:
+
+- Mostrar lenguaje de producto, no codigos crudos.
+- `high` significa alta relevancia para decision, no necesariamente mala inversion.
+- Separar limitaciones de tasacion, limitaciones de mercado, limitaciones de publicacion, oportunidad y futuro no conectado.
+- Mantener engines, errores crudos, pesos, provenance y artefactos fuera del reporte de usuario.
+- Preservar diagnosticos en API/advanced mode para trazabilidad.
+
+## Categorias canonicas
+
+| Categoria | Uso recomendado |
+|---|---|
+| `valuation_quality` | Calidad estadistica de la tasacion: dispersion, confianza, superficie de precios, acuerdo de engines. |
+| `market_support` | Profundidad, diversidad y cobertura de comparables/segmento. |
+| `location_quality` | Geocoding, microzona, precision de ubicacion y soporte geografico. |
+| `asset_profile` | Tipo de propiedad, superficie, terreno, compatibilidad del activo. |
+| `listing_evidence` | URL, listing id, precio publicado, watchlist, historial de publicacion. |
+| `price_opportunity` | Descuento, baja de precio, brecha de oportunidad y bloqueo de descuento. |
+| `data_completeness` | Campos obligatorios o insumos faltantes. |
+| `legal_external_future` | Legal, CBR, permisos, deuda fiscal o fuentes externas futuras. |
+| `technical_only` | Engine internals, provenance, debug, artifacts, versiones, errores crudos. |
+
+## Severidades
+
+| Severidad | Definicion |
+|---|---|
+| `info` | Contexto util o estado futuro; no penaliza por si solo. |
+| `low` | Limitacion menor o diagnostico que ajusta lectura. |
+| `medium` | Limitacion relevante para confianza, mercado o listing. |
+| `high` | Limitacion de alta relevancia decisional o bloqueo de calculo. No implica automaticamente mala oportunidad. |
+| `critical` | Bloqueo de flujo o evidencia insuficiente para emitir una salida confiable. Usar con parsimonia en beta. |
+
+## Efectos de score permitidos
+
+- `reduce_valuation_confidence_score`
+- `reduce_investment_score`
+- `reduce_listing_opportunity_score`
+- `reduce_market_context_score`
+- `reduce_listing_evidence_score`
+- `context_note_only`
+- `hide_from_user`
+- `not_applicable`
+- `block_discount_calculation`
+- `future_only`
+
+## Reglas por contexto
+
+### PROPERTY_VALUATION
+
+Estos codigos deben ser `not_applicable` o quedar ocultos en tasacion pura:
+
+- `published_price_not_provided`
+- `url_missing`
+- `listing_url_missing`
+- `listing_id_missing`
+- `watchlist_unavailable`
+- `publication_history_missing`
+- `listing_activity_missing`
+- `price_history_missing`
+- `discount_unavailable`
+
+Motivo: una tasacion puede ser valida sin precio publicado, URL, watchlist ni historial de actividad.
+
+### LISTING_ANALYSIS
+
+Los mismos codigos si son relevantes para oportunidad de publicacion:
+
+- reducen `listing_evidence_score`
+- pueden reducir `listing_opportunity_score`
+- `published_price_not_provided` y `discount_unavailable` deben bloquear calculo de descuento
+- la copia debe explicar limitacion de publicacion, no error de tasacion
+
+## Inventario canonico de warnings y flags
+
+| Canonical flag | Raw codes principales | Ubicacion actual | Flujo actual | Categoria | Contexto | Severidad | Efecto recomendado | Visible usuario |
+|---|---|---|---|---|---|---|---|---|
+| `limited_comparable_sample` | `low_comparable_count`, `few_selected_comparables`, `low_segment_sample` | `domain/valuation/reliability.py`, `domain/valuation/comparable_quality.py`, `domain/valuation/beta_scope.py`, `domain/valuation/engines/canonical_comparables.py` | Valuation API, Radar, Risk Report | `market_support` | both | medium | reduce valuation confidence, reduce market context | Yes |
+| `single_source_evidence` | `single_source_comparables` | `domain/valuation/reliability.py` | Valuation API, Radar | `market_support` | both | medium | reduce market context | Yes |
+| `limited_geographic_precision` | `poor_geocoding_comparables`, `weak_geolocation`, `weak_geocode_quality`, `low_geocode_precision`, `insufficient_geo`, `unknown_comuna`, `missing_comuna` | reliability, comparable quality, beta scope, canonical comparables, ingestion, URL lookup | Valuation API, Radar, listing lookup, comparable exclusions | `location_quality` | both | medium | reduce valuation confidence, reduce investment score | Yes |
+| `weak_microzone_support` | `weak_microzone` | `domain/valuation/comparable_quality.py`, geocoding microzones | Valuation warnings and flags | `location_quality` | both | medium | reduce investment score, reduce market context | Yes |
+| `high_price_dispersion` | `high_price_m2_dispersion`, `high_dispersion`, `price_surface_high_dispersion`, `surface_adjustment_high_dispersion` | reliability, comparable quality, price surface, beta scope | Valuation warnings, surface diagnostics | `valuation_quality` | both | medium | reduce valuation confidence, reduce market context | Yes |
+| `extreme_price_dispersion` | `extreme_price_m2_dispersion`, `consensus_extreme_disagreement` | reliability, consensus orchestrator | Valuation warnings, consensus diagnostics | `valuation_quality` | both | high | reduce valuation confidence, reduce investment score | Yes |
+| `near_duplicate_evidence` | `near_duplicate_comparables`, `duplicate` | reliability, canonical comparables | Valuation warnings, comparable exclusions | `market_support` | both | low | reduce market context | Yes |
+| `limited_land_area_evidence` | `house_land_area_weak`, `land_outside_tolerance`, `m2_identified_as_land_area` | reliability, canonical comparables, ingestion | Valuation warnings and exclusions | `asset_profile` | both | medium | reduce valuation confidence, reduce investment score | Yes |
+| `sparse_segment_bucket` | `sparse_m2_bucket`, `limited_segment_sample`, `no_segment_sample`, `beta_scope_no_data`, `beta_scope_weak_data`, `beta_scope_exploratory`, `weak_comparable_quality` | comparable quality, beta scope, beta status | Valuation API, Radar safety | `market_support` | both | medium | reduce market context, reduce valuation confidence | Yes |
+| `mixed_or_unknown_asset_type` | `mixed_property_type`, `unknown_property_type`, `target_product_class_unknown`, `product_class_fallback_used`, `property_type_mismatch`, `product_incompatible`, `missing_property_type` | valuation service, comparable quality, beta scope, canonical comparables, lookup | Valuation, lookup, engine diagnostics | `asset_profile` | both | medium | reduce valuation confidence, reduce listing evidence | Yes |
+| `published_price_missing` | `published_price_not_provided`, `missing_price` | `services/valuation.py`, canonical comparables, URL lookup, ingestion | Valuation warnings, listing lookup, discount flows | `listing_evidence` | LISTING_ANALYSIS | high | reduce listing evidence, block discount calculation | Yes in listing, hidden in valuation |
+| `listing_identity_missing` | `url_missing`, `listing_url_missing`, `listing_id_missing`, `invalid_url`, `unsupported_source`, `failed`, `partial` | URL lookup, risk report, playground | Listing lookup, risk report requirements, UI notices | `listing_evidence` | LISTING_ANALYSIS | medium | reduce listing evidence | Yes in listing, hidden in valuation |
+| `listing_activity_missing` | `watchlist_unavailable`, `publication_history_missing`, `listing_activity_missing`, `price_history_missing` | risk report, watchlist, alerts, price history repo | Listing opportunity context | `listing_evidence` | LISTING_ANALYSIS | medium | reduce listing evidence, reduce listing opportunity | Yes in listing, hidden in valuation |
+| `discount_unavailable` | `discount_unavailable` | conceptual guard around property experience / offer simulator / risk report | Listing analysis | `price_opportunity` | LISTING_ANALYSIS | high | block discount calculation, reduce listing opportunity | Yes in listing, hidden in valuation |
+| `published_price_quality_limited` | `legacy_uf_missing_price_uf`, `estimated_uf_not_strong`, `low_confidence_uf_not_strong`, `uf_fallback_not_canonical`, `legacy_unrecoverable`, `legacy_unrecoverable_uf`, `weak_estimated_uf`, `low_confidence_estimated`, `unknown_currency` | canonical comparables, canonical price, alerts | Comparable exclusions, alert filters, price history | `listing_evidence` | LISTING_ANALYSIS | medium | reduce listing evidence | Yes |
+| `price_surface_limited` | `price_surface_insufficient_data`, `price_surface_low_confidence`, `surface_adjustment_unavailable`, `surface_adjustment_invalid_base`, `surface_adjustment_comuna_only`, `surface_adjustment_risk_comuna`, `surface_adjustment_risk_m2_bucket`, `surface_adjustment_low_sample`, `surface_adjustment_weak_comuna_bucket`, `surface_adjustment_high_microzone_dispersion`, `surface_adjustment_unsupported_level`, `surface_adjustment_historical_win_rate_not_strong`, `estimate_differs_from_price_surface` | `domain/valuation/price_surface.py`, `services/valuation.py` | Valuation warnings and adjustment diagnostics | `valuation_quality` | both | medium | reduce valuation confidence, reduce market context | Yes |
+| `robust_filter_relaxed` | `robust_filter_relaxed`, `weak_robust_reference`, `high_exclusion_rate` | canonical comparables | Engine diagnostics and confidence penalties | `technical_only` | technical_only | low | hide from user | No |
+| `engine_or_consensus_diagnostic` | `engine_not_registered`, `unexpected_error`, `validation_error`, `insufficient_data`, `no_engine_results`, `no_eligible_engines`, `missing_consensus_estimate`, `consensus_missing_calibrated_weights`, `consensus_weak_agreement`, `consensus_moderate_agreement`, `status_not_successful`, `missing_estimate`, `artifact_version_mismatch`, `blocking_warning`, `out_of_distribution`, `missing_critical_data`, `self_result_not_allowed`, `not_applicable`, `not_applicable_to_property_type` | engine contracts, consensus orchestrator, valuation API | `engine_results`, `consensus_summary`, API diagnostics | `technical_only` | technical_only | high | hide from user | No |
+| `price_history_artifact` | `is_artifact`, `artifact_reason`, `artifact_filtered`, `price_history_artifact`, `change_basis`, `uf_rate_source`, `uf_rate_is_fallback` | alerts, price history repo, DB models | Price history API and alert filters | `technical_only` | technical_only | medium | hide from user | No |
+| `price_drop_observed` | `drop_pct`, `price_drop`, `price_drop_event` | alerts and price drop detector | Alert payload, listing opportunity | `price_opportunity` | LISTING_ANALYSIS | info | context note only | Yes |
+| `future_legal_external_unavailable` | `legal_external_future`, `legal_score_unavailable`, `cbr_not_connected`, `permits_not_verified`, `tax_not_verified` | risk report placeholders, demo legal modules | Risk report N/A and lab/demo copy | `legal_external_future` | both | info | future only | Yes |
+| `playground_or_report_state` | `requires_valuation`, `not_available`, `requires_comparables`, `requires_risk_inputs`, `available` | `ui/redesign/tasar_playground_adapter.py` | View-model render state | `technical_only` | technical_only | info | hide from user | No |
+
+## Copia recomendada para usuario
+
+| Canonical flag | Titulo | Mensaje |
+|---|---|---|
+| `limited_comparable_sample` | Muestra comparable limitada | La estimacion usa pocos comparables utiles para este segmento. Conviene leer el resultado como referencial. |
+| `single_source_evidence` | Evidencia concentrada en una fuente | La muestra proviene de una fuente dominante, por lo que el soporte de mercado es menos diverso. |
+| `limited_geographic_precision` | Precision geografica limitada | La ubicacion o la ubicacion de los comparables no esta completamente precisa. Esto puede afectar la lectura por microzona. |
+| `weak_microzone_support` | Microzona con soporte debil | La lectura de microzona existe, pero aun no tiene suficiente soporte para tratarla como evidencia fuerte. |
+| `high_price_dispersion` | Precios comparables dispersos | Los precios por metro cuadrado varian mas de lo normal. La estimacion debe interpretarse con un rango mas amplio. |
+| `extreme_price_dispersion` | Alta dispersion de valor | La evidencia disponible muestra diferencias importantes entre referencias. Esto aumenta la incertidumbre de decision. |
+| `near_duplicate_evidence` | Comparables poco diversos | Parte de la muestra parece repetida o muy similar. El soporte de mercado efectivo puede ser menor que el conteo bruto. |
+| `limited_land_area_evidence` | Terreno con evidencia limitada | Para casas, la evidencia de terreno no es suficientemente fuerte. La comparacion puede depender demasiado de superficie construida. |
+| `sparse_segment_bucket` | Segmento con cobertura exploratoria | Hay datos para el segmento, pero la cobertura aun es beta o parcial. Usar como apoyo, no como unica senal. |
+| `mixed_or_unknown_asset_type` | Tipo de propiedad no completamente consistente | El tipo de activo no esta totalmente claro o la muestra mezcla perfiles. Esto puede afectar comparabilidad. |
+| `published_price_missing` | Precio publicado no disponible | No hay precio publicado suficiente para calcular descuento u oportunidad de negociacion. |
+| `listing_identity_missing` | Publicacion no identificada completamente | Falta URL o identificador confiable de la publicacion. Algunas senales de seguimiento quedan limitadas. |
+| `listing_activity_missing` | Historial de publicacion incompleto | No hay historial suficiente de actividad o precio para evaluar momentum de la publicacion. |
+| `discount_unavailable` | Descuento no calculable | No hay precio publicado y tasacion comparable suficientes para calcular brecha de oportunidad. |
+| `published_price_quality_limited` | Precio publicado con calidad limitada | El precio proviene de una conversion o fuente historica menos confiable. La lectura de descuento debe ser cauta. |
+| `price_surface_limited` | Superficie de precios limitada | La referencia de superficie de precios existe, pero su cobertura o estabilidad no es suficientemente fuerte. |
+| `price_drop_observed` | Baja de precio observada | La publicacion muestra una baja de precio registrada. Es una senal de oportunidad, no una confirmacion de descuento real. |
+| `future_legal_external_unavailable` | Revision legal externa no conectada | La revision legal, normativa o CBR aun no esta conectada a fuentes oficiales. No debe afectar el score actual. |
+
+## Duplicados y solapamientos
+
+| Grupo | Raw codes | Canonical recomendado | Regla |
+|---|---|---|---|
+| Precision geografica | `poor_geocoding_comparables`, `weak_geocode_quality`, `weak_geolocation`, `low_geocode_precision`, `insufficient_geo` | `limited_geographic_precision` | Unificar en un solo flag visible; mantener raw en advanced. |
+| Profundidad de muestra | `low_comparable_count`, `few_selected_comparables`, `low_segment_sample`, `limited_segment_sample`, `sparse_m2_bucket`, `beta_scope_exploratory` | `limited_comparable_sample` o `sparse_segment_bucket` | Si viene de conteo directo usar sample; si viene de cobertura beta/segmento usar bucket. |
+| Dispersion | `high_price_m2_dispersion`, `extreme_price_m2_dispersion`, `high_dispersion`, `price_surface_high_dispersion`, `surface_adjustment_high_dispersion`, `consensus_extreme_disagreement` | `high_price_dispersion` o `extreme_price_dispersion` | `extreme` domina a `high`; no mostrar dos tarjetas similares. |
+| Precio publicado/listing | `published_price_not_provided`, `missing_price`, `discount_unavailable`, `price_history_missing`, `publication_history_missing` | `published_price_missing`, `discount_unavailable`, `listing_activity_missing` | Context-sensitive: oculto en valuation, visible en listing analysis. |
+| Engine/consensus | `engine_not_registered`, `unexpected_error`, `validation_error`, `consensus_missing_calibrated_weights`, `no_eligible_engines` | `engine_or_consensus_diagnostic` | Advanced/API only; traducir a calidad si afecta salida. |
+
+## Codigos visibles hoy que son tecnicos
+
+Estos elementos no deberian mostrarse como texto crudo en reportes de usuario:
+
+- `engine_results`
+- `consensus_summary`
+- `surface_adjustment_weight`
+- `surface_adjustment_reason`
+- `canonical_price_basis`
+- `price_history_artifact`
+- `uf_rate_source`
+- `uf_rate_is_fallback`
+- raw error messages
+- engine names and versions
+- `engine_not_registered`
+- `unexpected_error`
+- `validation_error`
+- `consensus_missing_calibrated_weights`
+- `artifact_reason`
+- `change_basis`
+- `requires_valuation`
+- `requires_comparables`
+- `requires_risk_inputs`
+
+## Matriz de visibilidad
+
+| Item | User report | Advanced/debug | API response | Internal diagnostics | Scoring only |
+|---|---:|---:|---:|---:|---:|
+| Translated canonical evidence flags | Yes | Yes | Yes | Yes | No |
+| Raw `warnings` | No | Yes | Yes | Yes | No |
+| `engine_results` | No | Yes | Yes | Yes | No |
+| `consensus_summary` | No | Yes | Yes | Yes | No |
+| `surface_adjustment_weight` | No | Yes | Yes | Yes | Yes |
+| `surface_adjustment_reason` | No | Yes | Yes | Yes | Yes |
+| raw `canonical_price_basis` | No | Yes | Yes | Yes | Yes |
+| `price_history_artifact` / `artifact_reason` | No | Yes | Yes | Yes | Yes |
+| `uf_rate_source` | No | Yes | Yes | Yes | Yes |
+| `uf_rate_is_fallback` | No | Yes | Yes | Yes | Yes |
+| Raw error messages | No | Yes | No by default | Yes | No |
+| Engine names/versions | No | Yes | Yes | Yes | No |
+
+## Tabla final solicitada
+
+| Signal | Current Source | Current Usage | Recommended Category | User Visible |
+|---|---|---|---|---|
+| `low_comparable_count` | reliability/comparable quality/beta scope | Valuation/Radar warnings | `market_support` | Yes, translated |
+| `single_source_comparables` | reliability | Valuation/Radar warnings | `market_support` | Yes, translated |
+| `poor_geocoding_comparables` | reliability | Valuation/Radar warnings | `location_quality` | Yes, translated |
+| `weak_geolocation` | comparable quality | Valuation warnings | `location_quality` | Yes, translated |
+| `weak_geocode_quality` | beta scope | Valuation/Radar warnings | `location_quality` | Yes, translated |
+| `weak_microzone` | comparable quality/microzones | Valuation warnings | `location_quality` | Yes, translated |
+| `high_price_m2_dispersion` | reliability | Valuation warnings | `valuation_quality` | Yes, translated |
+| `extreme_price_m2_dispersion` | reliability | Valuation warnings | `valuation_quality` | Yes, translated |
+| `near_duplicate_comparables` | reliability | Valuation warnings | `market_support` | Yes, translated |
+| `house_land_area_weak` | reliability | Valuation warnings | `asset_profile` | Yes, translated |
+| `sparse_m2_bucket` | comparable quality/beta scope | Valuation warnings | `market_support` | Yes, translated |
+| `limited_segment_sample` | beta scope | Valuation/Radar flags | `market_support` | Yes, translated |
+| `beta_scope_no_data` | beta status | Valuation/Radar warnings | `market_support` | Yes, translated |
+| `beta_scope_weak_data` | beta status | Valuation/Radar warnings | `market_support` | Yes, translated |
+| `beta_scope_exploratory` | beta status | Valuation/Radar warnings | `market_support` | Yes, translated |
+| `mixed_property_type` | comparable quality/beta scope | Valuation warnings | `asset_profile` | Yes, translated |
+| `unknown_property_type` | valuation service | Valuation warnings | `asset_profile` | Yes, translated |
+| `target_product_class_unknown` | canonical comparables | Engine diagnostics | `asset_profile` | Yes only if translated |
+| `product_class_fallback_used` | canonical comparables | Engine diagnostics | `asset_profile` | Yes only if translated |
+| `published_price_not_provided` | valuation service/canonical comparables | Valuation warnings, listing analysis | `listing_evidence` | Listing yes; valuation no |
+| `missing_price` | lookup/ingestion | Listing lookup warnings | `listing_evidence` | Listing yes |
+| `invalid_url` | listing URL lookup | Listing lookup response | `listing_evidence` | Yes, translated |
+| `unsupported_source` | listing URL lookup | Listing lookup response/playground | `listing_evidence` | Yes, translated |
+| `missing_property_type` | lookup/ingestion | Listing lookup warnings | `asset_profile` | Yes, translated |
+| `missing_m2` | lookup/ingestion | Listing lookup warnings | `data_completeness` | Yes, translated |
+| `unknown_comuna` | ingestion | metadata quality warnings | `location_quality` | Yes, translated |
+| `m2_identified_as_land_area` | ingestion | metadata quality warnings | `asset_profile` | Yes, translated |
+| `legacy_uf_missing_price_uf` | canonical comparables | Comparable exclusion | `listing_evidence` | Yes, translated |
+| `estimated_uf_not_strong` | canonical comparables | Comparable exclusion | `listing_evidence` | Yes, translated |
+| `low_confidence_uf_not_strong` | canonical comparables | Comparable exclusion | `listing_evidence` | Yes, translated |
+| `price_surface_low_confidence` | price surface | Valuation warnings | `valuation_quality` | Yes, translated |
+| `price_surface_high_dispersion` | price surface | Valuation warnings | `valuation_quality` | Yes, translated |
+| `surface_adjustment_risk_comuna` | price surface adjustment | Valuation diagnostics | `valuation_quality` | Yes, translated |
+| `engine_not_registered` | engine contracts/orchestrator | Engine result warning | `technical_only` | No |
+| `unexpected_error` | engine contracts/orchestrator | Engine result warning | `technical_only` | No |
+| `consensus_missing_calibrated_weights` | consensus orchestrator | Consensus diagnostics | `technical_only` | No |
+| `is_artifact` | price history/alerts | Price history API/filter | `technical_only` | No |
+| `artifact_reason` | price history/alerts | Price history API/filter | `technical_only` | No |
+| `drop_pct` | alerts | Alert payload | `price_opportunity` | Yes, translated |
+| `watchlist_unavailable` | risk report/watchlist | Listing report requirement | `listing_evidence` | Listing yes; valuation no |
+| `publication_history_missing` | risk report/price history | Listing report requirement | `listing_evidence` | Listing yes; valuation no |
+| `listing_activity_missing` | risk report/watchlist | Listing report requirement | `listing_evidence` | Listing yes; valuation no |
+| `price_history_missing` | price history/risk report | Listing report requirement | `listing_evidence` | Listing yes; valuation no |
+| `discount_unavailable` | listing opportunity concept | Listing discount guard | `price_opportunity` | Listing yes; valuation no |
+| `requires_valuation` | Tasar Playground adapter | UI state | `technical_only` | No |
+| `requires_comparables` | Tasar Playground adapter | UI state | `technical_only` | No |
+| `requires_risk_inputs` | Tasar Playground adapter | UI state | `technical_only` | No |
+
+## Disponibilidad
+
+| Estado | Senales |
+|---|---|
+| Disponible hoy | comparables count, source count, geocode quality, dispersion, near duplicates, land-area weakness, beta scope status, comparable quality flags, price surface warnings, consensus/engine diagnostics, lookup warnings, ingestion quality warnings, alert price drops, price history artifacts. |
+| Disponible parcialmente | watchlist unavailable, publication history missing, listing activity missing, price history missing, URL/listing identity completeness, discount unavailable. Existen flujos y campos, pero falta contrato canonico centralizado. |
+| Futura | legal external checks, official CBR/permits/tax verification, score effects wired to Investment Score/Risk Report/Investment Intelligence/Listing Opportunity. |
+
+## Estrategia beta-safe
+
+1. Phase 1: mapping puro. Crear un archivo o modulo de mapeo raw warning -> `evidence_flags`, sin cambiar UI.
+2. Phase 2: tests. Cubrir contexto, dedup, prioridad y JSON schema.
+3. Phase 3: shadow mode. Generar `evidence_flags` junto a `warnings` en report builders y comparar.
+4. Phase 4: reemplazo visual. Mostrar copia user-facing desde flags canonicos y mover raw codes a advanced/debug.
+5. Phase 5: scoring. Conectar `score_effects` a Investment Score, Risk Report, Investment Intelligence Report y Listing Opportunity Report.
+
+## Artefacto JSON
+
+El inventario estructurado esta en `warning_taxonomy_latest.json`. Incluye:
+
+- contrato `evidence_flags`
+- categorias y efectos permitidos
+- reglas por contexto
+- flags canonicos con ubicacion, uso, severidad, visibilidad y copia
+- mapeo `raw_to_canonical`
+- matriz de visibilidad
+- grupos duplicados
+- plan de implementacion futura

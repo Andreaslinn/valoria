@@ -1,0 +1,60 @@
+"""Compare release and candidate in one repeatable-read production snapshot.
+
+Candidate ingestion modules live only in this disposable Python process.
+No files, containers, services or database records are changed.
+"""
+import pathlib,subprocess,json,hashlib
+root=pathlib.Path('work/oracle-ingestion-resilience')
+paths=['config/portal_targets.py','domain/ingestion/location_evidence.py',
+       'domain/geocoding/source_quality.py','infrastructure/scrapers/portalinmobiliario.py',
+       'infrastructure/db/portal_geography.py','workers/portal_geo_enrichment.py',
+       'scripts/portal_card_first.py']
+sources={p:(root/p).read_text(encoding='utf-8') for p in paths}
+code=r'''
+import asyncio,json,types,sys,importlib,hashlib
+from pathlib import Path
+from datetime import date
+from types import SimpleNamespace
+from sqlalchemy import text
+from api.deps import get_valuation_service
+from api.v1.valuations import ValuationRequest,valuate
+from core.ports.uf_service import UFRateInfo
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+SOURCES=SOURCE_VALUE
+async def main():
+ reference=json.loads(Path('/app/deploy/canonical-release/reference-cases.json').read_text())
+ async with get_session_factory()() as session:
+  await session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  uf=(await session.execute(text('SELECT value_clp FROM uf_rates WHERE date=CURRENT_DATE'))).scalar_one()
+  class UF:
+   async def get_current_rate(self):return uf
+   async def get_current_rate_info(self):return UFRateInfo(rate=uf,source='read_only_frozen_snapshot',rate_date=date.today())
+  service=get_valuation_service(SqlAlchemyListingRepository(session),UF())
+  async def cases():
+   results=[]
+   for c in reference['cases']:
+    result=await valuate(current_user=SimpleNamespace(id=None),payload=ValuationRequest(**c['payload']),service=service,session=session)
+    payload=result.model_dump(mode='json')
+    results.append({'comuna':c['payload']['comuna'],'estimated_uf':payload['estimated_price_uf'],
+       'comparables_sha256':hashlib.sha256(json.dumps(payload['valuation_debug']['comparable_calculation'],sort_keys=True).encode()).hexdigest()})
+   return results
+  before=await cases()
+  for path,source in SOURCES.items():
+   name=path[:-3].replace('/','.')
+   if name=='domain.ingestion.location_evidence':
+    module=types.ModuleType(name);module.__file__='/app/'+path;sys.modules[name]=module
+   else:module=importlib.import_module(name)
+   exec(compile(source,'candidate:'+path,'exec'),module.__dict__)
+  after=await cases()
+  assert before==after,'Candidate changed valuation on identical snapshot and UF'
+  await session.rollback()
+ print(json.dumps({'passed':True,'read_only':True,'same_repeatable_read_transaction':True,'uf':str(uf),'before':before,'after':after}))
+asyncio.run(main())
+'''.replace('SOURCE_VALUE',repr(sources))
+remote='import subprocess;r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-"],input='+repr(code)+',text=True,capture_output=True,timeout=100);print(r.stdout);print(r.stderr[-700:] if r.returncode else "");raise SystemExit(r.returncode)'
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=remote,text=True,encoding='utf-8',capture_output=True,timeout=130)
+if r.returncode:raise SystemExit(r.stdout[-1000:]+r.stderr[-300:])
+proof=json.loads(r.stdout);proof['candidate_file_sha256']={p:hashlib.sha256(s.encode()).hexdigest() for p,s in sources.items()}
+pathlib.Path('outputs/portal-location-2a/reference-same-snapshot.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+print(json.dumps(proof))

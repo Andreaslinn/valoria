@@ -1,0 +1,13 @@
+import sys,sqlite3,json
+from pathlib import Path
+root=Path(__file__).parent
+sys.path.insert(0,str(root/'valoria'))
+from services.sii.address_details import address_details
+db=sqlite3.connect(root/'closing-validation-final/address-index.sqlite');db.row_factory=sqlite3.Row
+for row in db.execute("SELECT * FROM role WHERE comuna=15105 AND kind='casa' AND area BETWEEN 40 AND 150 LIMIT 200"):
+    address=f"{row['street']} {row['number']}"+(f" CASA {row['unit']}" if row['unit'] else '')
+    detail=address_details(address=address,comuna='nunoa',data_dir=str(root/'closing-validation-final'))
+    if detail['status']=='resolved' and detail['fields'].get('property_type')=='house':
+        (root/'autofill-house-local.json').write_text(json.dumps({'address':address,'comuna':'nunoa','area':detail['fields'].get('closed_area_m2')}),encoding='utf8')
+        print('Unique house verified locally; no individual records published')
+        break

@@ -1,0 +1,18 @@
+from pathlib import Path
+import subprocess
+import json
+import shlex
+
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+ssh = ssh[:1] + ['-o','KexAlgorithms=ecdh-sha2-nistp256','-o','Ciphers=aes128-ctr','-o','HostKeyAlgorithms=ssh-ed25519','-o','IPQoS=none'] + ssh[1:]
+state = json.loads(Path('work/canonical-release-state.json').read_text())
+result = subprocess.run(ssh + [shlex.join(state['apply_command_after_ok'])],
+                        capture_output=True, text=True, encoding='utf-8', timeout=300)
+Path('work/canonical-release-deploy-result.json').write_text(
+    result.stdout if result.returncode == 0 else json.dumps({'returncode':result.returncode,'error':result.stderr[-2000:]}),
+    encoding='utf-8')
+if result.returncode:
+    print(result.stderr[-2000:])
+    result.check_returncode()
+data = json.loads(result.stdout)
+print(json.dumps(data, ensure_ascii=True))

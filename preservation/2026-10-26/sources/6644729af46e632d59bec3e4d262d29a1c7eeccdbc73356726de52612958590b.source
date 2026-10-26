@@ -1,0 +1,7 @@
+import json
+from pathlib import Path
+p=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\candidate-api-evidence.json');d=json.loads(p.read_text(encoding='utf-8'))
+v=d['valuation1130']['payload'];print('comparable IDs',[x['listing_id'] for x in v['comparables']]);assert not {1130,1131}&{x['listing_id'] for x in v['comparables']}
+m=d['/api/v1/market/dashboard?period_days=30&property_type=apartment']['payload'];print('market keys',list(m));print('scope',m['scope']);print('activity',m.get('activity'));print('pulse',str(m.get('daily_pulse'))[:500]);print('kpis',str(m.get('kpis'))[:500])
+print('Radar method',[(x['listing_id'],x['estimated_price_uf'],x['discount_pct'],x.get('estimated_value_uf')) for x in d['/api/v1/radar/opportunities?limit=20']['payload']])
+print('analysis report keys',d['analyze298']['payload']['report_status'])

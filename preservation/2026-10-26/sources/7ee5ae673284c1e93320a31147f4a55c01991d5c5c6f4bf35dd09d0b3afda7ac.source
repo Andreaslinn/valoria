@@ -1,0 +1,19 @@
+# Investigación aislada de ingesta moderna — Valoria
+**Decisión: IMPROVE_INGESTION**, con limitación actual de identidad y adquisición bloqueada desde este cliente. No entrenar todavía.
+
+Entregables: modern_cohort_definition.md; source_signal_audit.md (102 filas field-by-field); signal_coverage.csv; parser_loss_map.csv; identity_aware_ingestion_design.md; observation_history_design.md; acquisition_rounds.csv; identity_readiness_report.md. Patch propuesto: proposed_yapo_capture.patch, sin aplicar. Integridad: integrity_before/after.json, verification.json, output_manifest.csv. Datos privados de listings y RAW: private/; no compartir públicamente.
+
+Reproducir offline desde este directorio:
+```
+python -B -m unittest discover -s . -p test_ingestion.py -v
+python -B analyze.py
+python -B make_patch.py
+python -B report.py
+python -B common.py
+python -B verify.py
+```
+Requiere Python, beautifulsoup4/lxml/httpx y parsers productivos cuya identidad se registra por hash. No requiere BD ni red para análisis/replay. source_snapshot.zip preserva los módulos de parser importados y los archivos inspeccionados (sin .env ni claves); source_files_manifest.csv permite verificarlo.
+
+No ejecutar extract_local.py / extract_oracle.py / acquire.py al reproducir: son adquisición, no replay; se niegan a sobrescribir snapshots y a reintentar una fuente bloqueada. `replay.py` niega duplicar la salida existente; para nueva reproducción usar un sandbox separado y salida nueva. `private/fixture_replay_v2` es la versión corregida válida; v1 se conserva para trazabilidad de instrumentación y no participa en resultados.
+
+Los snapshots actuales son Oracle 4.908 activos y dev local 4.196; Oracle es solo SELECT en READ ONLY/ROLLBACK. No se importan motores AVM, no se ejecuta clean_listing/microzonas, no se hacen migraciones o matching productivo. Los campos geo históricos solo se inventarían; no se calculan nuevos.

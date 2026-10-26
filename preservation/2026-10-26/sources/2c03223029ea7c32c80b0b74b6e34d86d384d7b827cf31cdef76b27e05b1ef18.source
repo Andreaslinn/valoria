@@ -1,0 +1,28 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''import subprocess,json
+name='valoria-portal-candidate-api';x=json.loads(subprocess.check_output(['docker','inspect',name]))[0]
+assert x['Config']['Image']=='valoria-remediation:candidate-20261012-v4' and x['HostConfig']['PortBindings']['8000/tcp'][0]['HostPort']=='18013'
+args=['docker','run','-d','--name',name,'--network','valoria-portal-candidate-net','--memory','384m','--cpus','0.5','-p','127.0.0.1:18013:8000','--volume','/home/ubuntu/apps/valoria/private/portal-session:/portal-session:ro']
+for value in x['Config']['Env']:args+=['-e',value]
+args+=['--entrypoint','python','valoria-remediation:candidate-20261012-v5','-B','-m','uvicorn','api.main:app','--host','0.0.0.0','--port','8000']
+subprocess.run(['docker','rm','-f',name],check=True,capture_output=True)
+r=subprocess.run(args,capture_output=True);assert r.returncode==0,'Isolated candidate upgrade failed'
+print(json.dumps({'isolated_api_image':'valoria-remediation:candidate-20261012-v5','production_untouched':True}))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=40);print(r.stdout);r.check_returncode()
+W=Path(__file__).parent
+s=(W/'portal_candidate_lifecycle.py').read_text()
+start=s.index('  # One new evidence-bearing search page');end=s.index("  out['new_url_absent_from_restored_db']",start)
+s=s[:start]+'''  chosen='https://www.portalinmobiliario.com/MLC-2467200996-do-apartments-_JM'
+  async with sf() as s:
+   assert await find_existing_listing_by_url(s,chosen) is None
+'''+s[end:]
+s=s.replace("   out['new_gate']='usable_normalized_live_result'",'''   assert data.get('external_id')=='MLC-2467200996' and data['property_type']=='apartment'
+   assert r.json()['status']=='parsed_new'
+   analyzed=await api.post('/api/v1/listings/analyze-url',json={'url':chosen});analyzed.raise_for_status()
+   out['new_analysis']={'http_status':analyzed.status_code,'result':analyzed.json()}
+   out['new_gate']='normalized_live_lookup_and_analysis' ''')
+s=s.replace('portal-candidate-lifecycle.json','portal-candidate-lifecycle-final.json')
+(W/'portal_candidate_lifecycle_final.py').write_text(s,encoding='utf-8')

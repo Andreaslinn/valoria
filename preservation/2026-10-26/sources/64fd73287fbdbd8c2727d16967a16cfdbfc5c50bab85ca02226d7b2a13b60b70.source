@@ -1,0 +1,32 @@
+# Local exploratory A_core versus C1
+
+The immutable protocol and SHA-256 seal precede real fitting. Original certified
+harness, cohort, preflight and snapshots remain untouched. No network or DB access.
+
+Runtime: `work/avm-01-20261008/.venv-repro/Scripts/python.exe`, Python 3.13.4.
+Use `-B` on each invocation. All commands below refer to this directory's scripts.
+
+1. `pilot.py prepare` (once only; already prepared).
+2. `test_pilot.py` (synthetic negative controls and real lineage, without real fits).
+3. `pilot.py run G3 20261009 principal`.
+4. Repeat in a fresh process: `pilot.py run G3 20261009 reproduction`.
+5. Fixed sensitivities: `run G3 20261010 G3-20261010`,
+   `run G3 20261011 G3-20261011`, and `run G1 SEED G1-SEED` for each of
+   20261009, 20261010 and 20261011. G2 is verified identical-input reuse of G1.
+6. `pilot.py analyze`; `test_pilot.py`; `pilot.py verify`; `pilot.py finalize`.
+
+Scenario files refuse overwrite. Independent scenarios may run in separate
+processes; each has process-local label custody and distinct output files.
+Further exact reproduction may use a new tag with the same registered group/seed.
+
+`own_valid` and `paired_common` metrics answer different questions. All coverage
+denominators use the full eligible view. Error percentages are in percentage
+points; APE threshold fractions are 0–1. Bootstrap intervals condition on fixed
+OOF predictions and do not represent independent training repetitions.
+
+`C1` includes publication source, not coordinates. No source is justified yet for
+manual valuations. UF-native offers are not transaction prices; identity and area
+precision remain limited. This is not production readiness or a final holdout.
+
+Prices/predictions stay within this private NTFS-protected experimental folder.
+No external publishing, original artifact edits or productive changes permitted.

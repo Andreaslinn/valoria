@@ -1,0 +1,46 @@
+"""Read-only deployed valuation runtime capture. No DB/API calls or remote files."""
+from pathlib import Path
+import subprocess,json,hashlib,io,tarfile,base64
+from datetime import datetime,timezone
+HERE=Path(__file__).resolve().parent
+SSH=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+REMOTE=r'''
+import os,json,hashlib,io,tarfile,base64,inspect
+from pathlib import Path
+from config import valuation_flags as flags
+root=Path(inspect.getfile(flags)).resolve().parents[1]
+values={}
+for name in dir(flags):
+ if name.startswith(('valuation_','valoria_','experimental_')) and callable(getattr(flags,name)):
+  f=getattr(flags,name)
+  if not inspect.signature(f).parameters:
+   v=f();values[name]=sorted(v) if isinstance(v,(set,frozenset)) else v
+env={getattr(flags,k):os.environ.get(getattr(flags,k)) for k in dir(flags) if k.endswith('_ENV') and isinstance(getattr(flags,k),str)}
+buf=io.BytesIO();hashes={}
+with tarfile.open(fileobj=buf,mode='w:gz') as tar:
+ for folder in ['core','domain','services','config']:
+  for p in sorted((root/folder).rglob('*.py')):
+   raw=p.read_bytes();rel=str(p.relative_to(root));hashes[rel]=hashlib.sha256(raw).hexdigest();info=tarfile.TarInfo(rel);info.size=len(raw);tar.addfile(info,io.BytesIO(raw))
+ for rel in ['api/v1/valuations.py','infrastructure/db/repositories/listing_repo.py','requirements.txt','pyproject.toml']:
+  p=root/rel
+  if p.is_file():
+   raw=p.read_bytes();hashes[rel]=hashlib.sha256(raw).hexdigest();info=tarfile.TarInfo(rel);info.size=len(raw);tar.addfile(info,io.BytesIO(raw))
+print(json.dumps({'root':str(root),'flags_effective':values,'flag_environment':env,'hashes':hashes,'archive':base64.b64encode(buf.getvalue()).decode()}))
+'''
+def call(command,body=None):
+ p=subprocess.run(SSH+[command],input=body.encode() if body else None,capture_output=True,timeout=90)
+ if p.returncode:raise RuntimeError('Read-only SSH failed: '+p.stderr.decode(errors='replace')[-700:])
+ return p.stdout
+def main():
+ assert not (HERE/'oracle_runtime.json').exists(),'Do not replace runtime evidence'
+ meta=json.loads(call("docker inspect --format '{{json .}}' valoria_oracle_beta-api-1"))
+ data=json.loads(call('docker exec -i valoria_oracle_beta-api-1 python -B -',REMOTE))
+ archive=base64.b64decode(data.pop('archive'));dest=HERE/'deployed_runtime';dest.mkdir(exist_ok=False)
+ with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+  for item in tar:
+   path=(dest/item.name).resolve();assert path.is_relative_to(dest.resolve()) and item.isfile()
+   path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(tar.extractfile(item).read())
+ evidence={'captured_at':datetime.now(timezone.utc).isoformat(),'container':meta['Name'],'image_reference':meta['Config']['Image'],'image_id':meta['Image'],'started_at':meta['State']['StartedAt'],'mounts':[{'destination':v['Destination'],'source':v['Source'],'read_write':v['RW']} for v in meta['Mounts']],**data,'archive_sha256':hashlib.sha256(archive).hexdigest(),'remote_script_sha256':hashlib.sha256(REMOTE.encode()).hexdigest(),'access':'SSH and docker read-only inspection; no DB/API requests'}
+ (HERE/'oracle_runtime.json').write_text(json.dumps(evidence,indent=2)+'\n')
+ print(json.dumps({k:v for k,v in evidence.items() if k not in ['hashes','flag_environment','mounts']}))
+if __name__=='__main__':main()

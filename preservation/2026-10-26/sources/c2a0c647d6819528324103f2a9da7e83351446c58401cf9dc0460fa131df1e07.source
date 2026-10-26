@@ -1,0 +1,26 @@
+import pytest
+
+from services.property_life_config import enabled, validate_local_url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql+psycopg://[USER]:[PASSWORD]@oracle.example:5432/avm",
+        "postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:5432/avm",
+        "postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55439/avm",
+        "postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55439/property_life_local?host=oracle.example",
+    ],
+)
+def test_refuses_other_databases(url):
+    with pytest.raises(RuntimeError):
+        validate_local_url(url)
+
+
+def test_flag_defaults_off(monkeypatch):
+    monkeypatch.delenv("PROPERTY_LIFE_ENABLED", raising=False)
+    assert not enabled()
+
+
+def test_exact_local_database():
+    validate_local_url("postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55439/property_life_local")

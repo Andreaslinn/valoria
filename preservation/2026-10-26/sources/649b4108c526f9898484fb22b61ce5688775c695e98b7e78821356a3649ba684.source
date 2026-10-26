@@ -1,0 +1,33 @@
+"""Run regressions with in-memory SQLite and a hard Python network guard."""
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]
+os.chdir(root)
+sys.path.insert(0, str(root))
+(root / '.tmp').mkdir(exist_ok=True)
+tmp = Path(tempfile.mkdtemp(prefix='isolated-tests-', dir=root / '.tmp'))
+os.environ.update(
+    DATABASE_URL='sqlite+aiosqlite:///:memory:', SYNC_DATABASE_URL='sqlite:///:memory:',
+    JWT_SECRET_KEY=[REDACTED]
+    PRODUCT_ANALYTICS_ENABLED='true', PRODUCT_ANALYTICS_DIR=str(tmp / 'analytics'),
+    ENVIRONMENT='development', VALORIA_RUNTIME_PROFILE='local', VALORIA_USE_CONSENSUS='false',
+    VALUATION_CANONICAL_PRICE_ENABLED='false', VALUATION_CANONICAL_PRICE_SEGMENTED='false',
+    VALORIA_EXPERIMENTAL_ENGINE_LAB_ENABLED='false', VALUATION_QUALITY_V2_APPLY_MODE='off')
+sys.dont_write_bytecode = True
+
+def guard(event, args):
+    if event in ('socket.connect', 'socket.getaddrinfo'):
+        if event == 'socket.connect' and sys._getframe(1).f_code.co_name == '_fallback_socketpair':
+            return
+        raise PermissionError('Test isolation: external network blocked')
+    if event == 'sqlite3.connect' and args[0] != ':memory:':
+        raise PermissionError('Test isolation: only in-memory database allowed')
+
+sys.addaudithook(guard)
+import pytest
+raise SystemExit(pytest.main(['-p', 'no:cacheprovider', '-p', 'pytest_asyncio.plugin',
+    '--capture=sys', '-o', 'asyncio_default_fixture_loop_scope=function',
+    '--basetemp', str(tmp / 'pytest'), '-q', '--tb=short'] + sys.argv[1:]))

@@ -1,0 +1,59 @@
+"""Method checks, not valuation/model performance tests."""
+import unittest
+import json
+import csv
+import xml.etree.ElementTree as ET
+from decimal import Decimal
+from datetime import datetime,timezone
+from dataclasses import replace
+from pathlib import Path
+from audit import components, coord_distance, CleanedListing, Price, make_fingerprint
+
+class AuditTests(unittest.TestCase):
+    def test_transitive_bridge(self):
+        rows=[dict(id=1,source='a',external_id='x',property_id=8),
+              dict(id=2,source='a',external_id='x',property_id=9),
+              dict(id=3,source='b',external_id='y',property_id=9)]
+        groups,_=components(rows,True)
+        self.assertEqual(len(set(groups.values())),1)
+        publication,_=components(rows,False)
+        self.assertEqual(len(set(publication.values())),2)
+
+    def test_price_is_not_a_graph_key(self):
+        a=[dict(id=1,source='a',external_id='x',property_id=8,price_uf=100),
+           dict(id=2,source='b',external_id='y',property_id=8,price_uf=100000)]
+        b=[dict(**r,price_clp=999) for r in a]
+        self.assertEqual(components(a,True),components(b,True))
+
+    def test_source_scopes_external_id(self):
+        rows=[dict(id=1,source='a',external_id='x'),dict(id=2,source='b',external_id='x')]
+        self.assertEqual(len(set(components(rows,False)[0].values())),2)
+
+    def test_distance(self):
+        self.assertAlmostEqual(coord_distance(dict(lat=0,lon=0),dict(lat=0,lon=1)),111.1949266,places=5)
+
+    def test_outputs_reconcile(self):
+        root=Path(__file__).parent
+        r=json.loads((root/'results.json').read_text(encoding='utf-8'))
+        self.assertEqual(r['N'],1179)
+        self.assertEqual(sum(r['source_counts'].values()),r['N'])
+        self.assertEqual(r['address_raw']+r['other_coords']+r['no_coords'],r['N'])
+        self.assertEqual(sum(r['group_sizes'].values())+r['groups_5plus'],r['groups'])
+        self.assertTrue(json.loads((root/'verification.json').read_text())['checkout_unchanged'])
+
+    def test_title_can_indirectly_contain_price(self):
+        cleaned=CleanedListing(source='yapo',external_id='x',title='Depto UF 2500',comuna='santiago',
+            m2=50,bedrooms=2,bathrooms=1,parking=0,price=Price(clp=Decimal('100000000')),scraped_at=datetime.now(timezone.utc))
+        self.assertNotEqual(make_fingerprint(cleaned),make_fingerprint(replace(cleaned,title='Depto UF 3500')))
+
+    def test_histograms_and_svg(self):
+        root=Path(__file__).parent
+        totals={}
+        with (root/'histogram_bins.csv').open(encoding='utf-8',newline='') as f:
+            for row in csv.DictReader(f): totals[row['variable']]=totals.get(row['variable'],0)+int(row['n'])
+        self.assertEqual(len(totals),5)
+        self.assertTrue(all(n==1179 for n in totals.values()))
+        self.assertEqual(len(list(root.glob('*.svg'))),9)
+        for p in root.glob('*.svg'): ET.parse(p)
+
+if __name__=='__main__': unittest.main()

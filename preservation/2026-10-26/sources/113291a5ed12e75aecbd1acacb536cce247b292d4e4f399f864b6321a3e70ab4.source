@@ -1,0 +1,47 @@
+"""Read-only custody checks; only writes verification files in this sandbox."""
+from pathlib import Path
+from datetime import datetime,timezone
+import hashlib,json,subprocess
+from run_readiness import HERE,WORKSPACE,execute,read_json,file_sha,verify_run
+
+def main():
+    out,result,created=execute()
+    before={p.name:(file_sha(p),p.stat().st_mtime_ns) for p in out.iterdir()}
+    repeated,again,new=execute()
+    assert repeated==out and not new and again==result
+    assert before=={p.name:(file_sha(p),p.stat().st_mtime_ns) for p in out.iterdir()}
+    verify_run(out)
+    required=['independent_review.md','README.md','readiness_summary.md','readiness_gates.json','accumulation_status.csv','identity_status.md',
+              'grouping_sensitivity.csv','target_quality.csv','feature_quality.csv','source_comuna_coverage.csv','split_feasibility.md',
+              'harness_leakage_review.md','readiness_delta.md','freeze_recommendation.md','output_manifest.csv']
+    assert all((out/name).stat().st_size>0 for name in required)
+    config=read_json(HERE/'inputs.json');input_checks={k:file_sha(WORKSPACE/v['path'])==v['sha256'] for k,v in config['files'].items()}
+    assert all(input_checks.values())
+    custody=read_json(HERE/'integrity-before.json')
+    code_checks={p:file_sha(Path(p) if Path(p).is_absolute() else WORKSPACE/p)==digest for p,digest in custody['files'].items()}
+    assert all(code_checks.values())
+    git_checks={}
+    for key,root in [('main',Path('C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2')),('reconciled',WORKSPACE/'valoria-reconciled')]:
+        head=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+        statuses=[subprocess.run(['git','-C',str(root),'status','--porcelain',*options],text=True,capture_output=True,check=True) for options in [[],['-uall']]]
+        match=False;matched_lines=None
+        for s in statuses:
+            variants=[s.stdout,s.stdout.strip(),s.stdout.rstrip(),s.stdout.replace('\n','\r\n'),s.stdout.strip().replace('\n','\r\n')]
+            if any(hashlib.sha256(v.encode()).hexdigest()==custody[key]['status_sha256'] for v in variants):match=True;matched_lines=len(s.stdout.splitlines())
+        git_checks[key]={'HEAD':head,'HEAD_unchanged':head==custody[key]['HEAD'],'status_hash_matches_baseline':match,'matched_status_lines':matched_lines,
+            'default_status_lines':len(statuses[0].stdout.splitlines()),'all_untracked_status_lines':len(statuses[1].stdout.splitlines()),
+            'permission_warnings':any('Permission denied' in s.stderr for s in statuses),
+            'limitation':None if match else 'full status hash not comparable/unchanged not established; selected file hashes and HEAD unchanged; inaccessible legacy temp dirs not modified'}
+    test_text=(HERE/'test-output.txt').read_text(encoding='utf-8-sig')
+    assert 'Ran 40 tests' in test_text and '\nOK' in test_text.replace('\r\n','\n')
+    verification={'at_utc':datetime.now(timezone.utc).isoformat(),'run':str(out),'global':result['global'],'tests':40,'tests_passed':True,
+        'tests_output_sha256':file_sha(HERE/'test-output.txt'),'required_artifacts_nonempty':True,'input_integrity':input_checks,
+        'selected_product_and_AVM01_file_integrity':code_checks,'git':git_checks,'idempotent_bytes_and_mtimes':True,
+        'manifest_sha256':file_sha(out/'output_manifest.csv'),'oracle_accessed':False,'real_model_training':False,
+        'real_splits_created':False,'persistent_data_changed':False,'new_writes_scope':str(HERE)}
+    (HERE/'verification.json').write_text(json.dumps(verification,indent=2),encoding='utf-8')
+    (HERE/'LATEST_RUN.txt').write_text(str(out)+'\n',encoding='utf-8')
+    print(json.dumps({'run':str(out),'global':result['global'],'tests':40,'input_files_unchanged':all(input_checks.values()),
+        'selected_product_AVM01_files_unchanged':all(code_checks.values()),'git':git_checks,'idempotent':True,'oracle_accessed':False}))
+
+if __name__=='__main__':main()

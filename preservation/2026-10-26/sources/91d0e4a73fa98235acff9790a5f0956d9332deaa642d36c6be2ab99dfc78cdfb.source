@@ -1,0 +1,16 @@
+import subprocess,pathlib
+code='''import httpx,json,asyncio,sys
+from scripts.portal_smoke import DEFAULT_HEADERS
+from urllib.parse import urlsplit,urlunsplit
+async def main():
+ data=json.load(sys.stdin);jar=httpx.Cookies()
+ for c in data['cookies']:jar.set(c['name'],c['value'],domain=c['domain'],path=c['path'])
+ async with httpx.AsyncClient(headers=DEFAULT_HEADERS,cookies=jar,follow_redirects=False,timeout=30) as client:
+  r=await client.get('https://www.portalinmobiliario.com/MLC-2950235500-condominios-valle-la-dehesa-townhouses-_JM')
+  p=urlsplit(r.headers.get('location',''))
+  print(json.dumps({'status':r.status_code,'redirect_host':p.hostname,'redirect_path':p.path}))
+asyncio.run(main())
+'''
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-c',code],input=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session/session.json').read_bytes(),capture_output=True)
+print(r.stdout.decode(),r.stderr.decode()[-1000:])
+

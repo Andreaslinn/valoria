@@ -1,0 +1,29 @@
+"""Run HTTP smoke tests inside the isolated container, saving statuses only."""
+from pathlib import Path
+import argparse
+import json
+import re
+import subprocess
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--prefix', required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    assert re.fullmatch(r'valoria-reconcile-[a-z0-9-]+', args.prefix)
+    container = args.prefix + '-reconciled'
+    state = json.loads(subprocess.check_output(['docker', 'inspect', container]))[0]
+    assert set(state['NetworkSettings']['Networks']) == {args.prefix + '-internal'}
+    network = json.loads(subprocess.check_output(['docker', 'network', 'inspect', args.prefix + '-internal']))[0]
+    assert network['Internal'] and not state['HostConfig']['PortBindings']
+    payload = Path(__file__).resolve().parents[1] / 'deploy/reconciliation/smoke_payload.py'
+    process = subprocess.run(['docker', 'exec', '-i', '-e', 'RECONCILIATION_SMOKE_STAGE=reconciled',
+                              container, 'python', '-B', '-'], input=payload.read_text(encoding='utf-8'),
+                             text=True, encoding='utf-8', capture_output=True)
+    if process.returncode: raise RuntimeError('Smoke process failed; check isolated container diagnostics')
+    result = json.loads(process.stdout)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(result, indent=2), encoding='utf-8')
+    failures = [name for name,value in result.items() if isinstance(value,dict) and not value.get('ok')]
+    print('Smoke checks:',len(result),'Failures:',failures)
+    raise SystemExit(bool(failures))

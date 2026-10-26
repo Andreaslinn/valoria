@@ -1,0 +1,16 @@
+import faulthandler,json
+from pathlib import Path
+faulthandler.dump_traceback_later(25)
+from tasar_demo import app
+from fastapi.testclient import TestClient
+out=Path(__file__).parent.parent/'outputs/auditoria-vitacura-1261-6'
+with TestClient(app) as c:
+    for land in (450,650,850,1050):
+        payload={'sii_rol':'1261-6','comuna':'vitacura','property_type':'house','m2':221,'built_area_m2':221,'land_area_m2':land,'usable_area_m2':None,'dormitorios':5,'banos':5,'estacionamientos':2,'precio_publicado_uf':None,'precio_publicado_clp':None}
+        response=c.post('/api/v1/valuations',json=payload,headers={'Authorization':'Bearer local-demo-only'})
+        assert response.status_code==200,response.status_code
+        result=response.json()
+        (out/f'api-inference-{land}.json').write_text(json.dumps({'request':payload,'response':result},indent=2,ensure_ascii=False),encoding='utf8')
+        print(land,result['estimated_price_uf'],result['sii_closing_opinion']['value_uf'],flush=True)
+    assert result['comparable_count']==20
+faulthandler.cancel_dump_traceback_later()

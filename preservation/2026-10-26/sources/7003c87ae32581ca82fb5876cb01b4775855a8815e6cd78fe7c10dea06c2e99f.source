@@ -1,0 +1,58 @@
+"""Recompute matched-support final tables and attest immutable inputs."""
+from lab import *
+from analyze import metrics,interval
+import platform,importlib.metadata
+
+def combined(tag):
+ if tag=='temporal':
+  names=['temporal_predictions','kernel-temporal','text-temporal','quality-temporal','blend-temporal']
+ elif tag=='fresh':names=['fresh_predictions']
+ else:names=[f'iteration1-{tag}',f'kernel-{tag}',f'aggregation-{tag}',f'text-{tag}',f'quality-{tag}',f'blend-{tag}']
+ rows={}
+ for name in names:
+  for r in decrypt(HERE/(name+'.json.dpapi')):
+   i=r['row_id']
+   if i not in rows:rows[i]=dict(r,predictions={})
+   assert rows[i]['target_uf']==r['target_uf'] and rows[i]['group']==r['group']
+   for n,v in r['predictions'].items():
+    if n in rows[i]['predictions']:assert rows[i]['predictions'][n]==v,(tag,n)
+    rows[i]['predictions'][n]=v
+ return list(rows.values())
+
+def summarize(rows):
+ names=list(rows[0]['predictions']);out={'n':len(rows),'groups':len({r['group'] for r in rows}),'full':{n:metrics(rows,n) for n in names},'paired':{n:interval(rows,'A',n) for n in names if n!='A'}}
+ if 'BlendSupported' in names:
+  add=[r for r in rows if r['predictions']['A'] is None and r['predictions']['BlendSupported'] is not None];out['added_coverage']={'n':len(add),'metrics':metrics(add,'BlendSupported'),'within20':sum(abs(r['predictions']['BlendSupported']/r['target_uf']-1)<=.2 for r in add)}
+  for label,ss in [('Yapo',[r for r in rows if r['source']=='yapo']),('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('small',[r for r in rows if r.get('area',100)<45]),('large',[r for r in rows if r.get('area',0)>=90]),('geo',[r for r in rows if r.get('geo',False)]),('no_geo',[r for r in rows if not r.get('geo',False)])]:
+   if ss:out[label]={'n':len(ss),'A_vs_Blend':interval(ss,'A','Blend'),'A_vs_BlendSupported':interval(ss,'A','BlendSupported')}
+ return out
+
+def main():
+ c=verify();summary={tag:summarize(combined(tag)) for tag in ['20261009','20261010','temporal','fresh'] if (HERE/('fresh_predictions.json.dpapi' if tag=='fresh' else 'temporal_predictions.json.dpapi' if tag=='temporal' else f'iteration1-{tag}.json.dpapi')).exists()}
+ # Template sensitivity uses existing predictions only, not another candidate or tuning.
+ from text_diagnostics import title_tokens,similar
+ p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];idx=ds.indexed();tok={i:title_tokens(r) for i,r in idx.items()}
+ for seed in [20261009,20261010]:
+  plan=p.create_plan(ds,cohort,maps['G3'],seed);near={i for sp in plan.folds for i in sp.test if any(similar(idx[i],idx[j],tok) for j in sp.train)};rows=combined(str(seed));far=[r for r in rows if r['row_id'] not in near];summary[str(seed)]['template_stress']={'excluded':len(near),'far_A_vs_Blend':interval(far,'A','Blend')}
+ summary['evidence_status']={'original_cv':'Reused791 exploratory; two seeds are correlated sensitivity checks, not independent samples; bootstrap CIs unadjusted for multiple research hypotheses','temporal149':'New Oct5-10 chronological continuation, then consumed by subsequent hypotheses. Exploratory; 148 effective target groups; nativeA parity149/149','fresh':'Only if present: new unseen later-time Oct11 sample, algorithm/weights locked before capture and single evaluation. Collected before lock, so not a forward prospective experiment; small, Yapo-only, automatic independence checks, published prices','protected_holdout':'Not unsealed or evaluated','scope':'A_core comparable family, not complete Tasar/Consensus valuation; source text absent in current manual input contract','production':'Two bounded read-only History exports, no productive writes or scraping'}
+ write(HERE/'results.json',summary)
+ fields=['universe','model','support','eligible','n','coverage','MdAPE','MAPE','MAE_log','P90','P95','bias_median_pct','gt20','gt30','gt50','eligible_within20']
+ with (HERE/'metrics.csv').open('w',newline='',encoding='utf-8-sig') as f:
+  w=csv.DictWriter(f,fieldnames=fields);w.writeheader()
+  for tag,z in summary.items():
+   if tag=='evidence_status':continue
+   for name,m in z['full'].items():w.writerow({'universe':tag,'model':name,'support':'own',**m})
+   for name,m in z['paired'].items():
+    if m:
+     for model,mm in [('A',m['A']),(name,m['B'])]:w.writerow({'universe':tag,'model':model,'support':'common_A_'+name,**mm})
+ # Copied frozen code must still equal the original runtime, aside from explicit isolated authorization.
+ prior_runtime=PRIOR/'runtime';checked=0
+ for f in prior_runtime.rglob('*'):
+  if not f.is_file() or '__pycache__' in f.parts or f.suffix=='.pyc' or f.relative_to(prior_runtime).as_posix()=='avm01/pilot_authorization.py':continue
+  assert sha(f)==sha(RUNTIME/f.relative_to(prior_runtime)),str(f);checked+=1
+ for f in HERE.glob('*.py'):compile(f.read_text(encoding='utf-8'),str(f),'exec')
+ inventory={str(f.relative_to(HERE)):{'bytes':f.stat().st_size,'sha256':sha(f)} for f in HERE.rglob('*') if f.is_file() and f.name!='manifest.json' and '__pycache__' not in f.parts and f.suffix!='.pyc'}
+ write(HERE/'manifest.json',{'created_at':datetime.now(timezone.utc).isoformat(),'original_inputs_verified':len(c['immutable_inputs']),'runtime_files_verified':checked,'environment':{'python':platform.python_version(),**{n:importlib.metadata.version(n) for n in ['numpy','scipy','scikit-learn','joblib','threadpoolctl']}},'tests':'See validation.json; no application code changed','private_rows':'All new row-level artifacts DPAPI CurrentUser; gitignored sandbox; no raw evidence in narrative','artifacts':inventory})
+ print(json.dumps({tag:{'A':z['full']['A'],'Blend':z['full']['Blend'],'BlendSupported':z['full']['BlendSupported'],'added':z.get('added_coverage'),'paired':{k:v for k,v in z['paired']['Blend'].items() if k not in ['A','B']}} for tag,z in summary.items() if tag!='evidence_status'}))
+
+if __name__=='__main__':main()

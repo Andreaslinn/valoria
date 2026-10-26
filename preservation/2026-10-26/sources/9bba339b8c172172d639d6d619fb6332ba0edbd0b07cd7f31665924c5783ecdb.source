@@ -1,0 +1,53 @@
+# Performance observada
+
+Host: Windows-11-10.0.26200-SP0, AMD64, Python 3.12.14, Pillow 12.3.0.
+Todas las cifras CPU/RSS son locales; no representan Oracle ARM64.
+
+40 casos = 5 imágenes ×8 configuraciones; warmup+10 repeticiones por caso.
+FORMAT_BENCHMARK.csv contiene bytes/dimensiones, descarga real observada una vez,
+decode/resize/encode, CPU por operación, RSS peak del proceso, decode de salida,
+ratio y PSNR/SSIM aproximado en bloques 8x8 de luminancia. El peak incluye
+interpreter/librerías y cálculo de calidad; no es RSS incremental del codec.
+No se presenta SSIM como evaluación humana ni como comparación perfecta entre resoluciones.
+
+WebP q60/320: decode+resize+encode medio 24.54 ms,
+encode 13.28 ms, peak RSS máximo de caso
+54.07 MiB. Download observada 203–484 ms
+en 5 fuentes; el end-to-end live no fue medido conjuntamente. Sumar descarga y
+normalización de sesiones distintas sería una estimación, no una medición.
+
+Worker replay con persistencia: 87.7, 28.3, 45.6, 31.0, 27.0 ms
+para los 5 listings. Incluye primer codec warmup; download replay 0 ms y métricas
+por thumbnail en performance.json. Fetch remoto no ocurre en el request UI.
+
+## Request/cache y refinamiento
+
+Antes: conexión/checkpoint SQLite por llamada; lote 5 mediana
+45.48 ms. Después: conexión persistente
+con lock y WAL NORMAL; lote 5 mediana 1.106 ms,
+p95 1.431 ms (50 lotes).
+Cache hit mediana 0.218 ms, p95 0.291 ms,
+n=250. Cache miss enqueue mediana 0.101 ms.
+Se conserva la mejora; no hay download/decode/encode durante el enriquecimiento.
+No se extrapola a 100 cards como medición ni a concurrencia productiva desconocida.
+
+## Navegador/UI
+
+Edge 154.0.4258.53, 1365×1000 y 390×844. 11 checks verdes. Cinco assets únicos
+transfirieron 51,890 B
+de body (53,390 B reportados
+por ResourceTiming incluyendo su overhead aproximado). Listing 8 reutiliza el
+hash del 1. Cache privado max-age=86400/immutable + ETag; HTTP test confirma 304
+con 0 bytes. Los requests observados de assets locales duran aproximadamente
+15–20 ms en esta ejecución. No significa latencia pública productiva.
+
+Primera página dev lista en 1760 ms (Next dev, no build
+optimizado, sin baseline A/B de render). No se atribuye ese tiempo al pipeline.
+Slot fijo de 112px, object-contain, lazy/async; error/fallback mantiene la misma
+altura. Sin overflow móvil, sin excepciones cliente, sin requests externos.
+No se midió Lighthouse ni CLS global; el test verifica el slot antes/después.
+
+Browser decode puntual: {"webp": {"width": 320, "height": 240, "decode_ms": 1.7000000476837158}, "jpeg": {"width": 320, "height": 240, "decode_ms": 1.899999976158142}, "avif": {"width": 320, "height": 240, "decode_ms": 8.800000071525574}}.
+Edge decodifica WebP/JPEG/AVIF; otros browsers modernos cuentan con soporte
+documentado, sin probar Safari/Firefox aquí.
+[Guía de formatos MDN](https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Image_types).

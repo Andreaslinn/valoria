@@ -1,0 +1,30 @@
+import subprocess,json,hashlib
+from pathlib import Path
+W=Path(__file__).parent;R=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+manifest=json.loads((W/'release-overlay-v6/manifest.json').read_text())
+assert all(hashlib.sha256((R/name).read_bytes()).hexdigest()==sha for name,sha in manifest['files'].items())
+assert '1966 passed' in (W/'portal-v6-final-backend.log').read_text()
+assert '# pass 8' in (W/'portal-frontend-tests.log').read_text()
+for f in ['results.json','extra-results.json','final-results.json']:assert all(x['status']=='PASS' for x in json.loads((W/'e2e'/f).read_text()))
+assert all(x['status']=='PASS' for x in json.loads((W/'e2e-portal/results.json').read_text())['results'])
+assert json.loads((W/'e2e-portal/unavailable-result.json').read_text())['status']=='PASS'
+exec((W/'portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''import subprocess,json,pathlib,shutil,hashlib
+def run(a):return subprocess.check_output(a,text=True).strip()
+api=json.loads(run(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+assert api['Image']=='sha256:3342a667c071319097e6c6aed23bfd03ec231f6bf44cd17434d6a0de13187f15'
+assert api['State']['Health']['Status']=='healthy'
+candidate=json.loads(run(['docker','image','inspect','valoria-remediation:candidate-20261012-v6']))[0]
+assert candidate['Id']=='sha256:70447ccad59a69df70c52a1ee90cac8f3f92d98dff818c48c02abf24fec3297d'
+assert run(['docker','image','inspect','valoria-remediation-rollback:20261012','--format','{{.Id}}'])==api['Image']
+available=int(next(x.split()[1] for x in pathlib.Path('/proc/meminfo').read_text().splitlines() if x.startswith('MemAvailable:')))*1024
+assert available>768*1024**2 and shutil.disk_usage('/home/ubuntu').free>8*1024**3
+units={}
+for u in ['valoria-yapo-discovery.service','valoria-portal-discovery.service']:
+ d=dict(x.split('=',1) for x in run(['systemctl','show',u,'--property=Result,ExecMainStatus,ActiveState']).splitlines())
+ assert d['Result']=='success' and d['ExecMainStatus']=='0' and d['ActiveState']=='inactive';units[u]=d
+root=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session')
+assert (root/'session.json').is_file() and not (root/'reauth_required.json').exists()
+print(json.dumps({'production_image':api['Image'],'candidate_image':candidate['Id'],'candidate_commit':candidate['Config']['Labels']['org.opencontainers.image.revision'],'resources_available_bytes':available,'disk_free_bytes':shutil.disk_usage('/home/ubuntu').free,'worker_results':units,'session_mount_planned':'readonly','production_config_files':api['Config']['Labels']['com.docker.compose.project.config_files'],'caddy_site_lines':[x for x in pathlib.Path('/home/ubuntu/apps/valoria/deploy/Caddyfile.oracle').read_text().splitlines() if x.strip().endswith('{')][:3]},indent=2))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=45);(W/'portal-final-deploy-precheck.json').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr);r.check_returncode()

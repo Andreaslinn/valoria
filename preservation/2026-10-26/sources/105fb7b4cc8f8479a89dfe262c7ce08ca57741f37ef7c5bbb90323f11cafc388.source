@@ -1,0 +1,25 @@
+# Historial de observaciones
+Estado actual, inspección de pipeline/_update_existing, modelos/mappers y refresh worker:
+
+| t1→t2→t3 mismo source/external_id | Qué ocurre |
+|---|---|
+| título, URL, atributos, precio, procedencia monetaria | se sobrescriben con nueva normalización |
+| metadata | merge superficial, nuevos valores ganan; puede retener evidencia antigua no reobservada; se eliminan warnings/hints obsoletos según reglas |
+| coordenadas/precisión | protección por calidad; no sustituir con None/inferior; no conserva versiones completas |
+| scraped_at / last_seen_at | valor de la última observación |
+| created_at | nacimiento de fila DB; no garantiza primer avistamiento de publicación si cambia source/external_id por fingerprint |
+| precio distinto | PriceHistory guarda precio anterior y observed_at previo; no todos los atributos ni toda observación |
+| mismo precio, distintos atributos | no snapshot completo del estado anterior |
+| refresh | última tentativa/status; 404→removed, inactividad explícita→inactive, ciertos redirects→removed; bloqueos/429 no prueban desaparición |
+| publicación sin source/external_id encontrado | fallback fingerprint puede actualizar fila y reemplazar identidad fuente; sin ledger de alias |
+
+Diseño futuro, NO migración ejecutada:
+`fetch_events(fetch_id, source, request_url, final_url, fetched_at, http_status, page_state, scope, complete_scan, raw_blob_sha256)`.
+`listing_observations(observation_id, source, external_listing_id, fetch_id, observed_at, observation_kind, original_url, source_updated_at, source_publication_at, evidence_origin)`.
+`parsed_revisions(parse_revision_id, observation_id, parser_build_sha256, parser_version, parsed_at, attrs, raw_field_paths, quality_flags)`.
+`raw_blobs(sha256, restricted_path, media_type, byte_length)`.
+Clave natural de publicación = source+external_id; NO property_id. Observaciones y revisiones separadas evitan confundir replay con un nuevo avistamiento. No updates/deletes sobre historia. El prototipo JSONL es single-writer; comprueba idempotencia de parse_revision_id. No promete atomicidad multiwriter: integración requeriría transacción/constraints/outbox y política de retención, pendientes de aprobación.
+
+first_seen/last_seen=min/max tiempos de observación real, no replay. Cambios físicos y precio comparan observaciones ordenadas con moneda/procedencia retenidas. Una ausencia en búsqueda parcial NO determina desaparición: registrar solo evidencia explícita de detalle retirado o censo con cobertura certificada. Una respuesta 403/429/challenge NO determina desaparición. Reaparición exige nueva observación válida tras evidencia explícita; republicación con otro ID exige links offline, no heurística automática. Duración observada es censurada por ambos extremos; no confundir con tiempo real de venta ni fecha de publicación.
+
+Implementado y probado offline: t1/t2/t3 permanecen en JSONL, tres blobs intactos, timestamps/atributos distinguibles e idempotencia de la misma revisión. No se reparó ni migró el historial existente. Los 12.583 price_history del backup anterior no se usaron como ledger completo ni como verdad de dependencia.

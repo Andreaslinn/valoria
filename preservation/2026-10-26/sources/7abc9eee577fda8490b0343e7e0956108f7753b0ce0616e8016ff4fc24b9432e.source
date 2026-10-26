@@ -1,0 +1,73 @@
+"""Registered contract projections; only evaluator controls data and labels."""
+from lab import *
+from dataclasses import replace
+sys.path[:0]=[str(RUNTIME),str(RUNTIME/'frozen_a')]
+from avm01.canonical_io import listing_from_payload
+from avm01.isolation import dependency_hash
+from domain.geocoding.quality import apply_geocoding_guardrails
+MODES=['manual','located','enriched']
+NAMES=['A','AM','AMcross','Learned','Blend','DeployedA','Final','FinalAM','FinalBlend']
+
+def derive(ds,split,mode):
+ assert mode in MODES
+ train=set(split.train);test=set(split.test);guarded={}
+ bycom=defaultdict(list)
+ for r in ds.records:
+  if r.row_id in train:bycom[r.features['comuna']].append((r.row_id,listing_from_payload(r.canonical_listing)))
+ for items in bycom.values():
+  apply_geocoding_guardrails([l for _,l in items])
+  guarded.update({i:l.geocode_precision for i,l in items})
+ rows=[]
+ for r in ds.records:
+  if r.row_id in train:r=replace(r,canonical_listing={**r.canonical_listing,'geocode_precision':guarded[r.row_id]})
+  if r.row_id in test:
+   f={**r.features,**{k:r.features[k] or 0 for k in ['bedrooms','bathrooms','parking']}}
+   p={**r.canonical_target,'id':None,**{k:f[k] for k in ['bedrooms','bathrooms','parking']}}
+   if mode!='enriched':p['raw_metadata']={}
+   if mode=='manual':p.update(coordinates=None,geocode_precision='unknown')
+   r=replace(r,features=f,canonical_listing={},canonical_target=p,latitude=None if mode=='manual' else r.latitude,longitude=None if mode=='manual' else r.longitude)
+  rows.append(r)
+ result=replace(ds,records=tuple(rows),snapshot_id=ds.snapshot_id+'-contracts-'+mode)
+ result.validate()
+ return result,replace(split,snapshot_hash=result.hash(),dependency_hash=dependency_hash(result))
+
+def temporal_data():
+ # Reuse already-consumed archived temporal cohort, never recapture or open holdout.
+ old=ROOT/'research/valuation_discovery_20261011'
+ module('history_feasibility',old/'history_feasibility.py')
+ t=module('contract_archived_temporal',old/'temporal_prepare.py');t.HERE=old
+ return t.temporal_data()
+
+def cases(which):
+ p,(datasets,cohort,maps,_)=load();ds=datasets['G3']
+ if which=='temporal':
+  from avm01.splits import Split
+  ds,train,test,_=temporal_data()
+  return ds,[Split(train,test,'temporal',20261009,ds.hash(),dependency_hash(ds))]
+ return ds,p.create_plan(ds,cohort,maps['G3'],int(which)).folds
+
+def prepare():
+ assert not(HERE/'protocol.json').exists(),'No overwrite'
+ c=read(ROOT/'research/valuation_discovery_20261011/protocol.json')
+ hashes={};counts={}
+ for which in ['20261009','20261010','temporal']:
+  ds,splits=cases(which);counts[which]={'train':[len(s.train) for s in splits],'targets':sum(len(s.test) for s in splits)}
+  for fold,s in enumerate(splits):
+   for mode in MODES:hashes[f'{which}-{fold}-{mode}']=derive(ds,s,mode)[0].hash()
+ protocol={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':hashes,'allowed_engines':NAMES,'uf_reference':c['uf_reference'],'immutable_inputs':c['immutable_inputs'],
+  'modes':{'manual':'Actual service target: physical/comuna only, null structural ->0. No location/text.','located':'Experimental addition of archived coordinates + their existing precision, no target text; never invent exactness.','enriched':'Experimental price-free archived location/text reaches target. URL current drops these; Radar direct property retains them.'},
+  'candidate':'Locked alpha1 Ridge, text weight1, log blend .5. Manual/located use matched physical-only Ridge, enriched uses TextModel. No retuning or winner selection on outer labels.',
+  'AM':'Fixed adaptive prior parameters, SAME-COMMUNE accessible candidates; AMcross is separately labeled retrieval-universe change, never evidence of algorithm-only improvement.',
+  'pool':'Same fixed dated fold training universe for all variants; service retrieves active same-commune/type with deployed geo guardrails. Global learned estimator trains only this authorized train catalog. Not the complete operational DB.',
+  'order':'Common explicit listing-id order; deployed SQL has no ORDER BY, frozen A adds deterministic tie-break. No claim to exact production request parity without pool/order capture.',
+  'final_intervention':'Replace only existing comparable-family estimated value with AM/Blend; retain original confidence, proportional interval, recompute existing consensus rules; keep service early gate and fallback. Counterfactual, not product integration.',
+  'evidence':'All reused original/temporal targets are exploratory. No confirmatory holdout read, no new model optimization, no source requests.',
+  'counts':counts,'runtime_evidence_sha256':sha(HERE/'oracle_runtime.json')}
+ write(HERE/'protocol.json',protocol);(HERE/'protocol.sha256').write_text(sha(HERE/'protocol.json'))
+ p=RUNTIME/'avm01/pilot_authorization.py';s=p.read_text();s=s.replace("'fresh_protocol']","'fresh_protocol','contracts_protocol']")
+ # This isolated runtime reads the newly sealed main protocol as usual.
+ p.write_text(s)
+ seal={str(f.relative_to(HERE)):sha(f) for f in HERE.rglob('*.py') if '__pycache__' not in f.parts}
+ write(HERE/'code_seal.json',seal)
+ print(json.dumps({'registered':counts,'contract_datasets':len(hashes)}))
+if __name__=='__main__':prepare()

@@ -1,0 +1,41 @@
+# Factibilidad, sin definir el experimento
+
+## Conclusión
+
+**No se certifica todavía un split independiente por inmueble físico.** Hay 635 componentes observadas, pero el matcher almacenado es débil y agrupa ubicaciones distantes. Reducir K no arregla identidades falsas ni fugas entre componentes diferentes. Los cálculos siguientes evalúan capacidad numérica, no validez estadística de esa independencia.
+
+## Grouped K-fold / estratificación aproximada
+
+Se asignan grupos enteros transitoriamente, sin precios ni resultados de modelos. Estratos comuna × conjunto de fuentes; balance primero por cantidad de grupos del estrato, después total grupos. No se guardan asignaciones.
+
+| k | fold | test_groups | train_groups | test_listings | train_listings | comunas_present |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5 | 0 | 127 | 508 | 249 | 930 | 19 |
+| 5 | 1 | 127 | 508 | 240 | 939 | 16 |
+| 5 | 2 | 127 | 508 | 234 | 945 | 17 |
+| 5 | 3 | 127 | 508 | 226 | 953 | 17 |
+| 5 | 4 | 127 | 508 | 230 | 949 | 14 |
+| 4 | 0 | 159 | 476 | 307 | 872 | 18 |
+| 4 | 1 | 159 | 476 | 295 | 884 | 16 |
+| 4 | 2 | 159 | 476 | 290 | 889 | 18 |
+| 4 | 3 | 158 | 477 | 287 | 892 | 17 |
+| 3 | 0 | 212 | 423 | 398 | 781 | 19 |
+| 3 | 1 | 212 | 423 | 394 | 785 | 18 |
+| 3 | 2 | 211 | 424 | 387 | 792 | 17 |
+
+
+K=5: 127 grupos de test y 508 de train por fold, 226–249 listings de test. Hay tamaño global para comparación pequeña; no para prometer precisión por comuna rara. K=4: 158–159 grupos de test. K=3: 211–212. Ninguna opción resuelve categorías de 1–4 grupos. Comunas <10 grupos: colina (1), pudahuel (1), renca (2), la_cisterna (2), quinta_normal (3), san_joaquin (4). En K=5, esas seis comunas no pueden figurar en todos los folds; el resto tiene ≥30 grupos. La simulación tiene 14–19 comunas por fold y usa solo metadata.
+
+## Holdout ~20%
+
+127 grupos reservados / 508 train, aproximadamente 236 publicaciones si la distribución fuese uniforme. La asignación simulada equivalente a un fold deja 226–249. Es materialmente posible pero **no certificable aún como holdout físico independiente**. Comunas con 1 grupo no pueden aparecer simultáneamente en train/test; con 2–4 la evaluación territorial no es estable. No se seleccionó ni guardó holdout.
+
+Este snapshot y muchos casos ya fueron examinados en experimentos anteriores: reservarlo ahora no lo convierte en un final holdout nunca observado. Un futuro conjunto prospectivo debería separarse antes de inspeccionar resultados.
+
+## Stress espacial
+
+Solo 336 listings con etiqueta address tras guardrails (28.50%), todos Yapo; Portal tiene 0. `spatial_stress_feasibility.csv` describe 76 celdas fijas de 0,02 grados (~2 km norte-sur, no H3 ni microzonas aprendidas). Para cada celda el test incluiría TODOS los miembros de sus grupos observados, aunque parte no tenga coordenadas. No se dejan miembros de esos mismos grupos en train. Las celdas no redefinen identidad. No es un stress representativo del universo completo: geografía y fuente están confundidas, hay 6 coordenadas >100 km de referencia Santiago que requieren revisión.
+
+## Temporal
+
+No se propone split temporal. Scraped/last_seen son la última observación, created_at la inserción, no la publicación. Solo hay fotografía vigente de listings activos, no histórico as-of. Price_history existe en schema pero no fue extraído. Sin reconstrucción histórica, un corte por created_at con atributos/precios posteriores puede tener leakage.

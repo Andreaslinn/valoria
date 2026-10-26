@@ -1,0 +1,19 @@
+from pathlib import Path
+import json,urllib.request
+scope={}
+exec(compile(Path('work/create_resilience_pr.py').read_text(encoding='utf-8').split('tip=api(',1)[0],'private_credentials','exec'),scope)
+api=scope['api']
+pr=api('/pulls/3')
+expected='e5f4a0077f8471e0f9ebabba6de1a858af6875cd'
+assert pr['head']['sha']==expected and pr['base']['ref']=='release/canonical-only-reproducible-20261013'
+assert pr['base']['sha']=='3e6782a16d92b6f2284e96b47b429bf8cb6c27c3'
+if pr['draft']:
+ query='mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}'
+ request=urllib.request.Request('https://api.github.com/graphql',data=json.dumps({'query':query,'variables':{'id':pr['node_id']}}).encode(),headers={'Authorization':'Bearer '+scope['token'],'User-Agent':'Valoria-Authorized-Merge','Content-Type':'application/json'})
+ with urllib.request.urlopen(request,timeout=30) as response:result=json.load(response)
+ if result.get('errors'):raise SystemExit('GitHub did not allow ready-for-review transition')
+result=api('/pulls/3/merge',{'sha':expected,'merge_method':'merge','commit_title':'Merge PR #3: resilient ingestion and verified rollback'},method='PUT')
+if not result.get('merged'):raise SystemExit('PR was not merged')
+proof={'merged':True,'commit':result['sha'],'pr':pr['html_url'],'head_before_merge':expected,'base':pr['base']['ref']}
+Path('outputs/oracle-resilience-20261015/merge-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+print(json.dumps(proof))

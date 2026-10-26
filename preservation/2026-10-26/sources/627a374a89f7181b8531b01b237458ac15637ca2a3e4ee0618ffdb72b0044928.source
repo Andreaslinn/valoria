@@ -1,0 +1,9 @@
+$ErrorActionPreference = 'Stop'
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$sourcePath = Join-Path $PSScriptRoot 'valoria\scripts\audit_sii_linkage_readiness.py'
+$evidencePath = Join-Path $PSScriptRoot 'sii-phase2a-step0-production.json'
+$sourceText = (Get-Content -LiteralPath $sourcePath -Raw -Encoding utf8).Replace("`r", '')
+$sourceText | & ssh -i 'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key' -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes ubuntu@161.153.201.245 'docker exec -i -e SII_LINKAGE_ENABLED=true valoria_oracle_beta-api-1 python -B - --production-readonly' | Set-Content -LiteralPath $evidencePath -Encoding utf8
+if ($LASTEXITCODE -ne 0) { throw "Read-only Step 0 failed; SSH exit $LASTEXITCODE" }
+$result = Get-Content -LiteralPath $evidencePath -Raw -Encoding utf8 | ConvertFrom-Json
+$result | Select-Object as_of_utc,transaction_read_only,gate,total,por_comuna,por_portal | ConvertTo-Json -Depth 8

@@ -1,0 +1,20 @@
+"""SII-only entrypoint: no listing repository, Portal, Yapo or UF web client."""
+import os
+from pathlib import Path
+from services.sii.address_details import address_details
+from services.sii.closing_opinion import build_opinion
+
+
+def sii_valuation(*,address='',rol=None,comuna='vitacura',data_dir=None):
+    if comuna.strip().lower()!='vitacura':
+        return {'status':'unavailable','reason_code':'outside_coverage','message':'Piloto geográfico disponible en Vitacura.'}
+    root=data_dir or os.getenv('SII_GEOGRAPHY_DATA_DIR') or os.getenv('SII_CLOSING_DATA_DIR')
+    if not root:return {'status':'unavailable','message':'Datos SII locales no disponibles.'}
+    details=address_details(address=address,rol=rol,comuna=comuna,data_dir=root)
+    if details['status']!='resolved':return details
+    fields=details['fields']
+    result=build_opinion(address=address,rol=rol,comuna=comuna,
+        property_type=fields.get('property_type'),area=fields.get('closed_area_m2') or 0.,data_dir=root)
+    return {**result,'source':'SII F2890 + Catastro','sii_only':True,
+        'subject_address':details.get('subject_address'),'fields':fields,
+        'geography_notice':'Puntos estimados; la ubicación SII publicada tampoco certifica límites ni precisión topográfica.'}

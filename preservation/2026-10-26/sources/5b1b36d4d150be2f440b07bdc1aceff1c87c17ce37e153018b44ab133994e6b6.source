@@ -1,0 +1,35 @@
+# Delta de readiness
+
+{
+  "comparable_schema": true,
+  "changes": {
+    "cycles": {
+      "previous": 2,
+      "current": 3,
+      "delta": 1
+    },
+    "observations": {
+      "previous": 1094,
+      "current": 1639,
+      "delta": 545
+    },
+    "publications": {
+      "previous": 766,
+      "current": 989,
+      "delta": 223
+    },
+    "reobserved_publications": {
+      "previous": 328,
+      "current": 371,
+      "delta": 43
+    },
+    "shared_listing_multiple_publications": {
+      "previous": 4,
+      "current": 6,
+      "delta": 2
+    }
+  },
+  "physical_independence_not_inferred": true
+}
+
+Los conteos de History son acumulados comparables del mismo pipeline, según artefactos. No comparar 1.179 históricos con 892 modernos como una mejora temporal: son universos y reglas distintos. No conocemos crecimiento de targets elegibles ni nuevas unidades físicas. 226 cambios de representación monetaria del trial no equivalen a 226 cambios reales de precio; el diagnóstico previo identificó una diferencia numérica UF. No se recalculó una cifra moderna con agregados.

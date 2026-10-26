@@ -1,0 +1,329 @@
+"""Listing opportunity analysis built from lookup data and valuation output."""
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from core.exceptions import InsufficientDataError, ValidationError
+from services.valuation import ValuationInput, ValuationService
+
+_VERDICT_THRESHOLD_PCT = 10.0
+_MIN_CONFIDENCE_SCORE = 0.35
+
+
+@dataclass(frozen=True)
+class ListingAnalysisResult:
+    listing: dict[str, Any]
+    valuation: dict[str, Any]
+    price_analysis: dict[str, Any]
+    signals: dict[str, list[str]]
+    report_status: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+async def analyze_listing_lookup(
+    listing_data: Mapping[str, Any],
+    *,
+    valuation_service: ValuationService,
+) -> ListingAnalysisResult:
+    listing = _listing_payload(listing_data)
+    unavailable = _base_unavailable_signals()
+    valuation_payload = _empty_valuation()
+
+    valuation_input, input_missing = _valuation_input(listing_data)
+    if input_missing:
+        unavailable.extend(input_missing)
+        return _analysis_result(
+            listing=listing,
+            valuation=valuation_payload,
+            unavailable=unavailable,
+            price_analysis=_insufficient_price_analysis("Faltan datos base para valorar la publicacion."),
+        )
+
+    try:
+        valuation = await valuation_service.valuate_property(
+            valuation_input,
+            valuation_strategy="consensus_v1",
+        )
+    except (ValidationError, InsufficientDataError, ValueError) as error:
+        unavailable.append(str(error))
+        return _analysis_result(
+            listing=listing,
+            valuation=valuation_payload,
+            unavailable=unavailable,
+            price_analysis=_insufficient_price_analysis("Valoria no pudo estimar esta publicacion con datos suficientes."),
+        )
+
+    valuation_payload = _valuation_payload(valuation)
+    price_analysis = _price_analysis(
+        published_price_uf=_safe_float(listing_data.get("precio_publicado_uf")),
+        estimated_price_uf=valuation_payload["estimated_value_uf"],
+        confidence_score=valuation_payload["confidence_score"],
+    )
+    signals = _signals(
+        listing_data=listing_data,
+        valuation=valuation_payload,
+        price_analysis=price_analysis,
+        unavailable=unavailable,
+    )
+    return ListingAnalysisResult(
+        listing=listing,
+        valuation=valuation_payload,
+        price_analysis=price_analysis,
+        signals=signals,
+        report_status=_report_status(),
+    )
+
+
+def _analysis_result(
+    *,
+    listing: dict[str, Any],
+    valuation: dict[str, Any],
+    unavailable: list[str],
+    price_analysis: dict[str, Any],
+) -> ListingAnalysisResult:
+    return ListingAnalysisResult(
+        listing=listing,
+        valuation=valuation,
+        price_analysis=price_analysis,
+        signals={"positives": [], "risks": [], "unavailable": unavailable},
+        report_status=_report_status(),
+    )
+
+
+def _valuation_input(data: Mapping[str, Any]) -> tuple[ValuationInput | None, list[str]]:
+    missing: list[str] = []
+    comuna = _clean_text(data.get("comuna"))
+    property_type = _clean_text(data.get("property_type")) or "unknown"
+    built_area = _safe_float(data.get("built_area_m2") or data.get("usable_area_m2") or data.get("m2"))
+    if not comuna:
+        missing.append("Comuna no disponible.")
+    if built_area is None or built_area <= 0:
+        missing.append("Superficie no disponible.")
+    if missing:
+        return None, missing
+
+    assert comuna is not None
+    assert built_area is not None
+    return (
+        ValuationInput(
+            target_listing_id=_safe_int(data.get("listing_id")),
+            comuna=comuna,
+            property_type=property_type,
+            m2=built_area,
+            built_area_m2=built_area,
+            usable_area_m2=_safe_float(data.get("usable_area_m2")) if property_type == "apartment" else None,
+            land_area_m2=_safe_float(data.get("land_area_m2")),
+            dormitorios=_safe_int(data.get("dormitorios")),
+            banos=_safe_int(data.get("banos")),
+            estacionamientos=_safe_int(data.get("estacionamientos")),
+            precio_publicado_uf=_safe_float(data.get("precio_publicado_uf")),
+            precio_publicado_clp=_safe_int(data.get("precio_publicado_clp")),
+        ),
+        [],
+    )
+
+
+def _listing_payload(data: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "listing_id": data.get("listing_id"),
+        "title": data.get("title"),
+        "url": data.get("url"),
+        "comuna": data.get("comuna"),
+        "property_type": data.get("property_type"),
+        "m2": _safe_float(data.get("m2")),
+        "built_area_m2": _safe_float(data.get("built_area_m2")),
+        "usable_area_m2": _safe_float(data.get("usable_area_m2")),
+        "land_area_m2": _safe_float(data.get("land_area_m2")),
+        "bedrooms": _safe_int(data.get("dormitorios")),
+        "bathrooms": _safe_int(data.get("banos")),
+        "parking": _safe_int(data.get("estacionamientos")),
+        "price_uf": _safe_float(data.get("precio_publicado_uf")),
+        "price_clp": _safe_int(data.get("precio_publicado_clp")),
+        "price_currency": data.get("price_currency"),
+        "price_uf_source": data.get("price_uf_source"),
+        "price_uf_confidence": data.get("price_uf_confidence"),
+        "price_recovery_method": data.get("price_recovery_method"),
+    }
+
+
+def _valuation_payload(valuation: Any) -> dict[str, Any]:
+    return {
+        "estimated_value_uf": _safe_float(getattr(valuation, "estimated_price_uf", None)),
+        "estimated_value_clp": _safe_int(getattr(valuation, "estimated_price_clp", None)),
+        "range_low_uf": _safe_float(getattr(valuation, "price_range_low_uf", None)),
+        "range_high_uf": _safe_float(getattr(valuation, "price_range_high_uf", None)),
+        "confidence_score": _safe_float(getattr(valuation, "confidence_score", None)),
+        "confidence_label": getattr(valuation, "confidence_label", None),
+        "comparables_used": _safe_int(getattr(valuation, "comparable_count", None)),
+        "warnings": list(getattr(valuation, "warnings", []) or []),
+        "valuation_strategy": getattr(valuation, "valuation_strategy", "current"),
+        "consensus_used": bool(getattr(valuation, "consensus_used", False)),
+        "consensus_unavailable_reason": getattr(valuation, "consensus_unavailable_reason", None),
+        "fallback_engine_used": getattr(valuation, "fallback_engine_used", None),
+    }
+
+
+def _empty_valuation() -> dict[str, Any]:
+    return {
+        "estimated_value_uf": None,
+        "estimated_value_clp": None,
+        "range_low_uf": None,
+        "range_high_uf": None,
+        "confidence_score": None,
+        "confidence_label": None,
+        "comparables_used": 0,
+        "warnings": [],
+        "valuation_strategy": "unavailable",
+        "consensus_used": False,
+        "consensus_unavailable_reason": None,
+        "fallback_engine_used": None,
+    }
+
+
+def _price_analysis(
+    *,
+    published_price_uf: float | None,
+    estimated_price_uf: float | None,
+    confidence_score: float | None,
+) -> dict[str, Any]:
+    if published_price_uf is None or published_price_uf <= 0:
+        return _insufficient_price_analysis("No hay precio publicado UF confiable para comparar.")
+    if estimated_price_uf is None or estimated_price_uf <= 0:
+        return _insufficient_price_analysis("No hay estimacion UF disponible para comparar.")
+    if confidence_score is None or confidence_score < _MIN_CONFIDENCE_SCORE:
+        return _insufficient_price_analysis("La confianza de la estimacion no alcanza para concluir.")
+
+    difference_uf = estimated_price_uf - published_price_uf
+    difference_pct = (difference_uf / estimated_price_uf) * 100
+    if difference_pct >= _VERDICT_THRESHOLD_PCT:
+        verdict = "under_market"
+        label = "Bajo mercado"
+        explanation = "El precio publicado esta al menos 10% bajo la estimacion de Valoria."
+    elif difference_pct <= -_VERDICT_THRESHOLD_PCT:
+        verdict = "over_market"
+        label = "Sobre mercado"
+        explanation = "El precio publicado esta al menos 10% sobre la estimacion de Valoria."
+    else:
+        verdict = "in_range"
+        label = "En rango"
+        explanation = "El precio publicado esta dentro de un margen de +/-10% frente a la estimacion."
+
+    return {
+        "published_price_uf": round(published_price_uf, 2),
+        "estimated_price_uf": round(estimated_price_uf, 2),
+        "difference_uf": round(difference_uf, 2),
+        "difference_pct": round(difference_pct, 2),
+        "verdict": verdict,
+        "verdict_label": label,
+        "explanation": explanation,
+    }
+
+
+def _insufficient_price_analysis(explanation: str) -> dict[str, Any]:
+    return {
+        "published_price_uf": None,
+        "estimated_price_uf": None,
+        "difference_uf": None,
+        "difference_pct": None,
+        "verdict": "insufficient_data",
+        "verdict_label": "No concluyente",
+        "explanation": explanation,
+    }
+
+
+def _signals(
+    *,
+    listing_data: Mapping[str, Any],
+    valuation: dict[str, Any],
+    price_analysis: dict[str, Any],
+    unavailable: list[str],
+) -> dict[str, list[str]]:
+    positives: list[str] = []
+    risks: list[str] = []
+
+    verdict = price_analysis["verdict"]
+    if verdict == "under_market":
+        positives.append("Precio publicado bajo la estimacion Valoria.")
+    elif verdict == "in_range":
+        positives.append("Precio publicado dentro del rango esperado.")
+    elif verdict == "over_market":
+        risks.append("Precio publicado sobre la estimacion Valoria.")
+    else:
+        risks.append(price_analysis["explanation"])
+
+    if valuation["comparables_used"]:
+        positives.append(f"Valoracion calculada con {valuation['comparables_used']} comparables.")
+    else:
+        risks.append("Sin comparables suficientes reportados.")
+
+    confidence_score = valuation["confidence_score"]
+    if isinstance(confidence_score, int | float) and confidence_score >= _MIN_CONFIDENCE_SCORE:
+        positives.append("Confianza minima suficiente para una lectura inicial.")
+    else:
+        risks.append("Confianza limitada o no disponible.")
+
+    source = _clean_text(listing_data.get("price_uf_source"))
+    confidence = _clean_text(listing_data.get("price_uf_confidence"))
+    if source and confidence:
+        positives.append(f"Precio UF con provenance {source}/{confidence}.")
+    elif _safe_float(listing_data.get("precio_publicado_uf")) is None:
+        risks.append("Precio UF confiable no disponible.")
+
+    risks.extend(str(warning) for warning in valuation["warnings"])
+    return {
+        "positives": _dedupe(positives),
+        "risks": _dedupe(risks),
+        "unavailable": _dedupe(unavailable),
+    }
+
+
+def _base_unavailable_signals() -> list[str]:
+    return [
+        "Listing Risk Report descargable en preparacion.",
+        "Tendencia de comuna no conectada a este analisis.",
+        "Liquidez y plusvalia no disponibles en este endpoint.",
+        "Riesgo legal, CBR y contribuciones no conectados.",
+        "Senales de vendedor/publicador no disponibles.",
+    ]
+
+
+def _report_status() -> dict[str, Any]:
+    return {
+        "listing_risk_report_available": False,
+        "reason": "Reporte descargable en preparacion",
+    }
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed == parsed else None
+
+
+def _safe_int(value: Any) -> int | None:
+    number = _safe_float(value)
+    return int(number) if number is not None else None
+
+
+def _clean_text(value: Any) -> str | None:
+    clean = str(value or "").strip()
+    return clean or None
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result

@@ -1,0 +1,46 @@
+import json,zipfile,hashlib,subprocess,shutil,difflib
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent.parent
+OLD=Path('C:/Users/heiko/Documents/Codex/2026-10-19/segunda-capa-sii-tasar-desde-la/work/valoria')
+REPO=ROOT/'work/valoria'
+OUT=ROOT/'outputs'
+tracked=subprocess.check_output(['git','-C',str(OLD),'ls-files'],text=True).splitlines()
+new=['services/sii/local_geography.py','scripts/build_sii_geography.py','scripts/fetch_vitacura_osm.py',
+     'tests/unit/test_local_geography.py','frontend-v2/src/features/valuation/nearby-sales.tsx']
+changed=[]
+patch=[]
+for name in sorted(set(tracked+new)):
+    p=REPO/name
+    if not p.is_file() or p.name.startswith('.env'):
+        continue
+    before=(OLD/name).read_bytes() if (OLD/name).is_file() else b''
+    after=p.read_bytes()
+    if before!=after:
+        changed.append(name)
+        try:patch.extend(difflib.unified_diff(before.decode('utf8').splitlines(True),after.decode('utf8').splitlines(True),fromfile='a/'+name if before else '/dev/null',tofile='b/'+name))
+        except UnicodeDecodeError:pass
+unchanged={}
+for name in ['services/sii/closing_knn.py','services/sii/closing_confidence.py','services/sii/closing_opinion.py',
+             'services/sii/rebuild.sql','services/valuation.py']:
+    assert (OLD/name).read_bytes()==(REPO/name).read_bytes(),name
+    unchanged[name]=hashlib.sha256((REPO/name).read_bytes()).hexdigest()
+(OUT/'changes.patch').write_text(''.join(patch),encoding='utf8')
+manifest={'base_commit':'c71b234906b973c79486fa966882f2f59893a090','changed':changed,
+ 'unchanged_valuation_sha256':unchanged,'production_access':False,'deploy':False,
+ 'f2890_rejoin':False,'public_nominatim_requests':0,'overpass_requests':1,
+ 'tests':'36 passed; 4 baseline-release git-history tests deselected in copied snapshot',
+ 'typescript':'tsc --noEmit passed','browser':'Samotracia and 1261-6 verified in Tasar',
+ 'data_files':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (OUT/'vitacura').iterdir() if p.is_file()}}
+(OUT/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf8')
+with zipfile.ZipFile(OUT/'Valoria_geo_MVP.zip','w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+    for name in sorted(set(tracked+new)):
+        p=REPO/name
+        if p.is_file() and not p.name.startswith('.env'):
+            z.write(p,'work/valoria/'+name)
+    for name in ['start_geo_demo.py','prepare_mvp.py','fetch_osm.py','validate_mvp.py','http_smoke.py',
+                 'osm-vitacura.json','osm-vitacura.meta.json']:
+        z.write(ROOT/'work'/name,'work/'+name)
+    for p in OUT.rglob('*'):
+        if p.is_file() and p.suffix!='.zip':
+            z.write(p,p.relative_to(ROOT).as_posix())
+print(json.dumps({'changed':changed,'zip_bytes':(OUT/'Valoria_geo_MVP.zip').stat().st_size}))

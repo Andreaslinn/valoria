@@ -1,0 +1,567 @@
+# Preserve reference dataframe names and record construction for direct comparison.
+# ruff: noqa: N803, N806, C408, RUF001
+"""Pure local property-life engine ported from the supplied reference.
+
+All dates and data are injected. No database, network, globals or file cache.
+"""
+
+import re
+import unicodedata
+
+import numpy as np
+import pandas as pd
+
+ANIOS_CASAS = 10
+
+
+VIDA_MEDIA = 3.0
+
+
+PESO_VECINA = 0.6
+
+
+UF_AVALUO_DATE = "2026-07-01"
+
+
+AVALUO_VENTANA_ANIOS = 5
+
+
+MAX_AUX = 4
+
+
+USABLE_CASA = {"individual", "desglosado", "multiple", "aux_incierto"}
+
+
+USABLE_DEPTO = {"individual", "desglosado", "paquete_no_desglosado"}
+
+
+COMUNAS = {  # nombre normalizado -> (código SII, nombre en F2890)
+    "SANTIAGO": (13101, "SANTIAGO CENTRO"),
+    "ESTACION CENTRAL": (14157, "ESTACION CENTRAL"),
+    "PROVIDENCIA": (15103, "PROVIDENCIA"),
+    "NUNOA": (15105, "NUNOA"),
+    "LAS CONDES": (15108, "LAS CONDES"),
+    "LA FLORIDA": (15128, "LA FLORIDA"),
+    "VITACURA": (15160, "VITACURA"),
+    "SAN MIGUEL": (16106, "SAN MIGUEL"),
+}
+
+
+UNIT_ALIASES = {
+    "DEPTO": "DP",
+    "DPTO": "DP",
+    "DEPARTAMENTO": "DP",
+    "DEP": "DP",
+    "DP": "DP",
+    "D": "DP",
+    "ESTACIONAMIENTO": "BOX",
+    "EST": "BOX",
+    "BX": "BOX",
+    "BOX": "BOX",
+    "BODEGA": "BOD",
+    "BD": "BOD",
+    "BOD": "BOD",
+    "OF": "OF",
+    "OFICINA": "OF",
+    "LC": "LC",
+    "LOCAL": "LC",
+}
+
+
+AUX = {"BOX", "BX", "BOD", "BD", "EST"}
+
+
+def norm(s):
+    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode().upper()
+    s = re.sub(r"[.,#°º-]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def parse_addr(s):
+    s = norm(s)
+    m = re.match(r"^(.*?\D)\s*(\d+)\s*(.*)$", s)
+    if not m:
+        raise ValueError(f"No entiendo la dirección: {s}")
+    calle, num, rest = m.group(1).strip(), int(m.group(2)), m.group(3)
+    unit = None
+    mu = re.match(r"^([A-Z]+)?\s*(\w+)$", rest) if rest else None
+    if mu:
+        tok = UNIT_ALIASES.get(mu.group(1) or "DP", mu.group(1) or "DP")
+        unit = (tok, mu.group(2).lstrip("0") or "0")
+    return calle, num, unit
+
+
+def to_uf(F, uf):
+    def conv(r):
+        if r.UF and r.UF > 0:
+            return r.UF
+        if r.CLP and r.CLP > 0 and len(uf):
+            d = r.fe if pd.notna(r.fe) and r.fe >= uf.index[0] else r.fi
+            if pd.notna(d) and d >= uf.index[0]:
+                v = uf.asof(d)
+                return r.CLP / v if v else np.nan
+        return np.nan
+
+    F["uf_total"] = F.apply(conv, axis=1)
+    return F
+
+
+def ventas_reference(F, N, uf_av, L=None, *, today=None):
+    """Una fila por transferencia de unidad principal (casa/depto) con etiqueta de confianza del monto.
+
+    El F2890 público no trae id de escritura ni naturaleza del acto: agrupamos por (manzana, fecha escritura,
+    fecha inscripción) solo como proxy de "misma operación" y lo declaramos en `confianza`:
+      individual            una sola unidad principal, sin estacionamientos/bodegas en el grupo
+      desglosado            una unidad principal + aux con monto propio: uf_principal es solo la unidad
+      paquete_no_desglosado una unidad principal + aux en 0/sin monto: el monto incluye los aux (regla SII: todo al de mayor avalúo)
+      aux_incierto          una unidad + aux que no calzan (>4 o >50% del precio): aux sin atribuir, monto = solo la unidad
+      multiple              varias unidades principales con montos distintos el mismo día: cada una con su monto, aux sin atribuir
+      monto_repetido        varias unidades con el mismo monto: no sabemos si es un paquete o ventas iguales
+      sin_monto             sin monto informado (puede no ser compraventa)
+      bloque                ≥3 casas el mismo día en la zona (fondos, reestructuraciones)
+    """
+    X = F.merge(
+        N[["mz", "pr", "dir", "tipo", "m2", "anio", "avaluo", "supter"]],
+        on=["mz", "pr"],
+        how="left",
+    )
+    X = X.sort_values("uf_total", na_position="first").drop_duplicates(
+        ["mz", "pr", "FE", "FI"], keep="last"
+    )  # duplicado rol+fecha: mayor monto
+    out = []
+    for (mz, fe, fi), g in X.groupby(["mz", "FE", "FI"]):
+        main = g[g.tipo.isin(["depto", "casa"])]
+        aux = g[g.tipo.isin(["estac", "bodega"])]
+        aux_priced = aux.uf_total.fillna(0) > 0
+        mp = main.uf_total.dropna()
+        repetido = len(main) > 1 and len(mp) > 1 and mp.round(0).duplicated(keep=False).any()
+        for _, r in main.iterrows():
+            principal = r.uf_total if r.uf_total and r.uf_total > 0 else np.nan
+            total = principal
+            if pd.isna(principal):
+                conf = "sin_monto"
+            elif len(main) > 1:
+                conf = (
+                    "monto_repetido"
+                    if repetido and (mp.round(0) == round(principal)).sum() > 1
+                    else "multiple"
+                )
+            elif aux.empty:
+                conf = "individual"
+            elif len(aux) > MAX_AUX or aux.uf_total.fillna(0).sum() > 0.5 * principal:
+                conf = "aux_incierto"  # demasiados aux o muy caros: probablemente de otras operaciones del mismo día
+            elif aux_priced.all():
+                conf = "desglosado"
+                total = principal + aux.uf_total.sum()
+            else:
+                conf = "paquete_no_desglosado"
+                total = principal + aux.uf_total.fillna(0).sum()
+            out.append(
+                dict(
+                    operation_key=f"{mz}:{fe}:{fi}",
+                    mz=mz,
+                    pr=r.pr,
+                    dir=r.dir,
+                    tipo=r.tipo,
+                    fecha=r.fe if pd.notna(r.fe) else r.fi,
+                    uf_principal=principal,
+                    uf_total=total,
+                    clp=r.CLP if not (r.UF > 0) else np.nan,
+                    m2=r.m2,
+                    supter=r.supter,
+                    anio=r.anio,
+                    avaluo_uf=r.avaluo / uf_av if uf_av else np.nan,
+                    confianza=conf,
+                    n_aux=len(aux) if len(main) == 1 else 0,
+                )
+            )
+    V = pd.DataFrame(
+        out,
+        columns=[
+            "operation_key",
+            "mz",
+            "pr",
+            "dir",
+            "tipo",
+            "fecha",
+            "uf_principal",
+            "uf_total",
+            "clp",
+            "m2",
+            "supter",
+            "anio",
+            "avaluo_uf",
+            "confianza",
+            "n_aux",
+        ],
+    )
+    if V.empty:
+        for name in ["m2_hoy", "precio_avaluo", "ufm2"]:
+            V[name] = pd.Series(dtype=float)
+        V["usable"] = pd.Series(dtype=bool)
+        return V
+    V = m2_a_la_fecha(V, L)
+    # precio/avalúo solo para ventas recientes: el avalúo es del 2S-2026 y entre reavalúos cambia en términos reales
+    recientes = V.fecha >= (
+        pd.Timestamp(today)
+        if today is not None
+        else pd.Timestamp.now(tz="America/Santiago").tz_localize(None)
+    ) - pd.DateOffset(years=AVALUO_VENTANA_ANIOS)
+    V["precio_avaluo"] = (V.uf_principal / V.avaluo_uf).where(recientes)
+    # transferencia en bloque: >=3 casas distintas de la misma manzana escrituradas el mismo día (fondos, reestructuraciones)
+    casas = V[V.tipo == "casa"]
+    n_dia = casas.groupby(["fecha", "mz"]).pr.transform(
+        "size"
+    )  # por manzana: a nivel comuna cualquier día tiene ≥3 casas
+    V.loc[casas.index[n_dia >= 3], "confianza"] = "bloque"
+    # para deptos el monto comparable es el del paquete (depto + aux): la mayoría viene sin desglosar
+    V["ufm2"] = np.where(V.tipo == "depto", V.uf_total, V.uf_principal) / V.m2
+    V["usable"] = V.confianza.isin(USABLE_DEPTO) & (V.tipo == "depto") | V.confianza.isin(
+        USABLE_CASA
+    ) & (V.tipo == "casa")
+    return V.sort_values("fecha")
+
+
+def ventas(F, N, uf_av, L=None, *, today=None):
+    """Same reference grouping and precedence, aggregated without per-group DataFrames."""
+    keys = ["mz", "FE", "FI"]
+    X = F.merge(
+        N[["mz", "pr", "dir", "tipo", "m2", "anio", "avaluo", "supter"]],
+        on=["mz", "pr"],
+        how="left",
+    )
+    X = X.sort_values("uf_total", na_position="first").drop_duplicates(
+        ["mz", "pr", "FE", "FI"], keep="last"
+    )
+    X["sequence"] = np.arange(len(X))
+    X = X.dropna(subset=keys)
+    M = X[X.tipo.isin(["depto", "casa"])].copy()
+    if M.empty:
+        return ventas_reference(F, N, uf_av, L, today=today)
+    M["n_main"] = M.groupby(keys).pr.transform("size")
+    M["rounded"] = M.uf_total.round(0)
+    M["repeated"] = M.groupby([*keys, "rounded"]).pr.transform("size").fillna(0) > 1
+    A = X[X.tipo.isin(["estac", "bodega"])].copy()
+    A["amount"] = A.uf_total.fillna(0)
+    A["priced"] = A.amount > 0
+    stats = A.groupby(keys).agg(
+        n_aux=("pr", "size"), aux_sum=("amount", "sum"), aux_all=("priced", "all")
+    )
+    M = M.join(stats, on=keys)
+    M["n_aux"] = M.n_aux.fillna(0)
+    M["aux_sum"] = M.aux_sum.fillna(0)
+    M = M.sort_values([*keys, "sequence"]).reset_index(drop=True)
+    principal = M.uf_total.where(M.uf_total > 0)
+    confidence = np.select(
+        [
+            principal.isna(),
+            (M.n_main > 1) & M.repeated,
+            M.n_main > 1,
+            M.n_aux == 0,
+            (M.n_aux > MAX_AUX) | (M.aux_sum > 0.5 * principal),
+            M.aux_all.fillna(False).astype(bool),
+        ],
+        ["sin_monto", "monto_repetido", "multiple", "individual", "aux_incierto", "desglosado"],
+        default="paquete_no_desglosado",
+    )
+    total = principal + np.where(
+        np.isin(confidence, ["desglosado", "paquete_no_desglosado"]), M.aux_sum, 0.0
+    )
+    V = pd.DataFrame(
+        dict(
+            operation_key=M.mz.astype(str) + ":" + M.FE.astype(str) + ":" + M.FI.astype(str),
+            mz=M.mz,
+            pr=M.pr,
+            dir=M.dir,
+            tipo=M.tipo,
+            fecha=M.fe.where(M.fe.notna(), M.fi),
+            uf_principal=principal,
+            uf_total=total,
+            clp=M.CLP.where(~(M.UF > 0)),
+            m2=M.m2,
+            supter=M.supter,
+            anio=M.anio,
+            avaluo_uf=M.avaluo / uf_av if uf_av else np.nan,
+            confianza=confidence,
+            n_aux=M.n_aux.where(M.n_main == 1, 0).astype(int),
+        )
+    )
+    V = m2_a_la_fecha(V, L)
+    # precio/avalúo solo para ventas recientes: el avalúo es del 2S-2026 y entre reavalúos cambia en términos reales
+    recientes = V.fecha >= (
+        pd.Timestamp(today)
+        if today is not None
+        else pd.Timestamp.now(tz="America/Santiago").tz_localize(None)
+    ) - pd.DateOffset(years=AVALUO_VENTANA_ANIOS)
+    V["precio_avaluo"] = (V.uf_principal / V.avaluo_uf).where(recientes)
+    # transferencia en bloque: >=3 casas distintas de la misma manzana escrituradas el mismo día (fondos, reestructuraciones)
+    casas = V[V.tipo == "casa"]
+    n_dia = casas.groupby(["fecha", "mz"]).pr.transform(
+        "size"
+    )  # por manzana: a nivel comuna cualquier día tiene ≥3 casas
+    V.loc[casas.index[n_dia >= 3], "confianza"] = "bloque"
+    # para deptos el monto comparable es el del paquete (depto + aux): la mayoría viene sin desglosar
+    V["ufm2"] = np.where(V.tipo == "depto", V.uf_total, V.uf_principal) / V.m2
+    V["usable"] = V.confianza.isin(USABLE_DEPTO) & (V.tipo == "depto") | V.confianza.isin(
+        USABLE_CASA
+    ) & (V.tipo == "casa")
+    return V.sort_values("fecha")
+
+
+def m2_a_la_fecha(V, L):
+    """m² habitacionales existentes al año de la venta (descuenta ampliaciones posteriores)."""
+    V["m2_hoy"] = V["m2"]
+    if L is None or V.empty:
+        return V
+    H = L[(L.dest == "H") & (L.sup > 0)][["mz", "pr", "anio", "sup"]]
+    X = V[["mz", "pr", "fecha"]].reset_index().merge(H, on=["mz", "pr"])
+    X = X[(X.anio.fillna(0) <= X.fecha.dt.year) | (X.anio.fillna(0) == 0)]
+    m = X.groupby("index").sup.sum()
+    V["m2"] = m.reindex(V.index).where(lambda x: x > 0, V["m2_hoy"])
+    return V
+
+
+def manzanas_vecinas(N, mz, holgura=200):
+    """Proxy de cercanía sin coordenadas: manzanas con casas en las mismas calles y tramo de numeración ±holgura."""
+    base = N[(N.mz == mz) & (N.tipo == "casa") & N.num.notna()]
+    tramos = base.groupby("calle").num.agg(["min", "max"])
+    vec = set()
+    for calle, r in tramos.iterrows():
+        k = N[
+            (N.tipo == "casa")
+            & (N.calle == calle)
+            & N.num.between(r["min"] - holgura, r["max"] + holgura)
+        ]
+        vec |= set(k.mz)
+    return vec - {mz}
+
+
+def wquant(x, w, qs):
+    o = np.argsort(x)
+    x, w = np.asarray(x)[o], np.asarray(w)[o]
+    c = (np.cumsum(w) - 0.5 * w) / w.sum()
+    return [float(np.interp(q, c, x)) for q in qs]
+
+
+def marcar_atipicas(V):
+    """Atípica si su UF/m² es <75% de la mediana de ventas del mismo tipo y edificio/manzana en ±2 años."""
+    V["atipica"] = ""
+    if V.empty:
+        return V
+    V["edif"] = V.dir.str.extract(r"^(.*?\d+)")[0]
+    partitions = {}
+    for tipo, key in [("depto", "edif"), ("casa", "mz")]:
+        for value, group in V[(V.tipo == tipo) & V.ufm2.notna()].groupby(key):
+            partitions[(tipo, value)] = group
+    for i, r in V[V.ufm2.notna()].iterrows():
+        key = "edif" if r.tipo == "depto" else "mz"
+        group = partitions.get((r.tipo, r[key]))
+        if group is None:
+            continue
+        s = group[
+            (group.index != i) & ((group.fecha - r.fecha).abs() <= pd.Timedelta(days=2 * 365))
+        ]
+        if len(s) >= 3 and r.ufm2 < (0.75 if r.tipo == "depto" else 0.6) * s.ufm2.median():
+            V.at[i, "atipica"] = f"UF/m² {r.ufm2 / s.ufm2.median() - 1:+.0%} vs vecinos de la época"
+    V.loc[(V.precio_avaluo < 0.7) & (V.atipica == ""), "atipica"] = "precio < 0,7× avalúo"
+    V.loc[V.uf_principal.isna(), "atipica"] = "sin monto en UF"
+    V.loc[(V.confianza == "bloque") & (V.atipica == ""), "atipica"] = "transferencia en bloque"
+    V.loc[(V.confianza == "monto_repetido") & (V.atipica == ""), "atipica"] = (
+        "monto repetido el mismo día (¿paquete?)"
+    )
+    return V
+
+
+def house_index(V):
+    C = V[
+        (V.tipo == "casa")
+        & V.usable
+        & V.ufm2.notna()
+        & ~(V.precio_avaluo < 0.7)
+        & V.ufm2.between(15, 500)
+    ].copy()
+    C["y"] = C.fecha.dt.year
+    C = C[C.y >= 2008]
+    C["l"] = np.log(C.ufm2)
+
+    def fit(C):
+        yfe = pd.Series(0.0, index=sorted(C.y.unique()))
+        for _ in range(50):
+            m = (C.l - C.y.map(yfe)).groupby(C.mz).transform("mean")
+            yfe = (C.l - m).groupby(C.y).mean()
+        return yfe, m
+
+    if C.empty:
+        return pd.Series(dtype=float)
+    yfe, m = fit(C)
+    C = C[(C.l - m - C.y.map(yfe)).abs() < 0.5]
+    if C.empty:
+        return pd.Series(dtype=float)
+    yfe, _ = fit(C)
+    out = pd.DataFrame(
+        {"indice": (np.exp(yfe - yfe.iloc[-1]) * 100).round(1), "n": C.groupby("y").size()}
+    )
+    return out.indice
+
+
+def report(direccion, comuna, N, L, F, uf, *, today, index=None):
+    calle, num, unit = parse_addr(direccion)
+    kc = norm(comuna)
+    if kc not in COMUNAS:
+        raise ValueError(f"Comuna sin catastro cargado: {comuna}")
+    cod, _f_nombre = COMUNAS[kc]
+    edif = N[(N.calle == calle) & (N.num == num)]
+    if edif.empty:
+        cand = N[N.calle.str.contains(calle.split()[-1], na=False)].calle.value_counts().head(5)
+        raise ValueError(
+            f"No encontré {calle} {num} en el catastro. Calles parecidas: {list(cand.index)}"
+        )
+    if unit:
+        tgt = edif[(edif.utok == unit[0]) & (edif.unum == unit[1])]
+        if tgt.empty:
+            raise ValueError(
+                f"El edificio existe ({len(edif)} roles) pero no encontré la unidad {unit[0]} {unit[1]}"
+            )
+    else:
+        tgt = edif[edif.tipo.isin(["casa", "depto"])]
+        if len(tgt) > 1:
+            tgt = tgt.iloc[:0]  # edificio sin unidad: informe a nivel edificio
+    mzs = set(edif.mz)
+    uf_av = uf.asof(pd.Timestamp(UF_AVALUO_DATE)) if len(uf) else None
+    tipo0 = "depto" if (edif.tipo == "depto").sum() > 1 or (unit and unit[0] == "DP") else "casa"
+    vecinas = manzanas_vecinas(N, int(edif.mz.iloc[0])) if tipo0 == "casa" else set()
+    F = to_uf(F[F.mz.isin(mzs | vecinas)].copy(), uf)
+    V = marcar_atipicas(ventas(F, N[N.mz.isin(mzs | vecinas)], uf_av, L, today=today))
+    is_edif = (edif.tipo == "depto").sum() > 1
+    res = {
+        "direccion": f"{calle} {num}" + (f" {unit[0]} {unit[1]}" if unit else ""),
+        "comuna": comuna,
+        "cod_sii": cod,
+    }
+    if is_edif:
+        dp = edif[edif.tipo == "depto"]
+        res["edificio"] = dict(
+            manzana=int(edif.mz.iloc[0]),
+            deptos=len(dp),
+            estacionamientos=int((edif.tipo == "estac").sum()),
+            bodegas=int((edif.tipo == "bodega").sum()),
+            anio=int(dp.anio.min()) if dp.anio.notna().any() else None,
+            m2_mediana=float(dp.m2.median()),
+            m2_min=float(dp.m2.min()),
+            m2_max=float(dp.m2.max()),
+            avaluo_mediana_clp=float(dp.avaluo.median()),
+            contrib_semestral_mediana_clp=float(dp.contrib.median()),
+        )
+    if len(tgt) == 1:
+        t = tgt.iloc[0]
+        lines = L[(L.mz == t.mz) & (L.pr == t.pr)]
+        res["propiedad"] = dict(
+            rol=f"{t.mz}-{t.pr}",
+            tipo=t.tipo,
+            m2_construidos=float(t.m2) if pd.notna(t.m2) else None,
+            m2_terreno=float(t.supter) if t.tipo == "casa" else None,
+            anio=int(t.anio) if pd.notna(t.anio) else None,
+            ampliaciones=sorted({int(a) for a in lines.anio.dropna() if a > 0 and a != t.anio}),
+            avaluo_clp=float(t.avaluo),
+            contrib_semestral_clp=float(t.contrib),
+            lineas=[
+                dict(
+                    anio=int(r.anio), m2=float(r.sup), material=r.mat, calidad=r.cal, destino=r.dest
+                )
+                for r in lines.itertuples()
+                if r.sup > 0
+            ],
+        )
+        own = V[(V.mz == t.mz) & (V.pr == t.pr)]
+        res["historial"] = own[
+            ["fecha", "uf_principal", "uf_total", "clp", "ufm2", "confianza", "atipica"]
+        ].to_dict("records")
+    if V.empty:
+        res.update(historial=[], comparables=[], ventas_todas=[], confianza_conteo={})
+        return clean_json(res)
+    # comparables
+    tipo = res.get("propiedad", {}).get("tipo", "depto" if is_edif else "casa")
+    m2t = res.get("propiedad", {}).get("m2_construidos") or (res.get("edificio") or {}).get(
+        "m2_mediana"
+    )
+    pool = V[
+        (V.tipo == tipo) & V.usable & (V.atipica == "") & V.ufm2.between(15, 500)
+    ].copy()  # descarta m² mal registrados
+    if len(tgt) == 1:  # la venta propia va al historial y a la triangulación, no a los comparables
+        pool = pool[~((pool.mz == tgt.iloc[0].mz) & (pool.pr == tgt.iloc[0].pr))]
+    if tipo == "depto":
+        # mismo edificio, 3 años, sin ajuste temporal (índice de deptos aún corto)
+        pool = pool[
+            pool.dir.str.startswith(f"{calle} {num} ")
+            & (pool.fecha >= pd.Timestamp(today) - pd.DateOffset(years=3))
+        ]
+        pool["ufm2_aj"] = pool.ufm2
+        pool["peso"] = 1.0
+        pool["anillo"] = "edificio"
+    else:
+        # misma manzana + manzanas vecinas, 10 años, UF/m² llevado a hoy con índice de casas de la comuna
+        idx = index if index is not None else pd.Series(dtype=float)
+        hoy = pd.Timestamp(today)
+        pool = pool[pool.fecha >= hoy - pd.DateOffset(years=ANIOS_CASAS)]
+        if idx.empty and not pool.empty:
+            raise ValueError("No hay índice de casas calculable para esta comuna")
+        pool["indice"] = pool.fecha.dt.year.map(idx).fillna(
+            idx.iloc[-1] if not idx.empty else 100.0
+        )
+        pool["ufm2_aj"] = pool.ufm2 * (idx.iloc[-1] if not idx.empty else 100.0) / pool.indice
+        mz0 = int(edif.mz.iloc[0])
+        pool["anillo"] = np.where(pool.mz == mz0, "manzana", "vecina")
+        if m2t:
+            pool = pool[
+                (pool.m2 / m2t).between(0.6, 1.6)
+            ]  # casas de tamaño muy distinto no son comparables
+        edad = (hoy - pool.fecha).dt.days / 365.25
+        tam = (pool.m2 / m2t).between(0.8, 1.25) if m2t else True  # fuera de ±20-25% pesa 0,4
+        pool["peso"] = (
+            0.5 ** (edad / VIDA_MEDIA)
+            * np.where(pool.anillo == "manzana", 1.0, PESO_VECINA)
+            * np.where(tam, 1.0, 0.4)
+        )
+        res["indice_casas"] = {int(k): float(v) for k, v in idx.items()}
+    pool = pool.sort_values("fecha")
+    res["comparables"] = pool[
+        ["dir", "fecha", "uf_principal", "m2", "supter", "ufm2", "ufm2_aj", "anillo", "peso"]
+    ].to_dict("records")
+    if len(pool) >= 3 and m2t:
+        q = wquant(pool.ufm2_aj, pool.peso, [0.25, 0.5, 0.75])
+        neff = pool.peso.sum() ** 2 / (pool.peso**2).sum()
+        res["estimacion"] = dict(
+            n=len(pool),
+            n_efectivo=round(float(neff), 1),
+            ufm2_p25=round(q[0], 1),
+            ufm2_med=round(q[1], 1),
+            ufm2_p75=round(q[2], 1),
+            uf_bajo=round(q[0] * m2t, -2),
+            uf_med=round(q[1] * m2t, -2),
+            uf_alto=round(q[2] * m2t, -2),
+            nota="deptos: incluye estacionamientos/bodegas vendidos junto"
+            if tipo == "depto"
+            else "casa: solo la casa",
+        )
+    res["ventas_todas"] = V[
+        ["dir", "tipo", "fecha", "uf_principal", "uf_total", "ufm2", "confianza", "atipica"]
+    ].to_dict("records")
+    res["confianza_conteo"] = V.confianza.value_counts().to_dict()
+    return clean_json(res)
+
+
+def clean_json(value):
+    """Golden files contain NaN; HTTP JSON must encode missing numbers as null."""
+    if isinstance(value, dict):
+        return {str(k): clean_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [clean_json(v) for v in value]
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, np.generic):
+        return clean_json(value.item())
+    if value is None or value is pd.NaT or value is pd.NA:
+        return None
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value

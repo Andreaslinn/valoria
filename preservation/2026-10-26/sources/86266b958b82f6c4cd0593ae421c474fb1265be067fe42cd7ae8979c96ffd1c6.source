@@ -1,0 +1,4 @@
+from pathlib import Path
+p=Path('frontend-v2/src/features/listing-url/workspace.tsx');s=p.read_text(encoding='utf-8');s=s.replace('disabled={!!m.busy||m.saved||!validId}', 'disabled={!!m.busy||m.saved||!validId||!m.savedReady}')
+s=s.replace('{m.saved?(historical?', '{!m.savedReady?"Comprobando guardado…":m.saved?(historical?')
+p.write_text(s,encoding='utf-8')

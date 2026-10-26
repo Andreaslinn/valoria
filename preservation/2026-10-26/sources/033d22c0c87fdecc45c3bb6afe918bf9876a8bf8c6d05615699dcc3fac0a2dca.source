@@ -1,0 +1,13 @@
+from pathlib import Path
+r=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+p=r/'frontend-v2/src/features/radar/radar.tsx';s=p.read_text(encoding='utf-8');s=s.replace('<a className="text-action" href={legacyRoute(detail.item?.url?"Analizar URL":"Tasar")!}>','<a className="text-action" onClick={event=>{if(!detail.item?.url)return;try{saveAnalyzerPrefill(detail.item.url);}catch{event.preventDefault();setDialogError("No se pudo preparar la URL. Copia el enlace mostrado para continuar.");}}} href={legacyRoute(detail.item?.url?"Analizar URL":"Tasar")!}>');p.write_text(s,encoding='utf-8')
+p=r/'frontend-v2/src/features/listing-url/use-listing-url.ts';s=p.read_text(encoding='utf-8').replace('listingUrlApi.save(id)','listingUrlApi.save(id,signal)');p.write_text(s,encoding='utf-8')
+p=r/'docs/audits/valoria-v2-remediation.md';s=p.read_text(encoding='utf-8');s+='''
+## Continuation — 2026-10-12 release gates
+
+Phase1 complete: all four failures reproduced with long tracebacks in continuation-four-baseline.log. Production geocoder/parser/alert job and the failing tests matched HEAD5288dde at continuation start. Two expectations predated canonical Avenida expansion; corrected expected normalized text. Alert-chain fixture froze refresh in May but detection used October wall clock; freeze only test service clock to REFRESH_AT, retain30-day production filter, and require evaluated1 also for the UF artifact case to prevent vacuous pass. Refresh identity fixture had an unlabelled price paragraph outside current accepted selectors; use class=price while retaining real parser/pipeline and dedup assertions. No production scraping/security behavior changed. Focused surrounding91 passed; complete backend1932 passed,9 warnings,86.58s.
+
+Phase2: actual candidate create_app().openapi() now has a dedicated gate test;21 contract tests pass. Repeated served Oracle GET check confirms the same six failures and capability404. These are deployment/runtime gaps, not permission to loosen the checker. Detailed compatibility matrix is maintained in outputs.
+
+Phase3 active: fix remaining primary report comparison wording/data retention, secondary analyzer-link prefill and save abort propagation; validate them before packaging. Playwright Python and Chromium1208 binaries available; Docker accessible with approved host execution. A separate PostgreSQL/Redis candidate environment will use synthetic data, never existing production/local accounts.
+''';p.write_text(s,encoding='utf-8')

@@ -1,0 +1,47 @@
+"""Read-only approval guard for the local Vitacura house hybrid."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def load_hybrid_activation(root):
+    root=Path(root)
+    path=root/'hybrid-activation.json'
+    if not path.is_file():
+        return None
+    a=json.loads(path.read_text(encoding='utf-8'))
+    if (a.get('approved') is not True or a.get('model')!='house_hybrid' or
+        a.get('scope')!={'comuna':15160,'kind':'casa'}):
+        raise ValueError('hybrid_approval_invalid')
+    evidence=root.parent/'house-hybrid'
+    paths={'phase1_policy':root/'policy.json','protocol':evidence/'protocol.json',
+           'evaluation':evidence/'evaluation.json','decision':evidence/'decision.json',
+           'hybrid_code':Path(__file__).with_name('house_hybrid.py')}
+    if {k:digest(p) for k,p in paths.items()}!=a['hashes']:
+        raise ValueError('hybrid_approval_artifact_changed')
+    protocol=json.loads(paths['protocol'].read_text())
+    e=json.loads(paths['evaluation'].read_text())
+    policy=json.loads(paths['phase1_policy'].read_text())
+    fixed={'snapshot':'snapshot','frozen_house_model':'model','frozen_baseline':'baseline',
+           'historical_uf':'uf_calendar','frozen_geography':'geography'}
+    if any(protocol['hashes'][p]!=policy['hashes'][k] for p,k in fixed.items()):
+        raise ValueError('hybrid_input_version_changed')
+    if (protocol['hashes']['phase2_code']!=a['hashes']['hybrid_code'] or
+        protocol['hashes']['phase1_evaluation']!=policy['evaluation_sha256'] or
+        e['frozen_protocol_sha256']!=a['hashes']['protocol']):
+        raise ValueError('hybrid_validation_version_changed')
+    h,b=e['models']['hybrid'],e['models']['baseline']
+    valid=(e['same_target_count']==818 and e['eligible_for_promotion'] and
+        all(e['promotion_checks'].values()) and h['mdape_pct']<b['mdape_pct'] and
+        abs(h['median_bias_pct'])<=3 and h['coverage_pct']>=e['published_baseline_coverage_pct'] and
+        all(s['all']['hybrid']['mdape_pct']<=s['all']['baseline']['mdape_pct']+1
+            for k,s in e['segments']['land_tertile'].items() if k!='missing'))
+    if not valid:
+        raise ValueError('hybrid_promotion_criteria_failed')
+    return {**a,'evaluation':e}

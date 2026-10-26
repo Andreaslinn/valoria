@@ -1,0 +1,16 @@
+# Daily discovery operations
+
+Install the versioned units after deploying the API image:
+
+```bash
+scripts/install_daily_discovery_units.sh
+```
+
+Yapo runs daily with one page per target, a three-second minimum pause, a
+30-minute timeout, its own lock and up to 45 minutes of jitter. Discovery is
+additive and never marks a listing removed because it is absent from a search
+page.
+
+Portal uses one page, up to five details, a three-second minimum pause, a
+20-minute timeout, its own lock and up to 45 minutes of jitter. Enable its
+timer only after a clean dry-run followed by a clean real canary.

@@ -1,0 +1,28 @@
+"""Start current full API against existing local Docker dependencies only."""
+import json
+import subprocess
+from pathlib import Path
+from urllib.parse import urlparse
+
+root = Path(__file__).resolve().parent
+old = json.loads(subprocess.check_output(['docker','inspect','valoria-v2-dev-api-1']))[0]
+env = dict(item.split('=',1) for item in old['Config']['Env'])
+for key in ('DATABASE_URL','SYNC_DATABASE_URL','REDIS_URL'):
+    if key in env:
+        assert urlparse(env[key]).hostname in ('postgres','redis'), key
+env.update(ENVIRONMENT='development', VALORIA_RUNTIME_PROFILE='local',
+    sii_closing_layer='true', SII_CLOSING_DATA_DIR='/local-sii',
+    BACKEND_CORS_ORIGINS='http://127.0.0.1:3111,http://localhost:3111',
+    PYTHONDONTWRITEBYTECODE='1')
+env.pop('VALORIA_ENFORCE_RELEASE_MANIFEST',None)
+args=['docker','run','-d','--name','valoria-current-preview-20261025',
+      '--network','valoria-v2-dev_default','-p','127.0.0.1:8766:8000',
+      '--mount',f'type=bind,source={root / "valoria"},target=/app,readonly',
+      '--mount',f'type=bind,source={root / "closing-validation-final"},target=/local-sii,readonly',
+      '-w','/app']
+for key,value in env.items():
+    args.extend(['-e',f'{key}={value}'])
+args.extend([old['Image'],'python','-m','uvicorn','api.main:app','--host','0.0.0.0','--port','8000'])
+result=subprocess.run(args,capture_output=True,text=True)
+print('Started full API container' if result.returncode == 0 else result.stderr)
+raise SystemExit(result.returncode)

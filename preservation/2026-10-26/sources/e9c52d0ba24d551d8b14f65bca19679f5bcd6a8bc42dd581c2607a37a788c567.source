@@ -1,0 +1,5 @@
+import subprocess,json,pathlib
+for args in [['docker','stats','--no-stream','--format','{{.Name}} {{.CPUPerc}} {{.MemUsage}}'],['systemctl','cat','valoria-portal-discovery.timer']]:
+ r=subprocess.run(args,capture_output=True,text=True);print(r.stdout)
+p=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session/session.json')
+data=json.loads(p.read_text());print(json.dumps({'session_mode':oct(p.stat().st_mode&0o777),'auth_expiry_utc_epoch':[c['expires'] for c in data['cookies'] if c['name']=='ssid']}))

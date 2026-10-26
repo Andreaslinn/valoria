@@ -1,0 +1,379 @@
+"""Lookup seguro de publicaciones por URL para prellenar tasaciones."""
+from __future__ import annotations
+
+import ipaddress
+import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import asdict, dataclass
+from typing import Any
+from urllib.parse import urljoin, urlparse
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from config import get_settings
+from core.normalization.publication_identity import source_identity_from_url
+from domain.ingestion.data_cleaning import CleanedListing, clean_listing, normalize_property_type
+from infrastructure.db.mappers import listing_from_orm
+from infrastructure.db.models import ListingORM
+from infrastructure.scrapers.yapo import parse_listing_from_url as parse_yapo_listing_from_url
+
+from infrastructure.scrapers.portalinmobiliario import (
+    classify_portal_detail_page_state,
+    parse_listing_detail_portal,
+)
+
+LookupStatus = str
+ListingLookup = Callable[[str], Awaitable[Any | None]]
+
+_TIMEOUT_SEC = 12.0
+_SUPPORTED_YAPO_HOSTS = {"yapo.cl", "www.yapo.cl"}
+_SUPPORTED_PORTAL_HOSTS = {"portalinmobiliario.com", "www.portalinmobiliario.com"}
+_BLOCKED_HOSTS = {"localhost", "0.0.0.0"}
+_log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ListingUrlLookupResult:
+    status: LookupStatus
+    listing_data: dict[str, Any]
+    warnings: list[str]
+    source: str | None
+    url: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+async def lookup_listing_url(
+    url: str,
+    *,
+    listing_lookup: ListingLookup | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> ListingUrlLookupResult:
+    validation_error = validate_public_listing_url(url)
+    if validation_error is not None:
+        return _result(validation_error, url=url, source=None, warnings=[validation_error])
+
+    source = detect_source(url)
+    if source is None:
+        return _result("unsupported_source", url=url, source=None, warnings=["Fuente aún no soportada"])
+
+    lookup = listing_lookup or _find_existing_listing_by_url
+    try:
+        existing = await lookup(url)
+    except Exception as e:
+        # Streamlit calls this service through asyncio.run(). SQLAlchemy/asyncpg
+        # pooled connections can be tied to a prior event loop, so a lookup
+        # failure must not prevent the URL parser fallback from running.
+        _log.warning("Existing listing lookup failed for url=%s: %s", url, e)
+        existing = None
+    if existing is not None:
+        return _result(
+            "found_existing",
+            url=url,
+            source=source,
+            listing_data=listing_to_form_data(existing),
+        )
+
+    raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)
+    if raw is None:
+        return _result("failed", url=url, source=source, warnings=["No se pudo parsear la publicación"])
+    try:
+        parsed = clean_listing(dict(raw), allow_incomplete=True)
+    except Exception:
+        return _result(
+            "partial",
+            url=url,
+            source=source,
+            listing_data=raw_to_form_data(raw),
+            warnings=_warnings_for_raw(raw),
+        )
+
+    return _result(
+        "parsed_new" if _has_minimum_fields(parsed) else "partial",
+        url=url,
+        source=source,
+        listing_data=cleaned_to_form_data(parsed),
+        warnings=_warnings_for_cleaned(parsed),
+    )
+
+
+async def parse_listing_from_url(
+    url: str,
+    *,
+    source: str | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> CleanedListing | None:
+    raw = await _parse_raw_listing_from_url(url, source=source, http_client=http_client)
+    if raw is None:
+        return None
+    try:
+        return clean_listing(dict(raw), allow_incomplete=True)
+    except Exception:
+        return None
+
+
+async def _parse_raw_listing_from_url(
+    url: str,
+    *,
+    source: str | None,
+    http_client: httpx.AsyncClient | None,
+) -> dict[str, Any] | None:
+    source = source or detect_source(url)
+    if source not in {"yapo", "portalinmobiliario"}:
+        return None
+    if validate_public_listing_url(url) or detect_source(url) != source:
+        return None
+
+    owns_client = http_client is None
+    client = http_client or httpx.AsyncClient(timeout=_TIMEOUT_SEC, follow_redirects=True)
+    try:
+        if source == "portalinmobiliario":
+            return await _parse_portal_url(url, client)
+        return await parse_yapo_listing_from_url(url, http_client=client)
+    except (httpx.HTTPError, ValueError):
+        return None
+    finally:
+        if owns_client:
+            await client.aclose()
+
+
+
+async def _parse_portal_url(url: str, client: httpx.AsyncClient) -> dict[str, Any] | None:
+    """One detail page, with bounded same-source redirects and no retries.
+
+    Reuse the production parser; never interpret a challenge as a property or
+    follow a redirect to a login/external/internal host. No guessed UF rate.
+    """
+    current = url
+    for _ in range(4):
+        response = await client.get(current, follow_redirects=False)
+        if response.status_code in {403, 429}:
+            return None
+        if response.status_code in {301, 302, 303, 307, 308}:
+            location = response.headers.get("location")
+            if not location:
+                return None
+            target = urljoin(current, location)
+            if validate_public_listing_url(target) or detect_source(target) != "portalinmobiliario":
+                return None
+            current = target
+            continue
+        if response.status_code != 200:
+            return None
+        if classify_portal_detail_page_state(response.text, status_code=response.status_code) != "detail":
+            return None
+        raw = dict(parse_listing_detail_portal(response.text, current))
+        raw["url"] = url
+        raw["property_type"] = normalize_property_type(None, raw=raw, title=raw.get("title") or "")
+        raw["m2"] = raw.get("usable_area_m2") or raw.get("built_area_m2")
+        if raw.get("price_uf") is not None:
+            raw.update(price_uf_source="scraped", price_uf_confidence="high", price_recovery_method="portal_detail")
+        return raw
+    return None
+
+
+def detect_source(url: str) -> str | None:
+    host = (urlparse(url).hostname or "").lower()
+    if host in _SUPPORTED_YAPO_HOSTS or host.endswith(".yapo.cl"):
+        return "yapo"
+    if host in _SUPPORTED_PORTAL_HOSTS:
+        return "portalinmobiliario"
+    return None
+
+
+def validate_public_listing_url(url: str) -> str | None:
+    parsed = urlparse(str(url).strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return "invalid_url"
+    host = (parsed.hostname or "").strip().lower()
+    if parsed.username is not None or parsed.password is not None:
+        return "invalid_url"
+    try:
+        if parsed.port not in {None, 80, 443}:
+            return "invalid_url"
+    except ValueError:
+        return "invalid_url"
+    if host in _BLOCKED_HOSTS or host.endswith(".localhost"):
+        return "invalid_url"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+        return "invalid_url"
+    return None
+
+
+def listing_to_form_data(listing: Any) -> dict[str, Any]:
+    price_uf = _published_price_uf(listing)
+    price_clp = int(getattr(getattr(listing, "price", None), "clp", 0) or 0)
+    return {
+        "listing_id": getattr(listing, "id", None),
+        "status": getattr(listing, "status", None),
+        "last_seen_at": getattr(listing, "last_seen_at", None),
+        "title": getattr(listing, "title", None),
+        "comuna": getattr(listing, "comuna", None),
+        "property_type": getattr(listing, "property_type", None) or "unknown",
+        "m2": getattr(listing, "m2", None),
+        "built_area_m2": getattr(listing, "built_area_m2", None) or getattr(listing, "m2", None),
+        "land_area_m2": getattr(listing, "land_area_m2", None),
+        "usable_area_m2": getattr(listing, "usable_area_m2", None),
+        "dormitorios": getattr(listing, "bedrooms", 0),
+        "banos": getattr(listing, "bathrooms", 0),
+        "estacionamientos": getattr(listing, "parking", 0),
+        "precio_publicado_uf": price_uf,
+        "precio_publicado_clp": price_clp,
+        "price_currency": getattr(listing, "price_currency", None),
+        "price_uf_source": getattr(listing, "price_uf_source", None),
+        "price_uf_confidence": getattr(listing, "price_uf_confidence", None),
+        "price_recovery_method": getattr(listing, "price_recovery_method", None),
+        "price_clp_snapshot": price_clp,
+        "source": getattr(listing, "source", None),
+        "url": getattr(listing, "url", None),
+    }
+
+
+def cleaned_to_form_data(cleaned: CleanedListing) -> dict[str, Any]:
+    return listing_to_form_data(cleaned)
+
+
+def raw_to_form_data(raw: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "comuna": raw.get("comuna") or raw.get("location_text"),
+        "title": raw.get("title"),
+        "property_type": raw.get("property_type") or "unknown",
+        "m2": raw.get("m2") or None,
+        "built_area_m2": raw.get("built_area_m2") or raw.get("m2") or None,
+        "land_area_m2": raw.get("land_area_m2"),
+        "usable_area_m2": raw.get("usable_area_m2"),
+        "dormitorios": raw.get("bedrooms") or 0,
+        "banos": raw.get("bathrooms") or 0,
+        "estacionamientos": raw.get("parking") or 0,
+        "precio_publicado_uf": raw.get("price_uf") or None,
+        "precio_publicado_clp": raw.get("price_clp") or None,
+        "price_currency": raw.get("price_currency") or raw.get("currency_original"),
+        "price_uf_source": raw.get("price_uf_source"),
+        "price_uf_confidence": raw.get("price_uf_confidence"),
+        "price_recovery_method": raw.get("price_recovery_method"),
+        "price_clp_snapshot": raw.get("price_clp") or None,
+        "source": raw.get("source"),
+        "url": raw.get("url"),
+    }
+
+
+async def _find_existing_listing_by_url(url: str) -> Any | None:
+    settings = get_settings()
+    engine = create_async_engine(
+        settings.database_url,
+        echo=(settings.log_level == "DEBUG"),
+        poolclass=NullPool,
+        pool_pre_ping=True,
+    )
+    try:
+        session_factory = async_sessionmaker(
+            engine,
+            expire_on_commit=False,
+            class_=AsyncSession,
+        )
+        async with session_factory() as session:
+            return await find_existing_listing_by_url(session, url)
+    finally:
+        await engine.dispose()
+
+
+async def find_existing_listing_by_url(session: AsyncSession, url: str) -> Any | None:
+    """Resolve tracked/changed slugs by indexed publication ID, including history."""
+    identity = source_identity_from_url(url)
+    if identity:
+        source, external_id = identity
+        stmt = select(ListingORM).where(
+            ListingORM.source == source, ListingORM.external_id == external_id,
+        )
+        orm = (await session.execute(stmt)).scalar_one_or_none()
+        if orm is not None:
+            return listing_from_orm(orm)
+    stmt = select(ListingORM).where(ListingORM.url == url).order_by(ListingORM.id).limit(1)
+    orm = (await session.execute(stmt)).scalar_one_or_none()
+    return listing_from_orm(orm) if orm is not None else None
+
+
+def _has_minimum_fields(cleaned: CleanedListing) -> bool:
+    return bool(
+        cleaned.comuna
+        and cleaned.comuna != "unknown"
+        and cleaned.property_type
+        and cleaned.property_type != "unknown"
+        and cleaned.m2
+        and cleaned.price.clp > 0
+    )
+
+
+def _warnings_for_cleaned(cleaned: CleanedListing) -> list[str]:
+    warnings = list(cleaned.quality_warnings)
+    if cleaned.property_type == "unknown":
+        warnings.append("missing_property_type")
+    if not cleaned.m2:
+        warnings.append("missing_m2")
+    if cleaned.price.clp <= 0:
+        warnings.append("missing_price")
+    return sorted(set(warnings))
+
+
+def _warnings_for_raw(raw: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    if not raw.get("comuna"):
+        warnings.append("missing_comuna")
+    if not raw.get("property_type") or raw.get("property_type") == "unknown":
+        warnings.append("missing_property_type")
+    if not raw.get("m2"):
+        warnings.append("missing_m2")
+    if not raw.get("price_clp") and not raw.get("price_uf"):
+        warnings.append("missing_price")
+    return warnings
+
+
+def _published_price_uf(listing: Any) -> float | None:
+    value = getattr(listing, "price_uf", None)
+    if value is None:
+        return None
+
+    source = str(getattr(listing, "price_uf_source", "") or "").strip().lower()
+    method = str(getattr(listing, "price_recovery_method", "") or "").strip().lower()
+    confidence = str(getattr(listing, "price_uf_confidence", "") or "").strip().lower()
+    currency = str(getattr(listing, "price_currency", "") or "").strip().upper()
+
+    if "legacy_unrecoverable" in {source, method}:
+        return None
+    if confidence == "low":
+        return None
+    if source == "fallback" or method == "fallback":
+        return None
+    if currency == "UF" or source in {
+        "scraped",
+        "recovered_exact",
+        "recovered_high_confidence",
+        "estimated",
+    }:
+        return float(value)
+    return float(value)
+
+
+def _result(
+    status: LookupStatus,
+    *,
+    url: str,
+    source: str | None,
+    listing_data: dict[str, Any] | None = None,
+    warnings: list[str] | None = None,
+) -> ListingUrlLookupResult:
+    return ListingUrlLookupResult(
+        status=status,
+        listing_data=listing_data or {},
+        warnings=warnings or [],
+        source=source,
+        url=url,
+    )

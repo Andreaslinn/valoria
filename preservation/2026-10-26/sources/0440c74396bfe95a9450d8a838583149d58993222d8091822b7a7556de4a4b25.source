@@ -1,0 +1,83 @@
+"""Locked, once-only later-time validation from normal History; Oracle READ ONLY."""
+from lab import *
+from history_feasibility import normalize
+from text_models import TextModel
+from blend_run import mixed
+from temporal_run import supported
+from avm01.isolation import LabelCustody,dependency_hash,dependency_components
+from avm01.splits import Split
+from avm01.data import Dataset,Record,timepoint
+from avm01.engines import FrozenA
+from domain.valuation.price_surface import clear_price_surface_cache
+from analyze import metrics,interval
+from dataclasses import replace
+import numpy as np
+NAMES=['A','Blend','BlendSupported','Text']
+
+def prepare():
+ verify();z=read(HERE/'blend-temporal-summary.json')['tuning'];assert z['text']=={'alpha':1.,'weight':1.} and z['text_weight']==.5
+ design={'locked_at':datetime.now(timezone.utc).isoformat(),'previous_capture':read(HERE/'history_manifest.json')['captured_at'],'training':'Same immutable Oct4 791 G3 records and labels, no retraining on Oct5+ labels','text':z['text'],'blend_text_weight':z['text_weight'],'origin_of_parameters':'Full Oct4 training inner-fold selection, not 149 temporal target labels','engines':NAMES,'primary':'Blend vs A on identical available targets, MAElog + MdAPE unchanged; report MAPE/tails/bias and paired group uncertainty. No model/threshold retuning after this capture.','coverage':'BlendSupported uses fixed >=5 same-commune training rows and area inside observed range when A abstains; added predictions evaluated separately','eligibility':'First observation per publication, strictly after previous capture, nativeUF raw corroborated within .011UF and original physical gates. No substitution by later observation. Exclude old publication/listing aliases, conservative candidate links against entire old6283 and prior modern first observations, full G3 transitive graph and ALL listing aliases including noneligible bridge nodes. No grouping by price.','evidence':'New unseen chronological validation, already collected before protocol lock if cycle occurred; NOT a forward-in-time prospective collection, not existing protected holdout, not transactions. Single extra day may be underpowered. No Portal requests or scraping.','code_sha256':{n:sha(HERE/n) for n in ['fresh_run.py','text_models.py','history_capture.py']}}
+ assert not (HERE/'fresh_design.json').exists();write(HERE/'fresh_design.json',design);(HERE/'fresh_design.sha256').write_text(sha(HERE/'fresh_design.json'))
+
+def capture():
+ import subprocess
+ from history_capture import REMOTE
+ d=read(HERE/'fresh_design.json');assert sha(HERE/'fresh_design.json')==(HERE/'fresh_design.sha256').read_text();assert sha(__file__)==d['code_sha256']['fresh_run.py'];out=HERE/'fresh_history.json.dpapi';assert not out.exists()
+ cmd=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','docker exec -i valoria_oracle_beta-api-1 python -B -']
+ p=subprocess.run(cmd,input=REMOTE.encode(),capture_output=True,timeout=70)
+ if p.returncode:raise RuntimeError('READ ONLY capture failed; remote output withheld')
+ v=json.loads(p.stdout);assert v['read_only']=='on';idx={r['observation_id']:r for r in v['rows']};old=decrypt(HERE/'modern_history.json.dpapi')['rows'];assert all(idx.get(r['observation_id'])==r for r in old),'History evidence changed'
+ h=encrypt(out,v);write(HERE/'fresh_history_manifest.json',{'captured_at':v['captured_at'],'read_only':'on','rows':len(v['rows']),'prior_rows_unchanged':len(old),'new_observations':len(v['rows'])-len(old),'ciphertext_sha256':sha(out),'plaintext_sha256':h,'locked_design_sha256':sha(HERE/'fresh_design.json'),'privacy':'DPAPI CurrentUser; same allowlisted read-only projection, no raw rows printed; no productive writes'})
+ print(json.dumps(read(HERE/'fresh_history_manifest.json')))
+
+def data():
+ design=read(HERE/'fresh_design.json');p,(datasets,_,_,_)=load();base=datasets['G3'];b=module('fresh_cohort',ROOT/'research/tasar_cohort_20261009T154414Z/build.py');old=read(ROOT/b.POLICY['snapshot'])['listings'];hist=decrypt(HERE/'fresh_history.json.dpapi')['rows'];first={}
+ for o in hist:first.setdefault((o['source'],str(o['external_id'])),o)
+ previous=[o for o in first.values() if timepoint(o['observed_at'])<=timepoint(design['previous_capture'])];future=[o for o in first.values() if timepoint(o['observed_at'])>timepoint(design['previous_capture'])]
+ oldpub={(r['source'],str(r.get('external_id'))) for r in old}|{(o['source'],str(o['external_id'])) for o in previous};oldids={r['id'] for r in old}|{o['listing_id'] for o in previous};past=list(old)+[normalize(o) for o in previous]
+ features=[b.signals(r) for r in past];eligible=[];rejections=Counter()
+ for o in future:
+  r=normalize(o);tier,y,why,_=b.target(r);reason=[q for q in b.physical_reasons(r) if not(q=='inactive' and r.get('status') is None)]
+  if tier!='T1' or reason:rejections['monetary_or_structural']+=1;continue
+  price=o['raw_price'].get('price') or {};currency=(price.get('currency') or {}).get('symbol');amount=b.num((price.get('amount') or {}).get('value'))
+  if currency not in ['UF','CLF'] or amount is None or not math.isclose(amount,y,abs_tol=.011,rel_tol=0):rejections['raw_not_corroborated']+=1;continue
+  if (r['source'],str(r['external_id'])) in oldpub or r['id'] in oldids:rejections['previous_listing_alias']+=1;continue
+  f=b.signals(r)
+  if any(b.pair(f,g)['candidate'] for g in features if f['comuna']==g['comuna'] or f['canonical_url']==g['canonical_url']):rejections['direct_dependency_candidate']+=1;continue
+  eligible.append(o)
+ combined=list(old);alias=defaultdict(list);mapping={};n=max(r['id'] for r in old)+1
+ for r in old:alias[r['id']].append(r['id'])
+ for o in first.values():
+  r=normalize(o);r['id']=n;combined.append(r);mapping[o['observation_id']]=n;alias[o['listing_id']].append(n);n+=1
+ fs,pairs,_=b.dependencies(combined);edges=[(q['id_a'],q['id_b']) for q in pairs if q['G3']]
+ for ids in alias.values():edges.extend(zip(ids,ids[1:]))
+ buckets=defaultdict(list)
+ for r in base.records:buckets[r.group_id].append(int(r.listing_id))
+ for ids in buckets.values():edges.extend(zip(ids,ids[1:]))
+ graph=b.identity.graph(fs,edges);pastnodes={r['id'] for r in old}|{mapping[o['observation_id']] for o in previous};pastcomponents={graph[i] for i in pastnodes};chosen=[]
+ for o in eligible:
+  if graph[mapping[o['observation_id']]] in pastcomponents:rejections['transitive_dependency']+=1
+  else:chosen.append(o)
+ from avm01.monetary_text import sanitize
+ train=[replace(r,group_id=f'fresh-{graph[int(r.listing_id)]}') for r in base.records];targets=[]
+ for o in chosen:
+  s=normalize(o);area,_=b.area(s);t={k:s.get(k) for k in ['comuna','m2','bedrooms','bathrooms','parking','property_type','built_area_m2','usable_area_m2','land_area_m2','geocode_precision']};t.update(id=s['id'],coordinates={'lat':s['lat'],'lon':s['lon']} if s['lat'] is not None and s['lon'] is not None else None)
+  meta=s.get('raw_metadata') or {};t['raw_metadata']={k:sanitize(meta[k]) for k in ['address_label','street_hint','location_text'] if meta.get(k)};t['raw_metadata']['title']=sanitize(s.get('title'))
+  f={k:float(s[k]) if s.get(k) is not None else None for k in ['bedrooms','bathrooms','parking']};f.update(log_area=math.log(area),comuna=s['comuna'],source=s['source']);oid='fresh-'+o['observation_id']
+  targets.append(Record(oid,str(s['external_id']),str(s['id']),oid,f'fresh-{graph[mapping[o["observation_id"]]]}','cv_group_reviewed',f,float(s['price_uf']),o['observed_at'],o['observed_at'],o['observed_at'],o['observed_at'],canonical_url=s['url'],latitude=s['lat'],longitude=s['lon'],canonical_target=t))
+ ds=Dataset(tuple(train+targets),'real_retrospective_snapshot_candidate','fresh-history-'+sha(HERE/'fresh_history.json.dpapi'),'full-old-and-modern-G3-alias',digest({'snapshot':b.POLICY['snapshot_sha256'],'history':sha(HERE/'fresh_history.json.dpapi'),'edges':edges}),index_policy='first_observation_v1');ds.validate();comp=dependency_components(ds)
+ audit={'previous_first_publications':len(previous),'new_first_publications':len(future),'eligible':len(targets),'effective_groups':len({comp[r.row_id] for r in targets}),'rejections':dict(rejections),'sources':dict(Counter(r.features['source'] for r in targets)),'dates':dict(Counter(r.observed_at[:10] for r in targets)),'geo':sum(r.latitude is not None for r in targets),'comunas':dict(Counter(r.features['comuna'] for r in targets)),'all_training_earlier':all(timepoint(r.available_at)<timepoint(t.prediction_at) for r in train for t in targets),'physical_independence':'Conservative G3 and candidate exclusion, not certified distinct physical units/buildings'}
+ return ds,tuple(r.row_id for r in train),tuple(r.row_id for r in targets),audit
+
+def build():
+ ds,train,test,audit=data();assert test,'No additional independent eligible targets';c=read(HERE/'protocol.json');v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':{'fresh':ds.hash()},'allowed_engines':NAMES,'uf_reference':c['uf_reference'],'locked_design_sha256':sha(HERE/'fresh_design.json'),'train_sha256':digest(train),'test_sha256':digest(test)};assert not(HERE/'fresh_protocol.json').exists();write(HERE/'fresh_protocol.json',v);(HERE/'fresh_protocol.sha256').write_text(sha(HERE/'fresh_protocol.json'));write(HERE/'fresh_eligibility.json',audit)
+ path=RUNTIME/'avm01/pilot_authorization.py';path.write_text(path.read_text().replace("'blend_protocol']","'blend_protocol','fresh_protocol']"));seal=read(HERE/'temporal_code_seal.json');seal['runtime/avm01/pilot_authorization.py']=sha(path);write(HERE/'temporal_code_seal.json',seal);print(json.dumps(audit))
+
+def run():
+ d=read(HERE/'fresh_design.json');fix=read(HERE/'fresh_execution_fix.json');assert fix['before_sha256']==d['code_sha256']['fresh_run.py'] and sha(__file__)==fix['after_sha256'];ds,train,test,audit=data();c=read(HERE/'fresh_protocol.json');assert ds.hash()==c['dataset_sha256']['fresh'];seed=20261009;s=Split(train,test,'temporal',seed,ds.hash(),dependency_hash(ds));custody=LabelCustody(ds,());config={'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'fresh_protocol.json')};batch=custody.issue(ds,s,config,());tm=TextModel(batch,**d['text']);tv=np.exp(tm.predict_log(batch.targets));am=FrozenA().fit(batch);vals={n:{} for n in NAMES}
+ for t,b in zip(batch.targets,tv):
+  clear_price_surface_cache();a=am.predict(t);assert set(a.trace['selected_ids'])<=set(train);b=float(b);v=mixed(a.value_uf,b,d['blend_text_weight']);vals['A'][t.row_id]=a.value_uf;vals['Text'][t.row_id]=b;vals['Blend'][t.row_id]=v if a.value_uf is not None else None;vals['BlendSupported'][t.row_id]=v if a.value_uf is not None or supported(t,batch.rows) else None
+ custody.record_predictions(batch,vals);truth=custody.complete(vals,test);rows=[{'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'comuna':t.features['comuna'],'geo':t.latitude is not None,'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}} for t in batch.targets];out=HERE/'fresh_predictions.json.dpapi';assert not out.exists();encrypt(out,rows)
+ summary={label:{'n':len(ss),'full':{n:metrics(ss,n) for n in NAMES},'paired':{n:interval(ss,'A',n) for n in NAMES if n!='A'}} for label,ss in [('all',rows),('A_abstentions',[r for r in rows if r['predictions']['A'] is None])]};summary['eligibility']=audit;summary['status']='Once-only unseen chronological validation of frozen candidate; still offer prices and automatic identity, one day only. No subsequent tuning or new candidate evaluations on these targets.';write(HERE/'fresh_summary.json',summary);print(json.dumps(summary))
+
+if __name__=='__main__':globals()[sys.argv[1]]()

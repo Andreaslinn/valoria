@@ -1,0 +1,144 @@
+"""Cohort, source coverage and target-free identity audit. No models or scoring."""
+import sys,json,csv,collections,itertools,zipfile,difflib,math
+from common import H,BASE,REPO,save,table,read,sha
+from ingestion import cohort,address_parts,geo
+sys.path.insert(0,str(BASE/'research/tasar_identity_20261002'))
+from identity import features,pair_rules,contradictions,distance,text_tokens
+
+SIGNALS=['source','external_id','original_url','canonical_url','additional_listing_ids','platform_id','title_raw','description','structured_attributes','metadata_raw',
+ 'address_raw','street','street_number','unit','building','project','neighborhood','coordinates','coordinate_origin','geo_address_quality',
+ 'usable_area','total_area','built_area','terrace','land_area','bedrooms','bathrooms','parking','storage','floor','age','condition','amenities',
+ 'seller_name','seller_type','seller_id','seller_profile_url','phone_hash','image_urls','image_ids','image_order','publication_date','source_updated_date',
+ 'observation_time','first_seen','last_seen','status','disappearance','reappearance','canonical_price','two_identity_signals']
+
+def signals(r):
+    m=r.get('raw_metadata') or {};e=r.get('evidence') or {};ap=e.get('address_parsed') or address_parts(m.get('address') or m.get('address_label') or m.get('street_hint'))
+    xy=geo(r.get('lat'),r.get('lon')) or geo(m.get('lat'),m.get('lon'))
+    images=e.get('image_urls') or ([m['main_image_url']] if m.get('main_image_url') else [])
+    ids=e.get('image_ids') or m.get('image_ids')
+    addr=e.get('address_raw') or m.get('address_raw') or m.get('address')
+    desc=e.get('description_raw') or m.get('description') or r.get('description')
+    sellerids=e.get('seller_ids') or {k:v for k,v in (e.get('seller_raw') or {}).items() if k in ['sellerId','agencyId','brokerId','userId']}
+    physical=e.get('physical_raw') or {}; physical=physical if isinstance(physical,dict) else {}
+    s=dict(source=r.get('source'),external_id=r.get('external_id'),original_url=r.get('url'),canonical_url=m.get('canonical_url'),additional_listing_ids=e.get('listing_ids'),platform_id=r.get('external_id'),
+      title_raw=e.get('title_raw'),description=desc,structured_attributes=e.get('technical_specs_raw') or physical or m.get('technical_specs'),metadata_raw=e.get('location_raw') or e.get('surfaces_raw'),
+      address_raw=addr,street=ap.get('street'),street_number=ap.get('street_number'),unit=ap.get('unit'),building=m.get('building'),project=e.get('building_project') or m.get('project'),
+      neighborhood=m.get('neighborhood') or m.get('subcomuna'),coordinates=xy,coordinate_origin=m.get('location_source') or e.get('coordinate_origin'),
+      geo_address_quality=bool(xy and addr and ap.get('street_number') and (m.get('coordinate_precision')=='verified_address')),
+      usable_area=r.get('usable_area_m2'),total_area=m.get('source_total_area_m2') or m.get('total_area_raw'),built_area=r.get('built_area_m2'),terrace=physical.get('terrace') or m.get('terrace'),land_area=r.get('land_area_m2'),
+      bedrooms=r.get('bedrooms'),bathrooms=r.get('bathrooms'),parking=r.get('parking'),storage=physical.get('storage') or m.get('storage'),floor=physical.get('floor') or m.get('floor'),age=physical.get('year') or m.get('year'),
+      condition=physical.get('condition') or m.get('condition'),amenities=physical.get('amenities') or m.get('amenities'),seller_name=m.get('seller') or e.get('seller_raw'),seller_type=m.get('seller_type'),seller_id=sellerids or m.get('seller_id'),seller_profile_url=m.get('seller_profile_url'),phone_hash=m.get('phone_hash'),
+      image_urls=images,image_ids=ids,image_order=bool(e.get('images_raw')),publication_date=e.get('publication_date') or m.get('publication_date'),source_updated_date=e.get('updated_date') or m.get('updated_date'),
+      observation_time=r.get('observation_time') or r.get('scraped_at'),first_seen=r.get('created_at'),last_seen=r.get('last_seen_at'),status=r.get('status'),disappearance=False,reappearance=False,
+      canonical_price=cohort(r)['canonical_native_price'])
+    # Identity families independent of price/physical structure: full address, unit, image set, stable seller, substantive text, provenance-qualified pin.
+    identity=[bool(addr and ap.get('street_number')),bool(ap.get('unit')),bool(ids or images),bool(sellerids),bool(desc and len(text_tokens(desc))>=3),bool(s['geo_address_quality'])]
+    s['two_identity_signals']=sum(identity)>=2
+    return {k:bool(s.get(k)) for k in SIGNALS}
+
+def coverage(label,rows):
+    out=[]
+    for source in ['yapo','portalinmobiliario']:
+        pool=[r for r in rows if r['source']==source]
+        for signal in SIGNALS:
+            n=sum(signals(r)[signal] for r in pool)
+            out.append(dict(universe=label,source=source,signal=signal,N=len(pool),available=n,percent=round(n/len(pool)*100,3) if pool else '',limitation='observed sample; zero is not proof source absence'))
+    return out
+
+def source_map(coverage_rows):
+    # Evidence classifications; availability only asserted for observed payloads/code paths.
+    yapo={
+      'source':('card/detail','preserved'),'external_id':('card/detail','preserved'),'original_url':('card/detail','partial'),'canonical_url':('derived; not preserved separately','partial'),'additional_listing_ids':('uncertain','uncertain'),'platform_id':('card id','preserved'),
+      'title_raw':('card/detail title; cleaner trims to 512','discarded'),'description':('detail meta; structured detail early return skips it','detail_only'),
+      'structured_attributes':('card square/rooms/bathrooms/parking/lotSize','partial'),'metadata_raw':('Flight item exists; current parser selects fields','discarded'),
+      'address_raw':('detail source uncertain; card only locality','uncertain'),'street':('text inference only','partial'),'street_number':('text only when explicit','partial'),'unit':('text when explicit; no field preserved','partial'),
+      'building':('uncertain','uncertain'),'project':('uncertain','uncertain'),'neighborhood':('legacy card location/text','partial'),
+      'coordinates':('card location lat/lon and detail property map','preserved'),'coordinate_origin':('location_source','preserved'),'geo_address_quality':('source pin precision not verified; zoom discarded','partial'),
+      'usable_area':('usableArea optional not present in real fixture','partial'),'total_area':('lotSize retained as source_total_area_m2; meaning ambiguous','partial'),'built_area':('square mapped to built_area; semantic confidence unverified','partial'),'terrace':('uncertain','uncertain'),'land_area':('lotSize for houses','partial'),
+      'bedrooms':('card rooms','preserved'),'bathrooms':('card bathrooms','preserved'),'parking':('card parking; missing becomes zero','partial'),'storage':('text potentially; no capture confirmed','uncertain'),'floor':('real titles mention piso; no dedicated capture','partial'),'age':('uncertain','uncertain'),'condition':('real titles remodelado; no structured capture','partial'),'amenities':('uncertain','uncertain'),
+      'seller_name':('legacy cards; absent modern fixture','partial'),'seller_type':('uncertain','uncertain'),'seller_id':('uncertain','uncertain'),'seller_profile_url':('uncertain','uncertain'),'phone_hash':('not fetched or inferred','not_found'),
+      'image_urls':('images + principalImage; only main kept','partial'),'image_ids':('remote URL suffix available; not retained separately','discarded'),'image_order':('images list','discarded'),
+      'publication_date':('not in modern card fixture; detail uncertain','uncertain'),'source_updated_date':('uncertain','uncertain'),
+    }
+    portal={
+      'source':('card/detail','preserved'),'external_id':('MLC URL/state/productID','preserved'),'original_url':('card href/detail url replaced by canonical in adapter','partial'),'canonical_url':('detail canonical/offer url','detail_only'),'additional_listing_ids':('detail sku/productID/state id','partial'),'platform_id':('MLC','preserved'),
+      'title_raw':('DOM/state; cleaner truncation','discarded'),'description':('detail component; adapter top-level does not enter raw_metadata','discarded'),
+      'structured_attributes':('bookmark UNIT_NAME MODEL_NAME UNIT_FLOOR BALCONY_AREA FACING; technical specs/models','partial'),'metadata_raw':('Nordic state/JSON-LD; not retained','discarded'),
+      'address_raw':('detail location.content_rows; can describe project not unit','discarded'),'street':('detail location text','partial'),'street_number':('detail location text when explicit','partial'),'unit':('UNIT_NAME often unit/model typology NOT physical apartment number','uncertain'),'building':('project detail titles/models','detail_only'),'project':('quotable_models/header/project breadcrumbs','detail_only'),'neighborhood':('detail text/points of interest','partial'),
+      'coordinates':('detail location map_info; not cards','detail_only'),'coordinate_origin':('detail location_source','detail_only'),'geo_address_quality':('map precision not verified','uncertain'),
+      'usable_area':('card generic area/detail technical_specs','partial'),'total_area':('detail TOTAL_AREA/raw technical specs','partial'),'built_area':('detail COVERED_AREA/technical_specs','partial'),'terrace':('detail BALCONY_AREA','discarded'),'land_area':('detail specs','detail_only'),
+      'bedrooms':('card/detail','preserved'),'bathrooms':('card/detail','preserved'),'parking':('detail PARKING_LOTS; default zero in most cards','partial'),'storage':('detail unknown','uncertain'),'floor':('detail UNIT_FLOOR','discarded'),'age':('detail schema NewCondition != construction year','uncertain'),'condition':('detail schema.itemCondition','discarded'),'amenities':('detail text/specs potentially; not exhaustive','partial'),
+      'seller_name':('card seller/detail profile name; detail adapter drops seller','partial'),'seller_type':('project context; no dedicated persisted field','partial'),'seller_id':('seller profile component id is UI id; real stable ID not established','uncertain'),'seller_profile_url':('profile actions may expose public profile; not verified','uncertain'),'phone_hash':('not collected; contact actions not followed','not_found'),
+      'image_urls':('cards img src/data-src; detail schema image','discarded'),'image_ids':('detail gallery.pictures[].id','discarded'),'image_order':('detail pictures list','discarded'),
+      'publication_date':('priceValidUntil is NOT publication date; no reliable date found','not_found'),'source_updated_date':('not verified','uncertain'),
+    }
+    for m in [yapo,portal]:
+        m.update(observation_time=('scraped_at overwritten each pass','partial'),first_seen=('created_at is DB-row birth, not stable publication first-seen','partial'),last_seen=('last_seen_at','preserved'),status=('active/incomplete; refresh status separate','partial'),disappearance=('absence in search not evidence; explicit refresh needed','partial'),reappearance=('active upsert loses transition history','discarded'),canonical_price=('native UF or published CLP; some legacy/recovered excluded','partial'),two_identity_signals=('computed only offline','partial'))
+    rows=[]
+    for source,m in [('yapo',yapo),('portalinmobiliario',portal)]:
+        for signal in SIGNALS:
+            availability,cls=m[signal]
+            row=next((x for x in coverage_rows if x['universe']=='oracle_modern_apartment_usable' and x['source']==source and x['signal']==signal),{})
+            rows.append(dict(source=source,signal=signal,source_available=availability,current_capture=cls,persisted='yes' if cls=='preserved' else 'partial' if cls=='partial' else 'not confirmed' if cls=='uncertain' else 'no / not through ordinary card path',estimated_coverage_percent=row.get('percent',''),classification=cls,action='retain RAW+PARSED append-only; verify detail coverage' if cls!='preserved' else 'preserve provenance/history'))
+    table('parser_loss_map.csv',rows)
+    lines=['# Auditoría por fuente','Cobertura medida sobre snapshot moderno de Oracle. Disponibilidad de origen verificada en fixtures reales sanitizados y código actual; no es una estimación poblacional. Yapo vivo devolvió 403; Portal no fue solicitado. `incierta` significa que NO pudimos confirmar ausencia ni presencia.','']
+    for source in ['yapo','portalinmobiliario']:
+        lines+=['## '+source,'| Señal | Evidencia en fuente | Captura / pérdida | % persistido observado |','|---|---|---|---|']
+        lines += [f"| {r['signal']} | {r['source_available']} | {r['classification']} | {r['estimated_coverage_percent']} |" for r in rows if r['source']==source]
+    (H/'source_signal_audit.md').write_text('\n'.join(lines),encoding='utf-8')
+
+def identity_audit(rows):
+    # Price excluded from feature projection. Existing IDs/fingerprints never enter.
+    repeats=collections.Counter((r['comuna'],round(r['lat'],7),round(r['lon'],7)) for r in rows if geo(r.get('lat'),r.get('lon')))
+    nodes={r['id']:features(dict(r,stored_lat=r.get('lat'),stored_lon=r.get('lon')),repeats) for r in rows}
+    for f in nodes.values():
+        # A map pin or production address label does not prove address-grade accuracy.
+        f['trusted_geo']=False
+    metrics=collections.Counter(); evidence=[]; strong=[];medium=[]; cannot=[]
+    images={r['id']:set([r['raw_metadata']['main_image_url']]) if r['raw_metadata'].get('main_image_url') else set() for r in rows}
+    for a,b in itertools.combinations(nodes.values(),2):
+        samepub=a['source']==b['source'] and a['external_id']==b['external_id']
+        addr=bool(a['street_number'] and b['street_number'] and a['street']==b['street'] and a['street_number']==b['street_number'])
+        img=bool(images[a['id']]&images[b['id']]); d=distance(a,b)
+        # Blocking is target-free; counts of cannot-links refer only to plausible candidate pairs.
+        if not (samepub or addr or img or (a['comuna']==b['comuna'] and d is not None and d<=1000)): continue
+        rules=pair_rules(a,b); cs=contradictions(a,b)
+        metrics['candidate_pairs']+=1
+        if cs: cannot.append((a['id'],b['id'],cs));metrics['cannot_links']+=1
+        elif rules['high'] or samepub:
+            strong.append((a['id'],b['id']));metrics['strong_links']+=1
+        elif addr or img:
+            medium.append((a['id'],b['id']));metrics['medium_candidates_not_grouped']+=1
+        if addr: metrics['address_based_pairs']+=1
+        if img: metrics['image_identifier_pairs']+=1
+        if d is not None: metrics['coordinate_candidate_pairs']+=1
+        if a['source']!=b['source'] and (addr or img or samepub): metrics['cross_source_evidence_candidates']+=1
+        if samepub or addr or img: evidence.append(dict(a=a['id'],b=b['id'],same_publication=samepub,same_address=addr,same_image_identifier=img,distance_m=d,cannot_link='|'.join(cs),strong=(a['id'],b['id']) in strong))
+    metrics.update(N=len(rows),N_with_unit=sum(bool(f['unit']) for f in nodes.values()),N_full_street_number=sum(bool(f['street_number']) for f in nodes.values()),N_full_address_unit=sum(bool(f['street_number'] and f['unit']) for f in nodes.values()),seller_project_links=0,temporal_republication_links=0)
+    # No forced grouping when same-unit evidence insufficient.
+    table('identity_pair_evidence.csv',evidence,['a','b','same_publication','same_address','same_image_identifier','distance_m','cannot_link','strong'])
+    table('identity_cannot_links.csv',[dict(a=a,b=b,reasons='|'.join(cs)) for a,b,cs in cannot],['a','b','reasons'])
+    return dict(metrics=metrics,groupings_built=False,singletons_fraction_if_no_links=1.0,components='not certified; no grouping output',transitive_components='not built',geographically_absurd_components='not built',reason='No sufficiently supported same-unit groups; medium candidates are audit hypotheses only',price_used=False)
+
+def run():
+    oracle=read(H/'private/oracle_current_snapshot.json'); local=read(H/'private/local_current_snapshot.json')
+    modern=[r for r in oracle['listings'] if r['property_type']=='apartment' and cohort(r)['modern_avm_usable']]
+    fixture=[json.loads(s) for s in (H/'private/fixture_replay_v2/observations.jsonl').read_text(encoding='utf-8').splitlines()]
+    cov=[]
+    for label,rows in [('local_active',local['listings']),('oracle_active',oracle['listings']),('oracle_modern_all',[r for r in oracle['listings'] if cohort(r)['modern']]),('oracle_modern_apartment_usable',modern),('fixture_yapo_cards',[r for r in fixture if r['source']=='yapo']),('fixture_portal_cards',[r for r in fixture if r['source']=='portalinmobiliario' and r['stage']=='fixture_card']),('fixture_portal_details',[r for r in fixture if r['stage']=='fixture_detail'])]: cov+=coverage(label,rows)
+    table('signal_coverage.csv',cov);source_map(cov)
+    table('modern_cohort_membership.csv',[dict(id=r['id'],source=r['source'],comuna=r['comuna'],property_type=r['property_type'],**cohort(r)) for r in oracle['listings']])
+    table('cohort_distribution.csv',[dict(source=s,comuna=c,N=n) for (s,c),n in sorted(collections.Counter((r['source'],r['comuna']) for r in modern).items())])
+    sensitivity=[]
+    apt=[r for r in oracle['listings'] if r['property_type']=='apartment']
+    for label,predicate in [('strict_provenance',lambda r:cohort(r)['modern_avm_usable']),('strict_yapo_payload_no_dom',lambda r:cohort(r)['modern_avm_usable'] and (r['source']!='yapo' or r['raw_metadata'].get('parser_source')=='yapo_search_payload')),('native_price_without_parser_provenance_upper_bound_NOT_frozen',lambda r:cohort(r)['canonical_native_price'] and cohort(r)['physical_usable'])]:
+        for source in ['yapo','portalinmobiliario']: sensitivity.append(dict(rule=label,source=source,N=sum(predicate(r) for r in apt if r['source']==source)))
+    table('cohort_boundary_sensitivity.csv',sensitivity)
+    identity=identity_audit(modern); save('identity_results.json',identity)
+    access=read(H/'acquisition_access.json'); rows=[]
+    for k,a in enumerate(access['requests'],1):
+        rows.append(dict(round=k,source='yapo',stage=a['stage'],http_status=a.get('status',''),N_total_observations=0,N_unique_external_listing=0,N_new_listing=0,N_reobserved=0,N_modern_avm_usable=0,delta_new=0,delta_identity_informative=0,coverage_denominator=0,percent_canonical_price='',percent_usable_surface='',percent_description='',percent_coordinates='',percent_geo_address_quality='',percent_address_raw='',percent_street_number='',percent_unit='',percent_building_project='',percent_seller_id='',percent_image_ids_or_urls='',percent_publication_date='',percent_two_identity_signals='',source_distribution='{}',comuna_distribution='{}',stop_condition=access['stop_condition']))
+    table('acquisition_rounds.csv',rows)
+    save('results.json',dict(oracle_active=len(oracle['listings']),local_active=len(local['listings']),modern_all=sum(cohort(r)['modern'] for r in oracle['listings']),modern_apt_usable=len(modern),modern_apt_by_source=collections.Counter(r['source'] for r in modern),cohort_apartment_classification=collections.Counter(cohort(r)['status'] for r in apt),sensitivity=sensitivity,identity=identity,decision='IMPROVE_INGESTION',secondary='IDENTITY_LIMITED + ACQUIRE_MORE blocked from this client'))
+    print(json.dumps(read(H/'results.json'),ensure_ascii=False))
+if __name__=='__main__': run()

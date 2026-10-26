@@ -1,0 +1,8 @@
+from pathlib import Path
+p=Path('work/final_start_cycles_remote.py');s=p.read_text()
+s=s.replace("cycle=int(sys.argv[1]) if len(sys.argv)>1 else 1",'cycle=2')
+s=s.replace('if cycle==1:', 'if cycle==2:')
+s=s.replace("p=B/'stock-before-cycles.json';p.write_text(json.dumps(snapshot));p.chmod(0o600)","p=B/'stock-before-cycles.json';p.write_bytes((B.parent/'discovery-redeploy-20261016/stock-before-cycles.json').read_bytes());p.chmod(0o600)")
+s=s.replace("p=B/'cycles-start.json';p.write_text(json.dumps(proof));p.chmod(0o600)","p=B/'cycles-start.json';p.write_bytes((B.parent/'discovery-redeploy-20261016/cycles-start.json').read_bytes());p.chmod(0o600)")
+Path('work/final_start_cycle2_remote.py').write_text(s)
+Path('work/final_start_cycle3_remote.py').write_text(s.replace('cycle=2','cycle=3'))

@@ -1,0 +1,162 @@
+from __future__ import annotations
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+import hashlib,json,math
+
+CORE=('log_area','bedrooms','bathrooms','parking','comuna','source')
+class InvalidExperiment(ValueError):pass
+class RealExecutionBlocked(InvalidExperiment):pass
+
+def positive(v):
+    return isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) and v>0
+
+def timepoint(value):
+    t=datetime.fromisoformat(value) if isinstance(value,str) else value
+    if not isinstance(t,datetime) or t.tzinfo is None:raise InvalidExperiment('Timezone-aware availability required')
+    return t.astimezone(timezone.utc)
+
+def digest(obj):
+    return hashlib.sha256(json.dumps(obj,sort_keys=True,ensure_ascii=False,allow_nan=False,separators=(',',':')).encode()).hexdigest()
+
+@dataclass(frozen=True)
+class Record:
+    row_id:str
+    publication_id:str
+    listing_id:str
+    observation_id:str
+    group_id:str|None
+    identity_status:str
+    features:dict
+    price_uf:float
+    observed_at:str
+    available_at:str
+    prediction_at:str
+    price_available_at:str
+    area_semantics:str='built_proxy'
+    property_type:str='apartment'
+    physical_identity:str|None=None
+    canonical_url:str|None=None
+    latitude:float|None=None
+    longitude:float|None=None
+    feature_available_at:dict=field(default_factory=dict)
+    image_evidence:bool=False
+    comparable_density:str='unknown'
+    canonical_listing:dict=field(default_factory=dict)
+    canonical_target:dict=field(default_factory=dict)
+    dependency_aliases:tuple[str,...]=()
+
+    def validate(self):
+        if not all([self.row_id,self.publication_id,self.listing_id,self.observation_id]):raise InvalidExperiment('Missing record lineage')
+        if set(self.features)!=set(CORE):raise InvalidExperiment('Feature allowlist mismatch; target/identity/derived price forbidden')
+        if not positive(self.price_uf):raise InvalidExperiment('Invalid target price')
+        area=self.features['log_area']
+        if not isinstance(area,(int,float)) or isinstance(area,bool) or not math.isfinite(area) or not math.log(10)<=area<=math.log(1000):raise InvalidExperiment('Invalid area')
+        for k in ['bedrooms','bathrooms','parking']:
+            v=self.features[k]
+            if v is not None and (not isinstance(v,(int,float)) or isinstance(v,bool) or not math.isfinite(v) or v<0):raise InvalidExperiment('Invalid structural attribute')
+        if not self.features['comuna'] or not self.features['source']:raise InvalidExperiment('Missing categorical feature')
+        if self.property_type!='apartment':raise InvalidExperiment('Primary cohort is apartments; houses require separate protocol')
+        if not self.area_semantics:raise InvalidExperiment('Area semantics required')
+        cutoff=timepoint(self.prediction_at)
+        for t in [self.observed_at,self.available_at,*self.feature_available_at.values()]:
+            if timepoint(t)>cutoff:raise InvalidExperiment('Future feature/observation at prediction')
+        timepoint(self.price_available_at)
+        target_fields={'id','comuna','m2','bedrooms','bathrooms','parking','property_type','built_area_m2','usable_area_m2','land_area_m2','coordinates','geocode_precision','raw_metadata'}
+        if set(self.canonical_target)-target_fields:raise InvalidExperiment('Target projection contains non-allowlisted metadata or labels')
+        geo_fields={'nearby_metro','nearby_avenue','neighborhood_hint','intersection_hint','landmark_tokens','confidence','reason'}
+        target_metadata=self.canonical_target.get('raw_metadata') or {}
+        text_fields={'title','description','card_text','detail_text','highlight','product_class_hint','address_label','street_hint','location_text','location','neighborhood'}
+        if set(target_metadata)-({'geo_signals'}|text_fields) or set(target_metadata.get('geo_signals') or {})-geo_fields:raise InvalidExperiment('Only price-free physical/geo signals allowed in target metadata')
+        from .monetary_text import sanitize
+        if any(not isinstance(v,str) or sanitize(v)!=v for k,v in target_metadata.items() if k in text_fields):raise InvalidExperiment('Target monetary text must be explicitly projected price-free before inference')
+        if self.canonical_target:
+            p=self.canonical_target
+            if p.get('property_type')!=self.property_type:raise InvalidExperiment('Target/property type alignment mismatch')
+            for k in ['comuna','bedrooms','bathrooms','parking']:
+                if p.get(k)!=self.features[k]:raise InvalidExperiment('Feature/canonical target alignment mismatch')
+            area=p.get('built_area_m2') or p.get('usable_area_m2') or p.get('m2')
+            if not positive(area) or not math.isclose(math.log(area),self.features['log_area'],abs_tol=1e-12):raise InvalidExperiment('Area alignment mismatch')
+            xy=p.get('coordinates')
+            if xy and (xy.get('lat')!=self.latitude or xy.get('lon')!=self.longitude):raise InvalidExperiment('Coordinate alignment mismatch')
+        if self.canonical_listing:
+            p=self.canonical_listing
+            metadata=p.get('raw_metadata') or {}
+            for t in [p.get(k) for k in ['scraped_at','last_seen_at','last_refresh_attempted_at']]+[metadata.get(k) for k in ['updated_at','last_updated_at','scraped_at']]:
+                if t is not None and timepoint(t)>timepoint(self.available_at):raise InvalidExperiment('Canonical evidence timestamp after declared availability')
+            if p.get('id') is not None and str(p['id'])!=self.listing_id:raise InvalidExperiment('Canonical Listing/lineage ID alignment mismatch')
+            if p.get('property_type')!=self.property_type:raise InvalidExperiment('Listing/property type alignment mismatch')
+            xy=p.get('coordinates')
+            if (xy.get('lat') if xy else None,xy.get('lon') if xy else None)!=(self.latitude,self.longitude):raise InvalidExperiment('Listing/coordinate alignment mismatch')
+            if p.get('source')!=self.features['source'] or p.get('external_id')!=self.publication_id:raise InvalidExperiment('Listing/publication/source alignment mismatch')
+            for k in ['comuna','bedrooms','bathrooms','parking']:
+                if p.get(k)!=self.features[k]:raise InvalidExperiment('Listing/features alignment mismatch')
+            area=p.get('built_area_m2') or p.get('usable_area_m2') or p.get('m2')
+            if not positive(area) or not math.isclose(math.log(area),self.features['log_area'],abs_tol=1e-12):raise InvalidExperiment('Listing/area alignment mismatch')
+            if self.canonical_url!=p.get('url'):raise InvalidExperiment('Listing/URL alignment mismatch')
+
+    def keys(self):
+        keys={('publication',self.features['source'],self.publication_id),('listing',self.listing_id),('observation',self.observation_id)}
+        if self.physical_identity:keys.add(('supported_physical',self.physical_identity))
+        if self.canonical_url:keys.add(('canonical_url',self.canonical_url))
+        keys.update(('external_alias',a) for a in self.dependency_aliases)
+        return keys
+
+    def inference(self):
+        from copy import deepcopy
+        return Inference(self.row_id,dict(self.features),self.prediction_at,self.latitude,self.longitude,deepcopy(self.canonical_target))
+
+@dataclass(frozen=True)
+class Inference:
+    row_id:str
+    features:dict
+    prediction_at:str
+    latitude:float|None=None
+    longitude:float|None=None
+    canonical_target:dict=field(default_factory=dict)
+
+@dataclass(frozen=True)
+class Dataset:
+    records:tuple[Record,...]
+    origin:str
+    snapshot_id:str
+    grouping_policy:str
+    grouping_evidence_hash:str|None=None
+    dependency_links:tuple[tuple[str,str],...]=()
+    index_policy:str|None=None
+
+    def validate(self):
+        if not self.snapshot_id:raise InvalidExperiment('Missing snapshot id')
+        for r in self.records:r.validate()
+        if len({r.row_id for r in self.records})!=len(self.records):raise InvalidExperiment('Duplicate row IDs')
+        if len({r.observation_id for r in self.records})!=len(self.records):raise InvalidExperiment('Duplicate observations')
+        if self.grouping_policy in ['property_id','fingerprint','listing_singletons']:raise InvalidExperiment('Uncertified grouping policy')
+        if any(not r.group_id or r.identity_status not in ['synthetic_known','physical_supported','cv_group_reviewed'] for r in self.records):raise InvalidExperiment('Missing/unreviewed dependency group')
+        if not self.grouping_policy:raise InvalidExperiment('Missing external grouping policy')
+        if self.grouping_policy!='synthetic_known_identity' and not self.grouping_evidence_hash:raise InvalidExperiment('External grouping evidence hash required')
+        if self.index_policy not in ['first_observation_v1','last_observation_v1']:raise InvalidExperiment('Explicit observation index policy required')
+        ids={r.row_id for r in self.records}
+        if any(len(link)!=2 or not set(link)<=ids for link in self.dependency_links):raise InvalidExperiment('Unknown dependency edge endpoint')
+        return self
+
+    def require_synthetic(self):
+        self.validate()
+        if self.origin!='synthetic':raise RealExecutionBlocked('AVM-01 permits synthetic execution only; real certification is not execution approval')
+        # External policies are accepted as declared dependencies, never physical truth.
+
+    def indexed(self):return {r.row_id:r for r in self.records}
+
+    def hash(self):
+        from dataclasses import asdict
+        return digest({'origin':self.origin,'snapshot_id':self.snapshot_id,'grouping_policy':self.grouping_policy,
+                       'grouping_evidence_hash':self.grouping_evidence_hash,'dependency_links':sorted(self.dependency_links),'index_policy':self.index_policy,
+                       'records':[asdict(r) for r in sorted(self.records,key=lambda r:r.row_id)]})
+
+def load_snapshot(path,expected_sha256):
+    """Local JSON only. Loading real data never authorizes execution."""
+    p=Path(path);raw=p.read_bytes()
+    if hashlib.sha256(raw).hexdigest()!=expected_sha256:raise InvalidExperiment('Snapshot hash mismatch')
+    obj=json.loads(raw)
+    ds=Dataset(tuple(Record(**r) for r in obj['records']),obj['origin'],obj['snapshot_id'],obj['grouping_policy'],obj.get('grouping_evidence_hash'),
+               tuple(tuple(x) for x in obj.get('dependency_links',[])),obj.get('index_policy'))
+    return ds.validate()

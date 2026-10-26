@@ -1,0 +1,46 @@
+from pathlib import Path
+import subprocess,json
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner='''import asyncio,json
+from dataclasses import asdict
+from datetime import date
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+from core.entities.listing import Property
+from core.ports.uf_service import UFRateInfo
+from services.valuation import ValuationService,ValuationInput
+from api.v1.valuations import ValuationRequest,valuate
+from types import SimpleNamespace
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine
+from domain.valuation.engines.legacy_comparables import ComparablesLegacyEngine
+from domain.valuation.engines.consensus_orchestrator import run_beta_consensus
+from domain.valuation.engines.contracts import EngineRequest,EngineContext
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  uf=(await s.execute(text('SELECT value_clp FROM uf_rates WHERE date=CURRENT_DATE'))).scalar_one()
+  repo=SqlAlchemyListingRepository(s);out=[]
+  class FixedUF:
+   async def get_current_rate(self):return uf
+   async def get_current_rate_info(self):return UFRateInfo(rate=uf,source='read_only_daily_db_snapshot',is_fallback=False,rate_date=date.today())
+  for comuna,area,beds,parking,price in [('santiago',70,2,0,2552),('la_florida',82,3,1,4000)]:
+   payload=dict(comuna=comuna,property_type='apartment',m2=area,built_area_m2=area,usable_area_m2=area,land_area_m2=None,dormitorios=beds,banos=2,estacionamientos=parking,precio_publicado_uf=price,precio_publicado_clp=None)
+   target=Property(id=None,comuna=comuna,m2=area,built_area_m2=area,usable_area_m2=area,bedrooms=beds,bathrooms=2,parking=parking,property_type='apartment')
+   pool=await repo.find_active_in_comuna(comuna,property_type='apartment')
+   context=EngineContext(target=target,candidates=pool,uf_to_clp=uf);request=EngineRequest(published_price_provided=True)
+   engines=[ComparablesCanonicalEngine(name='comparables_canonical_outliers',variant='outliers').valuate(request,context),ComparablesLegacyEngine().valuate(request,context)]
+   consensus=run_beta_consensus(target=target,candidates=pool,uf_to_clp=uf,published_price_provided=True)
+   service=ValuationService(listing_repo=repo,uf_service=FixedUF())
+   route=await valuate(current_user=SimpleNamespace(id=None),payload=ValuationRequest(**payload),service=service,session=s)
+   out.append({'payload':payload,'pool':[asdict(x) for x in pool],'engines':[x.to_dict() for x in engines],'consensus_raw':[x.to_dict() for x in consensus.raw_results],'consensus_selected':consensus.selected_result.to_dict() if consensus.selected_result else None,'route_response':route.model_dump(mode='json')})
+  print(json.dumps({'uf':str(uf),'uf_date':str(date.today()),'cases':out},default=str))
+asyncio.run(main())
+'''
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=100)\nassert r.returncode==0,r.stderr;print(r.stdout)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=120)
+r.check_returncode();data=json.loads(r.stdout);Path('work/production-trace-snapshot.json').write_text(json.dumps(data),encoding='utf-8')
+for x in data['cases']:
+ print(x['payload']['comuna'],len(x['pool']), 'route',x['route_response']['estimated_price_uf'],x['route_response']['selected_engine_names'])
+ for y in x['engines']+[x['consensus_selected']]:
+  if y:print(y['engine_name'],y['estimated_price_uf'])

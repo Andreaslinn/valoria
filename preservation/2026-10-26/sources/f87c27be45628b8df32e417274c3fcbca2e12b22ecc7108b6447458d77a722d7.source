@@ -1,0 +1,96 @@
+"""Offline regressions using coordinate fragments observed in real source HTML."""
+import json
+from decimal import Decimal
+from pathlib import Path
+
+import httpx
+import pytest
+from bs4 import BeautifulSoup
+
+from infrastructure.scrapers.coordinates import coordinate_pair
+from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal
+from infrastructure.scrapers.yapo import parse_listing_detail, parse_listing_from_url, YapoScraper
+from scripts.portal_canary import _valid_coordinates
+
+
+@pytest.mark.parametrize("pair", [(None, None), (True, 20), ("NaN", 20), (float("inf"), 20),
+    (91, 0), (0, -181), ("-334499735", "-706984692"), ("-33,45", "-70,69"),
+    ([], {}), ("-33.45", None), ("", ""), ("33 degrees", 10)])
+def test_invalid_pair_is_null(pair):
+    assert coordinate_pair(*pair) == (None, None)
+
+
+def portal_html(component, point):
+    state = {"components": {component: {"id": component, "map_info": {"location": point}}},
+             "country": {"latitude": -35.675148, "longitude": -71.54297}}
+    payload = {"appProps": {"pageProps": {"initialState": state}}}
+    return '<h1>Departamento Santiago</h1><div>UF 3.000</div><script id="__NORDIC_RENDERING_CTX__">' + json.dumps(payload) + '</script>'
+
+
+@pytest.mark.parametrize("component", ["location_and_points", "location"])
+@pytest.mark.parametrize("point", [
+    {"latitude": "-33.4499735", "longitude": "-70.6984692"},
+    {"latitude": -33.4499735, "longitude": -70.6984692}])
+def test_portal_real_coordinates_and_other_fields_unchanged(component, point):
+    url = "https://www.portalinmobiliario.com/MLC-4134091558-example-_JM"
+    result = parse_listing_detail_portal(portal_html(component, point), url)
+    baseline = parse_listing_detail_portal(portal_html(component, {}), url)
+    metadata = result["raw_metadata"]
+    assert _valid_coordinates(metadata) == (-33.4499735, -70.6984692)
+    assert metadata.pop("location_source") == f"portal:{component}.map_info.location"
+    metadata.pop("lat")
+    metadata.pop("lon")
+    assert result == baseline  # Includes price, areas, description and every other field.
+
+
+@pytest.mark.parametrize("point", [{}, None, [], {"latitude": 95, "longitude": 20},
+    {"latitude": "-334499735", "longitude": "-706984692"}])
+def test_portal_invalid_or_missing_does_not_pick_country(point):
+    detail = parse_listing_detail_portal(portal_html("location_and_points", point), "https://example.org")
+    assert _valid_coordinates(detail["raw_metadata"]) == (None, None)
+    assert "location_source" not in detail["raw_metadata"]
+
+
+def yapo_html(q="-33.4504246%2C-70.5251944"):
+    # Source iframe fragment sanitized: no Google API key is needed or retained.
+    return '<h1>Casa Santiago</h1><iframe title="Mapa de la propiedad" src="https://www.google.com/maps/embed/v1/place?q=' + q + '"></iframe>'
+
+
+def test_yapo_real_coordinates_other_fields_unchanged():
+    url = "https://www.yapo.cl/casa/31888251"
+    result = parse_listing_detail(yapo_html(), url=url)
+    baseline = parse_listing_detail('<h1>Casa Santiago</h1>', url=url)
+    assert (result.pop("lat"), result.pop("lon")) == (-33.4504246, -70.5251944)
+    assert result["raw_metadata"].pop("location_source") == "yapo:property_map.q"
+    baseline.pop("lat"); baseline.pop("lon")
+    result.pop("scraped_at"); baseline.pop("scraped_at")
+    assert result == baseline
+
+
+@pytest.mark.parametrize("q", ["", "Santiago", "91,20", "-33.45,NaN", "-33.45", "1,2,3"])
+def test_yapo_invalid_is_null(q):
+    result = parse_listing_detail(yapo_html(q), url="https://www.yapo.cl/casa/31888251")
+    assert (result["lat"], result["lon"]) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_yapo_fetches_only_existing_detail_request():
+    calls = []
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, text=yapo_html())
+    url = "https://www.yapo.cl/casa/31888251"
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await parse_listing_from_url(url, http_client=client)
+    assert calls == [url]
+    assert result["lat"] == -33.4504246
+
+
+def test_yapo_card_map_does_not_leak_to_other_listings():
+    html = (Path(__file__).parents[1] / "fixtures/yapo_list.html").read_text(encoding="utf-8")
+    soup = BeautifulSoup(html, "lxml")
+    card = soup.select_one(".d3-ad-tile")
+    card.append(BeautifulSoup(yapo_html(), "lxml").iframe)
+    rows = YapoScraper.parse_listings(str(soup), uf_to_clp=Decimal("37000"))
+    assert sum(row["lat"] is not None for row in rows) == 1
+    assert rows[0]["lat"] == -33.4504246

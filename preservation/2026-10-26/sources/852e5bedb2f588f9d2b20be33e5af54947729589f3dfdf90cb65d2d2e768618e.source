@@ -1,0 +1,57 @@
+import pytest
+from dataclasses import replace
+from run import *
+@pytest.fixture(scope='module')
+def experiment():
+ c=verify();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],20261009)
+ custody=LabelCustody(ds,());batch=custody.issue(ds,plan.folds[0],config(c,20261009,['A']),())
+ return ds,plan,custody,batch,FoldModel(batch,c['uf_reference']['value'])
+def test_native_weights_and_minimum_unchanged():
+ assert W0==(.4,.25,.15,.1,.1);assert BASE['minimum']==5;assert BASE['k']==20
+ assert all(g['weights']==W0 and g['surface']=='on' for g in GRID)
+def test_dependency_partitions(experiment):
+ ds,plan,_,_,_=experiment
+ for split in plan.folds:
+  idx=ds.indexed();assert not {idx[i].group_id for i in split.train}&{idx[i].group_id for i in split.test}
+def test_outer_labels_sealed_before_predictions(experiment):
+ _,plan,custody,_,_=experiment
+ with pytest.raises(Exception,match='sealed|completed'):custody.complete({'A':{}},plan.folds[0].test)
+def test_no_target_price_and_modified_inference_rejected(experiment):
+ _,_,_,batch,model=experiment;t=batch.targets[0]
+ assert not hasattr(t,'price_uf');assert not any('price' in k for k in t.canonical_target)
+ with pytest.raises(Exception):model.bundle(replace(t,canonical_target={**t.canonical_target,'price_uf':999}))
+def test_missing_geo_is_exact_deterministic_A_fallback(experiment):
+ _,_,_,batch,model=experiment;t=next(t for t in batch.targets if t.latitude is None);b=model.bundle(t)
+ a=b.predict(BASE);one=b.predict(ADAPT);two=b.predict(ADAPT)
+ assert one==two;assert one['fallback'];assert one['prediction']==a['prediction'];assert one['selected_ids']==a['selected_ids']
+def test_min_neff_causes_exact_A_fallback(experiment):
+ _,_,_,batch,model=experiment;t=next(t for t in batch.targets if t.latitude is not None);b=model.bundle(t)
+ a=b.predict(BASE);result=b.predict(override(ADAPT,'forced',min_neff=1e9))
+ assert result['fallback'];assert result['prediction']==a['prediction'];assert result['selected_ids']==a['selected_ids']
+def test_local_selection_and_retained_groups(experiment):
+ _,_,_,batch,model=experiment;local=0
+ for t in batch.targets:
+  if t.latitude is None:continue
+  b=model.bundle(t);result=b.predict(ADAPT)
+  assert set(result['selected_ids'])<={r.row_id for r in batch.rows}
+  assert batch.components[t.row_id] not in {batch.components[i] for i in result['selected_ids']}
+  if not result['fallback']:
+   assert result['used']>=5;assert result['neff']>=4.5;assert result['radius']<=5
+   assert result['independent']==result['used'];local+=1
+   if local>=3:break
+ assert local>=3,'No actual local predictions; cannot claim selector exercised'
+def test_reproducible_fresh_model(experiment):
+ _,_,_,batch,model=experiment;fresh=FoldModel(batch,model.rate)
+ for t in batch.targets[:4]:assert model.bundle(t).predict(ADAPT)==fresh.bundle(t).predict(ADAPT)
+def test_original_artifacts_unchanged():assert verify()['holdout_consumed'] is False
+def test_frozen_ablation_without_A_reference():
+ c=verify();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],20261009)
+ batch=LabelCustody(ds,()).issue(ds,plan.folds[2],config(c,20261009,['A']),())
+ model=FoldModel(batch,c['uf_reference']['value']);found=False
+ for t in batch.targets:
+  b=model.bundle(t)
+  if b.predict(BASE)['prediction'] is not None:continue
+  result=b.predict(override(ADAPT,'frozen',surface='frozen',compat=False))
+  if result['status']=='frozen_A_reference_unavailable':
+   assert result['prediction'] is None;found=True;break
+ assert found,'Real regression case no longer exercised'

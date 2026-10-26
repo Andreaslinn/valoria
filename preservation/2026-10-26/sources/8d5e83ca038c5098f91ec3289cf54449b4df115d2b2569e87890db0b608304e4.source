@@ -1,0 +1,115 @@
+"""Aggregate reporting only; cannot alter the registered grid or predictions."""
+from run import *
+from collections import Counter,defaultdict
+import csv,difflib
+TAGS=['primary-v2','second-seed-v2','grouping-sensitivity-v2']
+def report():
+ c=verify()
+ for path,h in read(HERE/'execution_seal_v2.json').items():assert sha(path)==h
+ results={tag:read(HERE/(tag+'-summary.json')) for tag in TAGS}
+ data={tag:decrypt(HERE/(tag+'.json.dpapi')) for tag in TAGS}
+ primary=data['primary-v2'];reproduction=decrypt(HERE/'reproduction-v2.json.dpapi')
+ assert primary==reproduction,'Fresh reproduction differs'
+ old={r['observation_id']:r for r in csv.DictReader((OLD/'principal.csv').open(encoding='utf-8'))}
+ parity=0
+ for r in primary:
+  ref=old[r['row_id']];expected=float(ref['prediction_A_uf']) if ref['prediction_A_uf'] else None
+  assert r['predictions']['A']['prediction']==expected,'Archived native A changed'
+  assert r['fold']==int(ref['fold']);parity+=1
+ table=[];strata={};causal={};folds=[];extensions={}
+ for tag,rows in data.items():
+  for source in ['global','portalinmobiliario','yapo']:
+   for name,stats in results[tag]['metrics'][source].items():
+    table.append({'scenario':tag,'source':source,'variant':name,**stats['paired'],
+     'full_coverage_pct':stats['coverage']['coverage_pct'],'full_abstentions':stats['coverage']['abstentions'],
+     'local_n':stats['local_n'],'fallback_n':stats['fallback_n'],'comparables_median':stats['comparables_median'],
+     'neff_median':stats['neff_median'],'distance_km_median':stats['distance_km_median']})
+  for f in range(3):
+   frows=[r for r in rows if r['fold']==f]
+   for source in ['global','portalinmobiliario','yapo']:
+    sub=[r for r in frows if source=='global' or r['source']==source]
+    for name in ['A','AM-local','AM-adaptive','AM-tuned']:
+     same=[r for r in sub if r['predictions']['A']['prediction'] is not None and r['predictions'][name]['prediction'] is not None]
+     truth={r['row_id']:r['target_uf'] for r in same}
+     folds.append({'scenario':tag,'fold':f,'source':source,'variant':name,
+      **metric(truth,{r['row_id']:r['predictions'][name]['prediction'] for r in same})})
+ for name in ['AM-local','AM-adaptive','AM-tuned']:
+  added=[r for r in primary if r['predictions']['A']['prediction'] is None and r['predictions'][name]['prediction'] is not None]
+  extensions[name]={'newly_covered_n':len(added),
+   'errors':metric({r['row_id']:r['target_uf'] for r in added},{r['row_id']:r['predictions'][name]['prediction'] for r in added})}
+  strata[name]={}
+  for label,condition in [('has_target_geometry',lambda r:r['coordinates_present']),
+    ('local_selected',lambda r:not r['predictions'][name]['fallback'] and r['predictions'][name]['strategy']!='commune'),
+    ('fallback_to_A',lambda r:r['predictions'][name]['fallback'])]:
+   subset=[r for r in primary if condition(r) and r['predictions'][name]['prediction'] is not None and r['predictions']['A']['prediction'] is not None]
+   truth={r['row_id']:r['target_uf'] for r in subset}
+   actual=[r['predictions'][name] for r in subset]
+   strata[name][label]={'n':len(subset),'A':metric(truth,{r['row_id']:r['predictions']['A']['prediction'] for r in subset}),
+    'AM':metric(truth,{r['row_id']:r['predictions'][name]['prediction'] for r in subset}),
+    'comparables_median':float(np.median([z['used'] for z in actual])) if actual else None,
+    'Neff_median':float(np.median([z['neff'] for z in actual])) if actual else None,
+    'distance_km_median':float(np.median([z['median_distance'] for z in actual if z['median_distance'] is not None])) if any(z['median_distance'] is not None for z in actual) else None,
+    'radius_km_counts':dict(Counter(str(z['radius']) for z in actual))}
+  same=[r for r in primary if r['predictions']['A']['prediction'] is not None and r['predictions'][name]['prediction'] is not None]
+  truth={r['row_id']:r['target_uf'] for r in same}
+  causal[name]={'A_pre':metric(truth,{r['row_id']:r['predictions']['A']['pre'] for r in same}),
+   'AM_pre':metric(truth,{r['row_id']:r['predictions'][name]['pre'] for r in same}),
+   'AM_post':metric(truth,{r['row_id']:r['predictions'][name]['prediction'] for r in same})}
+  flip_good_to_bad=flip_bad_to_good=0
+  for r in same:
+   a,b=r['predictions']['A'],r['predictions'][name];y=r['target_uf']
+   pre=abs(b['pre']/y-1)-abs(a['pre']/y-1);post=abs(b['prediction']/y-1)-abs(a['prediction']/y-1)
+   flip_good_to_bad+=int(pre< -1e-9 and post>1e-9);flip_bad_to_good+=int(pre>1e-9 and post< -1e-9)
+  causal[name].update(pre_improves_post_worsens=flip_good_to_bad,pre_worsens_post_improves=flip_bad_to_good)
+ same=[r for r in primary if r['predictions']['A']['prediction'] is not None and r['predictions']['AM-frozen']['prediction'] is not None]
+ causal['AM-frozen']={'post':metric({r['row_id']:r['target_uf'] for r in same},{r['row_id']:r['predictions']['AM-frozen']['prediction'] for r in same}),
+                     'unavailable_n':sum(r['predictions']['AM-frozen']['status']=='frozen_A_reference_unavailable' for r in primary)}
+ intervals={};rng=np.random.default_rng(20261010)
+ for source in ['global','portalinmobiliario','yapo']:
+  intervals[source]={}
+  for name in ['AM-local','AM-adaptive','AM-tuned']:
+   same=[r for r in primary if (source=='global' or r['source']==source) and r['predictions']['A']['prediction'] is not None and r['predictions'][name]['prediction'] is not None]
+   groups=defaultdict(list)
+   for j,r in enumerate(same):groups[r['group']].append(j)
+   g=list(groups.values());y=np.array([r['target_uf'] for r in same]);a=np.array([r['predictions']['A']['prediction'] for r in same]);b=np.array([r['predictions'][name]['prediction'] for r in same])
+   ae=100*np.abs(a/y-1);be=100*np.abs(b/y-1);deltas=[]
+   for _ in range(1000):
+    chosen=np.concatenate([g[j] for j in rng.integers(0,len(g),size=len(g))]);deltas.append(float(np.median(be[chosen])-np.median(ae[chosen])))
+   intervals[source][name]={'MdAPE_delta_pp':float(np.median(be)-np.median(ae)),'group_bootstrap_95pct':list(map(float,np.percentile(deltas,[2.5,97.5]))),'groups':len(g),'replicates':1000}
+ selection=Counter(x['chosen']['name'] for tag in TAGS[:2] for x in results[tag]['selected_per_fold'])
+ first={r['row_id']:r for r in primary};second={r['row_id']:r for r in data['second-seed-v2']};stability={}
+ for name in ['A','AM-local','AM-adaptive','AM-tuned']:
+  changes=[]
+  for i,r in first.items():
+   a=r['predictions'][name]['prediction'];b=second[i]['predictions'][name]['prediction']
+   if a is not None and b is not None:changes.append(100*abs(a-b)/((a+b)/2))
+  stability[name]={'paired_n':len(changes),'median_prediction_change_pct':float(np.median(changes)),'P90_prediction_change_pct':float(np.percentile(changes,90))}
+ csvwrite(HERE/'metrics.csv',table);csvwrite(HERE/'fold_metrics.csv',folds)
+ summary={'status':'PARTIAL_PORTAL_SPATIAL_EVIDENCE_MISSING','benchmark_n':791,'Portal':406,'Yapo':385,
+  'Portal_with_geometry_in_benchmark':0,'Yapo_with_geometry_in_benchmark':289,
+  'configurations':len(GRID),'unique_nested_scenarios':3,'inner_configuration_fold_evaluations':15*3*3*3,
+  'outer_target_predictions_unique_scenarios':3*791*5,'native_A_full_parity_checks':results['primary-v2']['native_parity_checks'],
+  'archived_A_parity_checks':parity,'fresh_reproduction_equal':True,
+  'reproduction_plaintext_sha256':results['primary-v2']['predictions_plaintext_sha256'],
+  'primary_metrics':results['primary-v2']['metrics'],'bootstrap':intervals,'strata':strata,'coverage_extensions':extensions,
+  'surface_attribution':causal,'inner_selected_configurations_G3_counts':dict(selection),
+  'between_seed_prediction_stability':stability,'geographic_coverage':read(HERE/'geographic_coverage.json'),
+  'original_hashes_verified':len(c['immutable_inputs']),'holdout_consumed':False,'production_changes':False,
+  'limitations':['Repeatedly studied retrospective asking-price cohort, not transaction truth or confirmatory evidence.',
+   'No eligible Portal target has timely usable geometry in the benchmark; Portal spatial benefit cannot be measured.',
+   'Unknown source accuracy is explored as UNCERTAIN; source coordinates do not certify exact physical address.',
+   'Dependency groups cannot exclude unobserved physical duplicates; property_id is not used as certified identity.',
+   'No temporal generalization claim; geometry recovered from archives is not backdated into the cohort.']}
+ write(HERE/'results.json',summary)
+ source_root=Path('C:/Users/heiko/Documents/Codex/2026-10-05/files-pasted-by-the-user-quiero/work/thumbnail-close/production-baseline')
+ diff=[];changed=[]
+ for file in sorted((HERE/'integration').rglob('*.py')):
+  rel=file.relative_to(HERE/'integration');original=source_root/rel
+  before=original.read_text(encoding='utf-8').splitlines(True) if original.exists() else []
+  after=file.read_text(encoding='utf-8').splitlines(True)
+  if before!=after:
+   changed.append(str(rel));diff.extend(difflib.unified_diff(before,after,fromfile='a/'+rel.as_posix(),tofile='b/'+rel.as_posix()))
+ (HERE/'portal_coordinates.patch').write_text(''.join(diff),encoding='utf-8')
+ write(HERE/'patch_manifest.json',{'changed_files':changed,'sha256':sha(HERE/'portal_coordinates.patch'),'migrations':False,'applied_to_production':False})
+ print(json.dumps({'complete':True,'primary':{s:{n:v['paired'] for n,v in summary['primary_metrics'][s].items()} for s in summary['primary_metrics']},'inner_choices':dict(selection),'reproduction':True}))
+if __name__=='__main__':report()

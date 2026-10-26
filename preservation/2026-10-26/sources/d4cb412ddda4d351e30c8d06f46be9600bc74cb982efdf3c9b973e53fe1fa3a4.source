@@ -1,0 +1,49 @@
+import sys,json,asyncio,csv
+from pathlib import Path
+from dataclasses import asdict,replace
+from decimal import Decimal
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+def save(n,o):(OUT/n).write_text(json.dumps(o,indent=2,ensure_ascii=False,default=str),encoding='utf8')
+from scripts.compare_sii_canonical import listing_from_snapshot
+from core.entities.listing import Property
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine,_Diagnostics,_dedupe_key
+from domain.valuation.engines.contracts import EngineRequest,EngineContext
+from domain.valuation.comparables import score_and_rank
+from domain.valuation.product_classification import classify_product
+from domain.valuation.scoring import _area_score,_distance_score,_discrete_score,_microzone_adjustment
+snap=json.loads((ROOT/'closing-confidence-20261019/canonical-pool-verified-local.json').read_text(encoding='utf8'))
+candidates=[listing_from_snapshot(r) for r in snap['rows'] if r['comuna']=='vitacura' and r['property_type']=='house' and r['status']=='active']
+rate=Decimal('41183.94')
+def target(land):return Property(id=None,comuna='vitacura',property_type='house',m2=221,built_area_m2=221,land_area_m2=land,bedrooms=5,bathrooms=5,parking=2)
+engine=ComparablesCanonicalEngine(name='comparables_canonical_outliers',variant='outliers')
+all_scenarios=[]
+for land in [450,650,850,1050]:
+    t=target(land)
+    result=engine.valuate(EngineRequest(published_price_provided=False),EngineContext(target=t,candidates=candidates,uf_to_clp=rate))
+    save(f'canonical-engine-{land}.json',asdict(result))
+    all_scenarios.append({'land_area_m2':land,'status':str(result.status),'value_uf':float(result.estimated_price_uf) if result.estimated_price_uf else None,'value_clp':result.estimated_price_clp,'selected_ids':[x.listing_id for x in result.selected_comparables],'selected_count':result.comparables_used,'diagnostics':result.diagnostics})
+    print('SCENARIO',land,result.estimated_price_uf,flush=True)
+    if land!=850:continue
+    d=_Diagnostics()
+    structural=engine._structural_pool(t,candidates,d)
+    canonical=engine._canonical_price_pool(structural,rate,d)
+    products=engine._product_pool(classify_product(t),canonical,d)
+    final=engine._robust_pool(t,[x[0] for x in products],d)
+    ranked=score_and_rank(t,final)
+    scored=ranked[:20]
+    wsum=sum(score.value for score,l in scored)
+    exports=[]
+    for rank,(score,l) in enumerate(scored,1):
+        row=asdict(l)
+        row.update({'rank':rank,'similarity_full':score.value,'normalized_weight':score.value/wsum,'canonical_price_clp':str(l.price.clp),'canonical_price_uf':str(l.price.clp/rate),'canonical_uf_m2':str(l.price.clp/rate/Decimal(str(l.built_area_m2 or l.m2))),'target_scaled_uf_contribution':float(l.price.clp/rate/Decimal(str(l.built_area_m2 or l.m2))*Decimal('221')*Decimal(str(score.value/wsum))),'area_component':_area_score(t,l),'distance_component':_distance_score(t,l),'bedrooms_component':_discrete_score(5,l.bedrooms),'bathrooms_component':_discrete_score(5,l.bathrooms),'parking_component':_discrete_score(2,l.parking),'microzone_bonus':_microzone_adjustment(t,l),'product_class':classify_product(l).to_dict(),'distance_to_target_m':None,'distance_reason':'Target has no coordinates in canonical request'})
+        exports.append(row)
+    save('publicaciones-20.json',exports)
+    stages={'structural':{l.id for l in structural},'canonical':{l.id for l,b in canonical},'product':{l.id for l,b in products},'robust':{l.id for l in final},'selected':{l.id for s,l in scored}}
+    save('canonical-candidate-stages.json',[{'listing_id':l.id,'fingerprint':l.fingerprint,'built_area_m2':l.built_area_m2,'land_area_m2':l.land_area_m2,**{k:l.id in ids for k,ids in stages.items()}} for l in candidates])
+    save('canonical-pipeline-diagnostics.json',{'counts':d.pool,'exclusions':d.exclusions,'robust':result.diagnostics,'candidate_count':len(candidates),'target':asdict(t)})
+save('sensibilidad-terreno.json',all_scenarios)
+save('canonical-snapshot-provenance.json',{k:v for k,v in snap.items() if k!='rows' and k!='shadow_checks' and k!='full_input_shadow_checks'})
+assert round(all_scenarios[2]['value_uf'])==25313
+print('EXACT_TARGET_REPRODUCED')

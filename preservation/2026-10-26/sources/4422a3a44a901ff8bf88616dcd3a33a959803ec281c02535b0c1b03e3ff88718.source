@@ -1,0 +1,14 @@
+import subprocess,tarfile,io,json
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+paths=['scripts/portal_card_first.py','scripts/portal_smoke.py','scripts/portal_canary.py','scripts/portal_http_dry_run.py','infrastructure/scrapers/portalinmobiliario.py']
+remote="import subprocess,sys\nr=subprocess.run(['docker','exec','valoria_oracle_beta-api-1','tar','-czf','-']+"+repr(paths)+",capture_output=True,timeout=30);sys.stdout.buffer.write(r.stdout);sys.exit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote.encode(),capture_output=True,timeout=45);r.check_returncode()
+out=Path(__file__).parent/'portal-production-source';out.mkdir(exist_ok=True)
+with tarfile.open(fileobj=io.BytesIO(r.stdout),mode='r:gz') as t:t.extractall(out,filter='data')
+code='''import pathlib,json,subprocess,re
+p=pathlib.Path('/home/ubuntu/apps/valoria/scripts/run_portal_discovery_service.sh');s=p.read_text()
+print(json.dumps({'wrapper_path':str(p),'references':sorted(set(re.findall(r'[\\w/.-]+\\.(?:py|sh|json|env)',s))),'session_markers':{k:k in s.lower() for k in ['cookie','session','storage_state','playwright','verified']},'uses_card_first':'portal_card_first.py' in s}))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=35);print(r.stdout);(out/'wrapper-metadata.json').write_text(r.stdout,encoding='utf-8')
+print('Production acquisition source snapshot saved; no credentials exported.')

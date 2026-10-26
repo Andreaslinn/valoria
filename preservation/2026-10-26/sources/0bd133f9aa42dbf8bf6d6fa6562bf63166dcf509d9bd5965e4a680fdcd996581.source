@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd /home/ubuntu/apps/valoria
+for unit in valoria-yapo-discovery.service valoria-yapo-discovery.timer valoria-portal-discovery.service valoria-portal-discovery.timer; do
+  sudo install -o root -g root -m 0644 "deploy/systemd/$unit" "/etc/systemd/system/$unit"
+done
+sudo systemctl daemon-reload
+sudo systemctl enable valoria-yapo-discovery.timer
+# Portal remains disabled until its dry-run and real canary have passed.
+sudo systemctl disable --now valoria-portal-discovery.timer || true

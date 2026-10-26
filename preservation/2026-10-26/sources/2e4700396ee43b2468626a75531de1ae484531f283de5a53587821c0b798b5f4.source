@@ -1,0 +1,8 @@
+from lab import *
+c=read(HERE/'protocol.json');t=read(HERE/'temporal_protocol.json')
+v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':{**c['dataset_sha256'],**t['dataset_sha256']},'allowed_engines':['A','Kphys','Kgeo','Kselected','HybridK']+[f'Kgrid{j:02}' for j in range(12)],'uf_reference':c['uf_reference'],'grid':{'length':[.5,1.],'alpha':[.1,1.,10.],'spatial':[False,True]},'selection':'Grouped3 inner OOF source-balanced MAElog .6Portal .4Yapo. Choose each family and family selection only inner. All12 configuration receipts stored before labels. No outer tuning. Future test not used for parameters.','hypothesis':'C1 additive linear form and shallow trees may miss within-commune nonlinear physical compatibility; test nonlinear kernel, with/without fixed 1km geo-physical kernel; keep A fallback for HybridK with blind domain support gate','future_results_read_before_registration':False,'confirmatory':False,'code_sha256':{n:sha(HERE/n) for n in ['kernels.py','kernel_run.py']}}
+assert not (HERE/'kernel_protocol.json').exists()
+write(HERE/'kernel_protocol.json',v);(HERE/'kernel_protocol.sha256').write_text(sha(HERE/'kernel_protocol.json'))
+p=RUNTIME/'avm01/pilot_authorization.py';s=p.read_text().replace("['protocol','temporal_protocol']","['protocol','temporal_protocol','kernel_protocol']");p.write_text(s)
+seal=read(HERE/'temporal_code_seal.json');seal['runtime/avm01/pilot_authorization.py']=sha(p);write(HERE/'temporal_code_seal.json',seal)
+print(json.dumps({'registered_before_modern_metrics_review':True,'protocol_sha256':sha(HERE/'kernel_protocol.json')}))

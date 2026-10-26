@@ -1,0 +1,188 @@
+from pathlib import Path
+import json,shutil,hashlib
+root=Path.cwd();w=root/'work';o=root/'outputs';r=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+e=o/'acceptance-evidence';history=e/'pre-portal-acceptance';history.mkdir(exist_ok=True)
+for name in ['final-acceptance-report.md','executive-summary.md','findings-acceptance-matrix.md','contract-compatibility-matrix.md']:
+ shutil.copy2(o/name,history/name)
+image='sha256:70447ccad59a69df70c52a1ee90cac8f3f92d98dff818c48c02abf24fec3297d';fp='6995bb1144c5070d27f89cd94b70e622dc5569bf70fbb950b85e0f536d375847';commit='e6672398e5ca205962d370cc17f9361c70fe6c90'
+report=f'''# Valoria V2 final release acceptance — 2026-10-12
+
+**PASS — the Portal live-acquisition blocker is resolved, the controlled API release is deployed, and deployed compatibility checks pass.** There are no remaining blockers for this API release. The V2 frontend passed its build and controlled browser checks; public frontend publication remains outside this API deployment. Product scope and investigation limits below remain open and are not represented as completed features.
+
+## Precise failure and correction
+
+The candidate opened a fresh anonymous httpx client. The working scheduled Portal scraper instead uses the host session runner and a verified cookie loader. The candidate neither loaded that session nor had its private directory mounted. The anonymous detail request received upstream403; the old parser returned None and lookup classified it as failed, which the API converted to generic502. The observed502 therefore masked an upstream denial caused by divergent acquisition architecture. It was not evidence of an expired production session or a local parser exception. The inspected session contained a valid, unexpired ssid; no reauthentication circuit was set. Session values were never printed or exported.
+
+The API now delegates session validation to the same existing loader, uses the production request headers, and reads the existing private session through a read-only mount. The scheduler remains the session writer. No browser infrastructure, reauthentication, challenge solving, retries, proxy rotation, paid dependency, worker change or resource allocation increase was introduced. Missing/invalid session and the reauthentication circuit fail closed before acquisition. At most four source-validated redirects are followed under the existing SSRF protections.
+
+Error mappings are explicit: unavailable404/410→404, access denial/session/reauth/rate limit→503, upstream timeout→504, transport/upstream server failure→502. Structured provider messages reach the frontend instead of unrelated UF/auth text. Error responses never fabricate an active listing. Nullable room/parking counts follow the existing form contract while raw missing-count warnings preserve uncertainty.
+
+## Portal lifecycle evidence
+
+| Scenario | Actual evidence | Result |
+|---|---|---|
+| Existing | Real Portal3633, MLC-4082793840, changed slug/tracking; candidate browser and deployed read-only service path | Canonical identity resolves3633; analysis2353.95UF; no unnecessary detail fetch |
+| New | Previously absent MLC-2467200996, Do Apartments; actual authorized upstream detail, candidate HTTP/browser lookup+analysis and deployed read-only lookup+analysis | parsed_new; Santiago apartment,32.88m²,UF2607; deployed analysis2829.67UF; missing parking warning retained |
+| Known withdrawn Portal | Clone-only990002 fixture derived from real public Portal data, marked removed with historical last_seen_at; actual candidate API/browser | Historical identity/status/date retained; no active claim |
+| New unavailable | Actual MLC-123456789 unavailable URL; final candidate browser and deployed acquisition/error mapper |404 portal_listing_unavailable; no active listing or database persistence |
+
+Production has1177 active and4 incomplete Portal records and no removed Portal records, so the withdrawn Portal scenario uses the isolated fixture explicitly. Real production listing298 remains removed through deployed analysis; its historical data was not rewritten. No synthetic records, credentials or test users were inserted into production. The new live listing remained absent from production after the read-only smoke test.
+
+## Final gates
+
+| Gate | Final result |
+|---|---|
+| Complete backend suite |1966 passed,0 failed,9 deprecation warnings;95.08s |
+| Frontend regression tests |8 passed,0 failed |
+| Production frontend build |PASS, compilation/type checking/static routes |
+| Critical Chromium journeys |20 passed: original16 plus Portal existing/new/withdrawn/unavailable |
+| Candidate image imports/OpenAPI/capabilities |PASS; zero contract failures |
+| Six formerly failing deployed contracts |PASS; capability200 and failures[] |
+| Public production proxy |200; exact intended code fingerprint |
+| Actual1130 target/canonical self-exclusion |PASS;20 comparables,2381.66UF with actual production model flags; portfolio input carries target ID |
+| Actual298 withdrawn handling |PASS; removed through deployed analysis |
+| Cross-screen valuation |20 real Radar rows satisfy price/estimate/discount math; actual Tasar1130 excludes target; screening and detailed consensus remain labelled separate methods |
+| Temporal, reports, alerts, navigation, account isolation |Backend regressions and controlled API/browser evidence PASS; nonzero7/30/90-day/DST reconciliation retained |
+| Fresh backup restore/schema/rollback compatibility |PASS;7030 listings/5240 observations/7 users; append-only guards enforced |
+| Final production health/data/scrapers |PASS; image healthy, counts preserved, Portal/Yapo Result=success/exit0, timers active |
+
+The final browser suites exercise real frontend/API/PostgreSQL. Portal browser requests use actual isolated Oracle HTTP responses, not mocked acquisition payloads. Deliberate error-injection scenarios remain named. A Windows console encoding failure in a diagnostic print was corrected by UTF-8 execution; final browser JSON contains all20 PASS results. No failing product assertion was removed. Frontend build/tests completed after the Portal frontend changes; the final subsequent edits affected backend Radar only.
+
+## Regressions discovered and corrected
+
+The full backend gate reproduced ZIP-manifest compression-size oscillation. The release packager now stores the embedded manifest without compression, returns the exact embedded fixed-point manifest and fails on nonconvergence. Four timestamp-fraction variants verify exact archive size and returned/embedded equality.
+
+A v5 API activation passed the initial Portal and contract gates, but an additional full-real-data Radar check timed out at120s and finished141s under the clone's0.5CPU/384MiB limits. A matched30-target/5797-listing comparison confirmed5.53s for v5 versus1.16s for the prior image. Production was safely switched back to the exact previous image; additive0022 remained. This was a confirmed regression, not an upstream Portal failure.
+
+The final v6 computes publication identities and type-conflict facts once per detection request and groups eligible comparables once. No process-wide cache can become stale. Under identical limits, the same sample takes1.10s, with identical13 opportunity IDs, estimates and discounts across previous/v5/v6 images. Regression tests verify uncached valuation parity and facts refreshed between requests. The full Radar HTTP gate then returned200 with20 mathematically consistent rows. All final release gates were rerun as applicable before v6 activation.
+
+## Files modified in this continuation
+
+Portal acquisition and errors: infrastructure/scrapers/portal_acquisition.py (new), scripts/portal_session.py (existing production loader reused byte-for-byte), services/listing_url_lookup.py, api/v1/listings.py, services/v2_contract.py, frontend-v2/src/lib/api/client.ts, frontend-v2/src/features/listing-url/use-listing-url.ts.
+
+Regression fixes: core/normalization/publication_identity.py, domain/radar/detector.py, scripts/create_release_zip.py. Tests: tests/unit/test_portal_acquisition.py, test_listing_url_portal.py, test_listing_url_lookup_endpoint.py, test_create_release_zip.py, test_radar_detector.py, and tests/frontend/remediation.test.cjs. Acceptance reports, architecture notes and ledger are updated. The complete deployed31-file overlay manifest includes earlier approved remediation, report, identity and additive-migration changes. Original mixed work and pre-existing spatial/scraper work remain preserved.
+
+## Exact release state and provenance
+
+- Active tag: valoria-remediation:candidate-20261012-v6.
+- Active image: `{image}`.
+- Separate immutable overlay snapshot commit: `{commit}`.
+- Served fingerprint: `{fp}`.
+- API started:2026-10-12T18:01:18.711838447Z; healthy.
+- Schema:0022. It was applied during v5, retained through rollback, and upgrade-head reverified for v6.
+- Original checkout HEAD5288dde remains mixed/uncommitted. The overlay commit identifies the packaged API changes, not a claimed full-repository release commit.
+- Existing five Compose files remain; reviewed sixth override changes API image, PORTAL_SESSION_FILE and one read-only session mount only. Override:/home/ubuntu/apps/valoria/deploy/remediation-portal-active.override.yml.
+- PostgreSQL,Redis,thumbnails,Caddy container IDs/start times and persistent mounts remained unchanged across switches. No production listing, observation, account or alert-read test writes occurred.
+- Public proxy serves the expected fingerprint. Authenticated production browser journeys were not performed using real accounts; controlled browser journeys used isolated accounts.
+
+Production counts are7030 listings,5240 observations,7 users,0 alert_reads. Portal and Yapo discovery results are success/exit0; their timers remain active for2026-10-13 at07:52:51UTC and06:11:00UTC respectively. The Portal session hash remained unchanged during deployment and smoke tests. No scraper sessions, reauthentication state, schedules or worker code were modified.
+
+## Backup, rollback and resources
+
+Fresh protected backup:/home/ubuntu/backups/portal-final-release-20261012 (directory0700/files0600). Database dump20,541,796bytes; SHA256 `8c8c1183e456858fc2831c8861b6fe62eeeaedb63216809b6f76d3f8f25875d1`. Restored in network-none PostgreSQL; counts verified. Both final and old application read compatibility on0022 passed. Observation UPDATE/DELETE/TRUNCATE guards remain enforced.
+
+Rollback tag valoria-remediation-rollback:20261012 resolves to `sha256:3342a667c071319097e6c6aed23bfd03ec231f6bf44cd17434d6a0de13187f15`. An actual switch-back was executed successfully during the Radar investigation. Rollback uses the original five Compose files with PORTAL_GEO_RELEASE_IMAGE=valoria-portal-geo:0ceeb1e-20261011 and recreates API only; retain additive0022. No destructive schema downgrade or restore is required. Configuration/globals backups remain private on Oracle; inactive v5 override is preserved separately.
+
+Final preflight had4.82GB available RAM and25.48GB free disk within the unchanged6GB Oracle Always Free VM. Temporary candidate/restore services used explicit memory/CPU limits. All five task-created Oracle test containers, their verified anonymous volumes, isolated network and local SSH tunnel were removed after verification. Protected backups and rollback/final images remain. Dedicated local candidate frontend/API/PostgreSQL/Redis remain on3003/8013/15433/16379 with workers/scheduler disabled for review.
+
+## Remaining scope and evidence
+
+Finding16 remains a product decision,17 has no real office coverage, and18's physical type for6842 remains unconfirmed; conservative conflict guards preserve source classification. Independent geographic truth for every listing and exhaustive race/search permutations are not claimed. Public V2 frontend publication remains a separate deployment task. These are recorded limits, with no remaining Portal/API release blocker.
+
+The acceptance evidence directory retains baseline history, final tests,20 browser JSON results/traces/screenshots, live acquisition evidence, source manifest, image/contract gates, backup/restore/rehearsal, safety rollback, performance parity, deployment, public proxy and final cleanup proof. acceptance-evidence-sha256.json records hashes. Earlier failed screenshots/logs are investigation history; final JSON and v6 gate logs are authoritative.
+'''
+(o/'final-acceptance-report.md').write_text(report,encoding='utf-8')
+(o/'executive-summary.md').write_text(f'''# Valoria V2 release result
+
+**PASS: Portal live acquisition is fixed and the validated API is deployed.** The analyzer now reuses the working verified-session loader through a read-only mount. Production acquired and analyzed a previously unseen Portal listing; existing identity and unavailable/withdrawn semantics pass.
+
+-1966 backend tests,8 frontend tests, production build and20 controlled browser scenarios pass.
+-All six formerly failing deployed contract checks pass; public traffic serves fingerprint `{fp}`.
+-Active image:`{image}`; overlay commit:`{commit}`; schema0022.
+-A Radar performance regression detected after v5 activation caused a safe rollback. Corrected v6 matches previous performance and valuation outputs and passed final gates before deployment.
+-7030 listings,5240 observations and7 users preserved; Portal/Yapo sessions, workers and timers preserved. Fresh backup restored; old-image rollback compatibility verified. Temporary Oracle test services removed.
+-Public V2 frontend has not been published. Product finding16, office coverage17 and type-confirmation18 remain as recorded scope/investigation limits. Full details and evidence are in final-acceptance-report.md.
+'''.replace('\n-','\n\n-'),encoding='utf-8')
+# Preserve finding-specific limits while updating deployed versus controlled evidence.
+rows={
+1:('Fixed; deployed read-only verification PASS','Actual1130 has20 comparables/2381.66UF with production flags; target/canonical equivalents excluded; portfolio input carries target ID.'),
+2:('Fixed; live acquisition and deployed compatibility PASS','Existing3633, unseen real MLC-2467200996 lookup+analysis, isolated withdrawn Portal fixture and actual new-unavailable404 all pass; session read-only.'),
+3:('Fixed; deployed API code; controlled reconciliation PASS','Nonzero7/30/90-day KPI/daily/commune fixtures and Chile/DST regression pass; no synthetic production market data.'),
+4:('Fixed; real candidate HTTP consistency PASS; API deployed','20 real Radar rows satisfy shared screening price/estimate/discount math; detailed Tasar remains a separately labelled consensus method.'),
+5:('Fixed; actual298 deployed historical verification PASS','Actual298 remains removed; Portal withdrawn fixture passes isolated API/browser; no removed Portal record exists in production.'),
+6:('Fixed; deployed schema and historical verification PASS','last_seen_at serialized; controlled historical browser/report retain stored observation date.'),
+7:('Fixed; API code deployed; controlled report tests PASS','Shared warnings explain fallback/unknown codes; downloaded report preserves explanations; frontend tested locally.'),
+8:('Fixed; local/browser validation; frontend publication pending','Search regressions pass; exhaustive search permutations not claimed.'),
+9:('Fixed; API report code deployed; controlled download PASS','Prices/source/external IDs/comparable evidence preserved; historical report inspected.'),
+10:('Fixed; API report code deployed; frontend publication pending','Manual-price captions/historical banner/date pass controlled report checks.'),
+11:('Fixed; controlled browser PASS; frontend publication pending','Native V2 navigation verified.'),
+12:('Fixed; controlled browser PASS; frontend publication pending','Secondary Radar prefill consumed once; errors prevent navigation.'),
+13:('Fixed; controlled browser PASS; frontend publication pending','Initial saved state,500 disabled guard/focus recovery,abort and account isolation pass.'),
+14:('Fixed; API contract deployed; candidate thumbnail browser PASS','Typed thumbnail field and actual signed image load pass; production thumbnail service/storage preserved.'),
+15:('Fixed; additive0022 deployed; controlled per-user persistence PASS','Read/reload/user-isolation verified on isolated PostgreSQL; production alert_reads0; history guards preserved.'),
+16:('DEFERRED product decision','Patrimonial UI scope not invented.'),
+17:('Investigation complete; coverage absent','No real office-support acceptance claim.'),
+18:('Contradiction confirmed; true type UNCONFIRMED','6842 guarded conservatively; production classification unchanged; source/manual confirmation required.'),
+19:('Documentation/evidence updated','Final report,21-finding matrix,contract matrix,architecture,ledger and hashed evidence reflect v6 release and v5 safety rollback.'),
+20:('Candidate and deployed contracts PASS','Six original checks now failures[]; capability200; public proxy expected fingerprint; final image healthy.'),
+21:('20 controlled browser scenarios PASS','Original16 plus4 real-HTTP Portal lifecycle scenarios; authenticated public production UI not asserted; geographic/exhaustive race limits retained.')}
+lines=(o/'findings-acceptance-matrix.md').read_text(encoding='utf-8').splitlines();out=[]
+for line in lines:
+ cells=[c.strip() for c in line.split('|')]
+ if len(cells)>4 and cells[1].isdigit():
+  n=int(cells[1]);status,proof=rows[n];line=f'| {n} | {cells[2]} | {status} | {proof} |'
+ out.append(line)
+(o/'findings-acceptance-matrix.md').write_text('\n'.join(out)+'\n',encoding='utf-8')
+contracts=f'''# Deployed contract compatibility — final v6 release
+
+All six formerly failing checks pass against the actual deployed API: capability HTTP200; failures[]. Public proxy fingerprint matches `{fp}`. Checker expectations were preserved.
+
+| Contract | Final evidence | Result |
+|---|---|---|
+| ValuationRequest.target_listing_id | Deployed OpenAPI plus actual1130/canonical self-exclusion and portfolio input |PASS |
+| OpportunityOut.last_seen_at | Deployed OpenAPI; candidate actual HTTP/browser |PASS |
+| ListingOut.last_seen_at | Deployed OpenAPI; actual298 historical analysis |PASS |
+| ListingOut.thumbnail | Deployed typed schema; actual candidate image load |PASS |
+| Portal capability | Deployed flag plus real unseen authorized acquisition/analysis; explicit unavailable404 |PASS |
+| Deployment fingerprint | Actual API and public proxy intended fingerprint |PASS |
+| Alert reads |0022 deployed; isolated persistence/user isolation; rollback-compatible reads |PASS |
+| Reports/temporal/saved state | API code deployed; controlled tests/download/browser/reconciliation pass |PASS with evidence scope |
+
+The original six failures were older-runtime deployment gaps (A/C); the typed lookup mismatch (B) was corrected without loosening the contract. The formerly unverified live capability (F) is now supported by real upstream evidence. Frontend publication is pending; controlled browser tests do not establish authenticated production UI acceptance.
+'''
+(o/'contract-compatibility-matrix.md').write_text(contracts,encoding='utf-8')
+checkpoint=f'''\n\n## Final Portal release continuation — 2026-10-12 (supersedes previous blocked checkpoint)
+
+PASS for Portal/API release. Candidate anonymous detail acquisition caused403 and generic502; existing scheduler uses verified host session. API now reuses the identical loader and production headers with a read-only session mount; scheduler remains sole cookie writer. Explicit access/session/timeout/unavailable errors reach UI; no bypass/retries/worker/session/schedule changes.
+
+Final backend1966passed, frontend8passed/buildPASS,20controlled browser scenariosPASS. Actual unseen Portal MLC-2467200996 acquired/analyzed in final candidate and deployed production read-only transaction. Existing3633 canonical identity passes; isolated withdrawn Portal fixture retains history; deployed new unavailable URL404; actual298 remains removed.1130 excludes itself/canonical equivalents (20comparables/2381.66UF with actual production flags). Public proxy fingerprint {fp}; all six deployed checks pass.
+
+Full-data Radar detected v5 regression after its initial activation; exact old image restored successfully with0022 retained. Final v6 request-local identity/type facts restore sample runtime1.10s versus old1.16s/v5 5.53s, identical13opportunity values; full HTTP20rows math gate passes. ZIP manifest-size oscillation corrected and regression-tested. Final source full suite rerun.
+
+Active image {image}, tag valoria-remediation:candidate-20261012-v6, separate overlay snapshot commit {commit}. API start2026-10-12T18:01:18.711838447Z. Schema0022; original checkout5288dde mixed/uncommitted preserved. API only recreated using existing five Compose files plus image/env/read-only mount override. Other production containers/storage preserved. Production counts7030/5240/7 andalert_reads0; Portal/Yapo success/exit0,timersactive,sessionunchanged.
+
+Fresh protected backup /home/ubuntu/backups/portal-final-release-20261012; dumpSHA8c8c1183e456858fc2831c8861b6fe62eeeaedb63216809b6f76d3f8f25875d1. Restore and final/old schema0022 compatibility pass; append-only guards preserved. Rollback tag valoria-remediation-rollback:20261012 points sha256:3342a667c071319097e6c6aed23bfd03ec231f6bf44cd17434d6a0de13187f15; use original five Compose files with base image env, API only, retain0022. Actual switch-back exercised during investigation.
+
+All five temporary Oracle test containers/anonymous volumes/network and SSH tunnel removed; protected backups/images retained. Always Free allocations unchanged. Local candidate services retained for review. Public V2 frontend not published; finding16 deferred,17 coverage absent,18 true type unconfirmed; no authenticated production browser acceptance claim. No remaining Portal/API release blocker. Final report/matrices/evidence hashes carry exact scope.
+'''
+ledger=r/'docs/audits/valoria-v2-remediation.md';ledger.write_text(ledger.read_text(encoding='utf-8')+checkpoint,encoding='utf-8');shutil.copy2(ledger,o/'valoria-v2-remediation.md')
+arch=r/'docs/valoria-v2-architecture.md';arch.write_text(arch.read_text(encoding='utf-8')+'''\n\n## Final Portal acquisition and API release — 2026-10-12
+
+The lookup analyzer uses infrastructure.scrapers.portal_acquisition.portal_lookup_client, delegates validation to scripts.portal_session.load_session (same existing scheduler loader), checks the reauthentication circuit, and uses production request headers. API mounts private/portal-session at/portal-session read-only with PORTAL_SESSION_FILE=/portal-session/session.json. The existing scheduled host runner owns atomic cookie updates. No anonymous fallback, retries, cookie persistence, challenge solving or worker changes are introduced. Source-validated bounded redirects retain SSRF protections; structured errors distinguish unavailable404,session/access/rate503,timeout504 andtransport/server502.
+
+Radar publication/type facts are snapshotted per detection run and comparables grouped once; no cross-request cache. Additive alert_reads revision0022 preserves production0021 observation schema and append-only guards. Final v6 is now deployed; exact image/fingerprint/rollback and verification are recorded in the final acceptance report. API only was recreated; V2 frontend build/browser validation is controlled and public frontend publication remains pending. The previous blocked deployment paragraph is historical baseline.
+''',encoding='utf-8');shutil.copy2(arch,o/'valoria-v2-architecture.md')
+# Collect final artifacts without private backup/session material.
+p=e/'portal-final-release';p.mkdir(exist_ok=True)
+names=['portal-v6-final-backend.log','portal-frontend-tests.log','portal-frontend-build.log','portal-v6-browser-core.log','portal-v6-browser-extra.log','portal-v6-browser-final.log','portal-v6-browser-lifecycle.log','portal-v6-browser-unavailable.log','portal-final-backup-restore.json','portal-final-migration-rehearsal.json','portal-final-deploy-precheck.json','portal-final-release-result.json','portal-final-production-smoke.jsonl','portal-final-unavailable-smoke.json','portal-final-v6-data-checks.jsonl','portal-final-cleanup.json','portal-radar-safety-rollback.json','radar-v6-comparison.json','portal-cross-screen-http.json','radar-deadline-diagnostic.txt','radar-baseline-comparison.json','portal-candidate-lifecycle-final.json','portal-session-metadata.json','candidate-image-gate.txt','oracle-contract-gate.txt','overlay-paths.json']
+for name in names:
+ assert (w/name).is_file(),name
+ shutil.copy2(w/name,p/name)
+for folder in ['e2e','e2e-portal']:shutil.copytree(w/folder,p/folder,dirs_exist_ok=True)
+shutil.copy2(w/'release-overlay-v6/manifest.json',p/'candidate-v6-manifest.json')
+shutil.copy2(w/'release-overlay-v6/Dockerfile',p/'Dockerfile')
+shutil.copy2(w/'oracle-contract-gate.txt',o/'oracle-contract-gate.txt')
+for name in ['final-acceptance-report.md','findings-acceptance-matrix.md','contract-compatibility-matrix.md']:
+ shutil.copy2(o/name,r/'docs/audits'/name)
+manifest={str(x.relative_to(e)):hashlib.sha256(x.read_bytes()).hexdigest() for x in e.rglob('*') if x.is_file()};(o/'acceptance-evidence-sha256.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+print('Updated final report,21 findings,contracts,ledger,architecture and hashed final evidence.')

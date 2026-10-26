@@ -1,0 +1,36 @@
+from pathlib import Path
+import json
+from playwright.sync_api import sync_playwright
+snapshot=json.loads(Path('work/production-trace-snapshot.json').read_text())
+out=[]
+blank=dict(snapshot['cases'][0]);blank['payload']=dict(blank['payload'],dormitorios=None,banos=None,estacionamientos=None);snapshot['cases'].append(blank)
+with sync_playwright() as pw:
+ browser=pw.chromium.launch(headless=True)
+ context=browser.new_context(viewport={'width':1440,'height':1000})
+ context.add_init_script("localStorage.setItem('valoria_access_token','isolated-transport-probe-not-a-real-credential')")
+ page=context.new_page()
+ captured=[]
+ def route_backend(route):
+  path=route.request.url.split('/backend',1)[1]
+  if path=='/api/v1/valuations':
+   payload=route.request.post_data_json;captured.append({'url':route.request.url,'method':route.request.method,'payload':payload})
+   case=next(x for x in snapshot['cases'] if x['payload']['comuna']==payload['comuna'])
+   route.fulfill(status=200,json=case['route_response']);return
+  if path=='/api/v1/auth/me':route.fulfill(status=200,json={'email':'isolated-probe@example.invalid','id':0,'role':'beta_user','is_active':True});return
+  route.fulfill(status=200,json={})
+ page.route('**/backend/**',route_backend)
+ for case in snapshot['cases']:
+  data=case['payload'];page.goto('https://valoria-v2.netlify.app/tasar',wait_until='networkidle')
+  page.locator('select').filter(has=page.locator('option[value="santiago"]')).select_option(data['comuna'])
+  page.get_by_label('Superficie útil',exact=True).fill(str(data['m2']))
+  if data['dormitorios'] is not None:page.get_by_label('Dormitorios',exact=True).fill(str(data['dormitorios']))
+  if data['banos'] is not None:page.get_by_label('Baños',exact=True).fill(str(data['banos']))
+  if data['estacionamientos'] is not None:page.get_by_label('Estacionam.',exact=True).fill(str(data['estacionamientos']))
+  page.get_by_label('Precio publicado',exact=False).last.fill(str(data['precio_publicado_uf']))
+  page.get_by_role('button',name='Obtener estimación').click()
+  page.get_by_role('button',name='Descargar informe').wait_for(timeout=15000)
+  assert captured[-1]['payload']==data,(captured[-1]['payload'],data)
+  out.append(captured[-1])
+ context.close();browser.close()
+Path('work/production-frontend-request-capture.json').write_text(json.dumps({'context':'isolated browser, all backend transport intercepted; no real credentials or account writes','requests':out},indent=2),encoding='utf-8')
+print(json.dumps(out))

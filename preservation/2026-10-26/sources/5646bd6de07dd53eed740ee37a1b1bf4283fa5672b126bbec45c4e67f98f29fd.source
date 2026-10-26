@@ -1,0 +1,361 @@
+"""Reproducible offline identity graph audit. No models, DB or network."""
+from pathlib import Path
+import json,csv,hashlib,subprocess,math,itertools,statistics,re
+from collections import defaultdict,Counter
+from identity import features,canonical_url,address_parts,sanitize,normalize,text_tokens,distance,pair_rules,graph,stable_sample,RULES,contradictions
+
+H=Path(__file__).resolve().parent; BASE=H.parents[1]; REPO=BASE/'valoria-reconciled'
+AUDIT=BASE/'research/tasar_avm_audit_20261002'
+
+def save(name,value): (H/name).write_text(json.dumps(value,ensure_ascii=False,indent=2,allow_nan=False),encoding='utf-8')
+def write_csv(name,rows,columns=None):
+    if columns is None: columns=list(dict.fromkeys(k for r in rows for k in r))
+    with (H/name).open('w',encoding='utf-8',newline='') as f:
+        w=csv.DictWriter(f,fieldnames=columns); w.writeheader(); w.writerows(rows)
+
+def inventory():
+    def git(*args): return subprocess.check_output(['git','-C',str(REPO),*args],stderr=subprocess.DEVNULL).decode()
+    names=git('ls-files','--cached','--others','--exclude-standard','-z').split('\0')
+    return dict(commit=git('rev-parse','HEAD').strip(),status=git('status','--porcelain=v1','--untracked-files=all'),
+        hashes={n:hashlib.sha256((REPO/n).read_bytes()).hexdigest() for n in names if n and (REPO/n).is_file()})
+
+def publication_keys(f):
+    keys=[]
+    if f.get('external_id'): keys.append(('external',f['source'],f['external_id']))
+    if f.get('canonical_url'): keys.append(('url',f['canonical_url']))
+    return keys
+
+def quantiles(values):
+    x=sorted(v for v in values if v is not None)
+    def q(p):
+        if not x: return None
+        pos=(len(x)-1)*p; a=int(pos); b=min(a+1,len(x)-1)
+        return x[a]+(x[b]-x[a])*(pos-a)
+    return dict(N=len(x),min=x[0] if x else None,P01=q(.01),P05=q(.05),P25=q(.25),median=q(.5),P75=q(.75),P95=q(.95),P99=q(.99),max=x[-1] if x else None)
+
+def load():
+    # Only IDs are read from the prior audit: no targets, group IDs, errors or valuations.
+    with (AUDIT/'candidate_dataset_with_group_id.csv').open(encoding='utf-8') as f:
+        ids={int(row['id']) for row in csv.DictReader(f)}
+    raw=(AUDIT/'input_snapshot.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest()=='a5991dd086056fa304416ddfa1ad464352957bebcb5df9fcd2ce5565938e3641'
+    snapshot=json.loads(raw); repeats=Counter()
+    for r in snapshot['listings']:
+        coords=r.get('coordinates') or {}; lat=coords.get('lat'); lon=coords.get('lon')
+        if lat is not None and lon is not None: repeats[(r.get('comuna'),round(lat,7),round(lon,7))]+=1
+    candidates=[r for r in snapshot['listings'] if r['id'] in ids]
+    nodes={r['id']:features(r,repeats) for r in candidates}
+    history=json.loads((H/'historical_identity_snapshot.json').read_text(encoding='utf-8'))
+    local=json.loads((H/'local_identity_snapshot.json').read_text(encoding='utf-8'))
+    local_index=defaultdict(list)
+    for row in local['listings']:
+        f=dict(source=row.get('source'),external_id=row.get('external_id'),canonical_url=canonical_url(row.get('url')))
+        for key in publication_keys(f): local_index[key].append(row)
+    local_linked={i:{r['id']:r for key in publication_keys(f) for r in local_index.get(key,[])} for i,f in nodes.items()}
+    # Supplemental identity is inventoried, not substituted over primary snapshot fields.
+    supplemental=[]
+    for i,linked in local_linked.items():
+        for row in linked.values():
+            meta=row.get('raw_metadata') or {}
+            ap=address_parts(meta.get('address') or meta.get('normalized_address') or meta.get('address_label') or '')
+            supplemental.append(dict(current_id=i,local_id=row['id'],same_stable_publication=True,
+                explicit_address_number=bool(ap['full_key']),unit=bool(ap['unit'] or meta.get('unit') or meta.get('unit_number')),
+                building_project=bool(meta.get('building_name') or meta.get('project_name')),
+                image_identifier=bool(row.get('existing_image_identifier_hash'))))
+    write_csv('local_supplemental_signals.csv',supplemental)
+    # Enrich only safe existing image identifier hashes, linked by stable publication evidence.
+    old_index=defaultdict(list)
+    for row in history['listings']:
+        f=dict(source=row.get('source'),external_id=row.get('external_id'),canonical_url=canonical_url(row.get('url')))
+        for key in publication_keys(f): old_index[key].append(row)
+    historical_alias=[]
+    for i,f in nodes.items():
+        old={int(r['id']):r for key in publication_keys(f) for r in old_index.get(key,[])}
+        hashes={r.get('existing_image_identifier_hash') for r in old.values() if r.get('existing_image_identifier_hash')}
+        f['existing_image_identifier_hash']=next(iter(hashes)) if len(hashes)==1 else None
+        f['historical_publication_rows']=len(old)
+        for r in old.values():
+            historical_alias.append(dict(current_id=i,historical_id=int(r['id']),relation='same stable publication key',
+                source=f['source'],external_id=f['external_id']))
+    write_csv('historical_publication_links.csv',historical_alias,['current_id','historical_id','relation','source','external_id'])
+    oldbyid={int(r['id']):r for r in history['listings']}
+    changes=[]
+    for i,f in nodes.items():
+        if i in oldbyid:
+            old=oldbyid[i]
+            if (old.get('source'),str(old.get('external_id') or ''))!=(f['source'],f['external_id']):
+                changes.append(dict(current_id=i,previous_source=old.get('source'),current_source=f['source'],
+                    previous_external_id=old.get('external_id'),current_external_id=f['external_id'],
+                    interpretation='internal ID lineage changed; historical weak fingerprint may have overwritten publication; not a physical edge'))
+    write_csv('historical_identifier_changes.csv',changes,['current_id','previous_source','current_source','previous_external_id','current_external_id','interpretation'])
+    currenthistory=[r for r in history['history_relationships'] if int(r['listing_id']) in ids]
+    write_csv('historical_timestamp_relations.csv',currenthistory,['id','listing_id','observed_at','created_at'])
+    historical=dict(archive_rows=len(history['listings']),archive_properties=len(history['properties']),
+        archive_history_relationships=len(history['history_relationships']),candidate_history_relationships=len(currenthistory),
+        candidate_ids_with_history=len({r['listing_id'] for r in currenthistory}),linked_current_publications=sum(f['historical_publication_rows']>0 for f in nodes.values()),
+        internal_identifier_changes=len(changes),local_snapshot_rows=len(local['listings']),
+        local_captured_at=local.get('captured_at'),archive_sha256=history['provenance']['sha256'],
+        local_linked_publications=sum(bool(v) for v in local_linked.values()),
+        local_linked_with_explicit_address=sum(r['explicit_address_number'] for r in supplemental),
+        local_linked_with_unit=sum(r['unit'] for r in supplemental),local_linked_with_building=sum(r['building_project'] for r in supplemental),
+        local_linked_with_image=sum(r['image_identifier'] for r in supplemental),
+        timestamps_first=min((r['observed_at'] for r in currenthistory if r.get('observed_at')),default=None),
+        timestamps_last=max((r['observed_at'] for r in currenthistory if r.get('observed_at')),default=None),
+        limitation='local snapshot is a parallel state, not an ordered full history; no history has address/unit revisions or demonstrated cross-source physical links')
+    return nodes,candidates,snapshot,historical
+
+def pairs_for(nodes):
+    pairs=defaultdict(set); counts=[]
+    def add(a,b,why):
+        if a!=b: pairs[tuple(sorted((a,b)))].add(why)
+    def block(tag,keyfunc):
+        b=defaultdict(list)
+        for i,f in nodes.items():
+            key=keyfunc(f)
+            if key is not None: b[key].append(i)
+        stage=set()
+        for ids in b.values():
+            for a,c in itertools.combinations(sorted(ids),2): add(a,c,tag); stage.add((a,c))
+        counts.append(dict(stage=tag,unique_pairs_stage=len(stage),cumulative_pairs=len(pairs)))
+    block('stable_source_external',lambda f:(f['source'],f['external_id']) if f['external_id'] else None)
+    block('canonical_url',lambda f:f['canonical_url'])
+    block('old_property_id_audit_only',lambda f:f['old_property_id'])
+    block('old_fingerprint_audit_only',lambda f:f['old_fingerprint'] or None)
+    block('normalized_address_audit_only',lambda f:(f['comuna'],f['address_normalized']) if f['address_normalized'] else None)
+    block('explicit_street_number',lambda f:(f['comuna'],f['address_key']) if f['address_key'] else None)
+    block('exact_distinctive_title_audit_only',lambda f:(f['comuna'],tuple(sorted(f['title_tokens']))) if len(f['title_tokens'])>=3 else None)
+    block('existing_image_hash_audit_only',lambda f:f.get('existing_image_identifier_hash'))
+    # Existing matcher pair-proxy, not reconstruction of its order-dependent Property anchors.
+    b=defaultdict(list); structural=set()
+    for i,f in nodes.items(): b[(f['comuna'],f['property_type'],f['bedrooms'],f['bathrooms'],f['parking'])].append(f)
+    for members in b.values():
+        members=sorted(members,key=lambda f:f['m2'] or -1)
+        for j,a in enumerate(members):
+            for c in members[j+1:]:
+                if a['m2'] is None or c['m2'] is None: continue
+                if c['m2']-a['m2']>1: break
+                if a['area'] is not None and c['area'] is not None and abs(a['area']-c['area'])<=1:
+                    add(a['id'],c['id'],'old_structural_pair_proxy'); structural.add(tuple(sorted((a['id'],c['id']))))
+    counts.append(dict(stage='old_structural_pair_proxy',unique_pairs_stage=len(structural),cumulative_pairs=len(pairs)))
+    # Sliding latitude window, then exact Haversine; no quadratic scan of all1179.
+    coords=sorted((f for f in nodes.values() if f['lat'] is not None),key=lambda f:f['lat']); geos=set()
+    for j,a in enumerate(coords):
+        for c in coords[j+1:]:
+            if c['lat']-a['lat']>.01: break
+            if distance(a,c)<=1000:
+                add(a['id'],c['id'],'geo_within1000m'); geos.add(tuple(sorted((a['id'],c['id']))))
+    counts.append(dict(stage='geo_within1000m',unique_pairs_stage=len(geos),cumulative_pairs=len(pairs)))
+    return pairs,counts
+
+def main():
+    baseline=inventory()
+    prior=H/'integrity_before.json'
+    if prior.exists(): assert json.loads(prior.read_text(encoding='utf-8'))==baseline,'Checkout differs from frozen identity audit base'
+    else: save('integrity_before.json',baseline)
+    oldfiles={str(p.relative_to(BASE)):hashlib.sha256(p.read_bytes()).hexdigest() for p in AUDIT.iterdir() if p.is_file()}
+    nodes,rawrows,snapshot,historical=load(); ids=sorted(nodes)
+    save('input_provenance.json',dict(inputs={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in
+        [AUDIT/'input_snapshot.json',AUDIT/'candidate_dataset_with_group_id.csv',H/'historical_identity_snapshot.json',H/'local_identity_snapshot.json',H/'methodology_frozen.json',H/'methodology_amendment_01.json']},
+        candidate_id_hash=hashlib.sha256(','.join(map(str,ids)).encode()).hexdigest(),
+        candidate_dataset_columns_used=['id'],other_candidate_csv_columns='not read as matching inputs'))
+    save('historical_inventory.json',historical)
+    # Signal inventory: no PII or monetary values.
+    inventory_rows=[]
+    getters={
+        'source':lambda r,f:r.get('source'),'external_id':lambda r,f:r.get('external_id'),'canonical_url':lambda r,f:f['canonical_url'],
+        'title_sanitized':lambda r,f:f['title_sanitized'],'description_sanitized':lambda r,f:sanitize(r['raw_metadata'].get('description')),
+        'address_raw_label':lambda r,f:sanitize(r['raw_metadata'].get('address') or r['raw_metadata'].get('address_label')),
+        'street_hint':lambda r,f:sanitize(r['raw_metadata'].get('street_hint')),'location_text':lambda r,f:sanitize(r['raw_metadata'].get('location_text')),
+        'normalized_address':lambda r,f:f['address_normalized'],'explicit_street':lambda r,f:f['street'],
+        'explicit_street_number':lambda r,f:f['address_key'],'explicit_unit':lambda r,f:f['unit'],
+        'potential_street_number_from_title_audit_only':lambda r,f:address_parts(r.get('title'))['full_key'],
+        'potential_unit_from_title_audit_only':lambda r,f:address_parts(r.get('title'))['unit'],
+        'potential_street_number_from_description_audit_only':lambda r,f:address_parts(r['raw_metadata'].get('description'))['full_key'],
+        'potential_unit_from_description_audit_only':lambda r,f:address_parts(r['raw_metadata'].get('description'))['unit'],
+        'building_project_name':lambda r,f:r['raw_metadata'].get('building_name') or r['raw_metadata'].get('project_name'),
+        'coords_available':lambda r,f:(f['lat'],f['lon']) if f['lat'] is not None else None,
+        'trusted_coords_guarded':lambda r,f:(f['lat'],f['lon']) if f['trusted_geo'] else None,
+        'coord_precision':lambda r,f:f['precision'],'coord_source':lambda r,f:r['raw_metadata'].get('location_source') or r['raw_metadata'].get('coordinates_source'),
+        'current_property_id':lambda r,f:f['old_property_id'],'historical_fingerprint':lambda r,f:f['old_fingerprint'],
+        'existing_image_identifier_hash':lambda r,f:f.get('existing_image_identifier_hash'),
+        'historical_stable_publication':lambda r,f:f['historical_publication_rows'] if f['historical_publication_rows'] else None,
+        'broker_listing_identifier':lambda r,f:None,
+    }
+    for label,getter in getters.items():
+        for source in ['ALL',*sorted({f['source'] for f in nodes.values()})]:
+            part=[r for r in rawrows if source=='ALL' or r['source']==source]
+            values=[getter(r,nodes[r['id']]) for r in part]
+            valid=[str(v) for v in values if v is not None and v!='']
+            caveat='availability, not proven exact physical identity'
+            risk='none in matching after sanitization/allowlist'
+            if label=='historical_fingerprint': caveat='audit only; could include title prices; excluded from acceptance'; risk='potential indirect target; never matching'
+            if label=='current_property_id': caveat='old weak matcher; audit only, not acceptance'
+            if label=='description_sanitized': caveat='inventoried only; not used as matching signal'
+            if label=='existing_image_identifier_hash': caveat='existing historical URL hash linked by stable publication; not content hash; stock reuse unknown; not acceptance'
+            if label in ['building_project_name','broker_listing_identifier']: caveat='not available in preserved candidate fields; full unexported metadata may differ'
+            inventory_rows.append(dict(signal=label,source=source,N=len(part),coverage=len(valid),coverage_pct=100*len(valid)/len(part),
+                cardinality=len(set(valid)),reliability_notes=caveat,target_leakage_risk=risk))
+    write_csv('identity_signal_inventory.csv',inventory_rows)
+    pairs,counts=pairs_for(nodes); write_csv('pair_candidate_counts.csv',counts)
+    evidence=[]
+    for (a,b),blocks in sorted(pairs.items()):
+        e=pair_rules(nodes[a],nodes[b]); e['blocking_keys']='|'.join(sorted(blocks))
+        e['same_current_property_id']=bool(nodes[a]['old_property_id'] is not None and nodes[a]['old_property_id']==nodes[b]['old_property_id'])
+        e['old_structural_pair_proxy']='old_structural_pair_proxy' in blocks
+        e['same_historical_fingerprint']=bool(nodes[a]['old_fingerprint'] and nodes[a]['old_fingerprint']==nodes[b]['old_fingerprint'])
+        evidence.append(e)
+    write_csv('pair_evidence.csv',evidence)
+    distance_stats=[]; thresholds=[]
+    populations={
+        'same_current_property_id':[e for e in evidence if e['same_current_property_id']],
+        'same_historical_fingerprint':[e for e in evidence if e['same_historical_fingerprint']],
+        'old_structural_pair_proxy':[e for e in evidence if e['old_structural_pair_proxy']],
+        'geographic_block_all':[e for e in evidence if 'geo_within1000m' in e['blocking_keys']],
+        'new_accepted_G2':[e for e in evidence if e['G2'] and not e['same_current_property_id']],
+        'accepted_G3':[e for e in evidence if e['G3']],
+    }
+    for name,p in populations.items():
+        distance_stats.append(dict(population=name,total_pairs=len(p),**quantiles([e['distance_m'] for e in p])))
+        for threshold in [10,25,50,100,250,500,1000]:
+            measured=[e for e in p if e['distance_m'] is not None]
+            thresholds.append(dict(population=name,threshold_m=threshold,N_with_distance=len(measured),N_below_or_equal=sum(e['distance_m']<=threshold for e in measured)))
+    write_csv('distance_distributions.csv',distance_stats); write_csv('distance_threshold_sensitivity.csv',thresholds)
+    # Separate physical high-confidence from publication and CV graphs.
+    maps={'publication_group_id':graph(ids,[(e['id_a'],e['id_b']) for e in evidence if e['publication']]),
+          'property_high_confidence_id':graph(ids,[(e['id_a'],e['id_b']) for e in evidence if e['high']])}
+    for scenario in ['G1','G2','G3']: maps[scenario]=graph(ids,[(e['id_a'],e['id_b']) for e in evidence if e[scenario]])
+    sensitivity=[]; contradictions_out=[]; bridges=[]; summaries=[]
+    for scenario in ['G1','G2','G3']:
+        mapping=maps[scenario]; groups=defaultdict(list)
+        for i,g in mapping.items(): groups[g].append(i)
+        write_csv(f'grouping_{scenario}.csv',[dict(id=i,source=nodes[i]['source'],group_id=f'{scenario}-{mapping[i]}',
+            publication_group_id=f"publication-{maps['publication_group_id'][i]}",
+            property_high_confidence_id=f"high-{maps['property_high_confidence_id'][i]}",
+            high_physical_evidence=any(e['high'] and i in [e['id_a'],e['id_b']] for e in evidence)) for i in ids])
+        pair_distances=[]; maxima=[]; spanning=Counter(); cross=0
+        for gid,members in sorted(groups.items()):
+            dists=[]; issues=[]
+            for a,b in itertools.combinations(members,2):
+                dist=distance(nodes[a],nodes[b])
+                if dist is not None: dists.append(dist); pair_distances.append(dist)
+                why=contradictions(nodes[a],nodes[b])
+                if why:
+                    issues.extend(why); contradictions_out.append(dict(scope=scenario,group_id=f'{scenario}-{gid}',id_a=a,id_b=b,
+                        identity_contradiction=True,reason='|'.join(why),distance_m=dist))
+            maximum=max(dists) if dists else None
+            if maximum is not None:
+                maxima.append(maximum)
+                for t in [100,250,500,1000]: spanning[t]+=maximum>t
+            cross+=len({nodes[i]['source'] for i in members})>1
+            summaries.append(dict(scenario=scenario,group_id=f'{scenario}-{gid}',n=len(members),maximum_distance_m=maximum,
+                identity_contradiction=bool(issues),contradiction_reason='|'.join(sorted(set(issues)))))
+            if scenario!='G1' and len(members)>1:
+                ancestors={maps['G1'][i] for i in members}
+                if len(ancestors)>1:
+                    accepted=[e for e in evidence if e[scenario] and e['id_a'] in members and e['id_b'] in members and not e['G1']]
+                    bridges.append(dict(scenario=scenario,group_id=f'{scenario}-{gid}',n=len(members),G1_components_joined=len(ancestors),
+                        added_edges=len(accepted),added_categories='|'.join(sorted({e['category'] for e in accepted})),
+                        growth_due_to_non_high_edge=True,identity_contradiction=bool(issues),reason='|'.join(sorted(set(issues)))))
+        sizes=Counter(len(m) for m in groups.values())
+        q=quantiles(pair_distances)
+        sensitivity.append(dict(scenario=scenario,N_listings=len(ids),N_groups=len(groups),singletons=sizes[1],
+            size2=sizes[2],size3=sizes[3],size4=sizes[4],size5plus=sum(n for k,n in sizes.items() if k>=5),max_group=max(sizes),
+            listings_groups_ratio=len(ids)/len(groups),cross_source_groups=cross,
+            groups_spanning_gt100m=spanning[100],groups_spanning_gt250m=spanning[250],groups_spanning_gt500m=spanning[500],groups_spanning_gt1km=spanning[1000],
+            N_within_group_distances=q['N'],P95_distance_m=q['P95'],max_distance_m=q['max'],
+            N_groups_with_measured_spread=len(maxima)))
+    write_csv('grouping_sensitivity.csv',sensitivity)
+    write_csv('transitive_bridge_audit.csv',bridges,['scenario','group_id','n','G1_components_joined','added_edges','added_categories','growth_due_to_non_high_edge','identity_contradiction','reason'])
+    write_csv('new_group_summary.csv',summaries)
+    # Evaluate existing multi-listing property IDs without prices.
+    oldgroups=defaultdict(list)
+    for i,f in nodes.items():
+        if f['old_property_id'] is not None: oldgroups[f['old_property_id']].append(i)
+    old_audit=[]
+    for pid,members in sorted(oldgroups.items()):
+        if len(members)<2: continue
+        issues=[]; dists=[]
+        for a,b in itertools.combinations(sorted(members),2):
+            why=contradictions(nodes[a],nodes[b]); issues.extend(why)
+            dist=distance(nodes[a],nodes[b])
+            if dist is not None: dists.append(dist)
+            if why: contradictions_out.append(dict(scope='old_property_id',group_id=f'property-{pid}',id_a=a,id_b=b,
+                identity_contradiction=True,reason='|'.join(why),distance_m=dist))
+        # Supported requires all members connected through strong physical evidence, not a weak CV graph.
+        physical_supported=len({maps['property_high_confidence_id'][i] for i in members})==1
+        status='contradicted' if issues else 'supported' if physical_supported else 'ambiguous'
+        old_audit.append(dict(property_id=pid,n=len(members),classification=status,
+            reason='|'.join(sorted(set(issues))) if issues else 'strong physical graph connects all members' if physical_supported else 'insufficient unit/address/verified geography',
+            measured_pairs=len(dists),maximum_distance_m=max(dists) if dists else None))
+    write_csv('property_id_audit.csv',old_audit)
+    # Pair contradictions are kept as their own scope, even when rejected before forming a new group.
+    for e in evidence:
+        if e['identity_contradiction']:
+            contradictions_out.append(dict(scope='candidate_pair',group_id=None,id_a=e['id_a'],id_b=e['id_b'],
+                identity_contradiction=True,reason=e['contradiction_reason'],distance_m=e['distance_m']))
+    write_csv('identity_contradictions.csv',contradictions_out,['scope','group_id','id_a','id_b','identity_contradiction','reason','distance_m'])
+    # Manual samples never select by price/distance-to-target-error. No price columns exist.
+    selections={
+        'A_high':stable_sample([e for e in evidence if e['high']],20,lambda e:(e['id_a'],e['id_b'])),
+        'B_conservative_only':stable_sample([e for e in evidence if e['G2'] and not e['G1']],20,lambda e:(e['id_a'],e['id_b'])),
+        'C_old_match_weak_rejected':stable_sample([e for e in evidence if (e['same_current_property_id'] or e['old_structural_pair_proxy']) and not e['G3']],20,lambda e:(e['id_a'],e['id_b'])),
+        'D_new_risk_old_not_grouped':stable_sample([e for e in evidence if e['G3'] and not e['same_current_property_id']],20,lambda e:(e['id_a'],e['id_b'])),
+        'F_explicit_unit_conflict_close_geo_text':stable_sample([e for e in evidence if 'explicit_different_unit_same_local_anchor' in e['contradiction_reason']
+            and e['loose_structure'] and e['shared_title_tokens']>=3 and e['title_jaccard']>=.6],20,lambda e:(e['id_a'],e['id_b'])),
+    }
+    manual=[]
+    unit_classes={u:f'unit-class-{j+1}' for j,u in enumerate(sorted({f['unit'] for f in nodes.values() if f['unit']}))}
+    def redacted_addr(f):
+        return re.sub(r'\d+',lambda m:m[0][:1]+'*'*(len(m[0])-1),f['address_normalized'])[:160]
+    def safe_title(f): return re.sub(r'\b\d+(?:[.,]\d+)*\b','[n]',f['title_sanitized'])[:160]
+    for category,p in selections.items():
+        for e in p:
+            a,b=nodes[e['id_a']],nodes[e['id_b']]
+            record=dict(sample=category,id_a=a['id'],id_b=b['id'],category=e['category'],distance_m=e['distance_m'],
+                evidence=e['match_reason'],contradiction=e['contradiction_reason'],shared_title_tokens=e['shared_title_tokens'],title_jaccard=e['title_jaccard'])
+            for suffix,f in [('a',a),('b',b)]:
+                for field in ['source','comuna','area','bedrooms','bathrooms','parking']:
+                    record[field+'_'+suffix]=f[field]
+                record['address_redacted_'+suffix]=redacted_addr(f); record['title_sanitized_'+suffix]=safe_title(f)
+                record['unit_present_'+suffix]=bool(f['unit'])
+                record['unit_equivalence_class_'+suffix]=unit_classes.get(f['unit'])
+            record['explicit_units_equal_if_both']=a['unit']==b['unit'] if a['unit'] and b['unit'] else None
+            manual.append(record)
+    for group in summaries:
+        if group['n']>=5:
+            sc=group['scenario']; gid=int(group['group_id'].split('-')[1])
+            for i in ids:
+                if maps[sc][i]==gid:
+                    f=nodes[i]; manual.append(dict(sample='E_all_groups_ge5',scenario=sc,group_id=group['group_id'],id_a=i,
+                        source_a=f['source'],comuna_a=f['comuna'],area_a=f['area'],bedrooms_a=f['bedrooms'],bathrooms_a=f['bathrooms'],parking_a=f['parking'],
+                        address_redacted_a=redacted_addr(f),title_sanitized_a=safe_title(f)))
+    write_csv('manual_review_sample.csv',manual)
+    eligible_counts={'A_high':sum(e['high'] for e in evidence),'B_conservative_only':sum(e['G2'] and not e['G1'] for e in evidence),
+       'C_old_match_weak_rejected':sum((e['same_current_property_id'] or e['old_structural_pair_proxy']) and not e['G3'] for e in evidence),
+       'D_new_risk_old_not_grouped':sum(e['G3'] and not e['same_current_property_id'] for e in evidence),
+       'F_explicit_unit_conflict_close_geo_text':sum('explicit_different_unit_same_local_anchor' in e['contradiction_reason'] and e['loose_structure'] and e['shared_title_tokens']>=3 and e['title_jaccard']>=.6 for e in evidence)}
+    sample_counts=[dict(sample=k,eligible_pairs=eligible_counts[k],sampled_pairs=len(v)) for k,v in selections.items()]
+    write_csv('manual_sample_counts.csv',sample_counts)
+    save('results.json',dict(N=len(ids),pair_candidates=len(evidence),all_possible_pairs=len(ids)*(len(ids)-1)//2,
+        edge_categories=dict(Counter(e['category'] for e in evidence)),property_id_status={k:sum(r['classification']==k for r in old_audit) for k in ['supported','ambiguous','contradicted']},
+        old_multiple_property_ids=len(old_audit),new_risk_pairs_G2=sum(e['G2'] and not e['same_current_property_id'] for e in evidence),
+        new_risk_pairs_G3=sum(e['G3'] and not e['same_current_property_id'] for e in evidence),
+        high_pairs=sum(e['high'] for e in evidence),publication_pairs=sum(e['publication'] for e in evidence),
+        unique_contradicted_pairs=len({(e['id_a'],e['id_b']) for e in contradictions_out}),
+        contradicted_new_groups=sum(r['identity_contradiction'] for r in summaries),
+        bridge_components=len(bridges),grouping_sensitivity=sensitivity,history=historical,
+        raw_address_coverage=sum(bool(r['raw_metadata'].get('address') or r['raw_metadata'].get('address_label')) for r in rawrows),
+        normalized_address_coverage=sum(bool(f['address_normalized']) for f in nodes.values()),
+        street_number_coverage=sum(bool(f['address_key']) for f in nodes.values()),unit_coverage=sum(bool(f['unit']) for f in nodes.values()),
+        address_number_and_unit_coverage=sum(bool(f['unit'] and f['address_key']) for f in nodes.values()),
+        trusted_geo=sum(f['trusted_geo'] for f in nodes.values()),image_hash_coverage=sum(bool(f.get('existing_image_identifier_hash')) for f in nodes.values()),
+        recommended_grouping=None,certification='not certified: sparse identity signals cannot bound residual cross-group duplicates',
+        frozen_method_sha256=hashlib.sha256((H/'methodology_frozen.json').read_bytes()).hexdigest(),code_commit=baseline['commit']))
+    assert baseline==inventory(),'Product checkout changed'
+    assert all(hashlib.sha256((BASE/n).read_bytes()).hexdigest()==h for n,h in oldfiles.items()),'Previous audit modified'
+    save('verification.json',dict(product_unchanged=True,files_hashed=len(baseline['hashes']),previous_audit_unchanged=True,
+        no_oracle=True,no_predictive_training=True,no_split_created=True,input_targets_not_matching_fields=True))
+    save('integrity_after.json',inventory())
+    print(json.dumps(json.loads((H/'results.json').read_text()),ensure_ascii=False,indent=2))
+
+if __name__=='__main__': main()

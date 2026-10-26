@@ -1,0 +1,156 @@
+from decimal import Decimal
+from dataclasses import replace
+
+from core.value_objects.location import Coordinates
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine
+from domain.valuation.engines.contracts import EngineContext, EngineRequest
+from domain.valuation.engines.registry import experimental_engine_registry
+from scripts.spatial_experiment import (
+    InstrumentedComparable, NAME, groups, target_for, experiment_case,
+    serialize, deserialize, successful,
+)
+from tests.unit.factories import make_listing
+
+UF = Decimal('40000')
+
+
+def listing(i, comuna='nunoa', offset=0.0001, price=200_000_000):
+    result = make_listing(fingerprint=f'spatial-{i}',
+        comuna=comuna, property_type='apartment', m2=60, built_area_m2=60,
+        price_clp=price, price_currency='CLP',
+        coords=Coordinates(-33.45 + i * offset, -70.6), geocode_precision='address')
+    result.id = i
+    return result
+
+
+def test_instrumentation_preserves_A_and_captures_surface():
+    target = target_for(listing(99))
+    pool = [listing(i) for i in range(1, 9)]
+    context = EngineContext(target=target, candidates=pool, uf_to_clp=UF)
+    expected = ComparablesCanonicalEngine(name=NAME, variant='outliers').valuate(EngineRequest(), context)
+    engine = InstrumentedComparable()
+    actual = engine.valuate(EngineRequest(), context)
+    assert successful(actual)
+    assert actual.estimated_price_clp == expected.estimated_price_clp
+    assert actual.confidence == expected.confidence
+    assert engine.trace['post_adjustment'] == actual.estimated_price_clp
+    assert len(engine.trace['reference_pool']) == 8
+
+
+def test_A_target_only_enriches_coordinates_for_plus():
+    item = listing(1)
+    a, plus = target_for(item), target_for(item, geo=True)
+    assert a.coordinates is None
+    assert plus.coordinates == item.coordinates
+    assert replace(plus, coordinates=None, geocode_precision=None) == a
+    assert not plus.raw_metadata
+
+
+def test_B_uses_neighbor_without_changing_comuna():
+    item = listing(1)
+    pool = [listing(i, comuna='providencia') for i in range(2, 8)]
+    context = EngineContext(target=target_for(item, geo=True), candidates=pool, uf_to_clp=UF)
+    assert not successful(InstrumentedComparable().valuate(EngineRequest(), context))
+    engine = InstrumentedComparable(spatial=True)
+    assert successful(engine.valuate(EngineRequest(), context))
+    assert all(i.comuna == 'providencia' for i in pool)
+    assert not engine.surface.available
+
+
+def test_related_publications_transitive_and_property_id_not_trusted():
+    a, b, c = listing(1), listing(2), listing(3)
+    b.fingerprint = a.fingerprint
+    b.url = c.url = 'https://example.test/shared'
+    d = listing(4)
+    d.property_id = a.property_id = 777
+    g = groups([a,b,c,d])
+    assert g[id(a)] == g[id(c)]
+    assert g[id(d)] != g[id(a)]
+
+
+def test_roundtrip_snapshot():
+    item = listing(1)
+    import json
+    from scripts.spatial_experiment import encode
+    value = json.loads(json.dumps(serialize(item), default=encode))
+    assert deserialize(value).price == item.price
+    assert deserialize(value).coordinates == item.coordinates
+
+
+def test_snapshot_keeps_engine_evidence_and_excludes_unrelated_credentials():
+    item = listing(1)
+    item.raw_metadata = {'description':'Departamento para remodelar',
+        'geo_signals':{'nearby_metro':'tobalaba'}, 'price_conversion_source':'fallback',
+        'access_token':'[REDACTED]'}
+    metadata = serialize(item)['raw_metadata']
+    assert metadata['description'] == item.raw_metadata['description']
+    assert metadata['geo_signals'] == item.raw_metadata['geo_signals']
+    assert metadata['price_conversion_source'] == 'fallback'
+    assert 'access_token' not in metadata
+
+
+def test_B_falls_back_on_four_and_expands_to_five():
+    target = listing(100, offset=0)
+    pool = [target] + [listing(i) for i in range(1,5)]
+    pool += [listing(5, offset=.0056)]
+    result = experiment_case(target, pool, UF, experimental_engine_registry())
+    assert result['variants']['B']['radius_km'] == 5.0
+    result = experiment_case(target, pool[:-1], UF, experimental_engine_registry())
+    assert result['variants']['B']['fallback_to_A']
+
+
+def test_frozen_reference_uses_A_not_B():
+    target = target_for(listing(100), geo=True)
+    pool_a = [listing(i, price=200_000_000) for i in range(1,25)]
+    pool_b = [listing(i, price=240_000_000) for i in range(30,54)]
+    a = InstrumentedComparable()
+    a.valuate(EngineRequest(), EngineContext(target=target, candidates=pool_a, uf_to_clp=UF))
+    frozen = InstrumentedComparable(spatial=True, frozen=a.surface)
+    frozen.valuate(EngineRequest(), EngineContext(target=target, candidates=pool_b, uf_to_clp=UF))
+    assert frozen.trace['reference'] == a.trace['reference']
+    assert frozen.trace['computed_reference'] != frozen.trace['reference']
+
+
+def test_frozen_keeps_B_pre_adjustment_and_original_pool_provenance():
+    target = target_for(listing(100), geo=True)
+    pool_a = [listing(i, price=200_000_000) for i in range(1,25)]
+    pool_b = [listing(i, price=240_000_000) for i in range(30,54)]
+    context = EngineContext(target=target, candidates=pool_a, uf_to_clp=UF)
+    a = InstrumentedComparable()
+    a.valuate(EngineRequest(), context)
+    b = InstrumentedComparable(spatial=True)
+    b.valuate(EngineRequest(), replace(context, candidates=pool_b))
+    frozen = InstrumentedComparable(spatial=True, frozen=a.surface,
+        frozen_pool=a.trace['reference_pool'], frozen_members=a.trace['reference_contributing_ids'])
+    frozen.valuate(EngineRequest(), replace(context, candidates=pool_b))
+    assert frozen.trace['pre_adjustment'] == b.trace['pre_adjustment']
+    assert frozen.trace['post_adjustment'] != b.trace['post_adjustment']
+    assert frozen.trace['adjustment']['applied']
+    assert frozen.trace['reference_pool'] == a.trace['reference_pool']
+    assert frozen.trace['computed_reference_pool'] == b.trace['reference_pool']
+    assert frozen.trace['reference_contributing_ids'] == a.trace['reference_contributing_ids']
+
+
+def test_weight_capture_matches_actual_extreme_disagreement_strategy():
+    from domain.valuation.engines.contracts import EngineResult, EngineStatus
+    from scripts.spatial_experiment import combine
+    from domain.valuation.engines.valoria_consensus.combination import weighted_median
+    context = EngineContext(target=target_for(listing(100)), uf_to_clp=UF)
+    results = [EngineResult(engine_name=name, engine_version='test', status=EngineStatus.OK,
+        estimated_price_clp=Decimal(value), confidence=confidence,
+        range_low_clp=Decimal(value)*Decimal('.8'), range_high_clp=Decimal(value)*Decimal('1.2'))
+        for name, value, confidence in [(NAME,100,.8), ('microzone_geo_v1',250,.6), ('hedonic_baseline_v1',260,.7)]]
+    output = combine(context, results)
+    assert output['strategy'] == 'weighted_median_extreme_disagreement'
+    assert output['estimate'] == float(weighted_median(
+        {r.engine_name:r.estimated_price_clp for r in results}, output['weights']))
+    audit = {r['engine_name']:r['final_normalized_weight'] for r in output['audit']}
+    assert output['weights'] != audit
+
+
+def test_same_snapshot_rerun_is_deterministic():
+    target = listing(100, offset=0)
+    universe = [target] + [listing(i) for i in range(1,9)]
+    first = experiment_case(target, universe, UF, experimental_engine_registry())
+    second = experiment_case(target, universe, UF, experimental_engine_registry())
+    assert first == second

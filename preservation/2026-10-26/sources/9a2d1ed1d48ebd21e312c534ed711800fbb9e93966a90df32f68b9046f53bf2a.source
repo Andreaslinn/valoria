@@ -1,0 +1,20 @@
+import pathlib,subprocess,json
+root=pathlib.Path('work/oracle-ingestion-resilience')
+key=(root/'domain/ingestion/location_evidence.py').read_text()
+audit=(root/'scripts/audit_location_coverage.py').read_text()
+code="import types,sys\nm=types.ModuleType('domain.ingestion.location_evidence')\nexec("+repr(key)+",m.__dict__)\nsys.modules[m.__name__]=m\nexec("+repr(audit)+",{'__name__':'__main__'})"
+remote=r'''
+import subprocess,json
+def run(args,stdin=None):
+ r=subprocess.run(args,input=stdin,text=True,capture_output=True,timeout=90)
+ if r.returncode:raise RuntimeError('Read-only verification failed: '+r.stderr[-300:])
+ return json.loads(r.stdout)
+reference=run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-m','scripts.verify_canonical_live'])
+coverage=run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],CODE)
+print(json.dumps({'reference':reference,'coverage':coverage}))
+'''.replace('CODE',repr(code))
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=remote,text=True,encoding='utf-8',capture_output=True,timeout=210)
+if r.returncode:raise SystemExit(r.stderr[-500:] or r.stdout[-500:])
+proof=json.loads(r.stdout)
+pathlib.Path('outputs/portal-location-2a/readonly-current-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+print(json.dumps({'references':[{'comuna':c['comuna'],'estimated_uf':c['estimated_uf'],'uf':c['uf_rate']} for c in proof['reference']['cases']], 'coverage':proof['coverage']['combined']}))

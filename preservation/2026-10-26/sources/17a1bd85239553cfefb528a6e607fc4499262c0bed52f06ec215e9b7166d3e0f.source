@@ -1,0 +1,62 @@
+import hashlib
+import json
+from pathlib import Path
+import statistics
+import time
+from .benchmark import percentile
+from .pipeline import Store, Context, work_one
+from .server import replay_provider, fixture_rows
+
+
+def measure():
+    result=Path(__file__).parent/'results'
+    root=Path(__file__).parent/('state/perf-'+str(time.time_ns()))
+    store=Store(root)
+    rows=fixture_rows()[:5]
+    context=Context('radar',True,True,'perf-user')
+    misses=[]
+    for row in rows:
+        start=time.perf_counter(); store.request(row,context)
+        misses.append((time.perf_counter()-start)*1000)
+    worker=[]
+    while True:
+        start=time.perf_counter()
+        if not work_one(store,replay_provider): break
+        worker.append((time.perf_counter()-start)*1000)
+    hits=[]; batches=[]
+    for _ in range(50):
+        start_batch=time.perf_counter()
+        for row in rows:
+            start=time.perf_counter(); store.request(row,context)
+            hits.append((time.perf_counter()-start)*1000)
+        batches.append((time.perf_counter()-start_batch)*1000)
+    with store.connection() as db:
+        metadata=[dict(r) for r in db.execute('SELECT listing_id,metrics FROM thumbnails')]
+        db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    values={'n_real_sources':5,'miss_enqueue_ms':{'median':statistics.median(misses),'p95':percentile(misses,.95)},
+        'hit_ms':{'median':statistics.median(hits),'p95':percentile(hits,.95),'n':len(hits)},
+        'five_listing_batch_ms':{'median':statistics.median(batches),'p95':percentile(batches,.95)},
+        'worker_offline_with_persistence_ms':worker,
+        'per_thumbnail_offline_metrics':[{'listing_id':r['listing_id'],**json.loads(r['metrics'])} for r in metadata],
+        'metadata_sqlite_file_bytes':store.db.stat().st_size,
+        'asset_payload_bytes':sum(p.stat().st_size for p in store.assets.glob('*.webp'))}
+    # Metadata scale includes indexes, one membership per listing, no binaries in DB.
+    data=replay_provider(rows[0]['raw_metadata']['main_image_url'])
+    from .normalize import normalize
+    thumb=normalize(data.body,data.mime)
+    for lid in range(6,1006):
+        row={**rows[0],'listing_id':lid}
+        store.request(row,context)
+        job=store.claim()
+        store.finish(job,thumb,data.source_hash)
+    with store.connection() as db:
+        db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    values['metadata_scale']={'rows':1005,'sqlite_bytes':store.db.stat().st_size,
+                             'bytes_per_listing':store.db.stat().st_size/1005,
+                             'assumed_projection_bytes_per_listing':2048}
+    (result/'performance.json').write_text(json.dumps(values,indent=2))
+    store.close()
+    print(json.dumps({k:v for k,v in values.items() if k!='per_thumbnail_offline_metrics'},indent=2))
+
+
+if __name__ == '__main__': measure()

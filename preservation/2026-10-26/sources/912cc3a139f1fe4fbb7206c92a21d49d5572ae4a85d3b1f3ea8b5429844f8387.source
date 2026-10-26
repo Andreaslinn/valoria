@@ -1,0 +1,17 @@
+from pathlib import Path
+import subprocess,json
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+probe=Path('work/github-release/scripts/diagnose_canonical_price_cases.py').read_text(encoding='utf-8')
+patched=Path('work/github-release/domain/valuation/engines/canonical_comparables.py').read_text(encoding='utf-8')
+inner="import asyncio\nimport domain.valuation.engines.canonical_comparables as engine\nns={'__name__':'case_probe'}\nexec(compile("+repr(probe)+",'<case-probe>','exec'),ns)\nasync def compare():\n print('BEFORE_SNAPSHOT')\n await ns['main']()\n exec(compile("+repr(patched)+",'<isolated-candidate-engine>','exec'),engine.__dict__)\n exec(compile("+repr(probe)+",'<case-probe>','exec'),ns)\n print('AFTER_SNAPSHOT')\n await ns['main']()\nasyncio.run(compare())"
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=90)\nprint(r.stdout);print(r.stderr if r.returncode else '');raise SystemExit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=110)
+if r.returncode:print(r.stdout[-2000:])
+r.check_returncode()
+before,after=r.stdout.split('AFTER_SNAPSHOT',1)
+b=json.loads(before.split('BEFORE_SNAPSHOT',1)[1]);a=json.loads(after)
+Path('work/canonical-controlled-before.json').write_text(json.dumps(b,indent=2),encoding='utf-8')
+Path('work/canonical-controlled-after.json').write_text(json.dumps(a,indent=2),encoding='utf-8')
+for old,new in zip(b['cases'],a['cases']):
+ assert old['selected_ids']==new['selected_ids'] and old['comparable_weights']==new['comparable_weights'] and old['exclusions']==new['exclusions']
+ print(json.dumps({'comuna':old['input']['comuna'],'before_uf':old['estimated_uf'],'after_uf':new['estimated_uf'],'before_ppm2':old['ppm2_base'],'after_ppm2':new['ppm2_base'],'surface_factor':new['price_surface_factor'],'selection_weights_exclusions_unchanged':True}))

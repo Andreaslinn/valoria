@@ -1,0 +1,49 @@
+from contracts import *
+from analyze import metrics,interval
+import numpy as np
+PAIRS=[('A','AM'),('A','Blend'),('Final','FinalAM'),('Final','FinalBlend'),('A','Final')]
+def summary(rows):
+ result={}
+ for mode in MODES:
+  ss=[r for r in rows if r['mode']==mode]
+  result[mode]={}
+  for label,subset in [('all',ss),('geo_available',[r for r in ss if r['geo_original']]),('no_geo',[r for r in ss if not r['geo_original']]),('Yapo',[r for r in ss if r['source']=='yapo']),('Portal',[r for r in ss if r['source']=='portalinmobiliario'])]:
+   z={'full':{n:metrics(subset,n) for n in NAMES},'AM_fallbacks':dict(Counter(r['AM_trace']['strategy'] for r in subset))}
+   if label in ['all','geo_available']:
+    z['pairs']={a+'__'+b:interval(subset,a,b) for a,b in PAIRS}
+   z['consensus_used']=sum(r['final_trace'].get('consensus_used',False) for r in subset)
+   z['service_abstentions']=sum(r['final_trace'].get('status')=='service_pre_consensus_abstention' for r in subset)
+   result[mode][label]=z
+  good=[r for r in ss if r['predictions']['A'] is not None and r['predictions']['DeployedA'] is not None]
+  result[mode]['parity']={'common':len(good),'differ_over_001':sum(abs(r['predictions']['A']-r['predictions']['DeployedA'])>.011 for r in good),'same_coverage':all((r['predictions']['A'] is None)==(r['predictions']['DeployedA'] is None) for r in ss)}
+  family=defaultdict(list);levels=defaultdict(Counter)
+  for r in ss:
+   for w in r['final_trace'].get('weights',[]):family[w['engine_name']].append(w['final_normalized_weight'])
+   for e in r['final_trace'].get('families',[]):
+    d=e.get('diagnostics') or {};levels[e['engine_name']][d.get('market_level_used') or d.get('model_level') or e['status']]+=1
+  result[mode]['family_weight_median']={k:float(np.median(v)) for k,v in family.items()}
+  result[mode]['family_levels']={k:dict(v) for k,v in levels.items()}
+  result[mode]['folds']={str(f):{n:metrics([r for r in ss if r['fold']==f],n) for n in NAMES} for f in sorted({r['fold'] for r in ss})}
+ # Same targets, same folds/catalog, same A; change availability only.
+ indexes={m:{r['row_id']:r for r in rows if r['mode']==m} for m in MODES}
+ contrasts={}
+ for a,b in [('manual','located'),('located','enriched'),('manual','enriched')]:
+  paired=[]
+  for i,x in indexes[a].items():
+   y=indexes[b][i]
+   assert x['target_uf']==y['target_uf'] and x['group']==y['group'] and x['fold']==y['fold']
+   paired.append({**x,'predictions':{f'{m}_{n}':indexes[m][i]['predictions'][n] for m in [a,b] for n in ['A','Final']}})
+  contrasts[a+'__'+b]={label:{n:interval(z,f'{a}_{n}',f'{b}_{n}') for n in ['A','Final']} for label,z in [('all',paired),('geo_available',[r for r in paired if r['geo_original']])]}
+ return {'modalities':result,'input_availability_contrasts':contrasts,'evidence':'Exploratory reused labels; paired group bootstrap conditional on fitted OOF predictions, not independent replication or prospective confirmation.'}
+def main():
+ out={}
+ for which in ['20261009','20261010','temporal','catalog-temporal']:
+  p=HERE/('catalog-temporal.json.dpapi' if which=='catalog-temporal' else f'contracts-{which}.json.dpapi')
+  if not p.exists():continue
+  revised=p.with_name(p.name.replace('.json.dpapi','-v2.json.dpapi'))
+  if revised.exists():p=revised
+  rows=decrypt(p);out[which]=summary(rows);out[which]['input_contract_version']='v2_missing_geo_matches_manual' if p==revised else 'v1_superseded_location_label';out[which]['predictions_sha256']=sha(p);write(HERE/f'summary-{which}.json',out[which])
+ write(HERE/'results.json',out)
+ compact={k:{m:{'A':z['all']['full']['A'],'AM':z['all']['full']['AM'],'Blend':z['all']['full']['Blend'],'Final':z['all']['full']['Final'],'FinalBlend':z['all']['full']['FinalBlend'],'parity':z['parity']} for m,z in v['modalities'].items()} for k,v in out.items()}
+ print(json.dumps(compact,allow_nan=False))
+if __name__=='__main__':main()

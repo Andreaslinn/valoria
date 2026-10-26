@@ -1,0 +1,2 @@
+from pathlib import Path
+p=Path('tests/frontend/load-ts.cjs');s=p.read_text();s=s.replace('module:ts.ModuleKind.CommonJS,target:', 'module:ts.ModuleKind.CommonJS,esModuleInterop:true,target:');p.write_text(s)

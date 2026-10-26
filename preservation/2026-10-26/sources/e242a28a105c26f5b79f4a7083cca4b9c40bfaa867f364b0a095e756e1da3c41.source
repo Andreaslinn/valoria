@@ -1,0 +1,31 @@
+import subprocess,json,pathlib,datetime,sys
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-final-redeploy-20261016')
+def run(args):return subprocess.check_output(args,text=True,timeout=90)
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  rows=(await s.execute(text("SELECT source,external_id FROM listings"))).all()
+  print(json.dumps({'identities':[[r.source,r.external_id] for r in rows]}))
+asyncio.run(main())'''
+cycle=3
+prior=B/'cycles-current.json'
+if prior.exists():
+ saved=B/'cycle-2-result.json';saved.write_bytes(prior.read_bytes());saved.chmod(0o600)
+assert 1<=cycle<=3
+snapshot=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',code]))
+p=B/('stock-before-cycle-'+str(cycle)+'.json');p.write_text(json.dumps(snapshot));p.chmod(0o600)
+if cycle==2:
+ p=B/'stock-before-cycles.json';p.write_bytes((B.parent/'discovery-redeploy-20261016/stock-before-cycles.json').read_bytes());p.chmod(0o600)
+for source in ['portal','yapo']:
+ unit='valoria-'+source+'-discovery.service'
+ state=run(['systemctl','show',unit,'--property=ActiveState'])
+ assert 'ActiveState=inactive' in state or (source=='portal' and 'ActiveState=failed' in state)
+proof={'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'sources':['portalinmobiliario','yapo'],'authorized_normal_service_starts':1,'stock_before':len(snapshot['identities']),'cycle':cycle}
+p=B/('cycle-'+str(cycle)+'-start.json');p.write_text(json.dumps(proof));p.chmod(0o600)
+if cycle==2:
+ p=B/'cycles-start.json';p.write_bytes((B.parent/'discovery-redeploy-20261016/cycles-start.json').read_bytes());p.chmod(0o600)
+subprocess.run(['sudo','-n','systemctl','start','--no-block','valoria-portal-discovery.service','valoria-yapo-discovery.service'],check=True,timeout=30)
+print(json.dumps(proof))

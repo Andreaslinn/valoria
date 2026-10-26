@@ -1,0 +1,169 @@
+"""Offline Yapo result decoding. No network or executable JavaScript evaluation."""
+from __future__ import annotations
+import json
+import re
+from decimal import Decimal, InvalidOperation
+from urllib.parse import urljoin, urlsplit
+from bs4 import BeautifulSoup
+from infrastructure.scrapers.coordinates import coordinate_pair
+
+
+class YapoStructureError(ValueError):
+    """A response cannot safely be interpreted as a result page."""
+
+
+def flight_roots(soup):
+    chunks = []
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text()
+        match = re.fullmatch(r"\s*self\.__next_f\.push\((.*)\);?\s*", text, re.S)
+        if not match:
+            continue
+        try:
+            value = json.loads(match.group(1))
+            if isinstance(value, list) and len(value) == 2 and value[0] == 1 and isinstance(value[1], str):
+                chunks.append(value[1])
+        except (ValueError, TypeError):
+            continue
+    # Flight records can cross script boundaries. Decode JSON, never eval JS.
+    for line in "".join(chunks).splitlines():
+        _, sep, body = line.partition(":")
+        if not sep:
+            continue
+        try:
+            yield json.loads(body)
+        except ValueError:
+            continue
+
+
+def search_results(soup):
+    """Locate the observed initialResults contract, not unrelated item arrays."""
+    def visit(value):
+        if isinstance(value, dict):
+            result = value.get("initialResults")
+            if isinstance(result, dict) and isinstance(result.get("data"), list):
+                yield result
+            for child in value.values():
+                yield from visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from visit(child)
+    for root in flight_roots(soup):
+        yield from visit(root)
+
+
+def payload_items(soup, *, search_only=False):
+    found = {}
+    def visit(value):
+        if isinstance(value, dict):
+            if all(k in value for k in ("id", "link", "location", "price")):
+                found.setdefault(str(value["id"]), value)
+                return
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+    if search_only:
+        for result in search_results(soup):
+            visit(result["data"])
+    else:
+        for root in flight_roots(soup):
+            visit(root)
+    return list(found.values())
+
+
+def number(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        parsed = Decimal(str(value).strip())
+        return parsed if parsed.is_finite() and parsed >= 0 else None
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def adapt_item(item, *, scraped_at, uf_to_clp):
+    external_id = str(item.get("id", ""))
+    url = urljoin("https://www.yapo.cl", str(item.get("link", "")))
+    parts = urlsplit(url)
+    if not external_id.isdigit() or parts.hostname not in {"www.yapo.cl", "yapo.cl"} or parts.scheme != "https":
+        return None
+    if parts.path.rstrip("/").rsplit("/", 1)[-1] != external_id:
+        return None
+    title = item.get("title")
+    location = item.get("location")
+    price = item.get("price")
+    if not isinstance(title, str) or not title.strip() or not isinstance(location, dict) or not isinstance(price, dict):
+        return None
+    amount_data = price.get("amount")
+    currency_data = price.get("currency")
+    if not isinstance(amount_data, dict) or not isinstance(currency_data, dict):
+        return None
+    amount = number(amount_data.get("value"))
+    currency = currency_data.get("symbol")
+    if not isinstance(currency, str):
+        return None
+    currency = "UF" if currency in {"UF", "CLF"} else currency
+    if amount is None or amount <= 0 or currency not in {"UF", "CLP"}:
+        return None
+    price_uf = float(amount) if currency == "UF" else None
+    price_clp = int(amount) if currency == "CLP" else int(amount * uf_to_clp) if uf_to_clp else 0
+    subtype = str(item.get("subCategoryType") or "")
+    house = "/bienes-raices-venta-de-propiedades-casas/" in parts.path
+    apartment = "/bienes-raices-venta-de-propiedades-apartamentos/" in parts.path
+    if not (house or apartment):
+        return None
+    area = number(item.get("square"))
+    lot = number(item.get("lotSize"))
+    usable = number(item.get("usableArea"))
+    lat, lon = coordinate_pair(location.get("lat"), location.get("lon"))
+    if (lat, lon) == (0, 0):
+        lat, lon = None, None
+    images = item.get("images") or []
+    image = item.get("principalImage")
+    if not isinstance(image, str):
+        image = next((v for v in images if isinstance(v, str)), None)
+    if image and urlsplit(image).scheme not in {"http", "https"}:
+        image = None
+    metadata = {"currency_original": currency, "location_text": location.get("locality") or "",
+                "location": location.get("locality") or "", "property_subtype": subtype,
+                "main_image_url": image, "parser_source": "yapo_search_payload",
+                "category": "casas" if house else "departamentos",
+                "area_source": "yapo_payload.square", "source_total_area_m2": float(lot) if lot else None}
+    if lat is not None:
+        metadata["location_source"] = "yapo_search_payload"
+    if price_uf is not None:
+        metadata["price_uf"] = price_uf
+        if not uf_to_clp:
+            metadata["price_clp_missing_reason"] = "missing_uf_rate"
+        else:
+            metadata.update(price_clp_provenance="derived_from_uf_real_rate", uf_rate_used=str(uf_to_clp))
+    return {"source": "yapo", "external_id": external_id, "title": title.strip(), "url": url,
+            "comuna": location.get("locality") or "", "property_type": "house" if house else "apartment",
+            "m2": float(area) if area else 0, "built_area_m2": float(area) if area else None,
+            "usable_area_m2": float(usable) if usable else None,
+            "land_area_m2": float(lot) if house and lot else None,
+            "bedrooms": int(number(item.get("rooms")) or 0), "bathrooms": int(number(item.get("bathrooms")) or 0),
+            "parking": int(number(item.get("parking")) or 0), "price_clp": price_clp,
+            "price_uf": price_uf, "lat": lat, "lon": lon, "scraped_at": scraped_at, "raw_metadata": metadata}
+
+
+def classify_page(html, *, status_code=None):
+    if status_code in {403, 429}:
+        return "http_blocked"
+    soup = BeautifulSoup(html or "", "lxml")
+    title = soup.title.get_text(" ", strip=True).lower() if soup.title else ""
+    if (title in {"captcha", "just a moment...", "just a moment…", "un momento…", "attention required! | cloudflare"}
+        or soup.select_one("#challenge-running, #challenge-form, #cf-challenge-running")
+        or any(x in soup.get_text(" ", strip=True).lower() for x in ("verify you are human", "verifica que eres humano", "verificación de seguridad en curso"))):
+        return "challenge"
+    if soup.select_one("a.item-card-link, div.d3-ad-tile") or payload_items(soup, search_only=True):
+        return "results"
+    for result in search_results(soup):
+        if result["data"] == [] and (result.get("metadata") or {}).get("total") == 0:
+            return "empty"
+    text = soup.get_text(" ", strip=True).lower()
+    if any(x in text for x in ("no se encontraron resultados", "no encontramos resultados", "no hay resultados para", "mostrando 0 - 0 de 0")):
+        return "empty"
+    return "unknown"

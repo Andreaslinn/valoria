@@ -1,0 +1,66 @@
+"""Finite regularized simplex weight search; no outer feedback or spatial retuning."""
+from support import *
+import sys
+def weight_grid():
+ values=[tuple(W0)]
+ for i in range(5):
+  for j in range(5):
+   if i==j:continue
+   w=np.array(W0);w[i]-=.1;w[j]+=.1;values.append(tuple(map(float,w)))
+ rng=np.random.default_rng(20261011)
+ values.extend(tuple(map(float,w)) for w in rng.dirichlet(40*np.array(W0),size=10))
+ assert len(values)==31
+ assert all(min(w)>=0 and abs(sum(w)-1)<1e-12 for w in values)
+ return values
+WEIGHTS=weight_grid();LAMBDA=.1
+def choose(losses,weights=WEIGHTS):
+ objective=[x+LAMBDA*sum((a-b)**2 for a,b in zip(w,W0)) if x is not None else None for x,w in zip(losses,weights)]
+ j=min((j for j,x in enumerate(objective) if x is not None),key=lambda j:(round(objective[j],12),j))
+ return j,objective
+def tune(ds,outer,c,seed,idx):
+ names=['w'+str(i) for i in range(len(WEIGHTS))];custody=LabelCustody(ds,());pred={n:{} for n in names};truth={};audits=[]
+ for split in inner_folds(ds,outer,seed,n_folds=3,reserved_holdout=()):
+  batch=custody.issue(ds,split,config(c,seed,names),(),outer);model=FoldModel(batch,c['uf_reference']['value']);vals={n:{} for n in names}
+  for i in split.test:
+   b=model.bundle(batch.target(i))
+   for n,w in zip(names,WEIGHTS):vals[n][i]=b.predict(override(BASE,'A1',weights=w))['prediction']
+  custody.record_predictions(batch,vals);truth.update(custody.complete(vals,split.test))
+  for n in names:pred[n].update(vals[n])
+  audits.append({'train_hash':digest(sorted(split.train)),'test_hash':digest(sorted(split.test)),'within_outer_train':set(split.train)|set(split.test)<=set(outer.train),'group_overlap':0})
+ losses=[]
+ for n in names:
+  loss=0.;eligible=True
+  for source,alpha in [('portalinmobiliario',.6),('yapo',.4)]:
+   ids=[i for i in truth if idx[i].features['source']==source]
+   if sum(pred[n][i] is not None for i in ids)<sum(pred['w0'][i] is not None for i in ids):eligible=False
+   common=[i for i in ids if pred[n][i] is not None and pred['w0'][i] is not None]
+   if not common:eligible=False;continue
+   loss+=alpha*np.mean([abs(math.log(pred[n][i]/truth[i])) for i in common])
+  losses.append(float(loss) if eligible else None)
+ j,obj=choose(losses)
+ return WEIGHTS[j],{'selected_index':j,'weights':WEIGHTS[j],'inner_losses':losses,'regularized_objectives':obj,'audits':audits}
+def run(seed):
+ c=integrity();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];idx=ds.indexed();plan=p.create_plan(ds,cohort,maps['G3'],seed)
+ tag='primary-v2' if seed==20261009 else 'second-seed-v2';prior={r['row_id']:r for r in decrypt(PARENT/(tag+'.json.dpapi'))}
+ out=HERE/f'a1-{seed}.json.dpapi';assert not out.exists(),'No result overwrite'
+ custody=LabelCustody(ds,());rows=[];selected=[]
+ for fold,split in enumerate(plan.folds):
+  print(json.dumps({'seed':seed,'fold':fold,'phase':'A1-inner'}),flush=True)
+  weights,audit=tune(ds,split,c,seed,idx);selected.append({'fold':fold,**audit})
+  print(json.dumps({'seed':seed,'fold':fold,'weights':weights,'phase':'A1-outer'}),flush=True)
+  batch=custody.issue(ds,split,config(c,seed,['A','w0']),());model=FoldModel(batch,c['uf_reference']['value']);vals={'A':{},'w0':{}};traces={}
+  for i in split.test:
+   assert prior[i]['fold']==fold
+   t=batch.target(i);b=model.bundle(t);trace=b.predict(override(BASE,'A1',weights=weights));verify_trace(trace,batch,t)
+   # Original A result is reused, not rerun or retuned.
+   a=prior[i]['predictions']['A'];traces[i]={'A':a,'w0':trace};vals['A'][i]=a['prediction'];vals['w0'][i]=trace['prediction']
+  custody.record_predictions(batch,vals);truth=custody.complete(vals,split.test)
+  for i in split.test:rows.append({'row_id':i,'group':batch.components[i],'source':idx[i].features['source'],
+   'coordinates_present':prior[i]['coordinates_present'],'fold':fold,'target_uf':truth[i],'predictions':traces[i]})
+ summary={'seed':seed,'selected_per_fold':selected,'n':len(rows),'regularization_lambda':LAMBDA,'grid_n':len(WEIGHTS),'scope':'Canonical communal A; mixed sources; all791 development targets','evidence':'Exploratory; previously observed outer targets; not new independent evidence','metrics':{},'pairs':{}}
+ for source in ['global','yapo','portalinmobiliario']:
+  subset=[r for r in rows if source=='global' or r['source']==source]
+  summary['metrics'][source]={n:metric(subset,n) for n in ['A','w0']};summary['pairs'][source]=interval(subset,'A','w0')
+ summary['predictions_plaintext_sha256']=encrypt(out,rows);write(HERE/f'a1-{seed}-summary.json',summary)
+ print(json.dumps({'seed':seed,'complete':True,'metrics':summary['metrics'],'weights':[s['weights'] for s in selected]}),flush=True)
+if __name__=='__main__':run(int(sys.argv[1]))

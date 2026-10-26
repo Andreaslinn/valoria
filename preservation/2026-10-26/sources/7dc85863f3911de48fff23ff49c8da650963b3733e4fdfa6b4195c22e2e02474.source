@@ -1,0 +1,58 @@
+"""Package runnable source and immutable evaluation evidence; no deployment."""
+import json,hashlib,subprocess,zipfile,difflib
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent.parent
+REPO=ROOT/'work/valoria'
+OUT=ROOT/'outputs/integrated'
+OLD=Path('C:/Users/heiko/Documents/Codex/2026-10-19/segunda-capa-sii-tasar-desde-la/work/valoria')
+tracked=subprocess.check_output(['git','-C',str(OLD),'ls-files'],text=True).splitlines()
+added=['services/sii/local_geography.py','services/sii/geographic_knn.py','services/sii/geographic_opinion.py',
+       'services/sii/pure_valuation.py','scripts/build_sii_geography.py','scripts/fetch_vitacura_osm.py',
+       'scripts/audit_sii_geography.py','scripts/validate_sii_geographic.py','tests/unit/test_local_geography.py',
+       'tests/unit/test_geographic_knn.py','tests/unit/test_sii_geographic_integration.py',
+       'tests/fixtures/valuation_release_24b56dc.py.txt','frontend-v2/src/features/valuation/nearby-sales.tsx',
+       'frontend-v2/src/features/valuation/sii-geographic-estimate.tsx','frontend-v2/src/features/valuation/sii-geographic.css']
+files=sorted(set(tracked+added))
+def sha(p):
+    h=hashlib.sha256()
+    with Path(p).open('rb') as f:
+        for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
+    return h.hexdigest()
+assert sha(REPO/'services/sii/closing_knn.py')==sha(OLD/'services/sii/closing_knn.py')
+patch=[];changed=[]
+for name in files:
+    p=REPO/name
+    if not p.is_file() or p.name.startswith('.env'):continue
+    before=(OLD/name).read_bytes() if (OLD/name).is_file() else b'';after=p.read_bytes()
+    if before!=after:
+        changed.append(name)
+        try:patch.extend(difflib.unified_diff(before.decode('utf8').splitlines(True),after.decode('utf8').splitlines(True),fromfile='a/'+name if before else '/dev/null',tofile='b/'+name))
+        except UnicodeDecodeError:pass
+(OUT/'changes.patch').write_text(''.join(patch),encoding='utf8')
+modelpaths=['services/sii/closing_knn.py','services/sii/geographic_knn.py','services/sii/geographic_opinion.py']
+manifest={'base_commit':'c71b234906b973c79486fa966882f2f59893a090','changed':changed,
+    'model_hashes':{p:sha(REPO/p) for p in modelpaths},'baseline_implementation_unchanged':True,
+    'evaluation':{p.name:sha(p) for p in (OUT/'evaluation').glob('*.json')},
+    'data':{p.name:sha(p) for p in (OUT/'vitacura').iterdir() if p.is_file()},
+    'tests':'117 passed, none skipped or deselected; portable frozen baseline API fixture verified by SHA-256',
+    'typescript':'tsc --noEmit passed','holdout_reproduction':'passed, identical non-latency metrics',
+    'model_selection':{'casa':'baseline','depto':'baseline'},'production_access':False,'deploy':False,
+    'f2890_rejoin':False,'portal_yapo_data_used':False,'external_geography_requests_this_stage':0,
+    'scope':'Vitacura only','api':'POST /api/v1/tasar/sii-valuation',
+    'runtime':{'public_authentication':'preserved','local_demo':'loopback 127.0.0.1:8772 only'},
+    'geography_source_audit_inputs':{'initial_mvp_sha256':sha(ROOT/'outputs/vitacura/geography.sqlite'),
+        'legacy_archive':'C:/Users/heiko/Downloads/valoria_entorno_mvp_v2.1.zip',
+        'legacy_archive_sha256':'309755908c0c6dc9f5fd8d1a7c5ed3e29e7fc8596474460382afb840c9a2f3a4'}}
+(OUT/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf8')
+archive=OUT/'Valoria_Tasar_SII_integrado.zip'
+with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+    for name in files:
+        p=REPO/name
+        if p.is_file() and not p.name.startswith('.env'):z.write(p,'work/valoria/'+name)
+    for name in ['start_geo_demo.py','export_historical_controls.py','benchmark_integrated.py','integration_evidence.py']:
+        z.write(ROOT/'work'/name,'work/'+name)
+    z.write(ROOT/'outputs/integration-protocol.json','outputs/integration-protocol.json')
+    for p in OUT.rglob('*'):
+        if p.is_file() and p.suffix!='.zip':z.write(p,p.relative_to(ROOT).as_posix())
+with zipfile.ZipFile(archive) as z:assert z.testzip() is None
+print(json.dumps({'zip':str(archive),'bytes':archive.stat().st_size,'sha256':sha(archive),'changed':changed},indent=2))

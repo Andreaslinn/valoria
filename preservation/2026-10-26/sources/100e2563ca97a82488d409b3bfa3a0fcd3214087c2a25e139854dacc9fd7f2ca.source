@@ -1,0 +1,63 @@
+"""Replay current pure source parsers; intentionally no cleaner/microzones/DB."""
+import sys,json
+from datetime import datetime,timezone
+from bs4 import BeautifulSoup
+from common import H,REPO,sha,save
+from ingestion import evidence_yapo,evidence_portal,append_observation
+sys.path.insert(0,str(REPO))
+from infrastructure.scrapers.yapo_modern import payload_items,adapt_item,classify_page
+from infrastructure.scrapers.yapo import YapoScraper,parse_listing_detail
+from infrastructure.scrapers.portalinmobiliario import PortalInmobiliarioScraper,parse_listing_detail_portal,_extract_nordic_initial_state,_components_by_id
+
+def build_hash():
+    paths=['infrastructure/scrapers/yapo.py','infrastructure/scrapers/yapo_modern.py','infrastructure/scrapers/portalinmobiliario.py','infrastructure/scrapers/base.py','infrastructure/scrapers/coordinates.py']
+    return sha(json.dumps({p:sha((REPO/p).read_bytes()) for p in paths},sort_keys=True).encode())
+def decode_yapo(raw,url,observed,detail=False):
+    soup=BeautifulSoup(raw,'lxml'); items=payload_items(soup,search_only=not detail)
+    if detail: items=[i for i in items if str(i.get('id'))==url.rstrip('/').rsplit('/',1)[-1]]
+    rows=[]
+    for item in items:
+        r=adapt_item(item,scraped_at=observed,uf_to_clp=None)
+        if r:
+            if detail: r['raw_metadata']['parser_source']='yapo_detail_payload'
+            rows.append(dict(r,evidence=evidence_yapo(item)))
+    if not rows and not detail:
+        rows=[dict(r,evidence={'capture_limitation':'DOM only; raw HTML retained'}) for r in YapoScraper.parse_listings(raw)]
+    if not rows and detail:
+        r=parse_listing_detail(raw,url=url)
+        if r:
+            # All Flight roots are retained in HTML. Never attribute recommendation items to target.
+            desc=soup.select_one('meta[name="description"]')
+            rows=[dict(r,evidence={'description_raw':desc.get('content') if desc else None,'capture_limitation':'detail DOM; unrecognized Flight structure retained for replay'})]
+    return rows
+def decode_portal(raw,url,detail=False):
+    if not detail:
+        rows=PortalInmobiliarioScraper.parse_listings(raw); soup=BeautifulSoup(raw,'lxml'); out=[]
+        for r in rows:
+            card=next((c for c in soup.select('li.ui-search-layout__item') if any(str(r.get('external_id')) in str(a.get('href','')) for a in c.select('a[href]'))),None)
+            if card:
+                images=[x.get('data-src') or x.get('src') for x in card.select('img') if x.get('data-src') or x.get('src')]
+                title=card.select_one('a.poly-component__title')
+                e={'image_urls':images,'images_raw':images,'title_raw':title.get_text() if title else None,'card_attributes_raw':[x.get_text(' ',strip=True) for x in card.select('.poly-attributes_list__item')]}
+            else: e={'capture_limitation':'no unambiguous card binding; no page-wide image attribution'}
+            out.append(dict(r,evidence=e))
+        return out
+    soup=BeautifulSoup(raw,'lxml'); state=_extract_nordic_initial_state(soup) or {}
+    detailrow=parse_listing_detail_portal(raw,url); comps=_components_by_id(state.get('components'))
+    if detailrow['state']!='detail': return []
+    r=dict(detailrow,price_currency=detailrow.get('currency_original'),url=detailrow.get('canonical_url') or url,
+        m2=detailrow.get('usable_area_m2') or detailrow.get('built_area_m2') or detailrow.get('total_area_m2'),evidence=evidence_portal(soup,state,comps))
+    r['raw_metadata']['accepted_rm']=bool(r.get('comuna'))
+    return [r]
+def run():
+    dest=H/'private/fixture_replay_v2'
+    if (dest/'observations.jsonl').exists(): raise SystemExit('Refusing duplicate fixture replay; use a new output folder')
+    summary=[]
+    fixtures=[('yapo','yapo_modern_results_sanitized.html',False),('portalinmobiliario','portal_results_real_sanitized.html',False),('portalinmobiliario','portal_detail_real_1_sanitized.html',True),('portalinmobiliario','portal_detail_real_2_sanitized.html',True)]
+    for source,name,detail in fixtures:
+        p=REPO/'tests/fixtures'/name; raw=p.read_bytes(); url='fixture://'+name; observed='fixture_replay_not_live'
+        rows=decode_yapo(raw,url,observed) if source=='yapo' else decode_portal(raw,url,detail)
+        for r in rows: append_observation(dest,r,raw,source_url=url,observed_at=observed,build_hash=build_hash(),stage='fixture_detail' if detail else 'fixture_card')
+        summary.append(dict(fixture=name,source=source,detail=detail,N=len(rows),sha256=sha(raw)))
+    save('fixture_replay_manifest.json',summary); print(json.dumps(summary))
+if __name__=='__main__': run()

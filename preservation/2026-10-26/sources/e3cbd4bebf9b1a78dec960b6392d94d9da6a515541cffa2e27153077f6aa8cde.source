@@ -1,0 +1,24 @@
+from pathlib import Path
+import json,subprocess,urllib.request
+scope={}
+exec(Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];pr=api('/pulls/5')
+head='603f842fd931ba1ee2ca215168eb6a1c48921fb6'
+assert pr['head']['sha']==head and pr['base']['ref']=='release/canonical-only-reproducible-20261013'
+assert pr['base']['sha']=='c55f4b65da8c03cb3a3fd6634f35ccd09f8f427a'
+repo=Path('work/oracle-ingestion-resilience')
+assert subprocess.run(['git','merge-base','--is-ancestor','4d71abbc03ae1bc46416e2df10ca7534c122145f',head],cwd=repo).returncode==0
+assert '1980 passed' in (repo/'deploy/published-fields/validation/tests.txt').read_text()
+if not pr['merged']:
+ if pr['draft']:
+  query='mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}'
+  request=urllib.request.Request('https://api.github.com/graphql',data=json.dumps({'query':query,'variables':{'id':pr['node_id']}}).encode(),headers={'Authorization':'Bearer '+scope['token'],'User-Agent':'Valoria-Approved-Release','Content-Type':'application/json'})
+  with urllib.request.urlopen(request,timeout=30) as response:ready=json.load(response)
+  assert not ready.get('errors'),'Cannot mark approved PR ready'
+ result=api('/pulls/5/merge',{'sha':head,'merge_method':'merge','commit_title':'Merge PR #5: source-published property facts and location coverage'},method='PUT')
+ assert result.get('merged'),result
+ commit=result['sha']
+else:commit=pr['merge_commit_sha']
+proof={'commit':commit,'head':head,'base':pr['base']['ref'],'location_dependency_included':True,'pr':pr['html_url']}
+Path('outputs/published-fields/deploy/merge-proof.json').write_text(json.dumps(proof,indent=2))
+print(json.dumps(proof))

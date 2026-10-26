@@ -1,0 +1,155 @@
+import copy
+import math
+import numpy as np
+import pytest
+from services.sii.house_rules import area_at, prepare, year_index, HouseRules, HistoricalBaseline, distances
+from services.sii.closing_knn import ClosingKNN, weighted_quantile
+
+
+def market():
+    rows=[];geo={}
+    for i in range(80):
+        rol=f'15160-{100+i%4}-{i+1}'
+        yr=2019+i%5;area=150+17*(i%7);land=400+23*(i%9)
+        rows.append(dict(rol=rol,raw_id=i,comuna=15160,block=100+i%4,kind='casa',
+            date=f'{yr}-01-10',fi=f'{yr}-02-01',area=area,land=land,appraisal=1e8+land*100000,
+            year=1970,building=str(i),uf=math.exp(5)*area**.4*land**.45*(1+.03*(yr-2019)),block_known_at=None))
+        geo[rol]=dict(lat=-33.39+i%8*.0001,lon=-70.58+i%10*.0001,precision_m=25,
+            quality='address_match',method='osm_direct')
+    t=dict(rol='15160-100-999',comuna=15160,block=100,kind='casa',date='2024-06-01',area=220,
+        land=500,appraisal=150000000,year=1970,building='target')
+    geo[t['rol']]=dict(geo[rows[0]['rol']])
+    return rows,geo,t
+
+
+def test_r2_destination_and_year_only():
+    lines=[dict(destino='H',year=1965,area=140),dict(destino='',year=1965,area=49,material='W'),
+        dict(destino='H',year=1999,area=53),dict(destino='S',year=2008,area=28),
+        dict(destino='H',year=None,area=60)]
+    assert area_at(lines,1990)==(140,1965)
+    assert area_at(lines,2024)==(221,1965)
+
+
+def test_r1_amount_boundaries_and_same_amount_blocks_across_kinds():
+    f=dict(rol='15160-1-1',block=1,kind='casa',land=500,appraisal=1e8,calle='A',numero='1')
+    base=dict(raw_id=1,rol=f['rol'],kind='casa',block=1,date='2020-01-01',fe='2020-01-01',fi='2020-02-01',uf=2000,uf_fecha=None)
+    snap=dict(facts=[f],lines=[dict(rol=f['rol'],year=1960,area=100,destino='H')],
+        transfers=[base,{**base,'raw_id':2,'rol':'15160-1-2','kind':'depto','fi':'2021-01-01'}])
+    rs,_,_,_=prepare(snap)
+    assert len(rs)==1 and rs[0]['block_known_at']=='2021-01-01'
+    snap['transfers']=[{**base,'uf':1999}]
+    assert not prepare(snap)[0]
+    snap['transfers']=[{**base,'uf':40001}]
+    assert not prepare(snap)[0] # UF/m2 >400
+
+
+def test_exact_uf_by_deed_date_and_inscription_only_when_deed_missing():
+    f=dict(rol='15160-1-1',block=1,kind='casa',land=500,appraisal=1e8,calle='A',numero='1')
+    raw=dict(raw_id=1,rol=f['rol'],kind='casa',block=1,date='2010-01-01',fe='2010-01-01',fi='2010-02-01',uf=None,clp='60000000',uf_fecha=None)
+    snap=dict(facts=[f],lines=[dict(rol=f['rol'],year=1960,area=100,destino='H')],transfers=[raw],
+        calendar=[dict(date='2010-01-01',value=20000),dict(date='2010-02-01',value=25000)])
+    assert prepare(snap)[0][0]['uf']==3000
+    snap['transfers']=[{**raw,'fe':None,'date':'2010-02-01'}]
+    assert prepare(snap)[0][0]['uf']==2400
+    snap['calendar']=[]
+    assert not prepare(snap)[0] # Never substitute today's or an adjacent-day UF.
+
+
+def test_r3_block_coordinates_only_same_block_and_no_commune_center():
+    rows,geo,t=market();g=geo[rows[0]['rol']]
+    g.update(quality='approximate_block',method='block_median',precision_m=200)
+    ds=distances(t,[rows[0],{**rows[0],'block':999}],geo)
+    assert ds[0]<1000 and np.isinf(ds[1])
+    geo[t['rol']]['method']='commune_centroid'
+    assert np.isinf(distances(t,rows,geo)).all()
+
+
+def test_r4_r6_r8_r9_and_no_target_labels():
+    rows,geo,t=market();p=HouseRules(rows,geo).estimate(t)
+    assert p['status']=='ok' and p['radius_m']==500
+    assert .25<=p['b']<=.60 and .25<=p['c']<=.60
+    assert p['training_max_date']<'2024-01-01'
+    for c in p['comparables']:
+        assert .75<=c['land_m2']/t['land']<=1.35
+        assert .6<=c['m2']/t['area']<=1.6
+        assert c['distance_m']<=500 and c['rol']!=t['rol']
+        age=(__import__('datetime').date.fromisoformat(t['date'])-__import__('datetime').date.fromisoformat(c['fecha'])).days/365.25
+        expected=math.exp(-c['distance_m']/350)*.5**(age/3)*(1.5 if c['same_block'] else 1)
+        assert c['similarity']==pytest.approx(expected)
+    weights=[c['similarity'] for c in p['comparables']]
+    assert p['effective_n']==pytest.approx(sum(weights)**2/sum(w*w for w in weights))
+    assert p['value_uf']==weighted_quantile([c['adjusted_uf'] for c in p['comparables']],weights,.5)
+    altered=HouseRules(rows+[{**rows[0],'rol':t['rol'],'uf':99999999},
+        {**rows[1],'raw_id':999,'date':'2025-01-01','fi':'2025-02-01','uf':99999999}],geo).estimate({**t,'uf':1})
+    assert altered['value_uf']==p['value_uf'] and altered['b']==p['b']
+
+
+def test_r4_no_price_when_only_four_lot_matches_or_over_one_km():
+    rows,geo,t=market()
+    limited=[{**r,'land':500 if i<4 else 2000} for i,r in enumerate(rows)]
+    p=HouseRules(limited,geo).estimate(t)
+    assert p['status']=='unavailable' and 'value_uf' not in p
+    assert p['reason']=='fewer_than_5_within_1000m'
+    geo[t['rol']]['lon']=-70.62
+    assert HouseRules(rows,geo).estimate(t)['status']=='unavailable'
+
+
+def test_index_removes_block_composition_change():
+    rows=[]
+    for yr in [2020,2021]:
+        for block,multiple,n in [(1,1,20 if yr==2020 else 2),(2,2,2 if yr==2020 else 20)]:
+            for i in range(n):rows.append(dict(date=f'{yr}-01-01',block=block,uf=10000*multiple*(1.1 if yr==2021 else 1),area=100))
+    index=year_index(rows)
+    assert index[2021]/index[2020]==pytest.approx(1.1,rel=1e-6)
+
+
+def test_baseline_formula_unchanged_for_same_2024_pool():
+    rows,_,t=market();rows=[{**r,'date':'2024-01-01','fi':'2024-02-01'} for r in rows]
+    assert HistoricalBaseline(rows).estimate(t)==ClosingKNN(rows).estimate(t)
+
+
+def current_market():
+    rows,geo,t=market()
+    rows=[{**r,'land':1800+i*23} for i,r in enumerate(rows)]
+    current=[]
+    for i in range(8):
+        r={**rows[i],'rol':f'15160-current-{i}','raw_id':1000+i,'date':'2024-01-01','fi':'2024-02-01',
+           'area':220,'land':500,'uf':30000,'appraisal':150000000}
+        current.append(r);geo[r['rol']]={**geo[t['rol']],'lat':geo[t['rol']]['lat']+(300 if i<4 else 600)/111195}
+    return rows+current,geo,t
+
+
+def test_fixed_radius_expansion_500_800_1000():
+    rows,geo,t=current_market();p=HouseRules(rows,geo).estimate(t)
+    assert p['status']=='ok' and p['radius_m']==800
+    p=HouseRules(rows[:-1],geo).estimate(t)
+    assert p['status']=='ok' and p['radius_m']==1000 and len(p['comparables'])==7
+
+
+def test_iqr_excludes_log_adjusted_outlier():
+    rows,geo,t=current_market();r={**rows[-1],'rol':'15160-outlier','raw_id':3000,'uf':85000}
+    geo[r['rol']]=dict(geo[t['rol']]);p=HouseRules(rows+[r],geo).estimate(t)
+    assert p['status']=='ok'
+    assert [c['raw_id'] for c in p['outliers']]==[3000]
+    assert p['value_uf']==pytest.approx(30000)
+
+
+def test_controls_mark_review_without_averaging_into_price():
+    rows,geo,t=current_market();base=HouseRules(rows,geo).estimate(t)
+    for i in range(20):
+        r={**rows[-1],'rol':f'15160-control-{i}','raw_id':4000+i,'area':100,'uf':4000,'block':t['block']}
+        geo[r['rol']]=dict(geo[t['rol']]);rows.append(r)
+    p=HouseRules(rows,geo).estimate(t)
+    assert p['value_uf']==base['value_uf']
+    assert p['controls']['review'] is True
+    assert abs(p['value_uf']/p['controls']['appraisal']['value_uf']-1)>.15
+    assert abs(p['value_uf']/p['controls']['land']['value_uf']-1)>.15
+
+
+def test_insufficient_signal_still_reports_controls_and_future_fi_is_excluded():
+    rows,geo,t=current_market();base=HouseRules(rows,geo).estimate(t)
+    future={**rows[-1],'rol':'15160-future','raw_id':9000,'fi':'2025-01-01','uf':10000}
+    geo[future['rol']]=dict(geo[t['rol']])
+    assert HouseRules(rows+[future],geo).estimate(t)['value_uf']==base['value_uf']
+    p=HouseRules(rows,geo).estimate({**t,'land':5000})
+    assert p['status']=='unavailable' and 'controls' in p and 'value_uf' not in p

@@ -1,0 +1,8 @@
+from common import *
+assert not (HERE/'execution_seal_v2.json').exists(),'Refuse execution seal overwrite'
+paths=[HERE/n for n in ('common.py','experimental.py','run.py','protocol.json','protocol.sha256')]
+paths+=list((HERE/'integration').rglob('*.py'))+list((RUNTIME/'avm01').glob('*.py'))+list((RUNTIME/'frozen_a').rglob('*.py'))
+write(HERE/'execution_seal_v2.json',{str(p):sha(p) for p in paths})
+from run import GRID
+assert read(HERE/'configurations.json')==json.loads(json.dumps(GRID)),'Grid changed after exploratory execution'
+print(json.dumps({'sealed_files':len(paths),'spatial_configurations_including_A':len(GRID),'weights_optimized':False}))

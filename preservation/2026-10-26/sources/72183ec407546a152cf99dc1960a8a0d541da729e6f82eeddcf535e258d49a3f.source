@@ -1,0 +1,59 @@
+# Yapo-only + A1 follow-up
+
+Sibling sandbox of `portal_geo_am_v0_20261010`. Existing runs are reused and
+immutable; no productive code is edited. Individual outputs remain encrypted
+with Windows DPAPI CurrentUser. Aggregate results are in `results.json` and
+`metrics.csv`; no confirmatory holdout or new source requests are used.
+
+Yapo-only uses the exact original G3 folds (seeds 20261009/20261010), all 385 Yapo
+targets and fixed previous adaptive A-M. AY = canonical A with Yapo training
+pool; MY = adaptive A-M with Yapo pool; MM = reused adaptive A-M mixed pool;
+A = reused original mixed canonical A. Training is source-filtered after the
+signed custody release. Targets and dependency components are never regrouped.
+Local branches coincide because the benchmark contains no Portal geography.
+Three-way error metrics use the same supported targets; full coverage,
+abstentions, 289 coordinates-present targets and 96 without coordinates are
+separate. Repeated/centroid guards still allow fallback. Paired uncertainty uses
+2000 draws of full dependency components, not independent-row resampling.
+
+A1 is separate: the original canonical communal mixed-source A, all 791 targets,
+unchanged native similarity functions, clipping, outliers, K20/min5 and surface
+adjustment. Only five nonnegative weights summing to one change. There are 31
+fixed vectors (original + 20 directed 0.1 transfers + 10 seeded Dirichlet draws).
+Selection uses inner-only source-balanced MAE-log plus 0.1 times squared distance
+from original weights; per-source coverage cannot fall below original A.
+Each outer fold receives its own selected weights. No outer metrics generate
+new vectors, tune regularization or select a single globally winning vector.
+The same previously observed outer targets give exploratory evidence, not a
+fresh independent validation. All31 vectors are checked against native A in
+supplementary tests; only in-memory test constants change in that test process.
+
+Portal verification: `oracle_status.json` records current checkout, container,
+flags, systemd states and aggregate DB counts in a READ ONLY transaction. The
+active card-first entrypoint fetches at most five **incomplete-card** details;
+complete cards do not receive routine geography enrichment. Its timer is
+inactive and Portal HTTP flag false. The generic refresh worker uses the list
+parser for Portal detail pages. The experimental patch has no commit/integration
+in the principal local repo, Oracle checkout or deployed image. Future detail
+parsing, production rollout and historical recovery are separate actions;
+none is executed here. Existing extraction already reads map_info.location;
+the patch adds binding/provenance/precision and nondestructive propagation.
+
+Reproduce with the existing research Python from workspace root; use a separate
+copy/fresh output destination because overwriting encrypted runs is refused:
+
+```powershell
+$avmPython = 'work/avm-01-20261008/.venv-repro/Scripts/python.exe'
+& $avmPython -B research/portal_geo_am_followup_20261010/yapo_only.py 20261009
+& $avmPython -B research/portal_geo_am_followup_20261010/yapo_only.py 20261010
+& $avmPython -B research/portal_geo_am_followup_20261010/a1.py 20261009
+& $avmPython -B research/portal_geo_am_followup_20261010/a1.py 20261010
+& $avmPython -B research/portal_geo_am_followup_20261010/collect.py
+python -B -c "import sys;sys.path.insert(0,'work/avm-01-20261008/.venv-repro/Lib/site-packages');import pytest;raise SystemExit(pytest.main(['research/portal_geo_am_followup_20261010/test_followup.py','research/portal_geo_am_followup_20261010/test_weight_math.py','-q','-p','no:cacheprovider']))"
+```
+
+Registration: the parent protocol's timestamp remains inherited in its copied
+metadata; `registration_record.json` records the actual follow-up creation time
+and protocol hash. The grid/objective were fixed before any follow-up result.
+`execution_seal.json` locks prediction/tuning code; the supplementary test and
+aggregate-only collector are included in the final delivery manifest.

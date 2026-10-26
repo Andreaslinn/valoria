@@ -1,0 +1,32 @@
+import subprocess,pathlib,json
+root=pathlib.Path('/home/ubuntu/apps/valoria/scripts/portal_session_runtime')
+guard=root/'verified-used-detail-canary.done'
+assert not guard.exists(),'One-off detail validation already completed'
+code='''import httpx,json,asyncio,sys
+from sqlalchemy import select
+from scripts.portal_smoke import DEFAULT_HEADERS
+from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal,classify_portal_detail_page_state
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.models import ListingORM
+from infrastructure.db.portal_geography import apply_geography,candidate_evidence,outcome
+async def main():
+ data=json.load(sys.stdin);jar=httpx.Cookies()
+ for c in data['cookies']:jar.set(c['name'],c['value'],domain=c['domain'],path=c['path'])
+ url='https://www.portalinmobiliario.com/MLC-4082793840-venta-depto-1-dorm-1-bano-en-macul-_JM'
+ async with httpx.AsyncClient(headers=DEFAULT_HEADERS,cookies=jar,follow_redirects=False,timeout=30) as client:r=await client.get(url)
+ assert r.status_code==200 and classify_portal_detail_page_state(r.text,status_code=r.status_code)=='detail','Access not validated'
+ detail=parse_listing_detail_portal(r.text,str(r.url));ev=candidate_evidence(detail)
+ assert ev and ev['source_listing_id']=='MLC-4082793840','Publication evidence mismatch'
+ async with get_session_factory()() as s:
+  row=await s.scalar(select(ListingORM).where(ListingORM.id==3633,ListingORM.source=='portalinmobiliario',ListingORM.external_id=='MLC-4082793840').with_for_update())
+  assert row is not None
+  result=await apply_geography(s,row,ev,acquisition=detail)
+  assert result in ('enriched','already_geolocated'),result
+  await outcome(s,row,result,evidence=ev,acquisition=detail);await s.commit()
+  print(json.dumps({'result':result,'publication_id':row.external_id,'coordinates_written':row.lat is not None and row.lon is not None,'precision':row.geocode_precision,'canonical_history':True}))
+asyncio.run(main())
+'''
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-c',code],input=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session/session.json').read_bytes(),capture_output=True,timeout=90)
+print(r.stdout.decode(),r.stderr.decode()[-1000:]);
+if r.returncode==0:guard.write_text(r.stdout.decode())
+raise SystemExit(r.returncode)

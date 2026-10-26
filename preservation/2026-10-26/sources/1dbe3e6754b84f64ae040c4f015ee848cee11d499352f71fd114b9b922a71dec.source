@@ -1,0 +1,19 @@
+import subprocess,json,datetime,pathlib
+root='/home/ubuntu/apps/valoria/scripts/portal_session_runtime/'
+probe='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  r=await s.execute(text("select count(*) as listings, count(*) filter(where lat is not null and lon is not null) as with_coordinates, max(scraped_at)::text as last_scraped from listings where source='portalinmobiliario'"))
+  print(json.dumps(dict(r.mappings().one())))
+asyncio.run(main())
+'''
+def state():
+ r=subprocess.run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',probe],capture_output=True,text=True,check=True)
+ return json.loads(r.stdout)
+before=state()
+r=subprocess.run(['python3','-B',root+'run_portal_session.py','--apply','--max-targets','1','--max-pages','1','--max-details','1','--max-geo-details','2'],capture_output=True,text=True,timeout=240)
+report={'before':before,'exit':r.returncode,'result':r.stdout.strip(),'errors':r.stderr[-1500:],'after':state(),'at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+pathlib.Path(root+'canary.json').write_text(json.dumps(report,indent=2))
+print(json.dumps(report,indent=2));raise SystemExit(r.returncode)

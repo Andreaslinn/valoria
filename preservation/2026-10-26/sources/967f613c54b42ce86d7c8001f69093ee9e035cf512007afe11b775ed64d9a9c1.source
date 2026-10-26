@@ -1,0 +1,107 @@
+import copy
+from pathlib import Path
+import json
+import pytest
+
+from services.sii.house_hybrid import hybrid_prediction, target_quality
+
+
+def point(lat=-33.39):
+    return dict(lat=lat,lon=-70.58,precision_m=25,quality='sii_role_point',method='sii_published_point')
+
+
+def subject():
+    return dict(rol='s',block=1,kind='casa',comuna=15160,date='2024-06-01',area=100,
+                land=500,uf=6000,clp='950000',appraisal=1000000)
+
+
+def sale(i,**extra):
+    return dict(rol=str(i),block=1,date='2023-01-01',fi='2023-02-01',uf=10000+1000*i,
+                area=100,block_known_at=None,**extra)
+
+
+@pytest.mark.parametrize('effective,confidence',[(8,'alta'),(7.999,'media')])
+def test_route_uses_house_and_exact_neff_boundary_without_baseline_call(effective,confidence):
+    t=subject()
+    h={'status':'ok','value_uf':35000,'effective_n':effective}
+    r=hybrid_prediction(t,h,lambda:pytest.fail('Unneeded fallback'),{'s':point()})
+    assert (r['model_used'],r['motivo'],r['confianza'])==('house_rules','reglas_r1_r11_ok',confidence)
+    assert r['value_uf']==35000 and 'motivo' not in h
+    t['uf']=1 # the evaluation label cannot choose a route or value
+    assert hybrid_prediction(t,h,{}, {'s':point()})==r
+
+
+@pytest.mark.parametrize('land,geo,reason,expected,confidence',[
+    (None,{},'missing_sii_land_or_area','sin_terreno','media'),
+    (500,{},'subject_geography_unreliable','geografia','baja'),
+    (500,{'s':point()},'fewer_than_5_within_1000m','sin_comparables','baja'),
+    (500,{'s':point()},'fewer_than_5_after_iqr','iqr','baja')])
+def test_baseline_routes_preserve_value_and_explain(land,geo,reason,expected,confidence):
+    t={**subject(),'land':land}
+    b={'status':'ok','value_uf':28000,'comparables':[{'similarity':2},{'similarity':1}]}
+    old=copy.deepcopy(b)
+    r=hybrid_prediction(t,{'status':'unavailable','reason':reason},b,geo)
+    assert (r['model_used'],r['motivo'],r['confianza'])==('baseline',expected,confidence)
+    assert r['value_uf']==b['value_uf'] and b==old
+    assert r['effective_n']==pytest.approx(1.8)
+
+
+def test_unavailable_baseline_still_has_route_reason_and_confidence():
+    r=hybrid_prediction({**subject(),'land':None},{'status':'unavailable'},
+                        {'status':'unavailable','reason':'fewer_than_10_comparables'}, {})
+    assert {'model_used','motivo','confianza'}<=r.keys()
+    assert r['status']=='unavailable' and 'value_uf' not in r
+
+
+def test_low_p10_same_block_uses_only_past_registered_other_roles():
+    rows=[sale(i) for i in range(5)]
+    rows += [{**sale(10),'rol':'s'}, {**sale(11),'fi':'2024-07-01'}, {**sale(12),'date':'2024-06-01'}]
+    old=copy.deepcopy(rows)
+    q=target_quality(subject(),rows,{})
+    assert q['prior_sample_n']==5 and q['prior_scope']=='same_block'
+    assert q['prior_p10_uf_m2']==104 and q['monto_sospechoso'] is True
+    assert q['near_historical_fiscal_appraisal'] is None and rows==old
+    assert not target_quality({**subject(),'uf':10400},rows,{})['monto_sospechoso']
+
+
+def test_p10_radius_fallback_obeys_geography_and_does_not_require_five_in_radius():
+    rows=[{**sale(i),'block':2} for i in range(3)]
+    geo={'s':point(),'0':point(),'1':point(-33.391),'2':point(-33.41)}
+    q=target_quality(subject(),rows,geo)
+    assert q['prior_scope']=='within_500m' and q['prior_sample_n']==2
+    assert q['prior_p10_uf_m2']==101
+    assert target_quality(subject(),rows,{})['uf_m2_below_prior_p10'] is None
+
+
+@pytest.mark.parametrize('amount,expected',[('950000',True),('1050000',True),('949999',False),('1050001',False)])
+def test_fiscal_appraisal_is_historical_with_inclusive_five_percent(amount,expected):
+    history=[dict(rol='s',valid_from='2024-01-01',valid_to='2025-01-01',value_clp=1000000),
+             dict(rol='s',valid_from='2026-01-01',valid_to='2027-01-01',value_clp=2000000)]
+    q=target_quality({**subject(),'clp':amount},[],{},history)
+    assert q['near_historical_fiscal_appraisal'] is expected
+    assert q['historical_appraisal_clp']=='1000000'
+    # Current target appraisal is never a historical stand-in.
+    assert target_quality({**subject(),'clp':amount},[],{})['near_historical_fiscal_appraisal'] is None
+
+
+def test_conflicting_dated_appraisals_remain_unknown():
+    a=dict(rol='s',valid_from='2024-01-01',valid_to='2025-01-01',value_clp=1000000)
+    q=target_quality(subject(),[],{},[a,{**a,'value_clp':2000000}])
+    assert q['near_historical_fiscal_appraisal'] is None
+
+
+def test_phase2_frozen_same_818_and_routing_matches_existing_predictions():
+    root=Path(__file__).resolve().parents[4]
+    out=root/'outputs/house-hybrid'
+    if not (out/'evaluation.json').exists(): pytest.skip('Local phase2 artifacts required')
+    p=json.loads((out/'predictions.json').read_text())
+    old=json.loads((root/'outputs/house-rules/predictions.json').read_text())
+    assert len(p)==818 and [x['raw_id'] for x in p]==[x['raw_id'] for x in old['baseline']]
+    for i,r in enumerate(p):
+        route=r['hybrid']['model_used']
+        assert r['hybrid']['value_uf']==old['candidate' if route=='house_rules' else 'baseline'][i]['prediction']['value_uf']
+        assert {'model_used','motivo','confianza'}<=r['hybrid'].keys()
+    assert sum(x['quality']['monto_sospechoso'] for x in p)==43
+    e=json.loads((out/'evaluation.json').read_text())
+    assert all(e['promotion_checks'].values()) and e['approved'] is False
+    assert e['suspicious']['appraisal_unknown']==818

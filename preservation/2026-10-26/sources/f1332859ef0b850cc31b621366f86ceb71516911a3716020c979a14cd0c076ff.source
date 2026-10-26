@@ -1,0 +1,32 @@
+FROM valoria-thumbnails-validation:20261008
+COPY alembic/versions/0021_listing_observations.py /app/alembic/versions/0021_listing_observations.py
+COPY config/settings.py /app/config/settings.py
+COPY domain/ingestion/observations.py /app/domain/ingestion/observations.py
+COPY domain/ingestion/pipeline.py /app/domain/ingestion/pipeline.py
+COPY domain/ingestion/raw_safety.py /app/domain/ingestion/raw_safety.py
+COPY infrastructure/db/models.py /app/infrastructure/db/models.py
+COPY infrastructure/db/observation_history.py /app/infrastructure/db/observation_history.py
+COPY infrastructure/db/repositories/listing_repo.py /app/infrastructure/db/repositories/listing_repo.py
+COPY infrastructure/scrapers/base.py /app/infrastructure/scrapers/base.py
+COPY infrastructure/scrapers/evidence.py /app/infrastructure/scrapers/evidence.py
+COPY infrastructure/scrapers/portalinmobiliario.py /app/infrastructure/scrapers/portalinmobiliario.py
+COPY infrastructure/scrapers/yapo.py /app/infrastructure/scrapers/yapo.py
+COPY infrastructure/scrapers/yapo_modern.py /app/infrastructure/scrapers/yapo_modern.py
+COPY scripts/portal_canary.py /app/scripts/portal_canary.py
+COPY scripts/portal_card_first.py /app/scripts/portal_card_first.py
+COPY workers/refresh_scraper.py /app/workers/refresh_scraper.py
+COPY infrastructure/scrapers/coordinates.py /app/infrastructure/scrapers/coordinates.py
+COPY api/main.py /app/api/main.py
+COPY api/v1/listings.py /app/api/v1/listings.py
+COPY api/v1/radar.py /app/api/v1/radar.py
+COPY api/v1/thumbnails.py /app/api/v1/thumbnails.py
+COPY api/v1/watchlist.py /app/api/v1/watchlist.py
+COPY infrastructure/thumbnails/__init__.py /app/infrastructure/thumbnails/__init__.py
+COPY infrastructure/thumbnails/metrics.py /app/infrastructure/thumbnails/metrics.py
+COPY infrastructure/thumbnails/normalize.py /app/infrastructure/thumbnails/normalize.py
+COPY infrastructure/thumbnails/pipeline.py /app/infrastructure/thumbnails/pipeline.py
+COPY infrastructure/thumbnails/security.py /app/infrastructure/thumbnails/security.py
+COPY pyproject.toml /app/pyproject.toml
+COPY services/thumbnails.py /app/services/thumbnails.py
+COPY workers/thumbnails.py /app/workers/thumbnails.py
+CMD ["sh", "-c", "python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-1} --proxy-headers --forwarded-allow-ips='${FORWARDED_ALLOW_IPS:-*}'"]

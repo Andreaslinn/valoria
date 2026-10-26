@@ -1,0 +1,25 @@
+from pathlib import Path
+root=Path('outputs/valoria')
+exceptions={
+    'domain/property_life/engine.py':'N803, N806, C408, RUF001',
+    'domain/property_life/readers.py':'N806',
+    'services/property_life.py':'N806, C408',
+    'tests/property_life/test_engine.py':'N806, C408',
+}
+for name,codes in exceptions.items():
+    p=root/name
+    p.write_text('# Preserve reference dataframe names and record construction for direct comparison.\n# ruff: noqa: '+codes+'\n'+p.read_text(encoding='utf-8'),encoding='utf-8')
+p=root/'domain/property_life/engine.py'
+s=p.read_text(encoding='utf-8').replace('cod, f_nombre =','cod, _f_nombre =').replace('keys + ["rounded"]','[*keys, "rounded"]').replace('keys + ["sequence"]','[*keys, "sequence"]')
+p.write_text(s,encoding='utf-8')
+p=root/'domain/property_life/readers.py'
+s=p.read_text(encoding='utf-8').replace('Ncols + ["x"]','[*Ncols, "x"]').replace('Lcols + ["x"]','[*Lcols, "x"]').replace('for l in fh:', 'for raw_line in fh:').replace('p = l.rstrip(', 'p = raw_line.rstrip(')
+p.write_text(s,encoding='utf-8')
+p=root/'services/property_life.py'
+p.write_text(p.read_text(encoding='utf-8').replace('15–500','15-500'),encoding='utf-8')
+p=root/'tests/property_life/test_engine.py'
+s=p.read_text(encoding='utf-8').replace('zip(actual["historial"], expected["historial"])','zip(actual["historial"], expected["historial"], strict=True)').replace('zip(actual["comparables"], expected["comparables"])','zip(actual["comparables"], expected["comparables"], strict=True)').replace('zip(types, mzs)','zip(types, mzs, strict=True)').replace('zip(amounts, mzs)','zip(amounts, mzs, strict=True)').replace('N, L, F, uf, V, _ = datasets(comuna)','N, _L, F, _uf, V, _ = datasets(comuna)')
+p.write_text(s,encoding='utf-8')
+p=root/'tests/property_life/test_postgres.py'
+import re
+p.write_text(re.sub(r'\bl\b','construction_path',p.read_text(encoding='utf-8')),encoding='utf-8')

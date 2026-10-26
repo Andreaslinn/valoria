@@ -1,0 +1,69 @@
+# AVM pilot preflight — A_core vs C1
+
+Isolated retrospective eligibility analysis. No Oracle/network, database, source
+ingestion, productive identity, valuation, model training, prediction or predictive
+metrics. The original 791-row cohort and certified harness remain immutable.
+
+Reproduce from the workspace root (Windows, same user for DPAPI):
+
+```powershell
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/tasar_pilot_preflight_20261010T123500Z/preflight.py verify
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/tasar_pilot_preflight_20261010T123500Z/test_preflight.py
+```
+
+`run` generates once and refuses overwrites; `verify` recalculates in memory and
+compares all eight CSV files byte-for-byte. Originals are hash-checked before and
+after. Read `manifest.json` for the frozen policy, hashes, versions, decision,
+residual risks and test results. CSVs are UTF-8 and locally ignored by Git.
+
+Identity review is automatic, price-blind and **not human certification**. Full
+URLs are opaque equality identifiers because their slugs may contain prices.
+Titles/descriptions are sanitized. Images are origin URL identifiers, not content
+hashes. Source precision labels remain unverified. Different broker codes are not
+unit identity. No old property_id/fingerprint is used to form CV groups.
+
+G3 adds only plausible indeterminate pairs with specific local/name corroboration;
+generic commune/floorplan/title templates remain unresolved, not certified
+independent. Components include all 6283 snapshot nodes before eligibility and
+audit every transitive component for positive conflicts. Additional high-risk
+candidates are separate. The price-blind scan found **4211/4486**, both declaring
+Avenida Macul 2470, with a 10% area difference outside the original candidate
+band. Explicit policy **v2** conservatively cofolds this additional indeterminate
+pair in G3, with no claim of unit identity. It remains separately disclosed in
+`unresolved_identity_cases.csv`; the original 28 and original policy are untouched.
+Any further high-risk candidate without disposition would block execution.
+
+Legacy history aliases are linked only by exact source/external_id. Neither legacy
+history nor modern observations enter the training pool. Row-level modern History
+is unavailable locally: its identity completeness is **not certified**. This
+design supports only retrospective Oct4 snapshot CV, not temporal forecasting.
+
+The previous 711–716 figure was already fold-local, but an upper bound. This run
+uses the actual ordered canonical dedup/structural/training-price/product/robust
+filters. It reads monetary values **only from authorized training DTOs**, in memory,
+after freezing identity/group/fold policy. Held target labels are never requested.
+No monetary diagnostic is exported. Eligibility stops before ranking, aggregation
+and surface adjustment. Counts at an early failure are the remaining pool at the
+failed stage, not a prediction. Coverage is eligibility, not operational success.
+
+C1 uses the actual certified nine-column matrix for the unchanged six features.
+Median imputation/scaling/one-hot training scope and missing-prediction handling are
+checked against the immutable code, not fitted on real data. Unknown categories
+are allowed by `handle_unknown=ignore`; input processability does not certify
+prediction coverage. Keep all 791 rows for future full-universe coverage and paired
+errors on the common predicted subset. No holdout or official split is created.
+
+Readiness never authorizes training by itself; the harness real-execution guard
+remains unchanged. Residual cross-source recall and same-building dependence must
+qualify any future exploratory conclusions; this is not a confirmatory benchmark.
+
+Final review: **READY_FOR_EXPLORATORY_PILOT**, 36 tests passed / 0 failed; eight CSVs
+reproduced byte-for-byte in a new process. G1/G2: 791 groups; G3: 781 groups
+(772 singletons, 9 multiple groups, maximum cohort size 3, 1 cross-source group).
+Primary G3 A eligibility: 702/791 (88.75%), 89 potential abstentions; predefined
+seed range 702–710. C1 input processability: 791/791; no prediction coverage claim.
+Portal A support 405/406 versus Yapo 297/385 materially limits paired-result scope.
+A raw/stored geocode-precision discrepancy for listing4813 has no coordinates and
+remains untrusted; it changes no identity or eligibility result.
+The sole next action is authorization of a controlled exploratory retrospective
+A_core vs C1 pilot with G3. The real-data execution guard remains unchanged.

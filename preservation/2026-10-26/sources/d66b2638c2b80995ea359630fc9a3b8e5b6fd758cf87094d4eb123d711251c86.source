@@ -1,0 +1,57 @@
+"""Interpretability ablation: fixed semantic flags vs unrestricted alphabetic text."""
+from lab import *
+from text_models import text,TextModel,text_matrix
+from models import *
+from avm01.isolation import LabelCustody,dependency_hash
+from avm01.splits import inner_folds,Split
+from analyze import metrics,interval
+import re
+FLAGS=[r'remodelad',r'nuevo|estrenar',r'lujo|lujoso|premium',r'exclusiv',r'terraza',r'jardin|jardín',r'piscina',r'gimnasio',r'ascensor',r'bodega',r'estacionamiento',r'inversion|inversión|inversionista',r'estudio|studio',r'penthouse',r'duplex|dúplex',r'vista',r'orientacion|orientación',r'\bpiso\b',r'\bmetro\b',r'avenida',r'parque']
+NAMES=['A','Quality','TextShuffled','TextPriceNegative']
+def qm(rows):
+ return np.column_stack([matrix(rows),np.array([[int(bool(re.search(p,text(r).lower()))) for p in FLAGS] for r in rows])])
+class Quality:
+ def __init__(self,batch,alpha):
+  self.batch=require_batch(batch);self.targets={t.row_id:digest(asdict(t)) for t in batch.targets}
+  nums=Pipeline([('impute',SimpleImputer(strategy='median',keep_empty_features=True)),('scale',StandardScaler())]);area=Pipeline([('spline',SplineTransformer(n_knots=4,degree=3,include_bias=False,extrapolation='linear')),('scale',StandardScaler())])
+  prep=ColumnTransformer([('area',area,[0]),('numeric',nums,list(range(1,7))+list(range(8,8+len(FLAGS)))),('commune',OneHotEncoder(handle_unknown='ignore',sparse_output=False),[7])],sparse_threshold=0)
+  self.pipeline=Pipeline([('preprocess',prep),('ridge',Ridge(alpha=alpha))])
+  with threadpool_limits(limits=1):self.pipeline.fit(qm(batch.rows),np.log([r.price_uf for r in batch.rows]))
+ def predict_log(self,ts):
+  assert all(self.targets[t.row_id]==digest(asdict(t)) for t in ts)
+  with threadpool_limits(limits=1):return self.pipeline.predict(qm(ts))
+def config(c,seed,names=NAMES):return {'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':names,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'quality_protocol.json')}
+def choose(ds,outer,c,seed):
+ custody=LabelCustody(ds,());errs=[defaultdict(list) for _ in range(3)]
+ for s in inner_folds(ds,outer,seed=seed):
+  names=['Q1','Q10','Q100'];batch=custody.issue(ds,s,config(c,seed,names),(),outer=outer);ts=list(batch.targets);pred=[Quality(batch,a).predict_log(ts) for a in [1.,10.,100.]];iv={n:{t.row_id:math.exp(float(pred[j][k])) for k,t in enumerate(ts)} for j,n in enumerate(names)};custody.record_predictions(batch,iv);truth=custody.complete(iv,s.test)
+  for j,lv in enumerate(pred):
+   for t,v in zip(ts,lv):errs[j][t.features['source']].append(abs(float(v)-math.log(truth[t.row_id])))
+ score=[sum(w*np.mean(e[source]) for source,w in [('portalinmobiliario',.6),('yapo',.4)] if e[source]) for e in errs];return [1.,10.,100.][min(range(3),key=lambda j:(score[j],-j))],score
+def controls(batch,parameters,seed):
+ tm=TextModel(batch,**parameters);ts=list(batch.targets);X=text_matrix(ts);rng=np.random.default_rng(seed);strata=defaultdict(list)
+ for j,t in enumerate(ts):strata[(t.features['comuna'],t.features['source'])].append(j)
+ for ix in strata.values():X[ix,8]=X[rng.permutation(ix),8]
+ with threadpool_limits(limits=1):shuffled=tm.pipeline.predict(X)
+ neg=TextModel(batch,**parameters);y=np.log([r.price_uf for r in batch.rows]);y=rng.permutation(y)
+ with threadpool_limits(limits=1):neg.pipeline.fit(text_matrix(batch.rows),y);negative=neg.predict_log(ts)
+ return shuffled,negative
+def evaluate(rows):
+ return {label:{'n':len(subset),'full':{n:metrics(subset,n) for n in NAMES},'paired':{n:interval(subset,'A',n) for n in NAMES if n!='A'}} for label,subset in [('all',rows),('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('Yapo',[r for r in rows if r['source']=='yapo'])]}
+def run(seed):
+ c=read(HERE/'quality_protocol.json');p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],seed);old={r['row_id']:r['predictions']['A']['prediction'] for r in prior(seed)};previous=read(HERE/f'text-{seed}-summary.json');custody=LabelCustody(ds,());rows=[];tuning=[];out=HERE/f'quality-{seed}.json.dpapi';assert not out.exists()
+ for k,s in enumerate(plan.folds):
+  print(json.dumps({'quality_seed':seed,'fold':k}),flush=True);alpha,scores=choose(ds,s,c,seed);batch=custody.issue(ds,s,config(c,seed),());ts=list(batch.targets);lv=Quality(batch,alpha).predict_log(ts);shuf,negative=controls(batch,previous['tuning'][k]['chosen'],seed+k);vals={n:{} for n in NAMES}
+  for j,t in enumerate(ts):
+   vals['A'][t.row_id]=old[t.row_id];vals['Quality'][t.row_id]=math.exp(float(lv[j]));vals['TextShuffled'][t.row_id]=math.exp(float(shuf[j]));vals['TextPriceNegative'][t.row_id]=math.exp(float(negative[j]))
+  custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test);tuning.append({'fold':k,'alpha':alpha,'scores':scores})
+  for t in ts:rows.append({'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}})
+ encrypt(out,rows);summary=evaluate(rows);summary['tuning']=tuning;write(HERE/f'quality-{seed}-summary.json',summary);print(json.dumps(summary['all']['full']))
+def temporal():
+ from temporal_prepare import temporal_data
+ c=read(HERE/'quality_protocol.json');ds,train,test,_=temporal_data();seed=20261009;s=Split(train,test,'temporal',seed,ds.hash(),dependency_hash(ds));alpha,scores=choose(ds,s,c,seed);custody=LabelCustody(ds,());batch=custody.issue(ds,s,config(c,seed),());ts=list(batch.targets);lv=Quality(batch,alpha).predict_log(ts);params=read(HERE/'text-temporal-summary.json')['tuning']['chosen'];shuf,negative=controls(batch,params,seed);old={r['row_id']:r['predictions']['A'] for r in decrypt(HERE/'temporal_predictions.json.dpapi')};vals={n:{} for n in NAMES}
+ for j,t in enumerate(ts):vals['A'][t.row_id]=old[t.row_id];vals['Quality'][t.row_id]=math.exp(float(lv[j]));vals['TextShuffled'][t.row_id]=math.exp(float(shuf[j]));vals['TextPriceNegative'][t.row_id]=math.exp(float(negative[j]))
+ custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test);rows=[{'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}} for t in ts];out=HERE/'quality-temporal.json.dpapi';assert not out.exists();encrypt(out,rows);summary=evaluate(rows);summary['tuning']={'alpha':alpha,'scores':scores};write(HERE/'quality-temporal-summary.json',summary);print(json.dumps(summary['all']['full']))
+def prepare():
+ c=verify();t=read(HERE/'temporal_protocol.json');v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':{**c['dataset_sha256'],**t['dataset_sha256']},'allowed_engines':NAMES+['Q1','Q10','Q100'],'uf_reference':c['uf_reference'],'flags':FLAGS,'alpha':[1.,10.,100.],'selection':'Inner grouped3 source-balanced MAElog; spline area specification same Flex; no external tuning','controls':'Target text shuffled within held-fold source/commune, price-blind fixed RNG; training prices globally permuted negative control, same selected text hyperparameters; all completed before labels. These are diagnostic ablations, not proposed engines.','status':'Exploratory attribution; all outer cohorts already consumed. No claim flags reflect verified physical condition.','code_sha256':sha(__file__)};assert not (HERE/'quality_protocol.json').exists();write(HERE/'quality_protocol.json',v);(HERE/'quality_protocol.sha256').write_text(sha(HERE/'quality_protocol.json'));path=RUNTIME/'avm01/pilot_authorization.py';path.write_text(path.read_text().replace("'aggregation_protocol']","'aggregation_protocol','quality_protocol']"));seal=read(HERE/'temporal_code_seal.json');seal['runtime/avm01/pilot_authorization.py']=sha(path);write(HERE/'temporal_code_seal.json',seal)
+if __name__=='__main__':prepare() if sys.argv[1]=='prepare' else temporal() if sys.argv[1]=='temporal' else run(int(sys.argv[1]))

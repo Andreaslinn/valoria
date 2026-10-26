@@ -1,0 +1,270 @@
+"""Deterministic diagnosis cases; no network or application mutations."""
+
+from copy import deepcopy
+from datetime import UTC, datetime
+
+import pytest
+
+from scripts.audit_published_maturity import (
+    COMMUNES,
+    build_report,
+    detail_snapshot,
+    export_row,
+    failed_thresholds,
+    metrics,
+    render_table,
+)
+
+
+def listing(identity=1, source="yapo", kind="apartment", commune="santiago", day=16):
+    fields = {
+        "version": 1,
+        "source": source,
+        "external_id": str(identity),
+        "stage": "detail",
+        "observed_at": f"2026-10-{day:02}T12:00:00+00:00",
+        "technical_table_observed": True,
+        "useful_area_m2": 70,
+        "constructed_area_m2": 75,
+        "total_area_m2": 80,
+        "street": "Ecuador",
+        "address_number": "5079",
+        "address_raw": "Ecuador 5079",
+        "address_type": "exact",
+        "latitude": -33.45,
+        "longitude": -70.65,
+        "coordinates_origin": "yapo.location"
+        if source == "yapo"
+        else "portal:location.map_info.location",
+        "coordinates_precision": "unknown",
+        "provenance": {
+            "useful_area_m2": "source.useful",
+            "constructed_area_m2": "yapo.square",
+            "address": "source.exactAddress",
+        },
+        "rejected": {},
+    }
+    return {
+        "id": identity,
+        "source": source,
+        "external_id": str(identity),
+        "url": f"https://example.invalid/{identity}",
+        "comuna": commune,
+        "property_type": kind,
+        "status": "active",
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "land_area_m2": None,
+        "land_area_parse_source": None,
+        "published_fields": fields,
+        "published_detail_fields": deepcopy(fields),
+    }
+
+
+def report(rows, observations=(), runs=None, as_of="2026-10-18T00:00:00+00:00"):
+    if runs is None:
+        runs = [
+            {"source": source, "successful": True, "errors": []}
+            for source in ("yapo", "portalinmobiliario")
+        ]
+    return build_report(
+        rows,
+        observations,
+        runs,
+        since=datetime(2026, 10, 16, tzinfo=UTC),
+        as_of=datetime.fromisoformat(as_of),
+    )
+
+
+def test_all_44_groups_empty_denominators_and_zero_stock_verdict():
+    result = report([])
+    assert len(result["groups"]) == 44
+    assert all(g["percentages"]["detail"] is None for g in result["groups"])
+    assert all(g["verdict"] == "NO" for g in result["source_type_verdicts"])
+
+
+def test_normalized_commune_and_active_denominators():
+    active, inactive = listing(commune="Ñuñoa"), listing(2, commune="nunoa")
+    inactive["status"] = "inactive"
+    result = report([active, inactive])
+    group = next(
+        g
+        for g in result["groups"]
+        if (g["source"], g["property_type"], g["comuna"]) == ("yapo", "departamento", "nunoa")
+    )
+    assert group["active"] == 1 and group["total"] == 2
+    assert group["percentages"]["useful"] == 100
+
+
+def test_merged_card_preserves_detail_without_counting_card_as_detail():
+    row = listing()
+    row["published_fields"]["stage"] = "merged"
+    flags = metrics(row)
+    assert flags["detail"] and not flags["published_stage_detail"]
+    row["published_detail_fields"]["external_id"] = "999"
+    assert not detail_snapshot(row)
+
+
+@pytest.mark.parametrize(
+    "precision,origin,raw,lat,lon,expected",
+    [
+        ("unknown", "yapo.location", None, -33, -70, True),
+        ("approximate", "portal:map", None, -33, -70, True),
+        ("exact", "geocoded", None, -33, -70, False),
+        ("centroid", "yapo.location", None, -33, -70, False),
+        ("unknown", "yapo.location", {"is_centroid": True}, -33, -70, False),
+        ("unknown", "yapo.location", None, 0, 0, False),
+        ("exact", "yapo.location", None, float("nan"), -70, False),
+        ("exact", "yapo.location", None, 91, -70, False),
+    ],
+)
+def test_coordinates_require_native_origin_and_no_centroid(
+    precision, origin, raw, lat, lon, expected
+):
+    row = listing()
+    row["published_fields"].update(
+        coordinates_precision=precision,
+        coordinates_origin=origin,
+        coordinates_precision_raw=raw,
+        latitude=lat,
+        longitude=lon,
+    )
+    assert metrics(row)["coordinates_published"] is expected
+
+
+def test_generic_m2_and_zero_rooms_never_count():
+    row = listing()
+    row.update(m2=70, bedrooms=0, bathrooms=0)
+    row["published_fields"].update(useful_area_m2=None, constructed_area_m2=None)
+    flags = metrics(row)
+    assert not any(
+        flags[k]
+        for k in ("useful", "constructed", "explicit_area", "bedrooms", "bathrooms", "crossable")
+    )
+
+
+def test_generic_provenance_does_not_turn_into_explicit_area():
+    row = listing()
+    row["published_fields"]["provenance"].update(
+        useful_area_m2="raw.m2.fallback", constructed_area_m2="card_generic"
+    )
+    assert not metrics(row)["explicit_area"]
+
+
+def test_threshold_comparisons_do_not_round_up():
+    summary = {
+        "active": 20001,
+        "counts": {"located": 8000, "explicit_area": 6000, "bedrooms_bathrooms": 19000},
+    }
+    assert set(failed_thresholds(summary)) == {"located", "explicit_area", "bedrooms_bathrooms"}
+
+
+def test_report_does_not_modify_input_and_repeated_units_are_not_growth():
+    row = listing()
+    before = deepcopy(row)
+    other = deepcopy(row["published_fields"])
+    other["observed_at"] = "2026-10-17T12:00:00+00:00"
+    result = report([row], [{"listing_id": 1, "raw_fields": other}])
+    assert row == before
+    verdict = next(v for v in result["source_type_verdicts"] if v["active"])
+    assert verdict["verdict"] == "CASI"
+    assert verdict["rhythm"]["trend"] == "stalled"
+
+
+@pytest.mark.parametrize(
+    "street,number,kind,expected",
+    [
+        ("Ecuador", "5079", "exact", True),
+        ("DPTO", "1815", "exact", False),
+        ("DPTO N°", "1815", "exact", False),
+        ("Av.", "123", "exact", False),
+        ("Ecuador", "0", "exact", False),
+        ("Ecuador", "100-200", "range", False),
+        ("Ecuador", "s/n", "no_number", False),
+        ("Ecuador", "2307", "intersection", False),
+    ],
+)
+def test_explicit_address(street, number, kind, expected):
+    row = listing()
+    row["published_fields"].update(street=street, address_number=number, address_type=kind)
+    assert metrics(row)["street_number"] is expected
+
+
+def test_lot_size_not_land_but_explicit_land_parse_is_counted():
+    row = listing(kind="house")
+    row["land_area_m2"] = 500
+    row["land_area_parse_source"] = "raw.m2.fallback"
+    assert not metrics(row)["land"]
+    row["land_area_parse_source"] = "text.land_area_context"
+    assert metrics(row)["land"]
+    assert export_row(row)["land_area_m2"] == 500
+
+
+def test_history_deduplicates_repeated_cards_and_preserves_conflicts():
+    row = listing()
+    old = deepcopy(row["published_fields"])
+    old.update(
+        area_conflicts={"useful_area_m2": {"structured": 70, "description": 90}},
+        construction_year_conflict=True,
+        rejected={"coordinates": "invalid_coordinate_pair", "address": {"reason": "broker_office"}},
+    )
+    event = {"listing_id": 1, "raw_fields": old, "parsed_fields": old, "detail_fields": old}
+    result = report([row], [event, event])
+    group = next(g for g in result["groups"] if g["active"])
+    assert group["rhythm"]["distinct_detail_snapshots"] == 1
+    assert group["historical_conflicts_since"] == {
+        "area_conflicts": 1,
+        "year_conflicts": 1,
+        "invalid_coordinates": 1,
+        "broker_office": 1,
+    }
+
+
+def test_partial_day_cannot_establish_growth():
+    result = report([listing()], as_of="2026-10-17T11:00:00+00:00")
+    verdict = next(v for v in result["source_type_verdicts"] if v["active"])
+    assert verdict["verdict"] == "CASI"
+    assert verdict["rhythm"]["trend"] == "insufficient_history"
+
+
+def test_mature_requires_daily_captures_and_no_repeated_expiry():
+    rows = [listing(day=16), listing(2, day=17)]
+    result = report(rows)
+    verdict = next(v for v in result["source_type_verdicts"] if v["active"])
+    assert verdict["verdict"] == "MADURO"
+    runs = [{"source": "yapo", "successful": False, "errors": ["PORTAL_SESSION_EXPIRED"]}] * 2
+    verdict = next(v for v in report(rows, runs=runs)["source_type_verdicts"] if v["active"])
+    assert verdict["verdict"] == "NO"
+    assert verdict["repeated_session_expiry_count"] == 2
+
+
+def test_stalled_capture_and_projections_are_not_promises():
+    row = listing(day=16)
+    row["bedrooms"] = 0
+    verdict = next(v for v in report([row])["source_type_verdicts"] if v["active"])
+    assert verdict["rhythm"]["trend"] == "stalled"
+    assert verdict["projections"]["bedrooms_bathrooms"]["additional_active_listings_needed"] == 1
+    assert verdict["projections"]["bedrooms_bathrooms"]["guaranteed_days"] is None
+    assert verdict["verdict"] == "NO"
+
+
+def test_ten_samples_per_source_and_text_has_all_metrics():
+    rows = [
+        listing(i, source=s, commune=COMMUNES[i % 11], day=16 + i % 2)
+        for s in ("yapo", "portalinmobiliario")
+        for i in range(1, 13)
+    ]
+    result = report(rows)
+    assert len(result["crossable_samples"]["yapo"]) == 10
+    assert len(result["crossable_samples"]["portal"]) == 10
+    rendered = render_table(result)
+    assert all(
+        token in rendered
+        for token in (
+            "calleN%",
+            "const%",
+            "suelo%",
+            "sesiones_expiradas=",
+            "https://example.invalid/",
+        )
+    )

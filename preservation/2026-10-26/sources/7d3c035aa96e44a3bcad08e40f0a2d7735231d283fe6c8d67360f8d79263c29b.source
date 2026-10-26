@@ -1,0 +1,116 @@
+"""Temporal pool-parity bridge using the full archived active apartment catalog.
+
+No new labels, geocodes, requests or product code. All 149 temporal targets were
+already screened against ALL 6283 old nodes, including excluded bridge nodes.
+"""
+from contracts import *
+from run_contracts import Physical
+from text_models import TextModel
+from am import FoldModel,Bundle,BASE,cfg,_Diagnostics,classify_product
+from avm01.isolation import LabelCustody
+from avm01.canonical_io import target_from_payload
+from domain.valuation.engines.contracts import EngineRequest,EngineContext
+from domain.valuation.price_surface import clear_price_surface_cache
+from copy import copy
+from decimal import Decimal
+import subprocess,time
+
+def catalog():
+ b=module('catalog_cohort',ROOT/'research/tasar_cohort_20261009T154414Z/build.py')
+ snapshot=read(ROOT/b.POLICY['snapshot']);prov=snapshot['provenance']
+ path=ROOT/prov['canonical_DTO_encrypted_path'];assert sha(path)==prov['canonical_DTO_ciphertext_sha256']
+ raw=crypto().unprotect(path.read_bytes());assert hashlib.sha256(raw).hexdigest()==prov['canonical_DTO_plaintext_sha256']
+ allrows=json.loads(raw);active=sorted([p for p in allrows if p['status']=='active' and p['property_type']=='apartment'],key=lambda p:p['id'])
+ assert len(active)==2396
+ fs,pairs,groups=b.dependencies(snapshot['listings'])
+ edges=[(p['id_a'],p['id_b']) for p in pairs if p['G3']]+[(4211,4486)]
+ # Retain reviewed G3 amendments, not merely the older automatic pair rules.
+ with (ROOT/'research/tasar_pilot_preflight_20261010T123500Z/cv_dependency_groups.csv').open(encoding='utf-8',newline='') as fh:
+  buckets=defaultdict(list)
+  for row in csv.DictReader(fh):buckets[row['G3']].append(int(row['listing_id']))
+ for ids in buckets.values():edges.extend(zip(ids,ids[1:]))
+ g=b.identity.graph(fs,edges)
+ return active,g,{'count':len(active),'raw_catalog_sha256':digest(active),'snapshot_sha256':sha(ROOT/b.POLICY['snapshot']),'snapshot_at':snapshot['captured_at'],'canonical_ciphertext_sha256':sha(path),'candidate_G3_sha256':digest(g),'dependency_edges':len(edges)}
+
+def prepare():
+ assert not(HERE/'catalog_protocol_v2.json').exists()
+ pool,groups,meta=catalog();base=read(HERE/'protocol.json')
+ ds,splits=cases('temporal');s=splits[0]
+ v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':{m:derive(ds,s,m)[0].hash() for m in MODES},'allowed_engines':NAMES,'uf_reference':base['uf_reference'],'catalog':meta,
+  'question':'Does the contract-aligned signal survive the FULL archived operational retrieval catalog, on identical 149 temporal targets? Pool size is a separate factor, never algorithm improvement.',
+  'fixed_candidates':'Same alpha1/.5 learned blend, adaptive same-commune prior, no retuning after previous outcomes. Physical-only for manual/located; text only enriched.',
+  'training':'Learned model retains 791 reliable dated UF labels. A/AM and all final families receive the same full2396 catalog; filters remain algorithm-native. No training on monetary-uncertain references or target labels.',
+  'identity':'Temporal targets already transitively excluded against every old6283 listing by archived temporal policy. AM independent support uses existing old G3 price-blind graph + reviewed amendment; no new grouping rules.',
+  'final':'Copied deployed service and flags; only comparable-family value intervention, original confidence and proportional ranges. Early gate/fallback unchanged.',
+  'limits':'As-of-Oct4 catalog, not current Oct11 production state; explicit common ID order; published offers, automatic dependence, reused temporal targets; exploratory. Text/coords enriched mode still unavailable to current Tasar/URL.',
+  'code':{n:sha(HERE/n) for n in ['catalog_experiment.py','product_worker.py','contracts.py','run_contracts.py','am.py','text_models.py']}}
+ v['pre_execution_amendment']='v1 was never executed; v2 explicitly unions archived reviewed G3 groups into full-catalog independent-support graph. No new grouping rules or labels.'
+ write(HERE/'catalog_protocol_v2.json',v);(HERE/'catalog_protocol_v2.sha256').write_text(sha(HERE/'catalog_protocol_v2.json'))
+ print(json.dumps({'catalog_registered':meta,'temporal_targets':len(s.test)}))
+
+def enable_registry():
+ # Extend the experiment registry, retaining hash-pinned data/config checks.
+ from avm01 import pilot_authorization as auth
+ previous=auth.protocols
+ def protocols():
+  p=HERE/'catalog_protocol_v2.json';h=sha(p);assert h==(HERE/'catalog_protocol_v2.sha256').read_text().strip()
+  return previous()+[(h,read(p))]
+ auth.protocols=protocols
+
+def model_with_catalog(batch,ref,pool,groups):
+ m=FoldModel(batch,ref)
+ m.original=[listing_from_payload(p) for p in pool]
+ bycom=defaultdict(list)
+ for l in m.original:bycom[l.comuna].append(l)
+ for ls in bycom.values():apply_geocoding_guardrails(ls)
+ m.groups={l.id:'catalog-'+str(groups[l.id]) for l in m.original}
+ m.rowids={l.id:'catalog-'+str(l.id) for l in m.original}
+ m.repeated=Counter((round(l.coordinates.lat,7),round(l.coordinates.lon,7)) for l in m.original if l.coordinates)
+ return m
+
+def run():
+ v=read(HERE/'catalog_protocol_v2.json');assert sha(HERE/'catalog_protocol_v2.json')==(HERE/'catalog_protocol_v2.sha256').read_text().strip()
+ for n,h in v['code'].items():
+  if n=='catalog_experiment.py':
+   fix=read(HERE/'catalog_execution_fix.json');assert fix['before']==h and fix['after']==sha(HERE/n)
+  else:assert sha(HERE/n)==h,n
+ enable_registry();pool,groups,meta=catalog();assert meta==v['catalog']
+ ds,splits=cases('temporal');split=splits[0];out=HERE/'catalog-temporal.json.dpapi';assert not out.exists()
+ records=[];started=time.monotonic()
+ for mode in MODES:
+  print(json.dumps({'catalog':2396,'mode':mode,'phase':'predict'}),flush=True)
+  dd,ss=derive(ds,split,mode);assert dd.hash()==v['dataset_sha256'][mode]
+  custody=LabelCustody(dd,());config={'seed':20261009,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':v['uf_reference'],'experiment_protocol_sha256':sha(HERE/'catalog_protocol_v2.json')}
+  batch=custody.issue(dd,ss,config,());ts=list(batch.targets)
+  learned=TextModel(batch,alpha=1.,weight=1.) if mode=='enriched' else Physical(batch)
+  logs=learned.predict_log(ts);m=model_with_catalog(batch,v['uf_reference']['value'],pool,groups)
+  vals={n:{} for n in NAMES};atr={};mtr={}
+  for t,log in zip(ts,logs):
+   batch.validate_target(t);p=target_from_payload(t.canonical_target)
+   # Native structural deduplication precedes monetary filtering. Same ordering.
+   local=copy(m);structural=m.engine._structural_pool(p,m.original,_Diagnostics())
+   local.canonical=[l for l,_ in m.engine._canonical_price_pool(structural,m.rate,_Diagnostics())]
+   local.classes={f'id:{l.id}':classify_product(l) for l in local.canonical}
+   b=Bundle(local,p,t.row_id);a=b.predict(BASE);am=b.predict(cfg('AM',selector='adaptive',scope='commune',compat=True,min_neff=4.5,retrieval=8))
+   clear_price_surface_cache()
+   native=m.engine.valuate(EngineRequest(published_price_provided=False),EngineContext(target=p,candidates=m.original,uf_to_clp=m.rate))
+   nv=float(native.estimated_price_uf) if native.is_successful else None
+   assert a['prediction']==nv,'Full catalog native A parity'
+   for tr in [a,am]:assert set(tr['selected_ids'])|set(tr['surface_pool_ids']) <=set(m.rowids.values())
+   atr[t.row_id]=a;mtr[t.row_id]=am
+   val=math.exp(float(log));vals['A'][t.row_id]=nv;vals['AM'][t.row_id]=am['prediction'];vals['AMcross'][t.row_id]=None;vals['Learned'][t.row_id]=val;vals['Blend'][t.row_id]=math.sqrt(nv*val) if nv is not None else None
+  payload={'mode':mode,'uf_reference':v['uf_reference'],'pool':pool,'targets':[{'row_id':t.row_id,'canonical_target':t.canonical_target,'am':mtr[t.row_id]['prediction'],'blend':vals['Blend'][t.row_id]} for t in ts]}
+  proc=subprocess.run([sys.executable,'-B',str(HERE/'product_worker.py')],input=json.dumps(payload).encode(),capture_output=True,timeout=600)
+  if proc.returncode:raise RuntimeError('Catalog worker failed: '+proc.stderr.decode(errors='replace')[-1500:])
+  end=json.loads(proc.stdout)
+  for t in ts:
+   for n in ['Final','FinalAM','FinalBlend','DeployedA']:vals[n][t.row_id]=end[t.row_id][n]
+   # Product family parity must hold on the identical full catalog.
+   a=vals['A'][t.row_id];d=vals['DeployedA'][t.row_id]
+   assert (a is None)==(d is None) and (a is None or abs(a-d)<.011),'Deployed/full native parity'
+  custody.record_predictions(batch,vals);truth=custody.complete(vals,ss.test)
+  rows=[{'row_id':t.row_id,'group':batch.components[t.row_id],'fold':0,'mode':mode,'source':t.features['source'],'comuna':t.features['comuna'],'geo_original':ds.indexed()[t.row_id].latitude is not None,'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES},'A_trace':atr[t.row_id],'AM_trace':mtr[t.row_id],'final_trace':end[t.row_id]['trace']} for t in ts]
+  records.extend(rows);encrypt(HERE/f'catalog-checkpoint-{mode}.json.dpapi',rows)
+  print(json.dumps({'catalog_mode_complete':mode,'targets':len(rows),'consensus':sum(r['final_trace'].get('consensus_used',False) for r in rows)}),flush=True)
+ encrypt(out,records);write(HERE/'catalog-run.json',{'n':len(records),'elapsed_s':time.monotonic()-started,'ciphertext_sha256':sha(out)})
+if __name__=='__main__':globals()[sys.argv[1]]()

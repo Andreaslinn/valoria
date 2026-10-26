@@ -1,0 +1,59 @@
+# Risk Report Contract Integration Latest
+
+Fecha: 2026-06-18  
+Modo: integracion real minima  
+Resultado: el Risk Report visible ya usa la capa normalizada para contexto, warnings y missing fields sin cambiar layout ni estilos.
+
+## Archivos Modificados
+
+- `ui/components/risk_report_html.py`
+- `ui/components/risk_report_contract.py`
+- `tests/unit/test_risk_report_html.py`
+
+## Archivos Creados
+
+- `risk_report_contract_integration_latest.md`
+- `risk_report_contract_integration_latest.json`
+
+## Comportamiento Nuevo
+
+- `build_valuation_risk_report_data` y `build_radar_risk_report_data` usan el contrato normalizado para warnings visibles y missing fields contextuales.
+- `PROPERTY_VALUATION` usa `investment_score` como nombre interno del score principal.
+- `LISTING_ANALYSIS` usa `listing_opportunity_score` como nombre interno del score principal.
+- `PROPERTY_VALUATION` ya no muestra ni penaliza precio publicado, URL, listing id, watchlist, price history, actividad o descuento faltantes.
+- `LISTING_ANALYSIS` si usa precio publicado, descuento, URL, source y listing id cuando aplican.
+- Raw warning codes cubiertos por la taxonomia se traducen a copy humano beta-safe.
+- Senales tecnicas quedan fuera del texto visible de riesgos.
+
+## Cambio Visible
+
+- El card de warnings ahora se presenta como `Limitaciones`.
+- Los riesgos muestran textos humanos como `Muestra comparable limitada`, `Evidencia concentrada en una fuente` y `Terreno con evidencia limitada`.
+- El Bottom Line habla distinto para tasacion manual vs publicacion.
+- El breakdown mantiene el mismo layout, pero sus labels son contextuales.
+
+## Que NO Cambio
+
+- Layout HTML.
+- CSS/estilos.
+- Estructura visual base.
+- Boton del reporte.
+- Integracion visual de Tasar Playground.
+- Endpoints publicos.
+- Base de datos.
+- Scrapers.
+- Migraciones.
+- Deploy.
+
+## Tests Ejecutados
+
+| Comando | Resultado |
+|---|---|
+| `python -m pytest tests/unit/test_risk_report_contract.py tests/unit/test_risk_report_html.py tests/unit/test_tasar_playground_adapter.py` | 28 passed |
+| `python -m ruff check ui/components/risk_report_html.py ui/components/risk_report_contract.py tests/unit/test_risk_report_html.py tests/unit/test_risk_report_contract.py tests/unit/test_tasar_playground_adapter.py ui/redesign/tasar_playground_adapter.py` | All checks passed |
+
+## Pendientes
+
+- Expandir coverage de taxonomia mas alla del set beta-safe actual.
+- Exponer `report_type` / `headline_score_name` en metadata downstream si producto lo necesita.
+- Agregar snapshot estructural mas amplio cuando el copy quede estable.

@@ -1,0 +1,27 @@
+import sys,json,time,statistics,os
+from pathlib import Path
+import httpx
+ROOT=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(ROOT/'work/valoria'))
+from services.sii.pure_valuation import sii_valuation
+DATA=ROOT/'outputs/integrated/vitacura';OUT=ROOT/'outputs/micromarkets'
+os.environ['SII_GEOGRAPHY_DATA_DIR']=str(DATA);os.environ['SII_MICROMARKET_DIR']=str(OUT)
+t=time.perf_counter();p=sii_valuation(rol='1261-6',data_dir=DATA)
+result={'process_cold_ms':(time.perf_counter()-t)*1000,'http':{}}
+with httpx.Client(timeout=20) as c:
+    t=time.perf_counter();r=c.post('http://127.0.0.1:8772/api/v1/tasar/sii-valuation',json={'rol':'1261-6'});r.raise_for_status()
+    result['first_http_ms']=(time.perf_counter()-t)*1000
+    for case in [{'rol':'1261-6'},{'address':'Laura Tromben 5631'},{'address':'Samotracia 2071'}]:
+        times=[]
+        for i in range(31):
+            t=time.perf_counter();r=c.post('http://127.0.0.1:8772/api/v1/tasar/sii-valuation',json=case);r.raise_for_status()
+            elapsed=(time.perf_counter()-t)*1000;body=r.json()
+            assert body['status']=='available' and body['sii_only'] and body['model_used']=='baseline'
+            assert body['micromarket_candidate']['promoted'] is False
+            assert body['valuation_trace']['distance_changes_published_price'] is False
+            if i:times.append(elapsed)
+        result['http'][str(case)]={'n':30,'median_ms':statistics.median(times),'p95_ms':sorted(times)[28],
+            'maximum_ms':max(times),'baseline_uf':body['value_uf'],'candidate_uf':body['micromarket_candidate']['value_uf']}
+    r=c.post('http://127.0.0.1:3113/backend/api/v1/tasar/sii-valuation',json={'rol':'1261-6'});r.raise_for_status()
+    assert r.json()['valuation_trace'];result['frontend_proxy']='passed'
+(OUT/'latency.json').write_text(json.dumps(result,indent=2),encoding='utf8');print(json.dumps(result,indent=2))

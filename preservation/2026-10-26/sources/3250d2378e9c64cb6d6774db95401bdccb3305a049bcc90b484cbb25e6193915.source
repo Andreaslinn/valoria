@@ -1,0 +1,14 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''import subprocess,json
+name='valoria-portal-candidate-api';x=json.loads(subprocess.check_output(['docker','inspect',name]))[0]
+assert x['Image']=='sha256:76839409d18f17752334fac007215225a7c2d5c8462e52316f31f353722db672' and x['HostConfig']['PortBindings']['8000/tcp'][0]['HostPort']=='18013'
+args=['docker','run','-d','--name',name,'--network','valoria-portal-candidate-net','--memory','384m','--cpus','0.5','-p','127.0.0.1:18013:8000','--volume','/home/ubuntu/apps/valoria/private/portal-session:/portal-session:ro']
+for value in x['Config']['Env']:args+=['-e',value]
+args+=['--entrypoint','python','valoria-remediation:candidate-20261012-v6','-B','-m','uvicorn','api.main:app','--host','0.0.0.0','--port','8000']
+subprocess.run(['docker','rm','-f',name],check=True,capture_output=True)
+r=subprocess.run(args,capture_output=True);assert r.returncode==0,'Isolated candidate upgrade failed'
+print(json.dumps({'isolated_api_image':'valoria-remediation:candidate-20261012-v6','production_untouched':True}))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=40);print(r.stdout);r.check_returncode()

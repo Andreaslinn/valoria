@@ -1,0 +1,20 @@
+import argparse,json
+from pathlib import Path
+from .fixtures import synthetic
+from .harness import run,CONFIG
+
+def main():
+    p=argparse.ArgumentParser(description='AVM-01 synthetic checks ONLY. No real dataset execution command.')
+    p.add_argument('command',choices=['demo']);p.add_argument('--out',required=True)
+    p.add_argument('--secondary-target',action='store_true');p.add_argument('--geo-ablation',action='store_true')
+    args=p.parse_args();config=dict(CONFIG)
+    if args.secondary_target:config['target']='log_uf_m2'
+    if args.geo_ablation:config['geo_ablation']=True
+    out=Path(args.out).resolve();root=Path(__file__).resolve().parents[1]
+    if not out.is_relative_to(root) or out==root:raise ValueError('Artifacts must stay inside experimental sandbox')
+    out.mkdir(parents=True,exist_ok=True)
+    result=run(synthetic(),config)
+    (out/'synthetic-results.json').write_text(json.dumps(result,indent=2,allow_nan=False),encoding='utf-8')
+    print(json.dumps({'status':'SYNTHETIC_CHECK_COMPLETE','result_sha256':result['result_sha256'],'holdout_evaluated':False}))
+
+if __name__=='__main__':main()

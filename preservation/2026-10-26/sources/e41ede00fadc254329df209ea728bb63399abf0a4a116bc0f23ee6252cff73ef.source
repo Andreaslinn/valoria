@@ -1,0 +1,49 @@
+from pathlib import Path
+p=Path('outputs/valoria/domain/property_life/engine.py')
+s=p.read_text(encoding='utf-8')
+s=s.replace('def ventas(F, N, uf_av, L=None, *, today=None):', 'def ventas_reference(F, N, uf_av, L=None, *, today=None):',1)
+start=s.index('    V = m2_a_la_fecha(V, L)',s.index('def ventas_reference'))
+end=s.index('\n\n\ndef m2_a_la_fecha',start)
+finish=s[start:end]
+new='''def ventas(F, N, uf_av, L=None, *, today=None):
+    """Same reference grouping and precedence, aggregated without per-group DataFrames."""
+    keys = ['mz', 'FE', 'FI']
+    X = F.merge(N[['mz', 'pr', 'dir', 'tipo', 'm2', 'anio', 'avaluo', 'supter']], on=['mz', 'pr'], how='left')
+    X = X.sort_values('uf_total', na_position='first').drop_duplicates(['mz','pr','FE','FI'], keep='last')
+    X['sequence'] = np.arange(len(X))
+    X = X.dropna(subset=keys)
+    M = X[X.tipo.isin(['depto','casa'])].copy()
+    if M.empty:
+        return ventas_reference(F, N, uf_av, L, today=today)
+    M['n_main'] = M.groupby(keys).pr.transform('size')
+    M['rounded'] = M.uf_total.round(0)
+    M['repeated'] = M.groupby(keys + ['rounded']).pr.transform('size').fillna(0) > 1
+    A = X[X.tipo.isin(['estac','bodega'])].copy()
+    A['amount'] = A.uf_total.fillna(0)
+    A['priced'] = A.amount > 0
+    stats = A.groupby(keys).agg(n_aux=('pr','size'), aux_sum=('amount','sum'), aux_all=('priced','all'))
+    M = M.join(stats, on=keys)
+    M['n_aux'] = M.n_aux.fillna(0)
+    M['aux_sum'] = M.aux_sum.fillna(0)
+    M = M.sort_values(keys + ['sequence']).reset_index(drop=True)
+    principal = M.uf_total.where(M.uf_total > 0)
+    confidence = np.select([
+        principal.isna(),
+        (M.n_main > 1) & M.repeated,
+        M.n_main > 1,
+        M.n_aux == 0,
+        (M.n_aux > MAX_AUX) | (M.aux_sum > 0.5 * principal),
+        M.aux_all.fillna(False).astype(bool),
+    ], ['sin_monto','monto_repetido','multiple','individual','aux_incierto','desglosado'], default='paquete_no_desglosado')
+    total = principal + np.where(np.isin(confidence, ['desglosado','paquete_no_desglosado']), M.aux_sum, 0.)
+    V = pd.DataFrame(dict(
+        operation_key=M.mz.astype(str)+':'+M.FE.astype(str)+':'+M.FI.astype(str),
+        mz=M.mz, pr=M.pr, dir=M.dir, tipo=M.tipo, fecha=M.fe.where(M.fe.notna(), M.fi),
+        uf_principal=principal, uf_total=total, clp=M.CLP.where(~(M.UF>0)),
+        m2=M.m2, supter=M.supter, anio=M.anio,
+        avaluo_uf=M.avaluo / uf_av if uf_av else np.nan,
+        confianza=confidence, n_aux=M.n_aux.where(M.n_main==1,0).astype(int)))
+'''+finish+'\n\n\n'
+pos=s.index('def m2_a_la_fecha')
+s=s[:pos]+new+s[pos:]
+p.write_text(s,encoding='utf-8')

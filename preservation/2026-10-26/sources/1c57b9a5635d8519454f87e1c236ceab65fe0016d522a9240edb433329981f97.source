@@ -1,0 +1,17 @@
+"""Build only the independent reconciled image from the preserved runtime."""
+from pathlib import Path
+import json
+import subprocess
+
+REFERENCE = 'sha256:e8eff5348f3668cf177bf5762af5412a29327c2a4a2b008b1810dffd8248e15e'
+TAG = 'valoria-production-reference:e8eff534'
+OUTPUT = 'valoria-reconciled:20260926'
+
+if __name__ == '__main__':
+    root = Path(__file__).resolve().parents[1]
+    image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', REFERENCE]))[0]
+    assert image['Id'] == REFERENCE and image['Architecture'] == 'arm64'
+    subprocess.run(['docker', 'tag', REFERENCE, TAG], check=True)
+    subprocess.run(['docker', 'build', '--pull=false', '--network=none', '--platform=linux/arm64',
+                    '-f', 'Dockerfile.reconciled', '-t', OUTPUT, '.'], cwd=root, check=True)
+    print('Built ' + OUTPUT + '; production reference unchanged')

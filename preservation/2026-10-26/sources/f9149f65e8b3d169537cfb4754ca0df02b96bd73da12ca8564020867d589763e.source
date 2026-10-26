@@ -1,0 +1,9 @@
+from pathlib import Path
+import subprocess
+root=Path('outputs/valoria').resolve()
+files=subprocess.check_output(['git','-C',str(root),'diff-tree','--no-commit-id','--name-only','-r','HEAD'],text=True).splitlines()
+for name in files:
+    p=root/name
+    text=p.read_text(encoding='utf-8')
+    p.write_text('\n'.join(line.rstrip() for line in text.splitlines())+'\n',encoding='utf-8',newline='\n')
+print(f'Normalized line endings for {len(files)} feature files.')

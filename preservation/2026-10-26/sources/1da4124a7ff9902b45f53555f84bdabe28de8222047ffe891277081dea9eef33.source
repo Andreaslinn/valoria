@@ -1,0 +1,5 @@
+services:
+  api:
+    image: valoria-ingestion:v3-20261004-12d891d376ac
+    environment:
+      INGESTION_OBSERVATION_HISTORY_ENABLED: "true"

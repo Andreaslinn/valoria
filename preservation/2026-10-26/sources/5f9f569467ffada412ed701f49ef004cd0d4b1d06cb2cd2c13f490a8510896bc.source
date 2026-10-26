@@ -1,0 +1,38 @@
+from pathlib import Path
+repo=Path(__file__).parent/'valoria'
+p=repo/'frontend-v2/src/features/valuation/property-form.tsx'
+t=p.read_text(encoding='utf8')
+t=t.replace('AddressAutofillNote, useAddressDetails','AddressAutofillNote, PropertySearch, useAddressDetails, type SearchMode')
+t=t.replace('const initial={address:"",','const initial={rol:"",address:"",')
+t=t.replace('  const siiEnabled=useSiiClosingCapability();','  const siiEnabled=useSiiClosingCapability();\n  const [searchMode,setSearchMode]=useState<SearchMode>("address");')
+t=t.replace('setValues({address:"",','setValues({rol:"",address:"",')
+t=t.replace('useAddressDetails(siiEnabled&&!busy,values.address,values.comuna)','useAddressDetails(siiEnabled&&!busy,searchMode==="rol"?values.rol:values.address,values.comuna,searchMode)')
+t=t.replace('key==="address"||key==="comuna"','key==="address"||key==="rol"||key==="comuna"')
+t=t.replace('if(key==="address"){setTargetId','if(key==="address"||key==="rol"){setTargetId')
+t=t.replace('...(siiEnabled&&values.address.trim()?{address:values.address.trim()}:{})','...(siiEnabled&&searchMode==="rol"&&values.rol.trim()?{sii_rol:values.rol.trim()}:siiEnabled&&searchMode==="address"&&values.address.trim()?{address:values.address.trim()}:{})')
+old='''{siiEnabled&&<label className="tasar-field"><span>Dirección de la propiedad</span><input aria-label="Dirección (opcional)" value={values.address} onChange={e=>update("address",e.target.value)} placeholder="Calle, número y departamento"/></label>}'''
+new='''{siiEnabled&&<PropertySearch mode={searchMode} onModeChange={mode=>{if(mode===searchMode)return;setSearchMode(mode);update(mode==="rol"?"rol":"address",mode==="rol"?values.rol:values.address);}} address={values.address} onAddressChange={value=>update("address",value)} rol={values.rol} onRoleChange={value=>update("rol",value)}/>}'''
+assert old in t
+t=t.replace(old,new)
+p.write_text(t,encoding='utf8')
+
+p=repo/'frontend/src/features/valuation/ValuationForm.tsx'
+t=p.read_text(encoding='utf8')
+t=t.replace('AddressAutofillNote, useAddressDetails','AddressAutofillNote, PropertySearch, useAddressDetails, type SearchMode')
+t=t.replace('type FormValues = { address:', 'type FormValues = { rol: string; address:')
+t=t.replace('const initialValues: FormValues = { address:', 'const initialValues: FormValues = { rol: "", address:')
+t=t.replace('  const siiEnabled = useSiiClosingCapability();','  const siiEnabled = useSiiClosingCapability();\n  const [searchMode,setSearchMode]=useState<SearchMode>("address");')
+t=t.replace('useAddressDetails(siiEnabled&&!isSubmitting, values.address, values.comuna)','useAddressDetails(siiEnabled&&!isSubmitting, searchMode==="rol"?values.rol:values.address, values.comuna, searchMode)')
+t=t.replace('key==="address"||key==="comuna"','key==="address"||key==="rol"||key==="comuna"')
+t=t.replace('      address: "",','      rol: "", address: "",')
+t=t.replace('...(siiEnabled && values.address.trim() ? { address: values.address.trim() } : {})','...(siiEnabled && searchMode==="rol" && values.rol.trim() ? {sii_rol:values.rol.trim()} : siiEnabled && searchMode==="address" && values.address.trim() ? { address: values.address.trim() } : {})')
+old='''{siiEnabled ? <div><Input label="Dirección de la propiedad" name="address" value={values.address} onChange={(event) => update("address",event.target.value)} placeholder="Calle, número y departamento" /></div> : null}'''
+new='''{siiEnabled&&<PropertySearch mode={searchMode} onModeChange={mode=>{if(mode===searchMode)return;setSearchMode(mode);update(mode==="rol"?"rol":"address",mode==="rol"?values.rol:values.address);}} address={values.address} onAddressChange={value=>update("address",value)} rol={values.rol} onRoleChange={value=>update("rol",value)}/>}'''
+assert old in t
+t=t.replace(old,new)
+p.write_text(t,encoding='utf8')
+for prefix in ['frontend-v2','frontend']:
+    p=repo/prefix/'src/types/valuation.ts'
+    t=p.read_text(encoding='utf8').replace('  address?: string;','  address?: string;\n  sii_rol?: string;')
+    p.write_text(t,encoding='utf8')
+print('Both Tasar forms support address/rol mode with isolated lookup state')

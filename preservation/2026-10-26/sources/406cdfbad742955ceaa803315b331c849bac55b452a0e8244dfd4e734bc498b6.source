@@ -1,0 +1,91 @@
+# Resultado de identidad para validación cruzada
+
+**No recomiendo congelar todavía ningún cv_dependency_group_id_preferred.** Las reglas target-free son reproducibles, pero no permiten acotar el riesgo de que una misma unidad termine en grupos distintos. La investigación se detiene antes de crear holdout o entrenar modelos.
+
+## Señales reales
+
+| signal | coverage | coverage_pct | cardinality |
+| --- | --- | --- | --- |
+| source | 1179 | 100.0 | 2 |
+| external_id | 1179 | 100.0 | 1179 |
+| canonical_url | 1179 | 100.0 | 1179 |
+| title_sanitized | 1179 | 100.0 | 1031 |
+| description_sanitized | 82 | 6.955046649703139 | 82 |
+| address_raw_label | 180 | 15.267175572519085 | 122 |
+| street_hint | 180 | 15.267175572519085 | 122 |
+| location_text | 718 | 60.89906700593723 | 44 |
+| normalized_address | 188 | 15.945716709075487 | 124 |
+| explicit_street | 154 | 13.061916878710772 | 86 |
+| explicit_street_number | 11 | 0.9329940627650551 | 10 |
+| explicit_unit | 11 | 0.9329940627650551 | 10 |
+| potential_street_number_from_title_audit_only | 11 | 0.9329940627650551 | 10 |
+| potential_unit_from_title_audit_only | 15 | 1.272264631043257 | 14 |
+| potential_street_number_from_description_audit_only | 1 | 0.08481764206955046 | 1 |
+| potential_unit_from_description_audit_only | 0 | 0.0 | 0 |
+| building_project_name | 0 | 0.0 | 0 |
+| coords_available | 357 | 30.279898218829516 | 324 |
+| trusted_coords_guarded | 330 | 27.989821882951652 | 308 |
+| coord_precision | 1179 | 100.0 | 5 |
+| coord_source | 336 | 28.498727735368956 | 1 |
+| current_property_id | 1179 | 100.0 | 635 |
+| historical_fingerprint | 1179 | 100.0 | 1179 |
+| existing_image_identifier_hash | 0 | 0.0 | 0 |
+| historical_stable_publication | 847 | 71.84054283290925 | 1 |
+| broker_listing_identifier | 0 | 0.0 | 0 |
+
+
+De 1.179 candidatos, address_label/street_hint aparece en **180 (15,27%)**, todos Yapo; es principalmente pista de calle. No hay dirección completa estructurada ni unidad en ese campo. Con extracción explícita del título aparecen **11 street+number (0,93%)** y **11 unidades (0,93%)**, pero **cero** candidatos reúnen ambas. Normalized address/pista tiene 188 valores, incluyendo títulos con dirección explícita. La extracción es auditable, no validación de exactitud. Description solo 82/1.179, todos Yapo; no se usó para unir pares.
+
+Coordenadas disponibles 357; 330 pasan los guardrails positivos establecidos, todos Yapo. Los 449 Portal no tienen coords ni dirección estructurada/unidad en los campos preservados. Fuente/external_id/URL están disponibles en todos; no se detectan publicaciones simultáneas determinísticamente repetidas. La unicidad impuesta por el viejo fingerprint y la sobreescritura pueden haber eliminado evidencia histórica: ausencia de duplicados de publicación no prueba independencia física.
+
+## Sensibilidad final
+
+| scenario | N_groups | singletons | size2 | size3 | size4 | size5plus | max_group | listings_groups_ratio | cross_source_groups | P95_distance_m | max_distance_m |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| G1 | 1179 | 1179 | 0 | 0 | 0 | 0 | 1 | 1.0 | 0 | None | None |
+| G2 | 1178 | 1177 | 1 | 0 | 0 | 0 | 2 | 1.000848896434635 | 0 | 0.0 | 0.0 |
+| G3 | 1178 | 1177 | 1 | 0 | 0 | 0 | 2 | 1.000848896434635 | 0 | 0.0 | 0.0 |
+
+
+Todos los escenarios tienen cero grupos que abarquen >100, >250, >500 o >1.000 m; G1 no tiene distancias internas y G2/G3 solo una pareja (0 m). **Estos números no certifican independencia**: las reglas abstienen de agrupar casi todo por falta de señales.
+
+El único par conservador final **5392/5395** comparte coordenadas, estructura y título sanitizado; ya compartía property_id. No tiene unidad explícita, por lo que podría ser repetición de anuncio, dos unidades semejantes o una misma plantilla comercial. No se adjudica físicamente. El par nuevo **5341/5342** habría parecido dependiente por geo/texto, pero sus unidades explícitas diferentes bloquean la unión. **Nuevos pares aceptados que el viejo property_id separaba: cero** tras resolver esa contradicción. No se suavizan reglas para obtener matches.
+
+## Auditoría del property_id
+
+172 property_id tienen más de un candidato: **0 supported, 133 ambiguous, 39 contradicted**. Supported exige conexión de todos sus miembros por evidencia física strong; no se usa el property_id como propia prueba. Ambiguous no equivale a incorrecto. Contradicted significa señales incompatibles bajo las reglas (sobre todo geografía), no una reparación ni un label jurídico.
+
+68 parejas internas del property_id presentan contradicción. En la colección completa de 5438 pares bloqueados hay **1827 pares únicos con contradicción**; esto incluye diferencias físicas legítimas entre publicaciones distintas y **no significa 1.827 errores de identidad**. Cero contradicciones en grupos nuevos aceptados. Desglose por razón (categorías pueden solaparse):
+
+| reason | pairs |
+| --- | --- |
+| address_grade_coordinates_gt500m | 931 |
+| area_difference_gt20pct_and10m2 | 1150 |
+| different_comuna | 180 |
+| different_known_bathrooms | 710 |
+| different_known_bedrooms | 1227 |
+| different_known_parking | 72 |
+| explicit_different_unit_same_local_anchor | 1 |
+
+
+Distancias dentro de property_id viejo: 82 de 2.597 parejas tienen coords medibles; mediana **1.200,16 m**, P95 **4.366,32 m**, máximo **7.177,20 m**. Es una distribución de parejas, no P95 de máximos por componente. Fingerprints actuales compartidos: cero pares; no hay distribución estimable. El proxy estructural viejo produce 3.143 parejas, 102 medibles, P95 **3.500,84 m**. Los CSV preservan denominadores y umbrales.
+
+## Qué queda demostrado y qué no
+
+Se demuestra que precio estructurado, UF rate, valores monetarios sanitizados, price_history amounts y performance no determinan las uniones. Se demuestra también que coordenadas y plantilla textual pueden ocultar unidades distintas. **No se demuestra recall de duplicados, false-negative rate ni P(misma unidad cruza train/test).** No hay labels físicos suficientes, ninguna unión cross-source nueva y casi todo Portal carece de ancla física.
+
+Los tres escenarios son artefactos diagnósticos. No debe interpretarse G1=1.179 como N independiente, ni G2=1.178 como solución. No se genera parquet preferido, train/test, holdout, evaluación de error ni modelo.
+
+El matching usa atributos físicos ya persistidos, sin repararlos. Las anomalías de superficie/parsing detectadas en la auditoría anterior permanecen: invariancia ante modificar campos de precio no certifica que todo atributo histórico haya sido correctamente extraído. Tampoco se usa un ID interno histórico como prueba de que su publicación no haya cambiado. Las pruebas demuestran ausencia de dependencia directa de los inputs monetarios, no una identidad física validada.
+
+## Información que más ayudaría
+
+Primero preservar dirección completa normalizada con calle/número y unidad cuando exista, más edificio/proyecto y origen/precisión verificable de las coordenadas. La unidad identifica las diferencias dentro de un edificio; el edificio por sí solo no debe convertirse en inmueble. Necesitamos esa cobertura también en Portal.
+
+Segundo conservar publicaciones separadas por source+external_id y un ledger de sus versiones/URLs; no sobrescribir cross-source al coincidir un fingerprint. Las relaciones históricas almacenadas deben poder auditarse sin precio.
+
+Tercero exportar **desde una copia autorizada** las señales de identidad ya existentes pero omitidas (por ejemplo identificadores de imágenes); distinguir hashes de contenido de URLs y fotos de stock/proyecto. Luego una adjudicación offline, ciega al precio, de pares positivos/negativos y casos cross-source. Eso permitiría validar precision/recall de identidad antes de congelar el split, sin entrenar AVM.
+
+## Integridad
+
+13 tests metodológicos pasan, incluidos todos los controles pedidos y reproducción byte a byte de CSV. Producto: 857 hashes/status idénticos. Outputs de la auditoría previa intactos. Oracle sin acceso, sin cambios en datos reales ni servicios/configuración/timers. Solo lectura de un backup local a stdout y SELECT READ ONLY en DB dev local; no restore, deploy, migración o commit.

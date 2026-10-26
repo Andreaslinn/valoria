@@ -1,0 +1,101 @@
+"""Shared lightweight eligibility gates for Radar candidates."""
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
+
+from core.entities.listing import Listing
+from domain.radar.freshness import RadarFreshnessConfig, is_fresh_for_radar
+from domain.radar.price_basis import radar_price_basis
+from domain.radar.scope import RadarPropertyScope, apply_radar_property_scope
+
+
+@dataclass(frozen=True)
+class RadarInitialEligibilityDiagnostics:
+    active_scope_count: int
+    fresh_candidates_count: int
+    ready_for_radar_count: int
+    excluded_stale_count: int
+    excluded_removed_count: int
+    excluded_missing_price_count: int
+    excluded_missing_area_count: int
+    freshness_excluded_missing_url_count: int
+    freshness_excluded_refresh_failed_count: int
+    freshness_excluded_missing_freshness_count: int
+
+
+@dataclass(frozen=True)
+class RadarInitialEligibilityResult:
+    candidates: tuple[Listing, ...]
+    scope: RadarPropertyScope
+    diagnostics: RadarInitialEligibilityDiagnostics
+
+
+def list_initial_radar_candidates(
+    listings: Sequence[Listing],
+    *,
+    allowed_property_types: Sequence[str] | str,
+    freshness_config: RadarFreshnessConfig,
+    now: datetime,
+) -> RadarInitialEligibilityResult:
+    """Return candidates safe to send into the heavy Radar detector.
+
+    This intentionally does not score or value listings. It only applies the
+    initial gates that decide whether a listing can be attempted by Radar.
+    """
+    scope = apply_radar_property_scope(listings, allowed_property_types)
+    active_scope = [listing for listing in scope.included if listing.status == "active"]
+
+    freshness_excluded = Counter[str]()
+    fresh_candidates: list[Listing] = []
+    for listing in active_scope:
+        decision = is_fresh_for_radar(listing, now=now, config=freshness_config)
+        if decision.allowed:
+            fresh_candidates.append(listing)
+            continue
+        freshness_excluded[decision.cause] += 1
+
+    ready: list[Listing] = []
+    excluded_missing_price = 0
+    excluded_missing_area = 0
+    for listing in fresh_candidates:
+        price_ok = _has_usable_radar_price(listing)
+        area_ok = _has_valid_area(listing)
+        if not price_ok:
+            excluded_missing_price += 1
+        if not area_ok:
+            excluded_missing_area += 1
+        if price_ok and area_ok:
+            ready.append(listing)
+
+    removed_or_unavailable = len([listing for listing in scope.included if listing.status != "active"])
+    removed_or_unavailable += freshness_excluded["removed_or_unavailable"]
+
+    return RadarInitialEligibilityResult(
+        candidates=tuple(ready),
+        scope=scope,
+        diagnostics=RadarInitialEligibilityDiagnostics(
+            active_scope_count=len(active_scope),
+            fresh_candidates_count=len(fresh_candidates),
+            ready_for_radar_count=len(ready),
+            excluded_stale_count=freshness_excluded["stale"] + freshness_excluded["missing_freshness"],
+            excluded_removed_count=removed_or_unavailable,
+            excluded_missing_price_count=excluded_missing_price,
+            excluded_missing_area_count=excluded_missing_area,
+            freshness_excluded_missing_url_count=freshness_excluded["missing_url"],
+            freshness_excluded_refresh_failed_count=freshness_excluded["refresh_failed"],
+            freshness_excluded_missing_freshness_count=freshness_excluded["missing_freshness"],
+        ),
+    )
+
+
+def _has_usable_radar_price(listing: Listing) -> bool:
+    basis = radar_price_basis(listing)
+    return basis.is_usable_for_strong_opportunity and basis.price_clp_snapshot > 0
+
+
+def _has_valid_area(listing: Listing) -> bool:
+    area = listing.built_area_m2 or listing.usable_area_m2 or listing.m2
+    return area is not None and area > 0

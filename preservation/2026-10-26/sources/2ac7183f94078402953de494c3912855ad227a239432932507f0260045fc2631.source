@@ -1,0 +1,14 @@
+from pathlib import Path
+import json
+from netlify_bridge import netlify_client
+SITE='0af3d12f-a75b-494e-b75a-333a6165db68';BRANCH='release/valoria-v2-20261012'
+with netlify_client() as c:
+ old=c.get('/sites/346587ad-56cc-4a1c-afd3-218d750a2183');old.raise_for_status();legacy=old.json();assert legacy['published_deploy']['id']=='6a61ec59082af70008237760'
+ repo={'provider':'github','repo_path':'Andreaslinn/valoria','repo_url':'https://github.com/Andreaslinn/valoria','repo_branch':'production/valoria-v2-pending-acceptance','installation_id':legacy['build_settings']['installation_id'],'base':'frontend-v2','dir':'.next','cmd':'npm ci --no-audit --no-fund && node ../tests/frontend/remediation.test.cjs && npm run build','public_repo':False,'private_logs':True,'base_rel_dir':True,'allowed_branches':[BRANCH],'stop_builds':False}
+ res=c.patch('/sites/'+SITE,json={'repo':repo});
+ if res.status_code!=200:print({'status':res.status_code,'error':res.json().get('message',res.json().get('errors'))});res.raise_for_status()
+ b=res.json()['build_settings']
+ assert b['repo_path']=='Andreaslinn/valoria' and b['repo_branch']==repo['repo_branch'] and b['base_rel_dir'] is True
+ res=c.post('/sites/'+SITE+'/builds',params={'branch':BRANCH,'title':'Valoria V2 acceptance branch preview b85f84bf0afd723699fe7bdd7ac78a2927bc2a5c'});res.raise_for_status();build=res.json()
+ out={'site_id':SITE,'preview_branch':BRANCH,'production_gate_branch':repo['repo_branch'],'github_installation_reused':True,'base_rel_dir':b['base_rel_dir'],'build':{k:build.get(k) for k in ['id','deploy_id','sha','done','error']},'legacy_previous_deploy_preserved':'6a61ec59082af70008237760'}
+ Path(__file__).with_name('netlify-git-preview-trigger.json').write_text(json.dumps(out,indent=2));print(json.dumps(out,indent=2))

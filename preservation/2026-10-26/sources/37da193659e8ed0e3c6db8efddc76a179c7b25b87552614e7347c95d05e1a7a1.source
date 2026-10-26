@@ -1,0 +1,6 @@
+import subprocess
+try:
+    p=subprocess.run([r'C:\Program Files\Docker\Docker\resources\bin\docker.exe','version','--format','{{.Server.Version}}'],capture_output=True,text=True,timeout=20)
+    print(p.stdout, p.stderr)
+except subprocess.TimeoutExpired:
+    print('Docker API did not respond within 20 seconds.')

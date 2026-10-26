@@ -1,0 +1,38 @@
+from pathlib import Path
+import os,json,re,httpx
+from playwright.sync_api import sync_playwright,expect
+ROOT=Path(os.getenv('VALORIA_E2E_OUTPUT',str(Path(__file__).parent/'artifacts')));BASE=os.getenv('VALORIA_E2E_BASE_URL','http://127.0.0.1:3003');API=os.getenv('VALORIA_E2E_API_URL','http://127.0.0.1:8013');results=[]
+
+from urllib.parse import urlparse
+assert all(urlparse(u).hostname in {'127.0.0.1','localhost'} for u in [BASE,API]), 'Synthetic browser tests require isolated loopback services'
+ROOT.mkdir(parents=True,exist_ok=True)
+login=httpx.post(API+'/api/v1/auth/login',data={'username':'candidate-a@example.test','password':'CandidateOnly123!'});login.raise_for_status();token=login.json()['access_token']
+with sync_playwright() as pw:
+ b=pw.chromium.launch(headless=True);ctx=b.new_context(viewport={'width':1440,'height':1000},accept_downloads=True);ctx.tracing.start(screenshots=True,snapshots=True);page=ctx.new_page();page.set_default_timeout(12000);page.goto(BASE+'/resumen');page.evaluate('(token)=>localStorage.setItem("valoria_access_token",token)',token);page.reload(wait_until='networkidle')
+ def go(path):page.goto(BASE+path,wait_until='networkidle');page.wait_for_url(BASE+path)
+ def test(name,fn):
+  try:fn();results.append({'name':name,'status':'PASS'});print('PASS',name,flush=True)
+  except Exception as e:
+   page.screenshot(path=str(ROOT/(name+'-failure.png')),full_page=True);(ROOT/(name+'-dom.txt')).write_text(page.locator('body').inner_text(),encoding='utf-8');results.append({'name':name,'status':'FAIL','error':str(e)});print('FAIL',name,str(e)[:500],flush=True)
+ def report():
+  go('/analizar-url');page.get_by_label('URL de la publicación',exact=True).fill('https://www.yapo.cl/departamento/298');page.get_by_role('button',name='Consultar publicación',exact=True).click();expect(page.get_by_role('button',name='Histórica guardada',exact=True)).to_be_disabled();page.get_by_role('button',name='Analizar precio',exact=True).click();expect(page.locator('.analyze-verdict')).to_be_visible();print('REPORT BUTTONS',page.get_by_role('button').all_text_contents(),flush=True)
+  with page.expect_download() as info:page.get_by_role('button',name=re.compile('Descargar informe',re.I)).click()
+  path=ROOT/'withdrawn-analysis.html';info.value.save_as(str(path));html=path.read_text(encoding='utf-8');assert 'Fixture departamento Independencia 298' in html;assert 'Datos de comparación y comparables' in html;assert '1000' in html;assert 'Retirada / Histórica' in html;assert '2026-06-05T16:23:39' in html;report_page=ctx.new_page();report_page.goto(path.as_uri());report_page.screenshot(path=str(ROOT/'downloaded-report.png'),full_page=True);report_page.close()
+ test('09-analysis-download-real-endpoint',report)
+ def saved_failure():
+  page.route('**/api/v1/watchlist/3633/status',lambda route:route.fulfill(status=500,json={'detail':'Injected candidate failure'}));go('/analizar-url');page.get_by_label('URL de la publicación',exact=True).fill('https://www.portalinmobiliario.com/MLC-4082793840-slug');page.get_by_role('button',name='Consultar publicación',exact=True).click();expect(page.get_by_role('button',name='Comprobando guardado…',exact=True)).to_be_disabled();expect(page.locator('body')).to_contain_text('Injected candidate failure');page.unroute('**/api/v1/watchlist/3633/status');page.evaluate('window.dispatchEvent(new Event("focus"))');expect(page.get_by_role('button',name='Guardada',exact=True)).to_be_disabled()
+ test('10-saved-status-error-disabled-and-recovery',saved_failure)
+ def errors():
+  for status in [403,429,500,503]:
+   page.route('**/api/v1/listings/lookup-url',lambda route,request,s=status:route.fulfill(status=s,json={'detail':f'Injected candidate {s}'}));go('/analizar-url');page.get_by_label('URL de la publicación',exact=True).fill('https://www.yapo.cl/departamento/298');page.get_by_role('button',name='Consultar publicación',exact=True).click();expected='cuenta autorizada' if status==403 else 'límite de consultas' if status==429 else 'UF real no está disponible' if status==503 else 'Injected candidate 500';expect(page.locator('body')).to_contain_text(expected);page.unroute('**/api/v1/listings/lookup-url')
+  page.get_by_role('button',name='Consultar publicación',exact=True).click();expect(page.get_by_role('button',name='Histórica guardada',exact=True)).to_be_disabled()
+ test('11-http-errors-and-real-recovery',errors)
+ def empty():
+  empty_token=httpx.post(API+'/api/v1/auth/login',data={'username':'candidate-empty@example.test','password':'CandidateOnly123!'}).json()['access_token'];page.evaluate('(token)=>localStorage.setItem("valoria_access_token",token)',empty_token);go('/portfolio');expect(page.locator('body')).not_to_contain_text('Fixture departamento');expect(page.get_by_role('button',name='Quitar de mi cartera',exact=True)).not_to_be_visible();print('EMPTY TEXT',page.locator('body').inner_text()[-600:],flush=True);page.evaluate('(token)=>localStorage.setItem("valoria_access_token",token)',token)
+ test('12-empty-account-no-stale-portfolio',empty)
+ def expiry():
+  page.evaluate('localStorage.setItem("valoria_access_token","invalid-expired-candidate-token")');go('/portfolio');expect(page.locator('body')).not_to_contain_text('Fixture departamento');page.wait_for_function('localStorage.getItem("valoria_access_token") === null');expect(page.locator('body')).to_contain_text('Inicia sesión')
+ test('13-invalid-session-clears-data',expiry)
+ ctx.tracing.stop(path=str(ROOT/'candidate-extra-trace.zip'));ctx.close();b.close()
+(ROOT/'extra-results.json').write_text(json.dumps(results,indent=2,ensure_ascii=False),encoding='utf-8');raise SystemExit(any(r['status']=='FAIL' for r in results))
+

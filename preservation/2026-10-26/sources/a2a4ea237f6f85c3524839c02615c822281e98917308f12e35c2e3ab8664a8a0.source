@@ -1,0 +1,40 @@
+from pathlib import Path
+repo=Path(__file__).parent/'valoria'
+p=repo/'frontend-v2/src/features/valuation/property-form.tsx'
+t=p.read_text(encoding='utf8')
+t=t.replace('autoArea=useRef<string|null>(null), typeEdited=', 'autoArea=useRef<string|null>(null), autoLand=useRef<string|null>(null), typeEdited=')
+t=t.replace('autoArea.current=null;autoType.current=false;typeEdited.current=true;', 'autoArea.current=null;autoLand.current=null;autoType.current=false;typeEdited.current=true;')
+t=t.replace('    if(data.fields.property_type&&!typeEdited.current)', '    const land=data.fields.land_area_m2;\n    if(typeof land==="number"&&land>0&&values.land===""){autoLand.current=String(land);setValues(v=>v.land===""?{...v,land:String(land)}:v);}\n    if(data.fields.property_type&&!typeEdited.current)')
+t=t.replace('    if(clearArea||key==="area")autoArea.current=null;', '    const clearLand=(key==="address"||key==="comuna")&&autoLand.current!==null;\n    if(clearLand||key==="land")autoLand.current=null;\n    if(clearArea||key==="area")autoArea.current=null;')
+t=t.replace('...(clearArea?{area:""}:{}),[key]:value', '...(clearArea?{area:""}:{}),...(clearLand?{land:""}:{}),[key]:value')
+t=t.replace('className="tasar-input"><div', 'className={`tasar-input${siiEnabled?" tasar-input--address":""}`}><div')
+t=t.replace('<span>Dirección (opcional)</span>', '<span>Dirección de la propiedad</span>')
+t=t.replace('<small className="sii-address-note">Para consultar cierres SII junto a la estimación actual.</small>', '')
+old='''      <div className="tasar-surface"><label className="tasar-field"><span>{autoArea.current!==null?"Superficie cerrada SII":type==="apartment"?"Superficie útil":"Superficie construida"}</span><div className="tasar-unit"><input aria-label={autoArea.current!==null?"Superficie cerrada SII":type==="apartment"?"Superficie útil":"Superficie construida"} required type="number" min="0.1" step="any" placeholder="Ej. 75" value={values.area} onChange={e=>update("area",e.target.value)}/><span>m²</span></div></label>{type==="house"&&<label className="tasar-field"><span>Terreno</span><div className="tasar-unit"><input aria-label="Superficie de terreno" required type="number" min="0.1" step="any" placeholder="Ej. 250" value={values.land} onChange={e=>update("land",e.target.value)}/><span>m²</span></div></label>}</div>'''
+new='''      {siiEnabled&&lookup.data?.status==="resolved"&&<div className="address-section-title">Superficies <span>Puedes corregirlas</span></div>}
+      <div className="tasar-surface">
+        <label className="tasar-field"><span>{autoArea.current!==null?"Construcción":type==="apartment"?"Superficie útil":"Superficie construida"}{autoArea.current!==null&&<b className="address-field-source">SII</b>}</span><div className="tasar-unit"><input aria-label={autoArea.current!==null?"Superficie cerrada SII":type==="apartment"?"Superficie útil":"Superficie construida"} required type="number" min="0.1" step="any" placeholder="Ej. 75" value={values.area} onChange={e=>update("area",e.target.value)}/><span>m²</span></div>{autoArea.current!==null&&<small className="address-field-caption">Superficie cerrada</small>}</label>
+        {type==="house"&&<label className="tasar-field"><span>Terreno {autoLand.current!==null&&<b className="address-field-source">SII</b>}</span><div className="tasar-unit"><input aria-label="Superficie de terreno" required type="number" min="0.1" step="any" placeholder="Ej. 250" value={values.land} onChange={e=>update("land",e.target.value)}/><span>m²</span></div>{autoLand.current!==null&&<small className="address-field-caption">Terreno registrado</small>}</label>}
+      </div>
+      {siiEnabled&&lookup.data?.status==="resolved"&&<><div className="address-section-title">Completa tu ficha <span>Opcional</span></div><p className="address-missing-note">Añade los datos que no encontramos, si los conoces.</p></>}'''
+assert old in t
+t=t.replace(old,new)
+t=t.replace('placeholder="—" value={values[key]}', 'placeholder={siiEnabled&&lookup.data?.status==="resolved"?"Sin dato":"—"} value={values[key]}')
+p.write_text(t,encoding='utf8')
+
+p=repo/'frontend/src/features/valuation/ValuationForm.tsx'
+t=p.read_text(encoding='utf8')
+t=t.replace('autoArea = useRef<string|null>(null), typeEdited', 'autoArea = useRef<string|null>(null), autoLand = useRef<string|null>(null), typeEdited')
+t=t.replace('    const fillType=data.fields.property_type', '    const land=data.fields.land_area_m2;\n    const fillLand=typeof land==="number"&&land>0&&values.landAreaM2==="";\n    if(fillLand)autoLand.current=String(land);\n    const fillType=data.fields.property_type')
+t=t.replace('...(fillType?{propertyType:fillType}:{})', '...(fillLand&&v.landAreaM2===""?{landAreaM2:String(land)}:{}),...(fillType?{propertyType:fillType}:{})')
+t=t.replace('    if(clearArea||key==="builtAreaM2")autoArea.current=null;', '    const clearLand=(key==="address"||key==="comuna")&&autoLand.current!==null;\n    if(clearLand||key==="landAreaM2")autoLand.current=null;\n    if(clearArea||key==="builtAreaM2")autoArea.current=null;')
+t=t.replace('...(clearArea?{builtAreaM2:""}:{}),', '...(clearArea?{builtAreaM2:""}:{}),...(clearLand?{landAreaM2:""}:{}),')
+t=t.replace('autoArea.current=null;autoType.current=false;typeEdited.current=true;', 'autoArea.current=null;autoLand.current=null;autoType.current=false;typeEdited.current=true;')
+t=t.replace('<p className="sii-address-note">Para consultar cierres SII junto a la estimación actual.</p>', '')
+t=t.replace('label="Dirección (opcional)" name="address"', 'label="Dirección de la propiedad" name="address"')
+t=t.replace('label={autoArea.current!==null?"Superficie cerrada SII":"Superficie útil"}', 'label={autoArea.current!==null?"Construcción · SII":"Superficie útil"}')
+t=t.replace('label={isHouse ? "Superficie total / terreno" : "Superficie total"}', 'label={isHouse ? autoLand.current!==null?"Terreno · SII":"Superficie total / terreno" : "Superficie total"}')
+t=t.replace('onChange={(event) => setValues((current) => ({ ...current, landAreaM2: event.target.value }))}', 'onChange={(event) => update("landAreaM2",event.target.value)}')
+t=t.replace('      <div className="grid gap-3 sm:grid-cols-3">', '      {siiEnabled&&lookup.data?.status==="resolved"&&<div className="address-section-title">Completa tu ficha <span>Opcional</span></div>}\n      <div className="grid gap-3 sm:grid-cols-3">')
+p.write_text(t,encoding='utf8')
+print('Readable property card, editable construction/land and preserved manual fields in both forms')

@@ -1,0 +1,9 @@
+from run import *
+c=verify();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],20261009)
+split=plan.folds[0];custody=LabelCustody(ds,());batch=custody.issue(ds,split,config(c,20261009,['A']),())
+model=FoldModel(batch,c['uf_reference']['value']);native=FrozenA().fit(batch)
+for i in split.test[:8]:
+ b=model.bundle(batch.target(i));actual=b.predict(BASE);clear_price_surface_cache();expected=native.predict(batch.target(i))
+ assert actual['prediction']==expected.value_uf,(i,actual['prediction'],expected.value_uf)
+ assert sorted(actual['selected_ids'])==sorted(expected.trace['selected_ids'])
+print(json.dumps({'native_parity':8,'passed':True}))

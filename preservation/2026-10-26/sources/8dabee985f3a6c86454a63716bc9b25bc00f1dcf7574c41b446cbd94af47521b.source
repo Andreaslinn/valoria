@@ -1,0 +1,13 @@
+# Identidad y dependencia
+
+Publicación: source+external_id y URL estable; listing: clave canónica del pipeline; observation: estado inmutable con tiempo; identidad física: evidencia de unidad respaldada; dependencia estadística: registros que no deben cruzar validación. Son objetos distintos.
+
+Histórico 1.179: 635 componentes al incorporar property_id; 0 grupos antiguos respaldados, 133 ambiguos y 39 contradichos. G1=1.179; G2/G3=1.178 con una pareja provisional y sin cross-source confirmado. Se reutilizan sin recalcular como diagnóstico histórico, no como política válida de producción actual. La modificación moderna que degrada pin de fuente invalida extrapolar sus labels address.
+
+Moderno 2 octubre: 892 candidatos, 1.387 pares investigados, 1.066 cannot-links, 0 strong links y 1 medium no agrupado. No se construyen nuevos G1/G2/G3 sobre datos actuales incompletos. Ningún grouping usa precio, UF/m², residuo, predicción, property_id o fingerprint. El evaluador de lineage solo conecta publicación/URL/listing explícitos y mantiene contradicciones aparte; no implica unidad física.
+
+Contaminación detectada: dependencias por publicaciones/listings que existen y contradicciones históricas; todavía no hay folds con una tasa de cruces medible. Potencial: parejas similares, edificios/stock images y cross-source en el marco de candidatos. No identificable: duplicados sin dirección/unidad/evidencia suficiente y fuera del marco de blocking. No asignar una tasa global de contaminación ni N efectivo físico.
+
+Muestra reproducible: 37 pares, ciega al precio, con títulos monetarios neutralizados y claves de dirección/unidad pseudonimizadas. 12 por frame es carga de revisión, no threshold de identidad. El frame republicaciones modernas queda explícitamente sin muestra porque faltan documentos. Una revisión sin errores de m pares solo permitiría un límite binomial dentro de ese frame y bajo muestreo/independencia adecuados; no certifica todos los singletons ni el mercado.
+
+Nueva información preservada: IDs/URLs/imágenes y a veces descripción/coords/seller metadata. Esas coberturas no acreditan address precision, seller ID estable, imagen única por unidad ni vínculo cross-source. No se corrigieron los 4 casos del trial ni los 6 conteos posteriores.

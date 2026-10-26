@@ -1,0 +1,37 @@
+"""Final integrity checks. No network or production access."""
+from common import *
+import platform
+
+def main():
+    protocol=verify()
+    source=read(HERE/'source_manifest.json')
+    executable=read(HERE/'execution_seal_v2.json')
+    for path,value in {**source,**executable}.items():
+        assert sha(path)==value,path
+    results=read(HERE/'results.json')
+    assert results['fresh_reproduction_equal']
+    assert results['native_A_full_parity_checks']==791
+    assert results['archived_A_parity_checks']==791
+    assert not results['holdout_consumed'] and not results['production_changes']
+    patch=read(HERE/'patch_manifest.json')
+    assert len(patch['changed_files'])==4 and not patch['migrations']
+    assert sha(HERE/'portal_coordinates.patch')==patch['sha256']
+    for p in HERE.rglob('*.py'):
+        compile(p.read_text(encoding='utf-8-sig'),str(p),'exec')
+    files={str(p.relative_to(HERE)):sha(p) for p in HERE.rglob('*')
+           if p.is_file() and '__pycache__' not in p.parts
+           and p.name not in ('delivery_manifest.json','validation.json')}
+    write(HERE/'delivery_manifest.json',files)
+    write(HERE/'validation.json',{
+        'python':platform.python_version(),'original_inputs_verified':len(protocol['immutable_inputs']),
+        'source_originals_verified':len(source),'executable_files_verified':len(executable),
+        'native_A_parity':791,'archived_A_parity':791,'fresh_prediction_reproduction':True,
+        'tests':{'integration_recovery_legacy':68,'AM':10,'failed_final':0},
+        'individual_outputs':'Windows DPAPI CurrentUser encrypted',
+        'production_changes':False,'confirmatory_holdout_consumed':False,
+        'result_sha256':sha(HERE/'results.json'),'patch_sha256':patch['sha256']})
+    print(json.dumps({'integrity':'PASS','originals':len(source),
+                      'immutable_inputs':len(protocol['immutable_inputs']),
+                      'executable_files':len(executable),'delivery_files':len(files)}))
+
+if __name__=='__main__':main()

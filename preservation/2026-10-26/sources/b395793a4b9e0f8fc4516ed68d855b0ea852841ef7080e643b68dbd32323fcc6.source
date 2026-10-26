@@ -1,0 +1,5 @@
+from pathlib import Path
+w=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work')
+p=w/'package_candidate.py';s=p.read_text(encoding='utf-8').replace("w/'release-overlay'","w/'release-overlay-v2'").replace('remediation-candidate-20261012\'','remediation-candidate-20261012-v2\'').replace('valoria-remediation:candidate-20261012','valoria-remediation:candidate-20261012-v2');(w/'package_candidate_v2.py').write_text(s,encoding='utf-8')
+p=w/'check_candidate_image.py';s=p.read_text(encoding='utf-8').replace('valoria-remediation:candidate-20261012','valoria-remediation:candidate-20261012-v2');(w/'check_candidate_image_v2.py').write_text(s,encoding='utf-8')
+p=w/'candidate_e2e_extra.py';s=p.read_text(encoding='utf-8').replace("assert '1000' in html;","assert '1000' in html;assert 'Retirada / Histórica' in html;assert '2026-06-05T16:23:39' in html;");p.write_text(s,encoding='utf-8')

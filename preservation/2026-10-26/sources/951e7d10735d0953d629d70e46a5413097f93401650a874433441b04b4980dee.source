@@ -1,0 +1,12 @@
+# Recomendación de congelación — todavía no aprobable
+
+No hay una cohorte READY ni holdout definido. Propuesta condicionada, no materializada:
+
+1. Exportación local completa hasta un cutoff UTC declarado: documents listing_seen y refresh_result, IDs source/external_id/listing/observation, timestamps observed_at/created_at, raw_state/parsed_state/persisted_state/provenance/safety policy, hashes parser/normalizer y journal de ciclos normales. Evitar secrets/contacts ajenos al fin del experimento; no exportar env ni credenciales. No limitar silenciosamente filas. Mantener eventos y tipos separados.
+2. Autorizar una tarea separada de exportación **solo lectura** desde Oracle: transacción READ ONLY, statement_timeout, cutoff estable, checksums origen/destino, salida privada local; sin dumps secretos, scrapeadas, deploy, migraciones ni timers. Ese acceso NO se ejecutó aquí. La CLI de readiness nunca usa SSH o base de datos.
+3. Mantener labels UF nativas trazables en diagnóstico inicial; CLP separado hasta acreditar importe/currency raw y fecha/tasa de UF sin recuperar legacy. Política de inclusión e índice temporal antes de rendimiento.
+4. Adjudicación ciega al precio de marco de pares; política de dependencia conservadora y sensibilidad, no identity resolver productivo. Registrar riesgos fuera del marco y aprobar tolerancia residual/alcance inferencial.
+5. Contrato de A real preservando entradas y pool/price surface fold-local, reserva por grupos/lineage, custody de labels y guardrails de abstención/composición. Test roundtrip sin fit real.
+6. Fijar K/grid/seed/features/target/grupos/source scope, margen práctico y guardrails. Solo entonces proponer particiones agrupadas y holdout prospectivo ~20%, con aprobación humana. Ningún split definitivo en esta tarea.
+
+NOT_READY acumulación: dejar pipeline existente. NOT_READY identidad: distinguir evidencia recuperable de carencia estructural; nuevas cards iguales no justifican espera ilimitada. NOT_READY target: preservar procedencia faltante; sin reparación histórica. NOT_READY harness: cambios aislados propuestos, no integrados. READY futuro: producir propuesta/hash/decisiones y esperar aprobación; nunca arrancar entrenamiento automáticamente.

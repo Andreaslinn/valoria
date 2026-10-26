@@ -1,0 +1,37 @@
+import json
+import subprocess
+from pathlib import Path
+base=Path(__file__).parent
+d=json.loads((base/'health-final-verified.json').read_text(encoding='utf8'))
+i=json.loads((base/'idempotence.json').read_text())
+assert i['passed']
+sha=subprocess.check_output(['git','rev-parse','HEAD'],cwd=base/'valoria',text=True).strip()
+report=f'https://github.com/Andreaslinn/valoria/blob/{sha}/reports/sii/phase1_validation.md'
+body=f'''Valoria puede cargar F2890 público y Detalle Catastral manual en un Postgres local separado, conservando fuentes, versiones y observaciones crudas. Añade el esquema reversible `sii`, conversión con el calendario UF existente, exclusiones auditables, superficies H/cerradas, jobs idempotentes y geocodificación OSM offline opcional. El único cambio en la app es una sección SII condicional en `/health`; el flag está apagado por defecto.
+
+Base: `29eaa0b3f3543c57e1e596eda2fb64e527d3f65a`, contra `release/canonical-only-reproducible-20261013`. Operación exclusiva en loopback: datos en 55432 y pruebas desechables en 55433. El bootstrap del calendario en la base nueva fue autorizado expresamente por el usuario y reutilizó el modelo/parser y HTML oficiales cacheados.
+
+### Validación con las fuentes completas
+
+F2890_01-10-2026 y catastro 2S-2026: 2.366.069 observaciones crudas seleccionadas, 1.984.584 roles y 2.513.170 líneas. Ventana del benchmark: FI ≥ 01/01/2024. Santiago conserva 13101/13134/13135 en las llaves; solo 13101 entra en el benchmark, y la comuna completa se reporta por `comuna_ine`.
+
+| Criterio | Resultado |
+|---|---|
+| Ocho medianas dentro de ±2% | Cumplido |
+| 55.156 departamentos ±1% | No cumplido: 54.344, −1,472% |
+| Join ≥93% en las 11 comunas | No cumplido: Huechuraba 81,5966%; las otras diez cumplen |
+| Segunda ingesta y rebuild completos | Cumplido: cero filas nuevas, mismos conteos y huella de valores derivados |
+| Descarga automática desde sii.cl | Cumplido: ZIP vigente y hash idénticos; cero filas nuevas |
+| Downgrade poblado y upgrade posterior | Cumplido; tabla UF existente conservada |
+| Flag apagado y suite existente | 2.011 pruebas pasadas; 21 casos SII finales pasados por separado |
+| Geocodificación | Tres métodos probados; cobertura real 0%, pendiente extracto OSM local (fallback previsto en el encargo) |
+| Crudos + tablas/índices SII | {d['disk']['total_bytes']/1e9:.3f} GB, bajo 10 GB; excluye WAL, temporales y respaldos |
+
+La reconstrucción SQL del criterio externo `join6.py` da 55.153 departamentos. Ese criterio usa aliases DP, techo 300 UF/m², otra política FE/FI y repetidos solo cuando todo el grupo tiene idéntico importe positivo. El cache aplica las reglas escritas en el encargo: DP literal, techo 500 y cualquier repetición positiva. El informe incluye los cambios por regla/comuna y cinco roles de ejemplo. En Huechuraba, 1.053 de las 1.208 observaciones sin cruce están en las manzanas 3115/3116, ausentes también en una lectura directa del archivo N original; la causa histórica queda pendiente de evidencia.
+
+[Informe de aceptación, conteos, medianas y roles de diagnóstico]({report}). Los CSV/JSON y la consulta de referencia quedan en `reports/sii/`; operación y contratos en `docs/sii_ingest.md`.
+
+El PR queda en borrador por los dos criterios cuantitativos pendientes. La siguiente fase requiere resolver esas diferencias, incorporar el extracto OSM y definir la política de historia catastral y grupos de escritura para la hoja de vida. Sin merge ni deploy, sin cambios en Tasar, Radar, scrapers ni motor canónico.
+'''
+(base/'pr-body.md').write_text(body,encoding='utf8')
+print(json.dumps({'sha':sha,'report':report,'disk_gb':d['disk']['total_bytes']/1e9}))

@@ -1,0 +1,13 @@
+import ast
+from pathlib import Path
+src = Path('work/reference-local/hoja_vida.py').read_text(encoding='utf-8')
+funcs = {n.name: ast.get_source_segment(src, n) for n in ast.parse(src).body if isinstance(n, ast.FunctionDef)}
+cat = funcs['load_catastro']
+cat = cat.replace('def load_catastro(cod):', 'def parse_catastro(n_path, l_path):')
+a, b = cat.index('    fn = glob.glob'), cat.index('    N = pd.read_csv')
+cat = cat[:a] + cat[b:]
+cat = cat.replace('fn[0]', 'n_path').replace('fl[0]', 'l_path')
+uf = funcs['load_uf'].replace('def load_uf():', 'def parse_uf(paths):').replace("sorted(glob.glob(os.path.join(UF_DIR, 'uf*.htm')))", 'sorted(map(str, paths))')
+uf = uf.replace("open(f, encoding='utf-8', errors='ignore').read()", "Path(f).read_text(encoding='utf-8', errors='ignore')")
+f = funcs['load_f2890'].replace('def load_f2890(nombre, mzs):', 'def parse_f2890(path, nombre, mzs):').replace('open(F2890,', 'open(path,')
+Path('outputs/valoria/domain/property_life/readers.py').write_text('"""Reference-compatible SII parsers; supplied paths only."""\nfrom pathlib import Path\nimport re\nimport pandas as pd\nimport numpy as np\nfrom .engine import norm, UNIT_ALIASES\n\n'+'\n\n'.join([cat,uf,f])+'\n', encoding='utf-8')

@@ -1,0 +1,4 @@
+from pathlib import Path
+p=Path('frontend-v2/src/features/summary/market-today.tsx')
+s=p.read_text(encoding='utf-8').replace('Últimos 30 días completos</span>','Últimos 30 días completos · Chile</span>').replace('"propiedades con rebajas"','"eventos de rebaja"')
+p.write_text(s,encoding='utf-8')

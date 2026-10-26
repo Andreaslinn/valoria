@@ -1,0 +1,497 @@
+from pathlib import Path
+import csv
+import json
+import math
+import shutil
+
+ROOT=Path(__file__).parent.parent
+OUT=Path(__file__).parent/'results'
+OCI='https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm'
+
+
+def write(name,text): (ROOT/name).write_text(text.strip()+'\n',encoding='utf-8')
+
+
+def reports():
+    bench=json.loads((OUT/'benchmark-summary.json').read_text())
+    perf=json.loads((OUT/'performance.json').read_text())
+    ui=json.loads((OUT/'ui-results.json').read_text())
+    before=json.loads((OUT/'performance-before.json').read_text())
+    selected=next(x for x in bench['configuration_summary'] if (x['format'],x['quality'],x['width'])==('WEBP',60,320))
+    table='| Formato | Calidad | Ancho | Mediana B | p95 B | Encode ms | SSIM aprox. |\n|---|---:|---:|---:|---:|---:|---:|\n'
+    for row in bench['configuration_summary']:
+        table+=f"| {row['format']} | {row['quality']} | {row['width']} | {row['median_bytes']:.0f} | {row['p95_bytes']:.1f} | {row['mean_encode_ms']:.2f} | {row['mean_ssim']:.4f} |\n"
+    write('THUMBNAIL_ARCHITECTURE.md',f'''
+# Arquitectura experimental
+
+Recomendación final: **THUMBNAIL_PIPELINE_READY** — listo para revisión de integración;
+sin despliegue ni conexión al trial.
+
+## Selección y responsabilidad
+
+La capa de presentación selecciona listings autorizados de una página/superficie.
+`should_have_thumbnail(listing, Context)` exige surface portfolio/radar/watchlist/detail,
+visible, authorized, owner y listing_id/source válidos. Rechaza historical/comparable/discarded.
+`attach_visible` enriquece los datos y mantiene el listing usable si storage falla.
+No existe hook en ingestión, History, comparables ni scraping. Ningún barrido de inventario.
+
+`request → metadata/cache o placeholder → queue → worker → bounded fetch → decode/orient
+→ fresh RGB/strip metadata → aspect resize sin upscale → WebP → SHA256 → atomic asset → ref`.
+
+## Implementación y datos
+
+`thumbnail_lab` es independiente: Python/Pillow, SQLite WAL sidecar y filesystem.
+Una fila en thumbnails por listing_id con source verificada: status, asset_key,
+content_hash, source_hash, format, width/height/bytes, created_at/refreshed_at/last_seen,
+failure, version y metrics. No binarios en DB; no columnas o migraciones PostgreSQL.
+Jobs tienen referencias HTTPS unsigned validadas, due, attempt, lease_until/token.
+Memberships mantienen owner/surface/last_seen. La fuente original solo se conserva
+como hash en el asset metadata; los jobs eliminan sus URLs al terminar.
+
+La conexión sidecar se reutiliza bajo lock; fetching/decoding nunca mantienen el lock.
+WAL NORMAL conserva integridad frente a crash de proceso; un apagón puede perder
+recientes escrituras de caché. En ese caso se regeneran al volver a ver el listing;
+los huérfanos tienen GC. No es almacenamiento de evidencia duradera.
+
+La claim transaccional y el token CAS impiden publicar el resultado de un worker
+con lease vencida. Persistencia con fsync/rename antes del commit del ref.
+Assets idénticos se comparten por SHA256 del WebP. No similitud ni identidad visual.
+La dedupe es de almacenamiento: diferentes listings pueden requerir fetch separado
+para comprobar el contenido. Un mismo listing bueno nunca se vuelve a descargar
+al cambiar la URL fuente.
+
+## Formato elegido y loop
+
+WebP 320px de ancho máximo, q60, method4. Se conserva aspect ratio y no se amplía.
+Los cinco originales incluyen interiores, exterior vertical y edificios con banner.
+Inspección visual del contact sheet: q60 mantiene paredes, ventanas, fachadas y
+volúmenes legibles; el texto pequeño del anuncio no es criterio de legibilidad.
+Las dos imágenes Portal son promociones representativas del edificio, no fotos
+necesariamente de una unidad. La política de primera referencia no garantiza una
+fachada ni clasifica semánticamente fotos.
+
+{table}
+
+q55 ahorra poco y pierde detalle; q65 mejora marginalmente y pesa más. 360px no
+aporta una mejora suficiente en el slot real de 112px. JPEG es más rápido, pero
+el coste WebP queda fuera del request. AVIF q55 ahorra ~22% en mediana y cuesta
+~4,5x en encode; no merece cambiar la salida. AVIF de entrada es necesario:
+las tres URLs Yapo f_auto entregaron image/avif. No se instaló un codec separado.
+
+## Almacenamiento recomendado
+
+Filesystem persistente dedicado sobre el disco existente, con sidecar SQLite y
+2 GiB de cuota de payload activo. El límite no mide bloques de filesystem,
+metadata, WAL o backups; la proyección reserva esos gastos por separado.
+50.000 imágenes caben holgadamente según tamaños medidos y el margen histórico
+local disponible. El worker parte con concurrencia 1, recuperable y acotado.
+No se crean buckets, volúmenes ni servicios. Coste incremental previsto: 0 en
+el escenario de disco existente, sujeto a la validación de capacidad en integración.
+
+## Portabilidad
+
+CPython 3.13 slim del baseline es compatible con el wheel manylinux ARM64 de
+Pillow 12.3.0. Se descargó e inspeccionó su SHA256, ELF EM_AARCH64 y las bibliotecas
+incluidas libwebp/libavif/libjpeg; ver arm64-inspection.json. Es evidencia de
+compatibilidad de packaging, NO ejecución ni benchmark Ampere. No se pudo usar
+el daemon Docker local desde este entorno; el smoke ARM64 permanece como check
+de aceptación al integrar, sin tocar Oracle durante esta tarea.
+[Wheel publicado por Pillow](https://pypi.org/project/pillow/12.3.0/).
+
+## Alcance de aceptación
+
+58 tests offline, TypeScript y 11 checks de navegador verdes. Las cifras p95 son
+de una muestra de 5, no de todo Valoria. Cobertura de fuentes en el inventario y
+latencia ARM64 no fueron observadas. La arquitectura está preparada para revisión,
+no para desplegar sin verificar autorización del serving y montaje persistente.
+''')
+    write('SECURITY_MODEL.md','''
+# Modelo de seguridad
+
+## Límites implementados
+
+| Capa | Límite |
+|---|---|
+| Procedencia | Hosts exactos photos.encuentra24.com / http2.mlstatic.com |
+| URL | HTTPS:443 únicamente; sin userinfo, query, fragment ni controles; <=2048 chars |
+| Candidatos | Hasta 3 referencias válidas por listing; para al primer éxito |
+| DNS | Rechaza todas las respuestas si alguna IP no es global; IPv4-mapped incluido |
+| Conexión | IP numérica validada fijada al socket; SNI/certificado del hostname |
+| Redirects | Máximo 2; revalida URL y DNS en cada salto; nunca propaga auth |
+| Fetch | 3s por IO, 12s deadline incluyendo el tiempo DNS una vez que retorna |
+| Supervisor | 20s por job, incluyendo DNS bloqueado, redirects y decode; lease 30s |
+| Download | 5 MiB máximo declarado y real; read1 chunks <=64 KiB |
+| MIME | JPEG/PNG/WebP/AVIF; Content-Encoding identity; firma debe coincidir |
+| Decode | <=16.000.000 píxeles y <=8192px por dimensión; no animación |
+| Linux worker | RLIMIT_AS 512 MiB y RLIMIT_CPU 15s; medido/testeado supervisor Windows |
+| Storage | 2 GiB payload activo deduplicado; rebasa → fallback storage_budget |
+
+La API de producto no recibe URLs arbitrarias ni confía en context del navegador.
+La selección/autoridad deben venir del servidor después de los filtros de superficie.
+Context del prototipo es un contrato interno; la API fixture solo conoce un catálogo
+local y se escucha exclusivamente en 127.0.0.1. No sustituye auth productiva.
+
+No se siguen proxies de entorno, cookies, auth headers, archivos locales ni
+protocolos alternativos. Redirects privados y DNS mixto son rechazados. La
+conexión pinneada evita una segunda resolución DNS vulnerable a rebinding.
+Resolver no tiene timeout propio: el supervisor mata el proceso completo a 20s.
+`fetch` directo es una primitive interna; un worker remoto siempre debe usar el
+supervisor. Los retries también son limitados y no multiplican concurrencia.
+
+La firma MIME se valida al abrir y dimensiones antes de image.load. HTML con
+Content-Type image/jpeg termina en rechazo. Corruptos/formatos extraños tienen
+fallback; no se intenta renderizar SVG ni documentos. EXIF orientation se aplica
+antes de copiar píxeles a una nueva imagen, sin EXIF/ICC/XMP/comments de salida.
+
+Nombres del asset: SHA256 hexadecimal + .webp, sin partes de URL. Se comprueba
+integridad al leer. Referencias públicas no contienen la URL fuente. Los únicos
+headers salientes son Accept/User-Agent/Accept-Encoding; no se almacenan en el asset.
+Fallos persistidos son códigos estables, sin error remoto ni secretos. URLs con
+query se rechazan conservadoramente: si una futura fuente necesita URLs firmadas,
+hará falta un proveedor efímero de referencias, sin persistir el token.
+
+Serving local: nosniff, WebP, Content-Length, ETag SHA256, cache privado 24h;
+If-None-Match retorna 304. El patrón de nombre bloquea traversal. En producción
+el proxy/handler debe validar permisos del listing mediante sesión/cookie y
+mantener Cache-Control private; un hash no constituye autorización.
+
+Las pruebas de red usan transport/resolver fake deterministas. La suite principal
+no requiere internet. La adquisición opcional ocurrió una sola vez para cinco
+URLs ya preservadas; sus cuerpos forman ahora fixtures offline.
+''')
+    write('LIFECYCLE.md','''
+# Lifecycle simple
+
+| Evento | Comportamiento |
+|---|---|
+| Entra a superficie autorizada | Actualiza membership/last_seen; ref si listo, job si falta |
+| Vuelve a mostrarse | Reutiliza WebP y actualiza last_seen; no fetch remoto |
+| URL fuente cambia | Mantiene un thumbnail bueno; no invalida automáticamente |
+| Sale de Radar | Mantiene caché con gracia; no elimina al desaparecer del feed |
+| Sale de Watchlist/Cartera | leave elimina solo ese pin; gracia desde última vista |
+| Otro usuario/superficie lo conserva | El resto de memberships siguen independientes |
+| Vuelve antes del TTL | Reutiliza asset; reinicia last_seen/pin |
+| Sin vista durante 90 días | Expira membership y fila; no borra lease activa |
+| Asset compartido por otro listing | No se borra mientras exista una referencia viva |
+| Asset/temp huérfano | Gracia 24h y GC posterior; evita carreras con publicación |
+| Asset dañado/perdido | Hash/tamaño falla; placeholder y regeneración selectiva |
+| Sin referencia | missing/no_source; ninguna descarga, puede reintentarse con nueva evidencia |
+| 403/404/expirada/corrupto | failed; no retries inmediatos; 24h de cooldown |
+| Timeout/network/429/5xx | Máximo 3 intentos; backoff 5s,30s; después cooldown 24h |
+| Worker interrumpido | Lease vence a 30s; otro claim, token CAS rechaza resultado antiguo |
+| Presupuesto agotado | storage_budget y placeholder; no sobrepasa cuota de payload |
+
+TTL cuenta última visualización seleccionada por servidor, no fecha de scraping.
+Un listing guardado que nadie visita en 90d puede perder la foto: se vuelve a
+generar al visitarlo. Esta elección conserva utilidad sin pin eterno. No necesita
+consultar todo Watchlist, History o inventario para GC.
+
+GC es una función explícita, idempotente, bajo transacción y lock local; no se
+instaló timer ni scheduler. En integración, ejecutar una vez al día fuera del
+request. Jobs no preservan un álbum: máximo 3 intentos de fuentes y un único éxito.
+Una caída después del rename y antes del commit puede dejar un huérfano; GC lo
+recoge. Una caída de proceso con fila pendiente recupera el job al vencer lease.
+
+Backup: crear snapshot consistente con SQLite backup API bajo el lock, y copiar
+solo los assets referidos con manifest SHA256. Conservar los archivos fuente de
+ingestión por su mecanismo actual, sin modificarlo. Restaurar sidecar/assets al
+mismo root; validar hashes y regenerar solo faltantes al reaparecer. No copiar
+únicamente thumbnail.sqlite3 abierto ignorando WAL. El prototipo prueba reapertura
+del sidecar y recuperación de leases; no se ha realizado restauración del host.
+''')
+    projection=[]
+    for n in (100,1000,5000,10000,50000):
+        median=selected['median_bytes']; p95=selected['p95_bytes']
+        projection.append({'thumbnails':n,'median_payload_bytes':int(n*median),
+            'p95_scenario_payload_bytes':int(n*p95),'metadata_estimated_bytes':n*2048,
+            'median_fs_plus_metadata_bytes':n*(math.ceil(median/4096)*4096+2048),
+            'p95_fs_plus_metadata_bytes':n*(math.ceil(p95/4096)*4096+2048)})
+    with (OUT/'STORAGE_PROJECTION.csv').open('w',newline='') as f:
+        writer=csv.DictWriter(f,fieldnames=list(projection[0]));writer.writeheader();writer.writerows(projection)
+    storage_table='| Thumbnails | Payload mediana MB | Payload escenario p95 MB | FS+metadata mediana MB | FS+metadata p95 MB |\n|---:|---:|---:|---:|---:|\n'
+    for row in projection:
+        storage_table+=f"| {row['thumbnails']:,} | {row['median_payload_bytes']/1e6:.2f} | {row['p95_scenario_payload_bytes']/1e6:.2f} | {row['median_fs_plus_metadata_bytes']/1e6:.2f} | {row['p95_fs_plus_metadata_bytes']/1e6:.2f} |\n"
+    write('STORAGE_PROJECTION.md',f'''
+# Proyección y alternativas
+
+Observado: mediana {selected['median_bytes']:.0f} B, p95 muestra {selected['p95_bytes']:.1f} B,
+5 imágenes. Estimado: cada listing pesa esos valores; sin dedupe (conservador).
+Supuesto: 4 KiB allocation de filesystem y 2 KiB metadata/listing incluyendo índices.
+Medición sidecar: {perf['metadata_scale']['sqlite_bytes']:,} B para 1005 listings,
+{perf['metadata_scale']['bytes_per_listing']:.1f} B/fila, un membership/fila, sin jobs
+pendientes. Los 2 KiB reservados dan margen a más memberships/URLs de jobs.
+WAL temporal, logs y snapshot tienen reserva aparte. MB decimal; GiB = 2^30 B.
+
+{storage_table}
+
+El escenario p95 multiplicado por N no es un p95 estadístico del total: es un
+presupuesto conservador de tamaño por archivo. Un único backup completo duplica
+aproximadamente el presupuesto; 50.000 → ~2,25 GB incluyendo copia.
+
+La lectura de `outputs/ingestion-history-trial-20261004/storage-projections.json`
+(informe local previo, NO Oracle) registra 28.764.631.040 B libres proyectados a 30d
+en escenario 1x; implica 28.913.315.840 B libres en su baseline. Es margen
+histórico/proyectado, no espacio libre verificado el 2026-10-05. Logs, WAL y
+backups futuros no están modelados en ese informe. 1,13 GB para 50.000 es ~3,9%
+de ese margen; con una copia ~7,8%. Incluso la reserva operativa 4 GiB encaja.
+
+## Evaluación técnica
+
+| Dimensión | A: filesystem persistente | B: OCI Object Storage | C: PostgreSQL/Redis/public existentes |
+|---|---|---|---|
+| Storage | Disco existente; ~1,13 GB escenario 50k p95+metadata | ~0,90 GB payload + sidecar local | PG binarios inflan DB/WAL; Redis memoria; public ligado al build |
+| Requests | Sin cuota Object API; serving local | GET/PUT/HEAD/list/delete consumen requests | PG/API ya existentes, pero añade carga/memoria |
+| Latencia | Lectura local; sin red al bucket | Hop remoto y posible proxy; no medida | Consulta DB/serialización o Redis; no medida |
+| Backup | Requiere sidecar+assets consistente; snapshot aumenta tamaño | Desacopla host; versioning/backup consume más cuota | Mezcla con backups críticos; public requiere rebuild |
+| URLs | Handler/proxy local por hash y autorización | Proxy con IAM o URLs temporales; no bucket público por defecto | Requiere endpoint; public no protege acceso |
+| Cache | ETag/private max-age; hash inmutable | ETag/cache si handler conserva semántica | Debe programarse igual |
+| Dependencia host | Sí; root montado persistentemente | Assets independientes del host | PG/Redis existentes; public depende build |
+| Operación | Sidecar, carpeta, worker y GC simple | IAM/bucket/client/backoff/quotas/cleanup | Cambios en componentes críticos o build |
+| Always Free | Usa disco ya provisionado; sin recursos nuevos | Cuota de almacenamiento y requests compartida | Sin servicio nuevo, con impacto en DB/memoria actual |
+| Cleanup | Referencias locales y unlink bajo transacción | Borrado/GC remoto con requests adicionales | SQL delete; Redis eviction pierde cache; public no dinámico |
+| Restore | Copia manifest+assets+backup SQLite, validar hashes | Restaurar refs y acceso IAM al bucket | PG restore pesa más; Redis es caché; public rebuild |
+
+Recomendado: A, con cuota 2 GiB de payload vivo, reserve física para bloques,
+sidecar/WAL/backup y TTL. No se ha observado alternativa de media en C; usar PG
+para las fotos comprometería backups y Redis no da un almacén durable económico.
+Object Storage queda como opción si aumenta la dependencia de hosts o el volumen.
+
+La cuota oficial consultada el 2026-10-05 distingue Always Free only (20 GB
+combinados) de paid/free-credit (10 GB por tier), y 50.000 requests Object API/mes;
+Block Volume ofrece 200 GB combinados boot/block y 5 backups en home region.
+[Oracle Always Free]({OCI}).
+
+Supuesto de tráfico para comparar, NO tráfico Valoria medido: 100 sesiones/día
+×20 imágenes×30d = 60.000 GET sin cache, ya superior al allowance requests aunque
+los bytes encajen. Una cache de 90% lo reduce a 6.000 misses, pero no está medida.
+Por eso B no permite garantizar coste cero solo mirando GB. A no añade esa
+cuota; el serving comparte CPU/red del host. No se alteró ningún recurso cloud.
+''')
+    write('PERFORMANCE.md',f'''
+# Performance observada
+
+Host: {bench['platform']}, {bench['machine']}, Python 3.12.14, Pillow 12.3.0.
+Todas las cifras CPU/RSS son locales; no representan Oracle ARM64.
+
+40 casos = 5 imágenes ×8 configuraciones; warmup+10 repeticiones por caso.
+FORMAT_BENCHMARK.csv contiene bytes/dimensiones, descarga real observada una vez,
+decode/resize/encode, CPU por operación, RSS peak del proceso, decode de salida,
+ratio y PSNR/SSIM aproximado en bloques 8x8 de luminancia. El peak incluye
+interpreter/librerías y cálculo de calidad; no es RSS incremental del codec.
+No se presenta SSIM como evaluación humana ni como comparación perfecta entre resoluciones.
+
+WebP q60/320: decode+resize+encode medio {selected['mean_processing_ms']:.2f} ms,
+encode {selected['mean_encode_ms']:.2f} ms, peak RSS máximo de caso
+{selected['max_peak_rss_bytes']/1024**2:.2f} MiB. Download observada 203–484 ms
+en 5 fuentes; el end-to-end live no fue medido conjuntamente. Sumar descarga y
+normalización de sesiones distintas sería una estimación, no una medición.
+
+Worker replay con persistencia: {', '.join(f'{v:.1f}' for v in perf['worker_offline_with_persistence_ms'])} ms
+para los 5 listings. Incluye primer codec warmup; download replay 0 ms y métricas
+por thumbnail en performance.json. Fetch remoto no ocurre en el request UI.
+
+## Request/cache y refinamiento
+
+Antes: conexión/checkpoint SQLite por llamada; lote 5 mediana
+{before['five_listing_batch_ms']['median']:.2f} ms. Después: conexión persistente
+con lock y WAL NORMAL; lote 5 mediana {perf['five_listing_batch_ms']['median']:.3f} ms,
+p95 {perf['five_listing_batch_ms']['p95']:.3f} ms (50 lotes).
+Cache hit mediana {perf['hit_ms']['median']:.3f} ms, p95 {perf['hit_ms']['p95']:.3f} ms,
+n=250. Cache miss enqueue mediana {perf['miss_enqueue_ms']['median']:.3f} ms.
+Se conserva la mejora; no hay download/decode/encode durante el enriquecimiento.
+No se extrapola a 100 cards como medición ni a concurrencia productiva desconocida.
+
+## Navegador/UI
+
+Edge {ui['browser']}, 1365×1000 y 390×844. 11 checks verdes. Cinco assets únicos
+transfirieron {sum(x['encodedBodySize'] for x in ui['thumbnail_payload_bytes']):,} B
+de body ({sum(x['transferSize'] for x in ui['thumbnail_payload_bytes']):,} B reportados
+por ResourceTiming incluyendo su overhead aproximado). Listing 8 reutiliza el
+hash del 1. Cache privado max-age=86400/immutable + ETag; HTTP test confirma 304
+con 0 bytes. Los requests observados de assets locales duran aproximadamente
+15–20 ms en esta ejecución. No significa latencia pública productiva.
+
+Primera página dev lista en {ui['first_page_ready_ms']:.0f} ms (Next dev, no build
+optimizado, sin baseline A/B de render). No se atribuye ese tiempo al pipeline.
+Slot fijo de 112px, object-contain, lazy/async; error/fallback mantiene la misma
+altura. Sin overflow móvil, sin excepciones cliente, sin requests externos.
+No se midió Lighthouse ni CLS global; el test verifica el slot antes/después.
+
+Browser decode puntual: {json.dumps(ui['format_decode'],ensure_ascii=False)}.
+Edge decodifica WebP/JPEG/AVIF; otros browsers modernos cuentan con soporte
+documentado, sin probar Safari/Firefox aquí.
+[Guía de formatos MDN](https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Image_types).
+''')
+    write('TEST_RESULTS.md','''
+# Resultados de validación
+
+**PASS — 58 tests unittest offline**, 2,615 s en ejecución final. stdout completo:
+thumbnail_lab/test-output.txt. **PASS — TypeScript tsc --noEmit**.
+**PASS — 11 checks Edge headless**, ui-results.json y screenshots desktop/móvil.
+**PASS — benchmark 40 casos /400 repeticiones medidas**; los cinco originales
+son reales. **PASS — inspección packaging ARM64**: SHA256/ELF/WebP/AVIF incluidos,
+sin ejecución del wheel extranjero.
+
+Cobertura: eligibility por superficie, contexto autorizado/visible, exclusiones,
+identidad válida, referencias ordenadas/capadas, metadata malformada, lectura de
+evidencia/og:image; URL HTTPS/allowlist/credenciales/puerto/query, DNS privados,
+reservados, mapped y mixtos, conexión pinneada/TLS SNI, redirects seguros/prohibidos,
+rebinding y límite de saltos; 403/404/410/429/500, timeout de IO y deadline absoluto
+con slow trickle, MIME no imagen/gzip, Content-Length inválido/excesivo/mismatch,
+body sin límite; decode corrupto/HTML/formatos extraños, firma discordante,
+dimensiones/píxeles enormes, muy pequeña/no upscale, EXIF orientation/removal,
+comments stripping, animación rechazada, JPEG/WebP/AVIF y hash determinista.
+
+Store: cache miss/hit, metadata persistida y reapertura, no fuente, no inventario,
+una fila/job por listing, imagen compartida por dos listings, cambio de URL sin
+download, source mismatch, fallo/cooldown, retries/backoff, primera fuente inválida
+y segunda válida, cuota agotada, conexiones/threads concurrentes, lease vencida,
+stale result CAS, GC gracia/TTL/pins/asset compartido/huérfanos/lease activa,
+asset corrupto regenerado, metadata storage error conserva listing. Supervisor:
+spawn offline, proceso interrumpido/time limit, crash/EOF. HTTP: selección limitada
+a un resultado genera solo ese listing, asset íntegro, no traversal, 304 sin body.
+
+UI: usa componentes existentes de Cartera/Watchlist, Radar y lookup ficha; seis
+imágenes para ocho cards y dos placeholders, error img se convierte en fallback,
+sin cambio de altura, sin URL remota de origen, slot fijo, móvil sin overflow,
+sin excepciones ni requests externos. Decode de todos los formatos en Edge.
+
+La primera prueba UI esperaba que lazy images fuera del viewport estuvieran
+cargadas; se corrigió el test para scroll/decode de cada imagen. La captura móvil
+se corrigió para esperar cards, no el estado loading. Ambos fixes verifican el
+comportamiento final sin desactivar lazy loading. No hay checks finales omitidos.
+
+La sandbox de Windows requiere permisos de ejecución para named pipes y Edge
+headless. Los tests finales se ejecutaron con perfil de navegador nuevo y fixtures
+locales, sin credenciales ni tráfico externo. No es una dependencia productiva.
+No se ejecutó el resto del backend productivo ni la suite ARM64 nativa; no se
+declaran verdes suites que no se corrieron. El baseline de módulos protegidos se
+verifica byte a byte en SAFETY_PROOF.json; Oracle/History trial no fueron tocados.
+''')
+    write('INTEGRATION_PLAN.md','''
+# Plan de integración para revisión — no ejecutado
+
+1. Revisar patch/bundle sobre la copia de preservación fijada en SOURCE_MANIFEST.
+   No aplicar directo al host ni reusar scripts deploy/migration/trial del baseline.
+2. Aceptar primero offline en contenedor Linux ARM64 Python 3.13 slim, instalando
+   Pillow 12.3.0 wheel binary. Ejecutar unittest + encode/decode JPEG/WebP/AVIF;
+   medir latencia/RSS nativas con las cinco fixtures. No necesita red ni Oracle.
+3. Mantener el servicio experimental desactivado por defecto. Preparar root
+   persistente separado del árbol de build: /var/lib/valoria/thumbnails (assets y
+   SQLite sidecar), mismo mount API/worker, permisos mínimos, quota propia. Medir
+   free space/reserva al autorizar la integración; no provisionar un recurso pago.
+4. Insertar enriquecimiento best-effort después de autorización/selección:
+   Radar opportunities finales (incluidos filtros que hoy se aplican en cliente),
+   Watchlist activa del usuario y lookup/get individual cuando se presenta la ficha.
+   Nunca en ingestión, comparables, discarded, History o list general del inventario.
+   Resolver las referencias existentes solo para esos IDs (raw_metadata.main_image_url,
+   o evidencia preservada leída por adapter). Para Portal, meta_raw og:image cubre
+   casos gallery de IDs sin URL. No inventar URLs ni activar el parser/refresh.
+5. Extender DTOs con thumbnail opcional. Nunca entregar raw_metadata/URL CDN al
+   navegador para esta función. Metadata unavailable devuelve null y datos normales.
+   Context es construido por servidor, no por POST libre de un cliente.
+6. Ejecutar worker separado, concurrencia 1 y bounded_process. Assets van a
+   filesystem por hash. Jobs idempotentes/leasing 30s, watchdog20s, retries acotados.
+   Agregar GC diario sencillo; no cron de scraping nuevo ni cambios de frecuencia.
+7. Serving same-origin /media/thumbnails/{hash}.webp con permisos vía sesión/cookie
+   o proxy de confianza, Content-Type/length/nosniff/ETag y cache private. El img
+   nativo no añade Bearer headers: no publicar un endpoint privado que dependa
+   únicamente de Authorization Bearer ni asumir que un hash autoriza acceso.
+8. En ListingThumbnail reemplazar solo namespace sandbox/URL base por el serving
+   same-origin aprobado; conservar slot112/object-contain/lazy/async/fallback.
+   Las cards y sus acciones actuales quedan como en este experimento.
+9. Revisar una muestra mayor de fuentes ya referenciadas de usuarios elegibles,
+   sin descargar inventario. Verificar coverage y p95 antes de ampliar. Thumbnails
+   no son fotos originales de calidad ni sustituyen publicación/evidencia.
+10. Preparar backup/restore sidecar+assets, métricas de queue/errors/quota y flag
+    de apagado. Un flag off deja placeholders; no modifica listings/evidencia.
+
+Estos pasos requieren una solicitud posterior de integración/despliegue. En esta
+tarea no se cambió schema productivo, Oracle, trial History, Tasar, Consensus,
+identity/groupings, scraping o lógica detectora de Radar. El servidor fixture
+no importa api.main/config ni abre una base externa; lookup fixture no analiza
+ni scrapea una URL. No hay trabajo técnico pendiente para reproducir el sandbox.
+''')
+    # Preserve original README as provenance; the public entrypoint is sandbox only.
+    original=ROOT/'README.md'
+    if original.exists() and not (ROOT/'README_VALORIA_BASELINE.md').exists():
+        shutil.copyfile(original,ROOT/'README_VALORIA_BASELINE.md')
+    write('README.md','''
+# Valoria thumbnail sandbox
+
+**THUMBNAIL_PIPELINE_READY**. Pipeline experimental completo, validado y listo
+para revisión de integración. NO desplegado. No se tocó Oracle ni el trial.
+
+Elección: WebP q60, máximo ancho320, una ref activa/listing, filesystem por hash,
+SQLite sidecar, generación selectiva por superficie, worker fuera del request.
+Mediana11.468 B/p95 muestra17.941 B (cinco imágenes reales). 58 tests offline,
+40 casos de benchmark, tsc y 11 checks de navegador verdes. La muestra es pequeña;
+ARM64 tiene wheel inspeccionada, no CPU/RSS ni runtime nativo medido.
+
+## Reproducción local
+
+Este árbol contiene código baseline como contexto. NO ejecutar docker-compose,
+api.main, workers originales, scraper, migrations ni scripts deploy/trial.
+Solo thumbnail_lab y el frontend /sandbox están autorizados por este experimento.
+No configurar .env ni credenciales productivas. No requiere base externa.
+
+```sh
+# Desde la raíz del sandbox, Python 3.11–3.13
+python -m venv .sandbox-venv
+# Activar venv según plataforma; instalar desde requirements del experimento
+python -m pip install -r thumbnail_lab/requirements.txt
+python -m unittest thumbnail_lab.test_pipeline -v
+python -m thumbnail_lab.server
+```
+
+API offline solo en http://127.0.0.1:8105. Genera lazy desde cuerpos locales.
+En otra terminal:
+
+```sh
+cd frontend
+npm ci
+node sandbox-dev.cjs
+# http://127.0.0.1:3105/sandbox
+node node_modules/typescript/bin/tsc --noEmit
+```
+
+UI fixture: portfolio/Watchlist, radar → Buscar oportunidades, detail →
+https://www.yapo.cl/replay/1 → Analizar URL. NO usar Analizar publicacion/reporte
+para thumbnails; esa ruta intencionalmente no existe en la API offline.
+
+Benchmark offline (NumPy solo tooling, no worker dependency):
+
+```sh
+python -m pip install -r thumbnail_lab/requirements-benchmark.txt
+python -m thumbnail_lab.benchmark
+python -m thumbnail_lab.performance
+python -m thumbnail_lab.reports
+```
+
+Node UI test necesita playwright y Edge instalado:
+`npm install --no-save --package-lock=false playwright`, luego
+`node sandbox-ui-test.cjs` mientras ambos servidores están activos. Usa perfil
+nuevo, restringe tráfico a loopback y deja capturas/resultados en results.
+PLAYWRIGHT_MODULE permite usar una instalación existente sin alterar package.json.
+Suite unittest/bench principal no necesita internet. El comando sample es tooling
+opcional online: no ejecutar para validar; las cinco fuentes ya están incluidas.
+
+## Entregables y límites
+
+THUMBNAIL_ARCHITECTURE.md, IMAGE_SOURCE_AUDIT.md, FORMAT_BENCHMARK.csv,
+SECURITY_MODEL.md, STORAGE_PROJECTION.md, PERFORMANCE.md, LIFECYCLE.md,
+TEST_RESULTS.md, INTEGRATION_PLAN.md. results tiene JSON métricos, capturas y
+contact sheet. fixture manifest fija procedencia y hashes de originales.
+SOURCE_MANIFEST fija baseline; SAFETY_PROOF fija módulos protegidos sin cambios.
+
+El ZIP reproducible contiene el árbol sin deps, state, .env ni perfiles de
+navegador. El git bundle incluye baseline local y branch sandbox/thumbnail-pipeline;
+se puede clonar offline con `git clone thumbnail-sandbox.bundle sandbox`.
+thumbnail-pipeline.patch se aplica al baseline local incluido, no afirma tener
+como parent un commit actual de producción. package verification comprueba git
+apply --check, bytes protegidos y manifiestos, sin conexión remota.
+''')
+    shutil.copyfile(OUT/'FORMAT_BENCHMARK.csv',ROOT/'FORMAT_BENCHMARK.csv')
+
+
+if __name__=='__main__':reports()

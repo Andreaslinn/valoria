@@ -1,0 +1,128 @@
+# Resultado de la reconciliación controlada
+
+La reconciliación se realizó en un checkout independiente. Oracle y la carpeta local anterior
+permanecen fuera del destino de los cambios. No hubo deploy, migraciones nuevas ni reparación
+de datos históricos. Las únicas escrituras de aplicación se hicieron en copias aisladas:
+usuarios de prueba, propiedades de prueba, favoritos, actividad y caché/snapshot UF del fixture.
+
+## 1. Checkout y commit base
+
+- Ruta: `C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled`.
+- Rama: `reconcile/production-baseline-20260925`.
+- Base: `32f23a66f73fe01bd89d005afd1503c6ae684b6e`.
+- Imagen productiva de referencia: `sha256:e8eff5348f3668cf177bf5762af5412a29327c2a4a2b008b1810dffd8248e15e`.
+- Original conservado: `C:\Users\heiko\Downloads\AVM v3\Andy\AVM-v2`.
+- Preservación privada: carpeta hermana `private-preservation-20260925`, fuera de Git.
+
+El checkout Oracle y la imagen API habían coincidido en sus 297 archivos de código
+inventariados. La revalidación por SSH del 26 de septiembre confirmó el mismo commit,
+la misma imagen y los mismos contenedores iniciados el 16 de septiembre, sin reinicios.
+Persisten tres archivos sin seguimiento de Oracle (`curl.exe`, `m` y un backup de configuración):
+se preservaron privadamente y no se importaron al Git reconciliado.
+
+## 2. Diferencias y operaciones reproducidas
+
+Se incorporaron únicamente los quick wins validados, sus regresiones y las herramientas/documentos
+necesarios para repetir la reconstrucción aislada. No se integraron cambios locales adyacentes,
+experimentos, motores nuevos, diseños de UI ni datos generados.
+
+Permanecen Consensus v1, Radar, Patrimonio, dashboard, limitadores de peticiones y registro
+de actividad Oracle. Se conservan sus migraciones 0017–0020 y Dockerfile/Compose originales.
+El runtime exacto se reconstruye mediante `Dockerfile.reconciled`, sobre la imagen preservada,
+sin instalación de paquetes ni acceso a red durante el build.
+
+Las imágenes finales de PostgreSQL 16.14, Redis 7.4.9 y Caddy son las preservadas de Oracle.
+Se verifican red interna, ausencia de puertos publicados, pool DB 5+5 y flags efectivos.
+Los 205 módulos Python de aplicación inventariados dentro de la imagen reconciliada coinciden
+con el checkout. Caddy responde a `/health` como proxy interno.
+
+Los timers systemd y límites de descubrimiento quedan documentados y versionados como
+referencia, sin activarlos. No hay contenedor scheduler en el estado productivo observado,
+aunque el Compose original lo declare. La configuración pública y versiones completas
+están en `deploy/reconciliation/production-reference.json` y `python-runtime-versions.json`.
+
+## 3. Lista exacta de quick wins y conflictos
+
+La tabla de `deploy/reconciliation/README.md` detalla los 14 objetivos:
+median_days cero; sesión recuperable; feedback deshabilitado; dependencias de reportes;
+precio mostrado de comparables; trazabilidad UF; última observación; navegación móvil;
+orden estable; exclusión del objetivo; validación temporal UF; ID hacia Tasar;
+UF no disponible como 503 específico; rechazo de estimaciones inválidas.
+
+Dependencias de reportes y navegación móvil ya estaban resueltas en Oracle y se conservaron.
+No se reemplazó su UI ni su comando de arranque por los locales. Los conflictos de estrategia,
+actividad, Redis opcional, feedback y manejo 503 de Watchlist se resolvieron preservando
+las intenciones de ambos lados; están descritos individualmente en el mismo README.
+
+## 4. Esquema y validación
+
+Esquema final **0020**. Backup consistente restaurado con salida 0 en dos instancias locales:
+primero PostgreSQL 16.13 compatible y después la imagen exacta 16.14 de Oracle. No se ejecutó
+`alembic upgrade`. Se conservaron los conteos históricos de 5.306 anuncios, 3.833 propiedades
+y 12.583 registros de precios en la copia final.
+
+| Validación | Resultado |
+|---|---|
+| Tests iniciales Oracle: valoración, UF, reportes | 59 pasan. |
+| Reproducción antes del portado | 74 fallos y 9 pases; se corrigió además una firma de test incompatible y se reprodujo su fallo funcional. |
+| Regresiones portadas y compatibilidad Oracle | 162 pasan; incluye estrategias current y consensus_v1. |
+| Suite backend completa, unit + integración | 1.740 pasan, 3 fallos heredados; sin errores de infraestructura al repetir con permisos para temporales. |
+| Frontend: UF, prefill/identidad, sesión y navegación móvil | 18 pasan. |
+| TypeScript | `tsc --noEmit --incremental false`: correcto. |
+| Build frontend Oracle y reconciliado | Ambos correctos, API configurada a destino local de prueba. |
+| Docker | Build real ARM64, sin red, sobre ID preservado. |
+| Arranque/smoke final | API, schema, imports, auth, UF fixture, Tasar, Analizar URL, Radar, Patrimonio, reportes, favoritos, alertas y Caddy. |
+
+Los conteos corresponden a ejecuciones diferentes: no se suman. Seis casos de estrategia
+añadidos después de la suite completa se validaron en la ejecución focalizada de 162 casos.
+
+Fallos heredados, reproducidos también sobre un árbol intacto de `32f23a66`:
+
+- `test_address_metadata_wins` y `test_address_fallback_selection`: esperan `Av Grecia`,
+  mientras la normalización existente devuelve `Avenida Grecia`.
+- `test_refresh_to_alerts_api_chain_for_saved_listing`: espera un anuncio evaluado y obtiene
+  cero; el fixture de fechas y la ventana temporal vigente necesitan revisión posterior.
+
+No se alteró código de negocio ni se ocultaron estos tests para obtener un resultado verde.
+Los primeros errores de permisos de temporales y de configuración del runner se resolvieron
+en el entorno de pruebas; no son fallos pendientes del producto.
+
+## 5. Aislamiento y límites de lo demostrado
+
+Los tests Python tienen bloqueo de red y SQLite exclusivamente en memoria. Los smoke tests
+se ejecutan dentro de una red Docker `internal`, con URLs explícitas de DB/Redis/UF de prueba.
+Se revisaron los contenedores para descartar otras redes y puertos publicados. No se contactaron
+servicios productivos desde tests o arranques; las conexiones SSH a Oracle fueron exclusivamente
+de preservación e inspección autorizadas.
+
+Redis ARM64 requiere `--ignore-warnings ARM64-COW-BUG` bajo la emulación local x86. Solo se
+aplica al Redis descartable sin persistencia. No equivale a una prueba nativa ARM64 de carga.
+UF usa fixture interno: no se valida conectividad/disponibilidad real del proveedor ni su valor actual.
+No se reprodujeron TLS/ACME público, DNS/firewall OCI, timers y scrapers ejecutándose realmente,
+entrega externa de notificaciones ni el artefacto frontend publicado en Netlify.
+
+La comparación por SHA-256 de los 746 archivos versionados y no ignorados del local anterior
+contra su preservación no detectó cambios, altas ni bajas. La copia completa incluye además
+los archivos ignorados; su copia se completó sin errores.
+
+La reconstrucción de dependencias depende de conservar el archivo de imágenes privado.
+No se afirma reproducibilidad de una instalación nueva con los rangos `>=` originales.
+Las pruebas backend completas usaron el Python local; los smoke finales usan las librerías
+exactas de producción dentro de la imagen. El dump contiene usuarios históricos, pero no se
+utilizan sus credenciales para operar el staging: se usan secretos y cuentas de prueba.
+
+## 6. Diff y recomendación
+
+El diff respecto de `32f23a66` comprende contratos API, validación UF, filtrado del objetivo,
+presentación de comparables/fechas, recuperación de sesión, errores frontend, validación de
+reportes, tests y material de reconstrucción. No cambia modelos DB, migraciones, identidad,
+deduplicación, fórmulas de Consensus ni arquitectura de Radar.
+
+Recomiendo adoptar esta rama versionada como **base de trabajo controlada** para la siguiente
+fase, conservando el commit e imagen Oracle como referencia inmutable. No la considero una
+release lista para producción: antes de usar una suite verde como gate hay que resolver o
+acordar explícitamente el tratamiento de los tres fallos heredados. La siguiente fase debe
+empezar con un problema acotado de identidad y una copia aislada, sin reparar historia a la vez.
+
+La fase de quick wins queda cerrada: no se buscaron ni implementaron nuevos quick wins.
+El patch y resumen de commits se entregan fuera del checkout en la carpeta `outputs` hermana.

@@ -1,0 +1,109 @@
+import csv
+import json
+import shutil
+import sys
+from pathlib import Path
+
+base=Path(__file__).parent
+root=base/"valoria"
+out=base.parent/"outputs"
+out.mkdir(exist_ok=True)
+report_dir=root/"reports"/"sii"
+report_dir.mkdir(parents=True,exist_ok=True)
+data=json.loads((base/sys.argv[1]).read_text(encoding="utf8"))
+idem=json.loads((base/"idempotence.json").read_text()) if (base/"idempotence.json").exists() else {}
+profile=json.loads((base/"source-profile.json").read_text()) if (base/"source-profile.json").exists() else {}
+diagnosis=json.loads((base/"metrics-diagnosis.json").read_text(encoding="utf8"))
+reference=json.loads((base/"reference-audit.json").read_text(encoding="utf8")) if (base/"reference-audit.json").exists() else []
+public_fetch=json.loads((base/"public-fetch.json").read_text()) if (base/"public-fetch.json").exists() else {}
+benchmark=data["benchmark"]
+if reference:
+    observed={r['comuna']:r['deptos'] for r in data['por_comuna']}
+    assert all(r['runtime_count']==observed[r['comuna']] for r in reference), 'Diagnostic baseline does not match measured runtime'
+def f(x,n=2):
+    return "—" if x is None else f"{float(x):,.{n}f}"
+def yn(value):
+    return "Cumplido" if value else "No cumplido"
+header=["alcance","comuna_sii","comuna_ine","nombre","deptos_comparables","casas_comparables","mediana_depto_uf_m2_h","mediana_depto_uf_m2_cerrado","mediana_casa_uf_m2_cerrado","join_pct","osm_exacto_pct","interpolado_pct","errata_corregida_pct"]
+ine={13101:13101,13134:13101,13135:13101,14157:13106,14158:13107,15103:13123,15105:13120,15108:13114,15128:13110,15132:13113,15160:13132,15161:13115,16106:13130}
+rows=[]
+for r in data["por_comuna"]:
+    g=r["geo"]
+    rows.append(["SII",r["comuna"],ine[r["comuna"]],r["nombre_tabla_oficial"],r["deptos"],r["casas"],r["mediana_depto_uf_m2_h"],r["mediana_depto_uf_m2_cerrado"],r["mediana_casa_uf_m2_cerrado"],r["join_pct"],g["osm_exacto_pct"],g["interpolado_pct"],g["errata_corregida_pct"]])
+s=data["santiago_completo_por_comuna_ine"]
+if s:
+    rows.append(["INE (agregado)",None,13101,"SANTIAGO COMPLETO",s["deptos"],s["casas"],s["mediana_depto_uf_m2_h"],s["mediana_depto_uf_m2_cerrado"],s["mediana_casa_uf_m2_cerrado"],s["join_pct"],0,0,0])
+with (out/"sii_conteos_por_comuna.csv").open("w",encoding="utf-8-sig",newline="") as stream:
+    w=csv.writer(stream);w.writerow(header);w.writerows(rows)
+
+disk=data["disk"]
+text=["# Valoria · Fase 1 SII · Validación local · 17/10/2026", "",
+"Base verificada: `29eaa0b3f3543c57e1e596eda2fb64e527d3f65a`, rama `release/canonical-only-reproducible-20261013`. Rama de trabajo: `feature/sii-ingest-20261017`. La evidencia de producción procede de la auditoría local del 17/10 y se contrastó el commit con GitHub; no se inspeccionó producción en vivo.", "",
+f"Fuente: `{data['f2890']['nombre']}`, SHA-256 `{data['f2890']['hash']}`. {data['f2890']['filas']:,} filas nacionales; {data['counts']['transferencia_raw']:,} observaciones crudas seleccionadas. Catastro: 22 archivos N/NL del 2S-2026 aportados por el usuario, {data['counts']['predio']:,} roles y {data['counts']['linea_construccion']:,} líneas.","",
+"Todas las estadísticas de comparables de este informe usan **FI ≥ 01/01/2024**, la ventana de la referencia validada. La ingesta conserva además toda la historia disponible de las comunas solicitadas. Los importes son **precios de transacción declarados**.","",
+"## Criterios", "", "| Criterio | Resultado | Evidencia |", "|---|---|---|",
+f"| 55.156 deptos, ocho comunas, ±1% | {yn(benchmark['conteo_cumple'])} | {benchmark['deptos_8_comunas']:,}; diferencia {(benchmark['deptos_8_comunas']/55156-1)*100:+.3f}% |",
+f"| Ocho medianas UF/m² H dentro de ±2% | {yn(benchmark['medianas_cumplen'])} | Ver tabla de medianas |",
+f"| Join F2890 → catastro ≥93% por comuna | {yn(benchmark['join_cumple'])} | Ver porcentajes, sobre observaciones deduplicadas |",
+f"| Segunda corrida, cero filas nuevas | {yn(bool(idem) and idem.get('passed',False))} | {json.dumps(idem,ensure_ascii=False)} |",
+f"| Descarga automática desde la página pública SII | {yn(public_fetch.get('rows_new')==0)} | {public_fetch.get('version','Pendiente')}; hash idéntico; cero filas nuevas |",
+"| Downgrade reversible, sin alterar tablas existentes | Cumplido | Pruebas en Postgres desechable 55433, con datos; calendario existente conservado; upgrade posterior correcto |",
+"| Flag apagado, suite existente verde y health idéntico | Cumplido | 2.011 pruebas pasadas (1.999 existentes + primeras 12 SII); 21 pruebas SII finales pasadas, incluidas health, downgrade y validación de integridad ante fallo |",
+"| Operación exclusivamente local | Cumplido | Postgres 127.0.0.1:55432; prueba separada 55433; URLs no locales rechazadas; sin Oracle, SSH, deploy ni CI de producción |",
+"| Geo: tabla/job, tres métodos y reporte | Cumplido con fallback permitido | Métodos probados con datos sintéticos; cobertura real 0%, pendiente extracto OSM local; cero peticiones a Nominatim público |",
+f"| Crudos + tablas ≤10 GB | {yn(not disk['over_10_gb'])} | {disk['total_bytes']/1e9:.3f} GB decimales |","",
+"## Medianas del benchmark", "", "Santiago corresponde exclusivamente a SII 13101. Oeste y Sur no entran en el total de 55.156 ni en la meta de 55,1 UF/m².", "",
+"| Comuna SII | Nombre | Esperada H | Obtenida H | Diferencia | Cumple ±2% |", "|---|---|---:|---:|---:|---|"]
+for r in data["por_comuna"]:
+    if "mediana_esperada" in r:
+        text.append(f"| {r['comuna']} | {r['nombre_tabla_oficial']} | {f(r['mediana_esperada'],1)} | {f(r['mediana_depto_uf_m2_h'])} | {f(r['desviacion_pct'],3)}% | {yn(r['mediana_cumple'])} |")
+text += ["", "## Diferencias concretas de aceptación", "",
+f"El conteo solicitado es 55.156 ±1% (mínimo entero: 54.605). El resultado es {benchmark['deptos_8_comunas']:,}, diferencia {benchmark['deptos_8_comunas']-55156:+,}. Se aplicaron el token literal DP, el rango 15–500 UF/m² y la exclusión de cualquier monto positivo repetido en el grupo que pide el encargo.","",
+"El script de referencia `join6.py` también admite DEPTO/DPTO/DEP, limita a 300 UF/m² y excluye repetidos solo cuando **todas** las filas del grupo tienen importe positivo e idéntico. La tabla siguiente mide cada diferencia de repetidos/techo sobre la población actual; no son escenarios acumulativos ni reemplazan los criterios solicitados.","",
+"| SII | Comparables actuales | Filas adicionales con repetidos de referencia | Filas actuales sobre 300 UF/m² | Cinco roles afectados por repetidos |", "|---|---:|---:|---:|---|"]
+for r in diagnosis["reference_rule_deltas"]:
+    text.append(f"| {r['comuna']} | {r['baseline']:,} | {r['added_if_reference_repeat']:,} | {r['removed_if_reference_ceiling']:,} | {', '.join(r['repeated_examples'])} |")
+if reference:
+    text += ["", f"Reproducción de solo lectura de las reglas de `join6.py` sobre estas mismas fuentes: **{sum(r['reference_count'] for r in reference):,}** departamentos. Es un diagnóstico separado; el cache conserva las reglas del encargo.","",
+    "| SII | Referencia reproducida | Actual | Cinco roles que entran solo con la referencia |", "|---|---:|---:|---|"]
+    for r in reference:
+        text.append(f"| {r['comuna']} | {r['reference_count']:,} | {r['runtime_count']:,} | {', '.join(r['reference_only_examples'] or [])} |")
+text += ["", "Huechuraba (SII 14158): 5.356 de 6.564 observaciones deduplicadas cruzan con el catastro, **81,5966%**, frente a ≥93%. Hay 1.208 sin cruce. Las manzanas 3115 y 3116 concentran 1.053 de esas observaciones. Una lectura directa del archivo N original confirmó que no contiene ningún rol de esas dos manzanas (tampoco de 7080). La causa histórica requiere evidencia adicional. Santiago Oeste (sector adicional 13134) da 87,7028%; se informa por separado y conserva su llave original.","",
+"| Manzana Huechuraba | Observaciones sin cruce | Cinco roles |", "|---|---:|---|"]
+for r in diagnosis["huechuraba_unmatched_blocks"]:
+    text.append(f"| {r['manzana']} | {r['no_join']:,} | {', '.join(r['examples'])} |")
+text += ["", "## Conteos por comuna y sector", "", "Denominador geo: todos los roles del catastro activo de cada sector. El CSV adjunto conserva los valores completos y el campo separado `comuna_ine`.", "",
+"| SII | Nombre | Deptos | Casas | Med. depto UF/m² cerrado | Med. casa UF/m² cerrado | Join | Geo exacto / interp. / errata |", "|---|---|---:|---:|---:|---:|---:|---|"]
+for r in data["por_comuna"]:
+    g=r["geo"]
+    text.append(f"| {r['comuna']} | {r['nombre_tabla_oficial']} | {r['deptos']:,} | {r['casas']:,} | {f(r['mediana_depto_uf_m2_cerrado'])} | {f(r['mediana_casa_uf_m2_cerrado'])} | {f(r['join_pct'])}% | {f(g['osm_exacto_pct'],1)}% / {f(g['interpolado_pct'],1)}% / {f(g['errata_corregida_pct'],1)}% |")
+if s:
+    text += ["",f"**Santiago completo, comuna_ine=13101 (SII 13101 + 13134 + 13135):** {s['deptos']:,} deptos y {s['casas']:,} casas comparables; mediana deptos UF/m² H {f(s['mediana_depto_uf_m2_h'])}, cerrado {f(s['mediana_depto_uf_m2_cerrado'])}; casas cerrado {f(s['mediana_casa_uf_m2_cerrado'])}; join {f(s['join_pct'])}%. Las llaves siempre conservan el código SII original."]
+text += ["", "## Disco y operación", "",
+f"Crudos y auxiliares: {disk['raw_and_auxiliary_bytes']:,} bytes ({disk['raw_and_auxiliary_bytes']/1e9:.3f} GB). Tablas e índices SII: {disk['table_and_index_bytes']:,} bytes ({disk['table_and_index_bytes']/1e9:.3f} GB). Total: {disk['total_bytes']:,} bytes ({disk['total_bytes']/1e9:.3f} GB). {'Supera' if disk['over_10_gb'] else 'No supera'} 10 GB. No incluye WAL, temporales de reconstrucción, respaldos ni el tamaño asignado del disco Docker; necesitan margen adicional.","",
+"La validación usa el contenedor local `valoria-sii-local-20261017`, puerto 55432. Se conserva con sus datos para revisión. `.env.local` mantiene el flag apagado por defecto; los comandos de validación lo activaron solo en su proceso. El calendario UF se preparó en la base nueva con autorización explícita del usuario, reutilizando la tabla y parser existentes y HTML oficial cacheado; no se agregó otra fuente ni un bootstrap en las migraciones SII.","",
+"No se arrancó un servicio semanal persistente: queda implementado el comando local `python -m scripts.sii_ingest schedule` (domingo 03:00 de Chile). Importación de catastro y rebuild siguen siendo manuales.","",
+"## Reglas y límites de interpretación", "",
+"Se conserva toda fila cruda, incluidas fechas inválidas y roles incompletos, con sus campos originales y motivos explícitos. El archivo catastral trae códigos, no nombres de comuna: los nombres del reporte se contrastaron con la tabla oficial. El grupo (SII, manzana, FE, FI) es solo un proxy de escritura; F2890 no trae un identificador de escritura ni naturaleza del acto. Un cierre comparable no acredita por sí solo una compraventa entre partes independientes.","",
+"La referencia externa usaba techo 300 UF/m² y aliases DP/DEPTO/DPTO/DEP. Esta implementación aplica el techo solicitado de 500 y el token literal DP. UF positiva prevalece; para CLP se usa el día exacto de FE, o FI si FE falta. No se rellena una UF histórica ausente con otra fecha. La diferencia entre criterios, si es material, queda visible en las métricas.","",
+"Geocodificación real pendiente: no se incorporó un extracto OSM local en esta fase. La tabla y el job aceptan un CSV de direcciones OSM, hacen exacto, interpolación dentro de la misma manzana y corrección difflib ≥0,8 al mismo número. Se verificaron los tres métodos en Postgres, sin peticiones a Nominatim público ni SII Mapas.","",
+"## Para Fase 2", "",
+"- Construir la hoja de vida sobre (comuna SII, manzana, predio), fuentes y versiones conservadas, con una política explícita de cambios históricos de dirección/superficie.",
+"- Presentar importe declarado, fecha y UF usada, paquete y todos los motivos de exclusión; distinguir el proxy de escritura de un acto legal acreditado.",
+"- Incorporar un extracto OSM local con límites/sectores bien asignados y revisar las coordenadas y su precisión heurística antes de usarlas en producto.",
+"- Definir contratos y permisos de consulta de la hoja de vida y la futura operación fuera del entorno local; esta fase no implementa endpoints de producto ni modifica el motor de tasación.","",
+"## Exclusiones y ejemplos", "", "Las reglas pueden solaparse; sus conteos no se suman como una partición. Se conservan hasta cinco roles por comuna y motivo para diagnóstico.","",
+"| SII | Motivo | Filas | Cinco roles de ejemplo |", "|---|---|---:|---|"]
+for r in data["exclusiones"]:
+    text.append(f"| {r['comuna']} | {r['motivo']} | {r['n']:,} | {', '.join(str(x) for x in r['ejemplos'])} |")
+text += ["", "## Evidencia técnica", "", "- Métricas completas: `sii_metricas.json`.","- Conteos: `sii_conteos_por_comuna.csv`.","- Perfil de fuentes y errores de parseo: `sii_perfil_fuentes.json`.","- Código y operación: `docs/sii_ingest.md` en el PR.",""]
+md="\n".join(text)
+(out/"SII_FASE1_VALIDACION.md").write_text(md,encoding="utf8")
+(out/"sii_metricas.json").write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf8")
+(out/"sii_perfil_fuentes.json").write_text(json.dumps(profile,ensure_ascii=False,indent=2),encoding="utf8")
+(out/"sii_diagnostico.json").write_text(json.dumps({**diagnosis,"reference_reproduction":reference},ensure_ascii=False,indent=2),encoding="utf8")
+for source,destination in (("SII_FASE1_VALIDACION.md","phase1_validation.md"),("sii_metricas.json","phase1_metrics.json"),("sii_conteos_por_comuna.csv","phase1_communes.csv"),("sii_perfil_fuentes.json","phase1_sources.json")):
+    shutil.copyfile(out/source,report_dir/destination)
+shutil.copyfile(out/"sii_diagnostico.json",report_dir/"phase1_diagnosis.json")
+shutil.copyfile(base/"reference_audit.sql",report_dir/"reference_audit.sql")
+print(json.dumps({"benchmark":benchmark,"disk":disk,"outputs":str(out)},ensure_ascii=False))

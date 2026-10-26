@@ -1,0 +1,55 @@
+import json,csv,hashlib,subprocess,sys
+from pathlib import Path
+from decimal import Decimal
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6';REPO=ROOT/'valoria'
+sys.path.insert(0,str(REPO))
+from services.sii.closing_knn import weighted_quantile
+def load(n):return json.loads((OUT/n).read_text(encoding='utf8'),parse_constant=lambda s:(_ for _ in ()).throw(ValueError(s)))
+checks=[]
+def check(label,condition):
+    assert condition,label
+    checks.append({'control':label,'status':'PASS'})
+s=load('hallazgos-verificados.json');api=load('api-inference-850.json');sc=load('cierres-SII-10.json');pubs=load('publicaciones-20-enriquecidas.json');pred=load('sii-target-prediction.json')['prediction']
+check('Valor principal observado reproducido',api['response']['estimated_price_uf']==25313.03)
+check('CLP principal observado reproducido',api['response']['estimated_price_clp']==1042490145)
+check('SII observado reproducido',abs(api['response']['sii_closing_opinion']['value_uf']-28118.303571428572)<1e-9)
+check('Piezas manuales exactas',all(api['request'][k]==v for k,v in {'dormitorios':5,'banos':5,'estacionamientos':2,'built_area_m2':221,'land_area_m2':850,'sii_rol':'1261-6'}.items()))
+check('10 cierres únicos y 20 publicaciones únicas',len(sc)==len({r['raw_id'] for r in sc})==len({r['rol'] for r in sc})==10 and len(pubs)==len({r['listing_id'] for r in pubs})==20)
+check('Orden de los diez coincide con resultado real', [r['raw_id'] for r in sc]==[r['raw_id'] for r in pred['comparables']])
+check('Identidad de veinte avisos coincide con respuesta API',[r['listing_id'] for r in pubs]==[r['listing_id'] for r in api['response']['comparables']])
+check('Pesos SII normalizados',abs(sum(r['normalized_weight'] for r in sc)-1)<1e-12)
+check('Pesos principal normalizados',abs(sum(r['normalized_weight'] for r in pubs)-1)<1e-12)
+check('Contribuciones de avisos reconstruyen el total',round(sum(r['contribucion_UF_al_valor_final'] for r in pubs),2)==25313.03)
+for q,key in ((.25,'p25_uf'),(.5,'value_uf'),(.75,'p75_uf')):
+    got=221*weighted_quantile([r['UF_m2_cerrado'] for r in sc],[r['score'] for r in sc],q)
+    check(f'Cuantil SII {q} reconstruido',abs(got-pred[key])<1e-8)
+check('Siete UF nativas y tres conversiones CLP',sum(r['base_precio']=='UF_nativa' for r in sc)==7 and sum(r['base_precio']=='CLP_div_UF_fecha_FE' for r in sc)==3)
+check('Ningún error aritmético de conversión mayor a 1e-8 UF',all(Decimal(r['diferencia_conversion_UF'])<Decimal('.00000001') for r in sc))
+check('Conversiones usan FE y UF exacta',all(r['UF_fecha_conversion']==r['fecha_escritura_FE'] and r['UF_usada_conversion']==r['UF_CLP_fecha'] for r in sc if r['base_precio']=='CLP_div_UF_fecha_FE'))
+check('Superficies y joins verificados en 10 cierres',len(s['checks'])==10 and all(r['snapshot_cierre_coincide'] and r['lineas_H_menos_abiertas_coincide'] and r['join_source_exacto'] for r in s['checks']))
+named={r['raw_id']:r for r in load('tres-direcciones-verificadas.json')}
+check('Denegri 5630 y 5698 incluidos',named[3643733]['rank_elegible']==1 and named[3643739]['rank_elegible']==6)
+check('Tromben 5665 elegible en puesto 72',named[3643722]['rank_elegible']==72 and named[3643722]['razones_tasacion']==['ranking:fuera_top10'])
+check('89 cierres de entorno y 27 de manzana',len(load('cierres-entorno-decisiones.json'))==89 and sum(r['manzana']==1261 for r in load('cierres-entorno-decisiones.json'))==27)
+check('Crudos del entorno conservados en derivada',{r['id'] for r in load('neighbourhood-raw-original.json')}=={r['raw_id'] for r in load('neighbourhood-transfers-original.json')})
+bytecheck=load('source-byte-verification.json')
+check('Tres hashes oficiales coinciden',len(bytecheck['files'])==3 and all(r['matches_database'] for r in bytecheck['files']))
+check('97 filas F2890 y 63 N coinciden en archivos originales',len(bytecheck['F2890_rows'])==97 and len(bytecheck['catastro_N_rows'])==63 and all(r['raw_bytes_and_money_match'] for r in bytecheck['F2890_rows']))
+check('287 líneas NL coinciden en original',len(bytecheck['catastro_NL_rows'])==287 and all(r['raw_matches'] for r in bytecheck['catastro_NL_rows']))
+check('Ausencia geográfica declarada sin distancia inventada',all(r['distancia_objetivo_m'] is None for r in sc+pubs) and load('target-geo.json')==[])
+check('Regla congelada etiqueta Referencial',api['response']['sii_closing_opinion']['confidence_label']=='Referencial' and s['sii_features']['cell']=='commune/40+/35+')
+check('Sensibilidad exacta vía API',[load(f'api-inference-{a}.json')['response']['estimated_price_uf'] for a in (450,650,850,1050)]==[23232.23,26642.84,25313.03,23480.17])
+check('SII independiente de terreno en cuatro peticiones',all(load(f'api-inference-{a}.json')['response']['sii_closing_opinion']['value_uf']==pred['value_uf'] for a in (450,650,850,1050)))
+check('Solo terreno cambia entre peticiones',all({k:v for k,v in load(f'api-inference-{a}.json')['request'].items() if k!='land_area_m2'}=={k:v for k,v in api['request'].items() if k!='land_area_m2'} for a in (450,650,850,1050)))
+check('Todos los precios principales finales son UF nativa fiable',all(r['price_currency']=='UF' and r['price_uf_source']=='scraped' for r in pubs))
+check('Transacción de origen es de solo lectura',load('database-control.json')['read_only']=='on')
+check('Todas las consultas exportadas son SELECT',all(r['sql'].lstrip().upper().startswith('SELECT') for r in load('audit-sql.json')))
+check('Código del producto sigue limpio',subprocess.check_output(['git','status','--porcelain'],cwd=REPO,text=True).strip()=='')
+baseline=load('canonical-snapshot-provenance.json')['code_sha256']
+check('Algoritmo principal coincide con hashes de la captura',all(hashlib.sha256((REPO/k).read_bytes().replace(b'\r\n',b'\n')).hexdigest()==v for k,v in baseline.items()))
+check('CSV principales tienen cantidades exactas',all(sum(1 for r in csv.DictReader((OUT/name).open(encoding='utf-8-sig',newline='')))==n for name,n in [('cierres-SII-10.csv',10),('publicaciones-20.csv',20),('cierres-entorno-decisiones.csv',89),('cierres-entorno-descartados.csv',87),('sensibilidad-terreno.csv',4)]))
+for p in OUT.glob('*.json'):load(p.name)
+check('Todos los JSON válidos y sin NaN/Infinity',True)
+(OUT/'CONTROLES.json').write_text(json.dumps(checks,indent=2,ensure_ascii=False),encoding='utf8')
+(OUT/'CONTROLES.txt').write_text('\n'.join('PASS · '+r['control'] for r in checks)+f'\n\n{len(checks)} controles correctos.\n',encoding='utf8')
+print(f'{len(checks)} audit controls passed')

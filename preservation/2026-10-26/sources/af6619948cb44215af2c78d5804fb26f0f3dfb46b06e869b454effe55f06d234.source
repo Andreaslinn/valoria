@@ -1,0 +1,76 @@
+"""V2: a missing coordinate pair must reproduce manual input exactly.
+
+V1 copied a comuna/street precision label without coordinates into located.
+This changed territorial confidence, not geographic information. Preserve v1;
+replay only affected service targets, no retraining/tuning or label selection.
+"""
+from contracts import *
+from avm01.isolation import LabelCustody
+import subprocess
+
+def corrected(ds,split):
+ dd,ss=derive(ds,split,'located');records=[]
+ for r in dd.records:
+  if r.row_id in set(ss.test) and r.latitude is None:
+   r=replace(r,canonical_target={**r.canonical_target,'geocode_precision':'unknown'})
+  records.append(r)
+ dd=replace(dd,records=tuple(records),snapshot_id=dd.snapshot_id+'-missing-geo-v2');dd.validate()
+ return dd,replace(ss,snapshot_hash=dd.hash(),dependency_hash=dependency_hash(dd))
+
+def prepare():
+ assert not(HERE/'location_contract_v2.json').exists()
+ hashes={}
+ for which in ['20261009','20261010','temporal']:
+  ds,splits=cases(which)
+  for fold,s in enumerate(splits):hashes[f'{which}-{fold}']=corrected(ds,s)[0].hash()
+ v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':hashes,'allowed_engines':NAMES,'uf_reference':read(HERE/'protocol.json')['uf_reference'],'defect':'Located without coordinates copied original precision label; this changed consensus confidence without added location.','repair':'Only located targets missing coordinate pairs use unknown precision and empty metadata, matching manual. Geo-present located and both other modalities unchanged.','method':'No new model, weights, labels or population. Reuse A/AM/Learned predictions; verify unchanged native A price via worker. Recompute deployed service only for affected inputs, preserve old outputs. Reissue custody before releasing truth.','scope':'Original seeds, archived temporal and full catalog. All still exploratory.','code_sha256':sha(__file__),'worker_sha256':sha(HERE/'product_worker.py')}
+ write(HERE/'location_contract_v2.json',v);(HERE/'location_contract_v2.sha256').write_text(sha(HERE/'location_contract_v2.json'))
+ print(json.dumps({'location_v2_registered':len(hashes)}))
+
+def enable_registry():
+ from avm01 import pilot_authorization as a
+ old=a.protocols
+ def protocols():
+  h=sha(HERE/'location_contract_v2.json');assert h==(HERE/'location_contract_v2.sha256').read_text().strip()
+  return old()+[(h,read(HERE/'location_contract_v2.json'))]
+ a.protocols=protocols
+
+def run():
+ c=read(HERE/'location_contract_v2.json');assert sha(__file__)==c['code_sha256'] and sha(HERE/'product_worker.py')==c['worker_sha256'];enable_registry();audit={};fullpool=None
+ for which in ['20261009','20261010','temporal','catalog-temporal']:
+  source=HERE/('catalog-temporal.json.dpapi' if which=='catalog-temporal' else f'contracts-{which}.json.dpapi')
+  out=HERE/(('catalog-temporal-v2' if which=='catalog-temporal' else 'contracts-'+which+'-v2')+'.json.dpapi');assert not out.exists()
+  rows=decrypt(source);by={r['row_id']:r for r in rows if r['mode']=='located'};changed={};ds,splits=cases('temporal' if which=='catalog-temporal' else which)
+  for fold,split in enumerate(splits):
+   dd,ss=corrected(ds,split);assert dd.hash()==c['dataset_sha256'][f'{"temporal" if which=="catalog-temporal" else which}-{fold}']
+   custody=LabelCustody(dd,());config={'seed':split.seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'location_contract_v2.json')}
+   batch=custody.issue(dd,ss,config,());targets=[t for t in batch.targets if t.latitude is None]
+   if which=='catalog-temporal':
+    if fullpool is None:
+     from catalog_experiment import catalog
+     fullpool=catalog()[0]
+    pool=fullpool
+   else:pool=[r.canonical_listing for r in sorted(batch.rows,key=lambda r:int(r.canonical_listing['id']))]
+   payload={'mode':'located','uf_reference':c['uf_reference'],'pool':pool,'targets':[{'row_id':t.row_id,'canonical_target':t.canonical_target,'am':by[t.row_id]['predictions']['AM'],'blend':by[t.row_id]['predictions']['Blend']} for t in targets]}
+   p=subprocess.run([sys.executable,'-B',str(HERE/'product_worker.py')],input=json.dumps(payload).encode(),capture_output=True,timeout=600)
+   if p.returncode:raise RuntimeError(p.stderr.decode(errors='replace')[-1500:])
+   end=json.loads(p.stdout);vals={n:{t.row_id:by[t.row_id]['predictions'][n] for t in batch.targets} for n in NAMES}
+   for t in targets:
+    z=end[t.row_id];a=vals['A'][t.row_id];d=z['DeployedA'];assert (a is None)==(d is None) and (a is None or abs(a-d)<.011)
+    for n in ['Final','FinalAM','FinalBlend','DeployedA']:vals[n][t.row_id]=z[n]
+   custody.record_predictions(batch,vals);truth=custody.complete(vals,ss.test)
+   for t in batch.targets:
+    old=by[t.row_id];assert old['target_uf']==truth[t.row_id]
+    changed[t.row_id]={**old,'predictions':{n:vals[n][t.row_id] for n in NAMES},'final_trace':end[t.row_id]['trace'] if t.row_id in end else old['final_trace']}
+   print(json.dumps({'location_v2':which,'fold':fold,'replayed':len(targets)}),flush=True)
+  updated=[changed[r['row_id']] if r['mode']=='located' else r for r in rows]
+  # Without location, adding the located option must change no prediction.
+  ix={m:{r['row_id']:r for r in updated if r['mode']==m} for m in MODES}
+  for i,r in ix['located'].items():
+   if not r['geo_original']:
+    for n in NAMES:
+     if which=='catalog-temporal' and n=='AMcross':continue
+     assert r['predictions'][n]==ix['manual'][i]['predictions'][n],(which,n)
+  encrypt(out,updated);audit[which]={'same_target_rows':len(updated),'replayed':sum(not r['geo_original'] for r in rows if r['mode']=='located'),'source_sha256':sha(source),'result_sha256':sha(out),'without_geo_identical_to_manual':True,'unaffected_modes_preserved':True}
+ write(HERE/'location_contract_v2_validation.json',audit)
+if __name__=='__main__':globals()[sys.argv[1]]()

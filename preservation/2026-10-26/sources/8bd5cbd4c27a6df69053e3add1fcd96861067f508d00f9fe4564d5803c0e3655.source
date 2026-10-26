@@ -1,0 +1,30 @@
+"""Attribution of route changes, without fitting or selecting another model."""
+from contracts import *
+import numpy as np
+def main():
+ out={}
+ for label,file in [('primary','contracts-20261009.json.dpapi'),('second','contracts-20261010.json.dpapi'),('temporal_restricted','contracts-temporal.json.dpapi'),('temporal_catalog','catalog-temporal.json.dpapi')]:
+  revised=HERE/file.replace('.json.dpapi','-v2.json.dpapi')
+  rows=decrypt(revised if revised.exists() else HERE/file);ix={m:{r['row_id']:r for r in rows if r['mode']==m} for m in MODES}
+  stats=Counter();deltas=defaultdict(list)
+  for i,a in ix['manual'].items():
+   b=ix['located'][i]
+   def families(r):return {f['engine_name']:f for f in r['final_trace'].get('families',[])}
+   fa,fb=families(a),families(b)
+   if not fa or not fb:continue
+   for n in fa.keys()&fb.keys():
+    x,y=fa[n],fb[n]
+    if x['estimate_uf'] is None or y['estimate_uf'] is None:continue
+    equal=abs(x['estimate_uf']-y['estimate_uf'])<.011
+    if equal and x['confidence']!=y['confidence']:
+     stats[n+'_same_estimate_changed_confidence']+=1
+    if n=='microzone_geo_v1':
+     stats['territorial_same_estimate' if equal else 'territorial_changed_estimate']+=1
+     if x['confidence'] is not None and y['confidence'] is not None:deltas['territorial_confidence_change'].append(y['confidence']-x['confidence'])
+   if a['predictions']['A'] is not None and b['predictions']['A'] is not None:
+    if abs(a['predictions']['A']-b['predictions']['A'])>.011:stats['A_changed_with_location']+=1
+   if a['predictions']['Final'] is not None and b['predictions']['Final'] is not None:
+    if abs(a['predictions']['Final']-b['predictions']['Final'])>.011:stats['Final_changed_with_location']+=1
+  out[label]={'counts':dict(stats),'delta_medians':{k:float(np.median(v)) for k,v in deltas.items()},'interpretation':'Location-only intervention can change territorial confidence/consensus weight even when its comuna reference estimate is identical. This is observed mechanism, not proof that removing the confidence term improves generalization.'}
+ write(HERE/'route_diagnostics.json',out);print(json.dumps(out))
+if __name__=='__main__':main()

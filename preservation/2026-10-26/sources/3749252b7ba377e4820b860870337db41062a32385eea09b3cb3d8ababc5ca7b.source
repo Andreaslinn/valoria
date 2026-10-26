@@ -1,0 +1,37 @@
+"""Lossless canonical DTO bridge. No valuation/normalization formulas or IO."""
+from copy import deepcopy
+from dataclasses import fields
+from decimal import Decimal
+from core.entities.listing import Listing,Property
+from core.value_objects.price import Price
+from core.value_objects.location import Coordinates
+from .data import InvalidExperiment,timepoint,positive
+
+def listing_from_payload(payload):
+    if not payload:raise InvalidExperiment('A_core requires preserved canonical Listing input; no synthetic reconstruction fallback')
+    p=deepcopy(payload)
+    if set(p)-{f.name for f in fields(Listing)}:raise InvalidExperiment('Unknown canonical Listing field')
+    if not isinstance(p.get('price'),dict) or set(p['price'])!={'clp'}:raise InvalidExperiment('Explicit canonical CLP Price representation required')
+    p['price']=Price(clp=Decimal(str(p['price']['clp'])))
+    if p.get('price_uf') is not None:p['price_uf']=Decimal(str(p['price_uf']))
+    for k in ['scraped_at','last_seen_at','last_refresh_attempted_at']:
+        if p.get(k) is not None:p[k]=timepoint(p[k])
+    if p.get('coordinates') is not None:p['coordinates']=Coordinates(**p['coordinates'])
+    try:return Listing(**p)
+    except TypeError as exc:raise InvalidExperiment('Incomplete canonical Listing payload') from exc
+
+def target_from_payload(payload):
+    if not payload:raise InvalidExperiment('A_core requires explicit price-free canonical Property projection')
+    p=deepcopy(payload)
+    if p.get('coordinates') is not None:p['coordinates']=Coordinates(**p['coordinates'])
+    try:return Property(**p)
+    except TypeError as exc:raise InvalidExperiment('Incomplete canonical Property projection') from exc
+
+def uf_reference(config,cutoff):
+    ref=config.get('uf_reference')
+    if not isinstance(ref,dict) or set(ref)!={'value','effective_date','available_at','source'}:raise InvalidExperiment('Explicit dated UF context required')
+    try:rate=Decimal(str(ref['value']))
+    except Exception as exc:raise InvalidExperiment('Invalid UF context') from exc
+    if not rate.is_finite() or rate<=0 or not ref['source']:raise InvalidExperiment('Invalid UF context')
+    if timepoint(ref['available_at'])>cutoff or timepoint(ref['effective_date']+'T00:00:00+00:00')>cutoff:raise InvalidExperiment('Future UF reference in A_core')
+    return rate

@@ -1,0 +1,80 @@
+import type { ListingLookupData } from "@/types/listing";
+import type { PropertyType } from "@/types/valuation";
+
+const TASAR_PREFILL_KEY = "valoria_tasar_prefill";
+
+export type ValuationFormPrefill = {
+  targetListingId?: number;
+  comuna?: string;
+  propertyType?: PropertyType;
+  reference?: string;
+  builtAreaM2?: number;
+  landAreaM2?: number;
+  usableAreaM2?: number;
+  dormitorios?: number;
+  banos?: number;
+  estacionamientos?: number;
+  publishedPriceUf?: number;
+  publishedPriceClp?: number;
+  sourceUrl?: string;
+  importedFrom?: "listing-url";
+};
+
+export function saveTasarPrefillFromListing(data: ListingLookupData, fallbackUrl: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const prefill: ValuationFormPrefill = {
+    targetListingId: numberValue(data.listing_id),
+    comuna: cleanText(data.comuna),
+    propertyType: propertyType(data.property_type),
+    reference: cleanText(data.title) || cleanText(data.url) || fallbackUrl,
+    builtAreaM2: numberValue(data.built_area_m2 ?? data.usable_area_m2 ?? data.m2),
+    landAreaM2: numberValue(data.land_area_m2),
+    usableAreaM2: numberValue(data.usable_area_m2),
+    dormitorios: numberValue(data.dormitorios),
+    banos: numberValue(data.banos),
+    estacionamientos: numberValue(data.estacionamientos),
+    publishedPriceUf: numberValue(data.precio_publicado_uf),
+    publishedPriceClp: numberValue(data.precio_publicado_clp),
+    sourceUrl: cleanText(data.url) || fallbackUrl,
+    importedFrom: "listing-url",
+  };
+
+  window.sessionStorage.setItem(TASAR_PREFILL_KEY, JSON.stringify(prefill));
+}
+
+export function consumeTasarPrefill(): ValuationFormPrefill | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.sessionStorage.getItem(TASAR_PREFILL_KEY);
+  window.sessionStorage.removeItem(TASAR_PREFILL_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as ValuationFormPrefill;
+  } catch {
+    return null;
+  }
+}
+
+function propertyType(value: string | null | undefined): PropertyType | undefined {
+  if (value === "apartment" || value === "house" || value === "office") {
+    return value;
+  }
+  return undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function cleanText(value: unknown): string | undefined {
+  const clean = String(value ?? "").trim();
+  return clean || undefined;
+}

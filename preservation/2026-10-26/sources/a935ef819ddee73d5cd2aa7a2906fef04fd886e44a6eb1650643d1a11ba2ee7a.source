@@ -1,0 +1,18 @@
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent/'valoria'))
+from psycopg.rows import dict_row
+from services.sii.jobs import connect
+from services.sii.settings import Settings
+base=Path(__file__).parent
+with connect(Settings.load()) as c:
+    c.row_factory=dict_row
+    with c.transaction():
+        c.execute('SET TRANSACTION READ ONLY')
+        c.execute('SET LOCAL enable_nestloop=off')
+        c.execute('SET LOCAL max_parallel_workers_per_gather=0')
+        c.execute("SET LOCAL work_mem='64MB'")
+        rows=c.execute((base/'reference_audit.sql').read_text()).fetchall()
+(base/'reference-audit.json').write_text(json.dumps(rows,default=str,ensure_ascii=False,indent=2),encoding='utf8')
+print(json.dumps(rows,default=str),flush=True)

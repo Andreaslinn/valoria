@@ -1,0 +1,30 @@
+from lab import *
+import numpy as np
+def metrics(rows,name):
+ good=[r for r in rows if r['predictions'].get(name) is not None];y=np.array([r['target_uf'] for r in good]);v=np.array([r['predictions'][name] for r in good]);ape=100*np.abs(v/y-1);signed=100*(v/y-1)
+ return {'eligible':len(rows),'n':len(good),'coverage':len(good)/len(rows) if rows else None,'MdAPE':float(np.median(ape)) if len(good) else None,'MAPE':float(np.mean(ape)) if len(good) else None,'MAE_log':float(np.mean(np.abs(np.log(v/y)))) if len(good) else None,'P90':float(np.percentile(ape,90)) if len(good) else None,'P95':float(np.percentile(ape,95)) if len(good) else None,'bias_median_pct':float(np.median(signed)) if len(good) else None,**{f'gt{k}':float(np.mean(ape>k)) if len(good) else None for k in [20,30,50]},'eligible_within20':sum(ape<=20)/len(rows) if rows else None}
+def interval(rows,a,b):
+ same=[r for r in rows if r['predictions'].get(a) is not None and r['predictions'].get(b) is not None]
+ if not same:return None
+ y=np.array([r['target_uf'] for r in same]);av=np.array([r['predictions'][a] for r in same]);bv=np.array([r['predictions'][b] for r in same]);ae=100*np.abs(av/y-1);be=100*np.abs(bv/y-1);al=np.abs(np.log(av/y));bl=np.abs(np.log(bv/y))
+ groups=defaultdict(list)
+ for i,r in enumerate(same):groups[r['group']].append(i)
+ g=list(groups.values());rng=np.random.default_rng(20261011);draw=[]
+ for j in range(2000):
+  ix=np.concatenate([g[k] for k in rng.integers(len(g),size=len(g))]);draw.append([np.median(be[ix])-np.median(ae[ix]),np.mean(be[ix])-np.mean(ae[ix]),np.mean(bl[ix])-np.mean(al[ix])])
+ ci=np.percentile(draw,[2.5,97.5],axis=0)
+ return {'n':len(same),'groups':len(g),'delta_MdAPE':float(np.median(be)-np.median(ae)),'CI_MdAPE':ci[:,0].tolist(),'delta_MAPE':float(np.mean(be)-np.mean(ae)),'CI_MAPE':ci[:,1].tolist(),'delta_MAE_log':float(np.mean(bl)-np.mean(al)),'CI_MAE_log':ci[:,2].tolist(),'A':metrics(same,a),'B':metrics(same,b)}
+def analyze():
+ summary={}
+ for seed in [20261009,20261010]:
+  path=HERE/f'iteration1-{seed}.json.dpapi'
+  if not path.exists():continue
+  rows=decrypt(path);names=list(rows[0]['predictions']);z={}
+  for label,subset in [('all',rows),('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('Yapo',[r for r in rows if r['source']=='yapo']),('geo',[r for r in rows if r['geo']]),('no_geo',[r for r in rows if not r['geo']]),('small',[r for r in rows if r['area']<45]),('large',[r for r in rows if r['area']>=90])]:
+   z[label]={'n':len(subset),'full':{n:metrics(subset,n) for n in names},'paired':{n:interval(subset,'A',n) for n in names if n!='A'}}
+  z['folds']={str(f):{n:metrics([r for r in rows if r['fold']==f],n) for n in names} for f in range(3)}
+  z['local_correction_n']=sum(r['trace']['local_residual_log']!=0 for r in rows)
+  summary[str(seed)]=z
+ write(HERE/'iteration1-summary.json',summary)
+ print(json.dumps({s:{'all':{n:{'MdAPE':x['B']['MdAPE'],'MAPE':x['B']['MAPE'],'deltaMdAPE':x['delta_MdAPE'],'CI':x['CI_MdAPE'],'MAElogdelta':x['delta_MAE_log'],'CIlog':x['CI_MAE_log']} for n,x in z['all']['paired'].items()},'coverage':{n:m['coverage'] for n,m in z['all']['full'].items()},'local_n':z['local_correction_n']} for s,z in summary.items()}))
+if __name__=='__main__':analyze()

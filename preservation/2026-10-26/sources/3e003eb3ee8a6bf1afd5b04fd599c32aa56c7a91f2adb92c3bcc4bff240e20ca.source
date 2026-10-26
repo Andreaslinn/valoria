@@ -1,0 +1,37 @@
+import pathlib,subprocess
+namespace={}
+exec(pathlib.Path('work/portal_location_probe.py').read_text().split("remote = ")[0].split("code = r'''")[0],namespace)
+code=r'''
+import asyncio,json,os,collections
+from scripts.portal_session import portal_client
+from scripts.portal_smoke import DEFAULT_HEADERS
+from infrastructure.scrapers.portalinmobiliario import _extract_nordic_initial_state
+from bs4 import BeautifulSoup
+os.environ['PORTAL_SESSION_READ_ONLY']='1'
+async def main():
+ async with portal_client(headers=DEFAULT_HEADERS,follow_redirects=True,timeout=30) as c:
+  r=await c.get('https://www.portalinmobiliario.com/venta/departamento/estacion-central-metropolitana_DisplayType_M')
+  print(json.dumps({'status':r.status_code}))
+  if r.status_code!=200:return
+  state=_extract_nordic_initial_state(BeautifulSoup(r.text,'lxml')) or {}
+  from infrastructure.scrapers.portalinmobiliario import PortalInmobiliarioScraper
+  report=PortalInmobiliarioScraper.parse_listings_detailed(r.text,uf_to_clp=None)
+  first=(state.get('results') or [{}])[0].get('polycard') or {}
+  print(json.dumps({'cards_detected':report['cards_detected'],'parsed':len(report['items']), 'first_metadata':first.get('metadata'), 'first_components':first.get('components')},ensure_ascii=True,default=str))
+  counts=collections.Counter();samples=[]
+  def walk(v,path=''):
+   if isinstance(v,dict):
+    keys=[k for k in v if any(s in k.lower() for s in ('latitud','longitud','geoloc','coordina','accuracy','precision','approxim'))]
+    for k in keys:counts[k]+=1
+    if keys and len(samples)<12:samples.append({'path':path,'values':{k:v[k] for k in keys}})
+    for k,x in v.items():
+     if k not in ('track','tracking','analytics','image'):walk(x,path+'.'+k)
+   elif isinstance(v,list):
+    for i,x in enumerate(v):walk(x,path+'.'+str(i))
+  walk(state)
+  print(json.dumps({'root_keys':list(state),'coordinate_fields':dict(counts),'samples':samples},default=str))
+asyncio.run(main())
+'''
+remote='import subprocess;r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-"],input='+repr(code)+',text=True,capture_output=True,timeout=60);print(r.stdout);print(r.stderr[-400:] if r.returncode else "")'
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=remote,text=True,encoding='utf-8',capture_output=True,timeout=90)
+print(r.stdout)

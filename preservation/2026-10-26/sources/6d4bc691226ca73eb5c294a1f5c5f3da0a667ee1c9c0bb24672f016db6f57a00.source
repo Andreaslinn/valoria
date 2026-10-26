@@ -1,0 +1,21 @@
+from sqlalchemy import text
+
+from alembic import context
+from infrastructure.db.property_life import engine, metadata
+
+# Separate migration history; no existing app settings or migration chain.
+with engine().connect() as connection:
+    connection.execute(text("CREATE SCHEMA IF NOT EXISTS property_life"))
+    connection.commit()
+    context.configure(
+        connection=connection,
+        target_metadata=metadata,
+        version_table="alembic_version",
+        version_table_schema="property_life",
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+    if connection.execute(text("SELECT count(*) FROM property_life.alembic_version")).scalar() == 0:
+        connection.execute(text("DROP TABLE property_life.alembic_version"))
+        connection.execute(text("DROP SCHEMA property_life"))
+        connection.commit()

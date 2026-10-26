@@ -1,0 +1,305 @@
+"""Real-data mechanical checks + deliberately contaminated synthetic negatives.
+
+No original tests re-executed; prior 89/53 test certificates verified by hash.
+No training, prediction, estimated target or predictive metric is executed.
+"""
+import ast
+from copy import deepcopy
+from dataclasses import replace
+from datetime import datetime, timezone
+from decimal import Decimal
+import json
+import math
+from pathlib import Path
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+import preflight as p
+from avm01.canonical_io import target_from_payload
+from core.entities.listing import Listing, Property
+from core.value_objects.price import Price
+from core.value_objects.location import Coordinates
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine, _Diagnostics
+
+def source(i, **kwargs):
+    row = dict(id=i, source='yapo', external_id=str(i), url=f'https://example.invalid/{i}',
+        title='Depto Calle Berlin', comuna='san_miguel', property_type='apartment',
+        m2=50, built_area_m2=50, usable_area_m2=50, land_area_m2=None,
+        bedrooms=2, bathrooms=1, parking=0, lat=None, lon=None,
+        geocode_precision='comuna', raw_metadata={}, scraped_at='2026-10-04T00:00:00Z')
+    row.update(kwargs); return row
+
+def listing(i, **kwargs):
+    row = dict(id=i, source='yapo', external_id=str(i), title='Departamento normal',
+        comuna='san_miguel', m2=50, built_area_m2=50, usable_area_m2=50, bedrooms=2,
+        bathrooms=1, parking=0, price=Price(Decimal('100000000')), status='active',
+        fingerprint='f'+str(i), scraped_at=datetime(2026,10,4,tzinfo=timezone.utc),
+        property_type='apartment', price_uf=Decimal('2500'), price_currency='UF',
+        price_uf_source='scraped', raw_metadata={'currency_original':'UF','price_uf':2500})
+    row.update(kwargs); return Listing(**row)
+
+def target():
+    return Property(id=999, comuna='san_miguel', m2=50, built_area_m2=50,
+                    usable_area_m2=50, bedrooms=2, bathrooms=1, parking=0, property_type='apartment')
+
+class IdentityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.rows, cls.features, cls.cohort, cls.candidates, cls.selected = p.load_blind()
+        cls.aliases, cls.history_info = p.historical_aliases(cls.rows)
+        cls.pairs, cls.decisions = p.review_tables(cls.features, cls.cohort, cls.candidates, cls.selected, cls.aliases)
+        cls.maps, cls.audit = p.grouping(cls.features, cls.candidates, cls.decisions)
+
+    def test_01_exactly_28_unique_in_cohort_pairs(self):
+        self.assertEqual(len(self.pairs),28)
+        self.assertEqual(len({tuple(sorted((r['listing_id_a'],r['listing_id_b']))) for r in self.pairs}),28)
+        self.assertTrue(all({r['listing_id_a'],r['listing_id_b']} <= set(self.cohort) for r in self.pairs))
+
+    def test_02_identity_projection_drops_all_monetary_and_legacy_identity(self):
+        row=source(1,price_uf=12345,price_clp=999,price={'clp':999},property_id=88,fingerprint='legacy',
+            raw_metadata={'price_uf':12345,'uf_rate_used':12345,'price_history':[12345], 'secret':'TOKEN', 'description':'Precio UF 12345, calle Berlin'})
+        blind=p.blind_row(row)
+        self.assertFalse({'price_uf','price_clp','price','property_id','fingerprint'} & set(blind))
+        self.assertNotIn('12345',json.dumps(blind))
+        self.assertNotIn('TOKEN',json.dumps(blind))
+
+    def test_03_prices_and_uf_cannot_change_classification(self):
+        a=source(1,title='Country Club UF 12345');z=source(2,title='Country Club UF 23456')
+        before=p.assessment(p.enriched(p.blind_row(a)),p.enriched(p.blind_row(z)))
+        a.update(price_uf=-999,price_clp=math.nan);z.update(price_uf=math.inf,price_clp=1)
+        a['title']='Country Club UF 99999';z['title']='Country Club UF 88888'
+        after=p.assessment(p.enriched(p.blind_row(a)),p.enriched(p.blind_row(z)))
+        self.assertEqual(before,after)
+
+    def test_04_price_changes_do_not_change_groups_or_folds(self):
+        raw=[source(1,title='Country Club UF 12345'), source(2,title='Country Club UF 98765'), source(3,title='Metro Macul')]
+        def make(rows):
+            f={r['id']:p.enriched(p.blind_row(r)) for r in rows}
+            edges=[(1,2)];d={(1,2):p.assessment(f[1],f[2])}
+            return p.grouping(f,edges,d)[0]
+        original=make(raw)
+        for r in raw:r['price_uf']=r['id']*99999;r['raw_metadata']['price_uf']=math.inf
+        changed=make(raw);self.assertEqual(original,changed)
+        for g in original:self.assertEqual(p.partition({1:{},2:{},3:{}},original[g],p.PRIMARY_SEED),p.partition({1:{},2:{},3:{}},changed[g],p.PRIMARY_SEED))
+
+    def test_05_generic_floorplan_text_never_creates_g3_edge(self):
+        a=p.enriched(p.blind_row(source(1,title='Departamento En Venta De 2 Dorm En San Miguel')))
+        z=p.enriched(p.blind_row(source(2,title='Departamento En Venta De 2 Dorm En San Miguel')))
+        cls,plausible,*_=p.assessment(a,z)
+        self.assertEqual(cls,'INDETERMINATE');self.assertFalse(plausible)
+
+    def test_06_three_explicit_unit_distinctions(self):
+        found={(r['listing_id_a'],r['listing_id_b']) for r in self.pairs if r['classification']=='DISTINCT'}
+        self.assertEqual(found,{(5082,5083),(5084,5085),(5341,5342)})
+
+    def test_07_unverified_geo_contradiction_not_distinction(self):
+        a=p.enriched(p.blind_row(source(1,lat=-33.4,lon=-70.5,geocode_precision='address')))
+        z=p.enriched(p.blind_row(source(2,lat=-33.6,lon=-70.8,geocode_precision='address')))
+        self.assertEqual(p.assessment(a,z)[0],'INDETERMINATE')
+
+    def test_08_transitive_excluded_bridge_keeps_dependency(self):
+        graph=p.b.identity.graph([1,2,3],[(1,2),(2,3)])
+        self.assertEqual(graph[1],graph[3])
+        with self.assertRaisesRegex(ValueError,'indirect'):p.assert_partition({1},{3},graph)
+        self.assertEqual(len(set.union(*map(set,p.partition({1:{},3:{}},graph,42)))),2)
+
+    def test_09_incompatible_units_detected_after_transitive_closure(self):
+        fs={i:p.enriched(p.blind_row(source(i,title=f'Depto {unit} Calle Berlin'))) for i,unit in [(1,1901),(2,1406)]}
+        fs[3]=p.enriched(p.blind_row(source(3,title='Depto Calle Berlin')))
+        mapping=p.b.identity.graph(fs,[(1,3),(3,2)])
+        self.assertTrue(p.component_conflicts(mapping,fs))
+
+    def test_10_real_graph_has_no_pending_transitive_conflicts(self):
+        self.assertTrue(all(r['unresolved_transitive_conflicts']==0 for r in self.audit))
+
+    def test_11_all_real_folds_group_disjoint_and_complete(self):
+        for mapping in self.maps.values():
+            for seed in p.SEEDS:
+                folds=p.partition(self.cohort,mapping,seed)
+                self.assertEqual(sum(map(len,folds)),791)
+                self.assertEqual(set.union(*map(set,folds)),set(self.cohort))
+                for test in folds:p.assert_partition(set(self.cohort)-test,test,mapping,self.aliases)
+
+    def test_12_historical_alias_contamination_rejected(self):
+        mapping={1:1,2:2};alias={'legacy_history:55':1}
+        with self.assertRaisesRegex(ValueError,'history'):p.assert_partition({'legacy_history:55'},{1},mapping,alias)
+        with self.assertRaisesRegex(ValueError,'unknown'):p.assert_partition({'unknown-history:55'},{1},mapping,alias)
+        p.assert_partition({'legacy_history:55'},{2},mapping,alias)
+        self.assertGreater(self.history_info['legacy_history_aliases'],0)
+
+    def test_13_reproduction_group_and_fold_assignments(self):
+        second=p.grouping(self.features,list(reversed(self.candidates)),self.decisions)[0]
+        self.assertEqual(self.maps,second)
+        for g in self.maps:self.assertEqual(p.partition(self.cohort,self.maps[g],42),p.partition(self.cohort,second[g],42))
+
+    def test_14_blindspot_scan_is_separate_and_pricefree(self):
+        extra,scan=p.extra_candidates(self.features,self.cohort,self.candidates)
+        self.assertEqual(scan['cross_source_pairs_examined'],385*406)
+        self.assertTrue(all((r['listing_id_a'],r['listing_id_b']) not in self.candidates for r in extra))
+        self.assertEqual([(r['listing_id_a'],r['listing_id_b']) for r in extra],[(4211,4486)])
+        self.assertFalse(extra[0]['blocks_pilot'])
+        maps,_=p.grouping(self.features,self.candidates,self.decisions,[(4211,4486)])
+        self.assertEqual(maps['G3'][4211],maps['G3'][4486])
+        self.assertNotEqual(maps['G2'][4211],maps['G2'][4486])
+        self.assertFalse(p.component_conflicts(maps['G3'],self.features))
+
+    def test_15_real_targets_have_no_monetary_input(self):
+        for i in self.cohort:
+            payload=p.target_payload(self.rows[i]);self.assertFalse(any(k.startswith('price') for k in payload))
+            self.assertFalse(hasattr(target_from_payload(payload),'price'))
+
+class CanonicalTests(unittest.TestCase):
+    def test_16_only_training_DTOs_accessed(self):
+        class PoisonDict(dict):
+            def __getitem__(self,k):
+                if k==3:raise AssertionError('Held-out DTO read')
+                return super().__getitem__(k)
+        data={k:None for k in [1,2,3]}
+        cohort={i:{'observation_id':str(i),'available_at':'2026-10-04T00:00:00Z'} for i in data}
+        vault=p.TrainingVault(PoisonDict(data),cohort,'2026-10-04T00:00:00Z')
+        with patch('avm01.canonical_io.listing_from_payload',side_effect=[listing(1),listing(2)]):
+            pool=vault.training({1,2},{3},{1:1,2:2,3:3})
+        self.assertEqual(vault.accessed,{1,2});self.assertEqual({r.id for r in pool},{1,2})
+
+    def test_17_poisoned_direct_related_pool_rejected_before_access(self):
+        vault=p.TrainingVault({}, {1:{},2:{}},'2026-10-04T00:00:00Z')
+        with self.assertRaisesRegex(ValueError,'Contamination'):vault.training({1,2},{2},{1:1,2:2})
+        with self.assertRaisesRegex(ValueError,'Contamination'):vault.training({1},{2},{1:1,2:1})
+        self.assertFalse(vault.accessed)
+
+    def test_18_historical_and_global_DTO_injection_rejected(self):
+        vault=p.TrainingVault({}, {1:{},2:{}},'2026-10-04T00:00:00Z')
+        with self.assertRaisesRegex(ValueError,'historical/global'):vault.training({1,3},{2},{1:1,2:2,3:3})
+        with self.assertRaisesRegex(ValueError,'Contamination'):vault.training({'legacy_history:9'},{2},{1:1,2:2},{'legacy_history:9':2})
+
+    def test_19_actual_native_structural_filters(self):
+        valid=[listing(i) for i in range(1,7)]
+        invalid=[listing(11,comuna='nunoa'),listing(12,property_type='house'),listing(13,status='removed'),
+                 listing(14,built_area_m2=100,usable_area_m2=100,m2=100),listing(15,price=Price(Decimal('0')))]
+        with p.execution_guard():result=p.eligibility(target(),valid+invalid,Decimal('41089.96'))
+        self.assertEqual(result['n'],6);self.assertEqual(result['final_ids'],frozenset(range(1,7)))
+        self.assertEqual(result['reason'],'eligible_before_prediction')
+
+    def test_20_dedup_first_order_matches_native_even_invalid_first(self):
+        rows=[listing(1,status='removed',fingerprint='same'),listing(2,fingerprint='same')]+[listing(i) for i in range(3,7)]
+        engine=ComparablesCanonicalEngine(variant='outliers');d=_Diagnostics()
+        native=engine._structural_pool(target(),rows,d)
+        with p.execution_guard():result=p.eligibility(target(),rows,Decimal('41089.96'))
+        self.assertEqual(result['n'],len(native));self.assertEqual(result['n'],4)
+        self.assertNotIn(2,result['final_ids']);self.assertEqual(result['reason'],'structural_lt5')
+
+    def test_21_precise_native_5km_filter_preserved(self):
+        t=replace(target(),coordinates=Coordinates(lat=-33.45,lon=-70.65),geocode_precision='address')
+        rows=[listing(i) for i in range(1,6)]+[listing(9,coordinates=Coordinates(lat=-33.7,lon=-70.9),geocode_precision='address')]
+        with p.execution_guard():result=p.eligibility(t,rows,Decimal('41089.96'))
+        self.assertEqual(result['n'],5);self.assertNotIn(9,result['final_ids'])
+
+    def test_22_canonical_price_filter_can_reduce_support(self):
+        good=[listing(i) for i in range(1,5)]
+        bad=listing(5,price_uf=None,price_currency='UF',raw_metadata={'currency_original':'UF'})
+        with p.execution_guard():result=p.eligibility(target(),good+[bad],Decimal('41089.96'))
+        self.assertEqual(result['stages']['structural'],5)
+        self.assertLess(result['stages']['canonical'],5)
+        self.assertEqual(result['reason'],'canonical_price_lt5')
+
+    def test_23_robust_filter_uses_train_distribution_only(self):
+        rows=[listing(i) for i in range(1,9)]+[listing(10,price=Price(Decimal('999999999')),price_uf=Decimal('999999'),raw_metadata={'currency_original':'UF','price_uf':999999})]
+        with p.execution_guard():result=p.eligibility(target(),rows,Decimal('41089.96'))
+        self.assertEqual(result['stages']['canonical'],9)
+        self.assertEqual(result['n'],8);self.assertNotIn(10,result['final_ids'])
+        self.assertFalse(hasattr(target(),'price'))
+
+    def test_24_no_fit_prediction_ranking_surface_or_metrics(self):
+        import avm01.engines as e
+        import domain.valuation.engines.canonical_comparables as native
+        import avm01.metrics as metrics
+        with p.execution_guard():
+            for method in [e.LearnedEngine('C1').fit,e.LearnedEngine('C1').predict,e.FrozenA().fit,e.FrozenA().predict,
+                           native.ComparablesCanonicalEngine().valuate,native.score_and_rank,native._weighted_total,metrics.metrics]:
+                with self.assertRaisesRegex(RuntimeError,'Forbidden'):method(None)
+            result=p.eligibility(target(),[listing(i) for i in range(1,7)],Decimal('41089.96'))
+        self.assertEqual(result['n'],6)
+
+    def test_25_count_deterministic_without_target_label(self):
+        with p.execution_guard():
+            a=p.eligibility(target(),[listing(i) for i in range(1,7)],Decimal('41089.96'))
+            z=p.eligibility(target(),[listing(i) for i in range(1,7)],Decimal('41089.96'))
+        self.assertEqual(a,z)
+
+class C1AndArtifactTests(unittest.TestCase):
+    def test_26_feature_contract_and_actual_matrix(self):
+        from avm01.engines import matrix
+        row={'log_area':math.log(50),'bedrooms':2.,'bathrooms':1.,'parking':0.,'comuna':'x','source':'yapo'}
+        self.assertIsNone(p.c1_input_reason(row))
+        actual=matrix([SimpleNamespace(features=row)])
+        self.assertEqual(actual.shape,(1,9));self.assertEqual(list(actual[0,3:7]),[0.,0,0,0])
+        row['parking']=None;actual=matrix([SimpleNamespace(features=row)])
+        self.assertTrue(math.isnan(actual[0,3]));self.assertEqual(actual[0,6],1)
+
+    def test_27_invalid_features_are_detected(self):
+        base={'log_area':math.log(50),'bedrooms':2.,'bathrooms':1.,'parking':0.,'comuna':'x','source':'yapo'}
+        for k,v in [('log_area',math.inf),('bedrooms',math.nan),('bathrooms',-1),('parking',-1),('comuna',''),('source','')]:
+            self.assertIsNotNone(p.c1_input_reason(dict(base,**{k:v})))
+
+    def test_28_preprocessing_training_only_static_and_missing_prediction_contract(self):
+        with p.execution_guard():contract=p.c1_contract()
+        self.assertTrue(contract['static_training_only_contract'])
+        self.assertFalse(contract['new_preprocessors_fitted'])
+        self.assertTrue(contract['invalid_or_missing_prediction_is_abstention'])
+
+    def test_29_inputs_still_match_certified_hashes(self):
+        hashes=p.verify_inputs();self.assertGreater(len(hashes),150)
+        self.assertEqual(p.sha(p.RUN/'cohort_candidate.csv'),'eff8a23e0b4193a60ace48372d55a946795ff7dcc5eefb4560aaf6b657aa6ae5')
+
+    def test_30_all_791_retained_in_csv_outputs(self):
+        def rows(name):return list(p.csv.DictReader((p.HERE/name).open(encoding='utf-8',newline='')))
+        self.assertEqual(len(rows('cv_dependency_groups.csv')),791)
+        for policy in ('G1','G2','G3'):
+            for seed in p.SEEDS:
+                coverage=[r for r in rows('a_coverage_by_fold.csv') if r['policy']==policy and int(r['seed'])==seed]
+                self.assertEqual(sum(int(r['n_test']) for r in coverage),791)
+                self.assertTrue(all(int(r['n_ge5'])+int(r['n_lt5'])==int(r['n_test']) for r in coverage))
+                c1=[r for r in rows('c1_input_feasibility.csv') if r['policy']==policy and int(r['seed'])==seed]
+                self.assertEqual(sum(int(r['input_processable']) for r in c1),791)
+
+    def test_31_simulation_code_has_no_fit_predict_or_global_DB_calls(self):
+        node=ast.parse((p.HERE/'preflight.py').read_text(encoding='utf-8'))
+        forbidden={'fit','predict','valuate','_valuate','_post_process','score_and_rank','_weighted_total','connect','create_engine'}
+        for call in [n for n in ast.walk(node) if isinstance(n,ast.Call)]:
+            name=call.func.attr if isinstance(call.func,ast.Attribute) else call.func.id if isinstance(call.func,ast.Name) else ''
+            self.assertNotIn(name,forbidden)
+
+    def test_32_identity_outputs_never_export_prices_or_monetary_URL_slugs(self):
+        content=(p.HERE/'pair_adjudication.csv').read_text(encoding='utf-8')
+        self.assertNotRegex(content,r'https?://|uf-\d|price_uf|price_clp|ppm2|value_uf')
+        self.assertNotIn('property_id',content)
+
+    def test_33_training_state_future_availability_rejected(self):
+        vault=p.TrainingVault({}, {1:{'observation_id':'a','available_at':'2026-10-05T00:00:00Z'},2:{}},'2026-10-04T00:00:00Z')
+        with self.assertRaisesRegex(ValueError,'Unavailable'):vault.training({1},{2},{1:1,2:2})
+        self.assertFalse(vault.accessed)
+
+    def test_34_identity_never_reads_prohibited_keys(self):
+        class Poison(dict):
+            def get(self,k,default=None):
+                if k in {'price','price_uf','price_clp','property_id','fingerprint'}:raise AssertionError('Forbidden key read')
+                return super().get(k,default)
+        p.enriched(p.blind_row(Poison(source(1,price_uf=12345,price={'clp':999},property_id=77,fingerprint='x'))))
+
+    def test_35_additional_address_pair_is_disclosed_and_cofolded(self):
+        with (p.HERE/'unresolved_identity_cases.csv').open(encoding='utf-8',newline='') as f:
+            extra=[r for r in p.csv.DictReader(f) if r['case_id'].startswith('additional:')]
+        self.assertEqual(len(extra),1);self.assertEqual(extra[0]['blocks_pilot'],'False')
+        with (p.HERE/'cv_dependency_groups.csv').open(encoding='utf-8',newline='') as f:
+            groups={int(r['listing_id']):r for r in p.csv.DictReader(f)}
+        self.assertEqual(groups[4211]['G3'],groups[4486]['G3'])
+        self.assertNotEqual(groups[4211]['G2'],groups[4486]['G2'])
+
+    def test_36_coverage_median_not_rounded_to_one_decimal(self):
+        with (p.HERE/'grouping_sensitivity.csv').open(encoding='utf-8',newline='') as f:rows=list(p.csv.DictReader(f))
+        for policy in ('G1','G2','G3'):
+            selected=[r for r in rows if r['policy']==policy]
+            expected=p.median([float(r['eligibility_coverage']) for r in selected])
+            self.assertTrue(all(float(r['coverage_median'])==expected for r in selected))
+
+if __name__=='__main__':unittest.main(verbosity=2)

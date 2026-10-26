@@ -1,0 +1,28 @@
+"""Approved code-only rollback; no migration, DB write, scraper run or timer edit."""
+import pathlib,json,subprocess,os,time
+ROOT=pathlib.Path('/home/ubuntu/apps/valoria');B=ROOT/'private/discovery-deploy-20261016';API='valoria_oracle_beta-api-1'
+old=json.loads((B/'api-before-private.json').read_text())
+assert old['Config']['Labels']['org.opencontainers.image.revision']=='80bd8a9aae5c1af733778f524ce880efcb5d815e'
+env=dict(os.environ,PORTAL_GEO_RELEASE_IMAGE=old['Config']['Image'])
+def run(args):
+ result=subprocess.run(args,text=True,capture_output=True,timeout=180,env=env)
+ if result.returncode:raise RuntimeError('Rollback command failed: '+args[0])
+ return result.stdout
+current=json.loads(run(['docker','inspect',API]))[0]
+assert current['Config']['Labels']['org.opencontainers.image.revision'] in {'fdd23f882bb603d1115232fb27ede0da1929a8a6',old['Config']['Labels']['org.opencontainers.image.revision']}
+base=['docker','compose','--project-name','valoria_oracle_beta','--env-file',str(ROOT/'deploy/oracle.env')]
+for filename in old['Config']['Labels']['com.docker.compose.project.config_files'].split(','):base+=['-f',filename]
+for unit in ['valoria-uf-calendar','valoria-yapo-discovery','valoria-portal-discovery']:
+ path=pathlib.Path('/etc/systemd/system')/(unit+'.service.d/zzz-discovery-image.conf')
+ if path.exists():run(['sudo','-n','rm','--',str(path)])
+run(['sudo','-n','systemctl','daemon-reload'])
+run(base+['up','-d','--no-deps','--no-build','api'])
+for _ in range(40):
+ live=json.loads(run(['docker','inspect',API]))[0]
+ if live['Image']==old['Image'] and live['State'].get('Health',{}).get('Status')=='healthy':break
+ time.sleep(2)
+else:raise RuntimeError('Rollback image health deadline')
+guard=json.loads(run(['docker','exec',API,'python','-B','-c',"import json;from pathlib import Path;from services.release_guard import verify_release_tree;print(json.dumps(verify_release_tree(Path('/app'))))"]))
+assert guard['commit']==old['Config']['Labels']['org.opencontainers.image.revision']
+proof={'rollback':'executed_80bd8a9','image_id':old['Image'],'source_guard':guard,'production_manual_db_writes':0,'manual_ingestion_runs':0,'uf_timer_disabled':False,'migration_changes':False}
+(B/'rollback-executed.json').write_text(json.dumps(proof,indent=2));print(json.dumps(proof))

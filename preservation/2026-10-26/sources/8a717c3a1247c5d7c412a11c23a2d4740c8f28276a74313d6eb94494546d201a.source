@@ -1,0 +1,33 @@
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PORT=8000
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY alembic.ini ./
+COPY alembic ./alembic
+COPY api ./api
+COPY audits ./audits
+COPY config ./config
+COPY core ./core
+COPY domain ./domain
+COPY infrastructure ./infrastructure
+COPY scripts ./scripts
+COPY services ./services
+COPY ui/__init__.py ./ui/__init__.py
+COPY ui/formatting.py ./ui/formatting.py
+COPY ui/components/__init__.py ./ui/components/__init__.py
+COPY ui/components/risk_report_contract.py ./ui/components/risk_report_contract.py
+COPY ui/components/risk_report_html.py ./ui/components/risk_report_html.py
+COPY workers ./workers
+
+RUN python -m pip install --upgrade pip && python -m pip install -e .
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-1} --proxy-headers --forwarded-allow-ips='${FORWARDED_ALLOW_IPS:-*}'"]
+

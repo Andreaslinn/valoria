@@ -1,0 +1,46 @@
+import json
+import shutil
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent/'valoria'))
+from services.sii.jobs import connect,catastro_import,f2890_fetch,rebuild
+from services.sii.settings import Settings
+
+base=Path(__file__).parent
+settings=Settings.load()
+def snapshot():
+    with connect(settings) as conn:
+        counts={table:conn.execute(f'SELECT count(*) FROM sii.{table}').fetchone()[0] for table in
+            ('source_file','predio','linea_construccion','transferencia_raw','transferencia','geo_predio')}
+        fingerprint=conn.execute('''SELECT bit_xor(hashtextextended(ROW(raw_id,source_file_id,predio_source_file_id,
+          comuna,manzana,predio,fi,fe,monto_uf,monto_clp,uf_usada,uf_fecha,m2_h,m2_cerrado,
+          uf_m2_h,uf_m2_cerrado,paquete,cierre_comparable,motivos_exclusion)::text,0))
+          FROM sii.transferencia''').fetchone()[0]
+        return {'counts':counts,'transfer_fingerprint':fingerprint}
+
+before=snapshot()
+print(json.dumps({'stage':'before','snapshot':before}),flush=True)
+with connect(settings) as conn:
+    paths=[Path(r[0]) for r in conn.execute("SELECT ruta FROM sii.source_file WHERE tipo IN ('N','NL')").fetchall()]
+assert len(paths)==22
+inbox=settings.data/'inbox'
+inbox.mkdir(exist_ok=True)
+for path in paths:
+    target=inbox/path.name
+    assert not target.exists(),f'Unexpected existing input: {target.name}'
+    shutil.copyfile(path,target)
+cat=catastro_import()
+print(json.dumps({'stage':'catastro','rows_new':cat['rows_new'],'files_unchanged':cat['files_unchanged']}),flush=True)
+fetch=f2890_fetch(base/'F2890_01-10-2026.zip')
+print(json.dumps({'stage':'fetch','counters':fetch},default=str),flush=True)
+derived=rebuild()
+print(json.dumps({'stage':'rebuild','counters':derived},default=str),flush=True)
+after=snapshot()
+result={'passed':cat['rows_new']==fetch['rows_new']==derived['rows_new']==derived['geo']['rows_new']==0 and before==after,
+ 'catastro_rows_new':cat['rows_new'],'catastro_files_unchanged':cat['files_unchanged'],
+ 'f2890_rows_new':fetch['rows_new'],'transfer_rows_new':derived['rows_new'],
+ 'geo_rows_new':derived['geo']['rows_new'],'counts_unchanged':before['counts']==after['counts'],
+ 'transfer_fingerprint_unchanged':before['transfer_fingerprint']==after['transfer_fingerprint']}
+(base/'idempotence.json').write_text(json.dumps(result,indent=2),encoding='utf8')
+print(json.dumps(result),flush=True)
+assert result['passed']

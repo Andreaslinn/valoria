@@ -1,0 +1,33 @@
+import json,subprocess,pathlib
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-redeploy-20261016')
+code='''import asyncio,json,hashlib,re
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+def item(value, identity):
+ if isinstance(value,dict):
+  if str(value.get('id'))==identity and 'square' in value:return value
+  for child in value.values():
+   found=item(child,identity)
+   if found:return found
+ elif isinstance(value,list):
+  for child in value:
+   found=item(child,identity)
+   if found:return found
+async def main():
+ result={}
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  for identity in ['32982982','32747182']:
+   docs=(await s.execute(text("SELECT document FROM listing_observations WHERE source='yapo' AND external_id=:identity ORDER BY observed_at DESC LIMIT 5"),{'identity':identity})).scalars().all()
+   payload=next((v for d in docs if (v:=item(d,identity))),None)
+   if payload:
+    value={k:payload.get(k) for k in ['id','title','square','lotSize','rooms','bathrooms','parking','floor','age','exactAddress']}
+    location=payload.get('location') or {};value['lat']=location.get('lat');value['lon']=location.get('lon')
+    value['photo_tokens']=sorted({v.rsplit('/',1)[-1].split('_',1)[-1] for v in payload.get('images',[]) if isinstance(v,str)})
+    description=payload.get('description');value['description_sha256']=hashlib.sha256(description.encode()).hexdigest() if isinstance(description,str) and not description.startswith('$') else None
+    result[identity]=value
+   else:result[identity]={'payload_found':False,'document_keys':list(docs[0]) if docs else []}
+ print(json.dumps(result))
+asyncio.run(main())'''
+out=subprocess.check_output(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',code],text=True,timeout=90)
+p=B/'case-native-comparison.json';p.write_text(out);p.chmod(0o600);print(out)

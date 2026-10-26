@@ -1,0 +1,247 @@
+import copy
+import csv
+import json
+from pathlib import Path
+import unittest
+import build as b
+
+
+def row(i=1, **kwargs):
+    r = dict(id=i, source='yapo', external_id=str(i), url=f'https://www.yapo.cl/anuncio/{i}',
+       title='Departamento luminoso terraza cordillera UF 3500', comuna='nunoa', property_type='apartment',
+       m2=60, built_area_m2=60, usable_area_m2=60, bedrooms=2, bathrooms=2, parking=0,
+       status='active', scraped_at='2026-10-01T06:00:00+00:00', last_seen_at='2026-10-01T06:00:00+00:00',
+       price_currency='UF', price_uf=3500, price_clp=140000000, price_uf_source='scraped',
+       price_recovery_method='raw.price_uf', geocode_precision='address', lat=-33.45, lon=-70.65,
+       raw_metadata=dict(currency_original='UF', price_uf=3500, parser_source='yapo_search_payload',
+                         price_clp_provenance='derived_from_uf_real_rate'))
+    r.update(kwargs)
+    return r
+
+
+class TargetTests(unittest.TestCase):
+    def test_native_parsed_trace(self):
+        self.assertEqual(b.target(row())[:2], ('T1', 3500))
+
+    def test_portal_parsed_trace(self):
+        r=row(source='portalinmobiliario',price_recovery_method='raw_metadata.price_uf')
+        r['raw_metadata'].pop('parser_source');r['raw_metadata']['portal_card_first']=True
+        self.assertEqual(b.target(r)[0],'T1')
+
+    def test_numeric_uf_alone_not_certified(self):
+        r=row();r['raw_metadata'].pop('parser_source')
+        self.assertEqual(b.target(r)[0],'T3')
+
+    def test_scraped_label_alone_not_certified(self):
+        r=row(raw_metadata={'currency_original':'UF'})
+        self.assertEqual(b.target(r)[0],'T3')
+
+    def test_native_amount_disagrees(self):
+        r=row();r['raw_metadata']['price_uf']=3000
+        self.assertEqual(b.target(r)[0],'T3')
+
+    def test_recovered_metadata_not_erased_by_scraped_column(self):
+        r=row();r['raw_metadata']['price_uf_source']='recovered_high_confidence'
+        self.assertEqual(b.target(r)[0],'T3')
+
+    def test_legacy_conflict(self):
+        r=row();r['raw_metadata']['price_recovery_method']='no_raw_price_or_observed_rate'
+        r['raw_metadata']['price_uf_source']='legacy_unrecoverable'
+        self.assertEqual(b.target(r)[0],'T3')
+
+    def test_original_currency_conflict(self):
+        r=row();r['raw_metadata']['currency_original']='CLP'
+        self.assertEqual(b.target(r)[0],'T3')
+
+    def test_invalid_original(self):
+        for value in [0,-1,float('nan'),float('inf'),True,None]:
+            with self.subTest(value=value):
+                r=row(price_uf=value);r['raw_metadata'].pop('price_uf')
+                self.assertEqual(b.target(r)[0],'T4')
+
+    def test_clp_display_not_native_uf_recovery(self):
+        r=row(price_uf=None);r['raw_metadata'].pop('price_uf')
+        self.assertEqual(b.target(r)[0],'T4')
+
+    def test_ambiguous_currency(self):
+        self.assertEqual(b.target(row(price_currency=None))[0],'T4')
+
+    def test_original_clp_no_conversion_not_certified(self):
+        r=row(price_currency='CLP',price_uf=None)
+        r['raw_metadata']={'currency_original':'CLP','price_clp_provenance':'published'}
+        self.assertEqual(b.target(r)[0],'T3')
+
+    def test_traceable_clp_preserved_conversion(self):
+        r=row(price_currency='CLP',price_uf=3500,price_recovery_method=None)
+        r['raw_metadata']=dict(currency_original='CLP', price_clp_provenance='published',
+            uf_rate_used=40000,uf_rate_date='2026-10-01',uf_rate_source='mindicador.cl',
+            price_conversion_method='original_clp_divided_by_dated_uf')
+        self.assertEqual(b.target(r)[0],'T2')
+        for key,value in [('uf_rate_date','2026-09-30'),('uf_rate_source','fixed'),('uf_rate_stale',True),
+                          ('uf_rate_used',41000),('price_conversion_method',None)]:
+            with self.subTest(key=key):
+                bad=copy.deepcopy(r);bad['raw_metadata'][key]=value
+                self.assertEqual(b.target(bad)[0],'T3')
+
+    def test_does_not_repair_or_mutate(self):
+        r=row();original=copy.deepcopy(r);b.target(r)
+        self.assertEqual(r,original)
+
+
+class IndexTests(unittest.TestCase):
+    def snapshot(self,rows):
+        return dict(captured_at='2026-10-02T18:50:49+00:00',listings=rows)
+
+    def test_snapshot_is_not_production_history(self):
+        o=b.state_observations(self.snapshot([row()]),'abc')[0]
+        self.assertEqual(o['observation_kind'],'snapshot_state_capture_not_history')
+        self.assertEqual(o['observed_at'],'2026-10-02T18:50:49+00:00')
+        self.assertNotEqual(o['observed_at'],o['source_scraped_at'])
+
+    def test_one_index_per_publication(self):
+        obs=b.state_observations(self.snapshot([row(2,external_id='same'),row(1,external_id='same')]),'abc')
+        ids=b.select_index(obs)
+        self.assertEqual(len(ids),1)
+        self.assertEqual(next(o['listing_id'] for o in obs if o['observation_id'] in ids),'1')
+
+    def test_no_target_based_preference(self):
+        rows=[row(1,external_id='same',price_uf=None),row(2,external_id='same')]
+        obs=b.state_observations(self.snapshot(rows),'abc')
+        self.assertEqual(b.select_index(obs),{obs[0]['observation_id']})
+
+    def test_no_future_state(self):
+        with self.assertRaises(ValueError):
+            b.state_observations(self.snapshot([row(scraped_at='2026-10-03T00:00:00+00:00')]),'abc')
+
+    def test_duplicate_listing_not_silently_consolidated(self):
+        with self.assertRaises(ValueError):b.state_observations(self.snapshot([row(),row()]),'abc')
+
+    def test_naive_timestamp_rejected(self):
+        with self.assertRaises(ValueError):b.timestamp('2026-10-01T00:00:00')
+
+    def test_order_deterministic(self):
+        a=b.state_observations(self.snapshot([row(1),row(2)]),'abc')
+        c=b.state_observations(self.snapshot([row(2),row(1)]),'abc')
+        self.assertEqual(a,c)
+
+
+class FeaturesTests(unittest.TestCase):
+    def test_area_precedence_explicit(self):
+        self.assertEqual(b.area(row(built_area_m2=60,usable_area_m2=45)),(60,'built_area_m2'))
+
+    def test_zero_parking_not_missing(self):
+        self.assertEqual(b.physical_reasons(row(parking=0)),[])
+        self.assertEqual(b.physical_reasons(row(parking=None)),[])
+
+    def test_invalid_parking(self):
+        for value in [-1,float('nan'),float('inf')]:
+            self.assertIn('parking_invalid',b.physical_reasons(row(parking=value)))
+
+    def test_area_no_winsorization(self):
+        self.assertEqual(b.area(row(built_area_m2=2025))[0],2025)
+        self.assertIn('invalid_area',b.physical_reasons(row(built_area_m2=2025)))
+
+    def test_studio_requires_explicit_flag(self):
+        r=row(bedrooms=0)
+        self.assertIn('bedrooms_unusable',b.physical_reasons(r))
+        r['raw_metadata']['explicit_studio']=True
+        self.assertNotIn('bedrooms_unusable',b.physical_reasons(r))
+
+
+class DependencyTests(unittest.TestCase):
+    def test_projection_no_prices_property_id_fingerprint(self):
+        r=row(property_id=123,fingerprint='price-derived')
+        projection=b.identity_projection(r)
+        self.assertFalse({'property_id','fingerprint','price_uf','price_clp'} & set(projection))
+        self.assertNotIn('3500',projection['title'])
+
+    def test_generic_structure_is_not_identity(self):
+        p=b.pair(b.signals(row(1)),b.signals(row(2)))
+        self.assertTrue(p['candidate']);self.assertFalse(p['G3'])
+
+    def test_same_property_id_does_not_link(self):
+        _,_,g=b.dependencies([row(1,property_id=3),row(2,property_id=3)])
+        self.assertNotEqual(g['G1'][1],g['G1'][2])
+
+    def test_unverified_geo_does_not_link(self):
+        a,bf=b.signals(row(1)),b.signals(row(2))
+        self.assertFalse(a['trusted_geo']);self.assertFalse(b.pair(a,bf)['G3'])
+
+    def test_explicit_address_unit_and_structure(self):
+        a,c=row(1),row(2)
+        for r in [a,c]:r['raw_metadata']['address_label']='calle ejemplo 1200 departamento numero 301'
+        self.assertTrue(b.pair(b.signals(a),b.signals(c))['G1'])
+
+    def test_building_dependence_not_same_unit(self):
+        a,c=row(1),row(2)
+        for r in [a,c]:r['raw_metadata']['address_label']='calle ejemplo 1200'
+        p=b.pair(b.signals(a),b.signals(c))
+        self.assertFalse(p['G1']);self.assertTrue(p['G2']);self.assertFalse(p['same_unit'])
+
+    def test_known_different_units_prevent_inferred_edge(self):
+        a,c=row(1),row(2)
+        a['raw_metadata']['address_label']='calle ejemplo 1200 departamento numero 301'
+        c['raw_metadata']['address_label']='calle ejemplo 1200 departamento numero 302'
+        p=b.pair(b.signals(a),b.signals(c));self.assertFalse(p['G3']);self.assertTrue(p['contradiction'])
+
+    def test_transitive_components_include_excluded_bridges(self):
+        a,c,d=row(1,external_id='same'),row(2,external_id='same'),row(3)
+        d['url']=c['url'];c['property_type']='house'
+        _,_,g=b.dependencies([a,c,d])
+        self.assertEqual(g['G1'][1],g['G1'][3])
+
+    def test_money_permutation_does_not_change_groups(self):
+        rows=[row(1),row(2)]
+        original=b.dependencies(rows)[2]
+        for r in rows:
+            r.update(price_uf=999999,price_clp=1,property_id=99,fingerprint='changed')
+            r['title']='Departamento luminoso terraza cordillera UF 999999'
+            r['raw_metadata']['price_uf']=999999
+        self.assertEqual(original,b.dependencies(rows)[2])
+
+    def test_image_query_not_used(self):
+        a=row();a['raw_metadata']['main_image_url']='https://img.example/p/abc.jpg?price=3500'
+        c=row();c['raw_metadata']['main_image_url']='https://img.example/p/abc.jpg?price=9999'
+        self.assertEqual(b.image_keys(a),b.image_keys(c))
+
+    def test_image_basename_collision_not_identity(self):
+        a=row();a['raw_metadata']['main_image_url']='https://img.example/a/1.jpg'
+        c=row();c['raw_metadata']['main_image_url']='https://img.example/b/1.jpg'
+        self.assertNotEqual(b.image_keys(a),b.image_keys(c))
+
+    def test_placeholder_rejected(self):
+        r=row();r['raw_metadata']['main_image_url']='https://img.example/no-image.jpg'
+        self.assertEqual(b.image_keys(r),set())
+
+    def test_null_physical_fields(self):
+        a=row(bedrooms=None,bathrooms=None)
+        self.assertFalse(b.pair(b.signals(a),b.signals(row(2)))['G3'])
+
+
+class FeasibilityTests(unittest.TestCase):
+    def test_transient_assignments_no_labels(self):
+        rows=[dict(listing_id=str(i),comuna='nunoa',area_canonical=60,source='yapo') for i in range(18)]
+        groups={g:{i:i//2 for i in range(18)} for g in ['G1','G2','G3']}
+        first=b.simulate(rows,groups)
+        for r in rows:r['price_uf']=99999
+        self.assertEqual(first,b.simulate(rows,groups))
+        self.assertEqual(len(first),27)
+        self.assertTrue(all(r['test_n_sum']==18 and not r['official_assignment_saved'] for r in first))
+
+    def test_corrected_harness_hashes(self):
+        self.assertEqual(b.verify_harness()['checked_code_files'],127)
+
+    def test_archived_parser_hashes(self):
+        self.assertTrue(b.verify_parser_archive()['hashes_verified'])
+
+    def test_source_snapshot_hash(self):
+        self.assertEqual(b.filehash(b.ROOT/b.POLICY['snapshot']),b.POLICY['snapshot_sha256'])
+
+    def test_no_execution_imports(self):
+        text=(b.HERE/'build.py').read_text(encoding='utf-8')
+        self.assertNotIn('import avm01.engines',text)
+        self.assertNotIn('import subprocess',text)
+        self.assertNotIn('import socket',text)
+
+
+if __name__=='__main__':unittest.main()

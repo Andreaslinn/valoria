@@ -1,0 +1,32 @@
+import asyncio,json,hashlib
+from pathlib import Path
+from decimal import Decimal
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+from core.entities.listing import Property
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine
+from domain.valuation.engines.contracts import EngineContext,EngineRequest
+async def main():
+ async with get_session_factory()() as session:
+  await session.execute(text('SET TRANSACTION READ ONLY'))
+  uf=(await session.execute(text('SELECT value_clp FROM uf_rates WHERE date=CURRENT_DATE'))).scalar_one()
+  repo=SqlAlchemyListingRepository(session);out=[]
+  for comuna,area,bedrooms,parking,published in [('santiago',70,2,0,2552),('la_florida',82,3,1,4000)]:
+   target=Property(id=None,comuna=comuna,m2=area,built_area_m2=area,usable_area_m2=area,bedrooms=bedrooms,bathrooms=2,parking=parking,property_type='apartment')
+   pool=await repo.find_active_in_comuna(comuna,property_type='apartment')
+   result=ComparablesCanonicalEngine(name='comparables_canonical_outliers',variant='outliers').valuate(EngineRequest(published_price_provided=True),EngineContext(target=target,candidates=pool,uf_to_clp=uf))
+   from services.valuation import ValuationService,ValuationInput
+   from core.ports.uf_service import UFRateInfo
+   from datetime import date
+   class ReadOnlyUF:
+    async def get_current_rate(self): return uf
+    async def get_current_rate_info(self): return UFRateInfo(rate=uf,source='dated_db_snapshot',is_fallback=False,rate_date=date.today())
+   dto=await ValuationService(listing_repo=repo,uf_service=ReadOnlyUF()).valuate_property(ValuationInput(comuna=comuna,property_type='apartment',m2=area,usable_area_m2=area,dormitorios=bedrooms,banos=2,estacionamientos=parking,precio_publicado_uf=published))
+   payload=dto.to_payload()
+   d=result.diagnostics;rd=d.get('result',{});selected=[x for x in pool if x.id in [c.listing_id for c in result.selected_comparables]]
+   prices=[float(x.price_uf) if x.price_uf else float(x.price.clp/uf) for x in selected];areas=[x.built_area_m2 or x.usable_area_m2 or x.m2 for x in selected]
+   import statistics
+   out.append({'comuna':comuna,'area_m2':area,'bedrooms':bedrooms,'bathrooms':2,'parking':parking,'coordinates':None,'pool_n':len(pool),'status':result.status,'estimated_uf':result.estimated_price_uf,'ppm2_base':rd.get('base_estimated_price_uf',0)/area,'ppm2_after_surface':float(result.estimated_price_uf or 0)/area,'result':rd,'service_payload':payload,'selected_ids':[x.id for x in selected],'selected_prices_uf':prices,'selected_areas':areas,'selected_sum_uf':sum(prices),'selected_sum_m2':sum(areas),'selected_ratio_of_sums':sum(prices)/sum(areas) if areas else None,'selected_median_ppm2':statistics.median(p/a for p,a in zip(prices,areas)) if areas else None})
+  print(json.dumps({'uf_rate':str(uf),'runtime_engine_sha256':hashlib.sha256(Path('/app/domain/valuation/engines/canonical_comparables.py').read_bytes()).hexdigest(),'cases':out},default=str))
+asyncio.run(main())

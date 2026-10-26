@@ -1,0 +1,16 @@
+"use client";
+
+import { useState } from "react";
+import { RadarWorkspace } from "@/features/radar/RadarWorkspace";
+import { PortfolioWorkspace } from "@/features/portfolio/PortfolioWorkspace";
+import { ListingUrlWorkspace } from "@/features/listing-url/ListingUrlWorkspace";
+
+export default function ThumbnailSandbox() {
+  const [surface, setSurface] = useState("portfolio");
+  return <main className="mx-auto max-w-6xl p-6">
+    <h1 className="mb-4 text-xl text-ink">Valoria — sandbox de thumbnails</h1>
+    <nav className="mb-6 flex gap-4">{["portfolio", "radar", "detail"].map(name =>
+      <button key={name} onClick={() => setSurface(name)} className="rounded-lg border border-line p-3 text-ink">{name}</button>)}</nav>
+    {surface === "radar" ? <RadarWorkspace /> : surface === "detail" ? <ListingUrlWorkspace /> : <PortfolioWorkspace />}
+  </main>;
+}

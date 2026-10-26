@@ -1,0 +1,60 @@
+from common import *
+from experimental import FoldModel,BASE,cfg,override,W0,clear_price_surface_cache
+from avm01.isolation import LabelCustody,dependency_components
+from avm01.splits import inner_folds
+from avm01.engines import FrozenA
+from collections import Counter,defaultdict
+import numpy as np,math,time
+PARENT=ROOT/'research/portal_geo_am_v0_20261010'
+CRYPTO=module('followup_cipher',ROOT/'private-ingestion-production-20261004/recovery_tools.py')
+ADAPT=cfg('AM-adaptive',selector='adaptive',compat=True,min_neff=4.5,retrieval=8)
+
+def decrypt(path):return json.loads(CRYPTO.unprotect(Path(path).read_bytes()))
+def encrypt(path,v):
+ raw=json.dumps(v,sort_keys=True,allow_nan=False,default=str).encode();Path(path).write_bytes(CRYPTO.protect(raw))
+ return hashlib.sha256(raw).hexdigest()
+def config(c,seed,names):
+ return dict(seed=seed,target='log_uf_total',geo_ablation=False,real_execution_enabled=True,
+ engines=names,index_policy='first_observation_v1',uf_reference=c['uf_reference'],experiment_protocol_sha256=sha(HERE/'protocol.json'))
+def metric(rows,name):
+ good=[r for r in rows if r['predictions'][name]['prediction'] is not None]
+ out={'n':len(good),'coverage_pct':100*len(good)/len(rows) if rows else 0.,'abstentions':len(rows)-len(good)}
+ if not good:return out
+ y=np.array([r['target_uf'] for r in good]);v=np.array([r['predictions'][name]['prediction'] for r in good]);err=100*(v/y-1);ae=np.abs(err)
+ z=[r['predictions'][name] for r in good]
+ out.update(MdAPE=float(np.median(ae)),MAPE=float(np.mean(ae)),MAE_log=float(np.mean(np.abs(np.log(v/y)))),P90=float(np.percentile(ae,90)),P95=float(np.percentile(ae,95)),bias_pct=float(np.median(err)),
+ K_median=float(np.median([t['used'] for t in z])),Neff_median=float(np.median([t['neff'] for t in z])),
+ distance_km_median=float(np.median([t['median_distance'] for t in z if t['median_distance'] is not None])) if any(t['median_distance'] is not None for t in z) else None)
+ return out
+def interval(rows,a,b,seed=20261011):
+ same=[r for r in rows if r['predictions'][a]['prediction'] is not None and r['predictions'][b]['prediction'] is not None]
+ if not same:return {'n':0}
+ groups=defaultdict(list)
+ for j,r in enumerate(same):groups[r['group']].append(j)
+ g=list(groups.values());y=np.array([r['target_uf'] for r in same]);av=np.array([r['predictions'][a]['prediction'] for r in same]);bv=np.array([r['predictions'][b]['prediction'] for r in same])
+ ae=100*np.abs(av/y-1);be=100*np.abs(bv/y-1);al=np.abs(np.log(av/y));bl=np.abs(np.log(bv/y));rng=np.random.default_rng(seed);draws=[]
+ for _ in range(2000):
+  ix=np.concatenate([g[j] for j in rng.integers(len(g),size=len(g))])
+  draws.append([np.median(be[ix])-np.median(ae[ix]),np.mean(be[ix])-np.mean(ae[ix]),np.mean(bl[ix])-np.mean(al[ix])])
+ cis=np.percentile(draws,[2.5,97.5],axis=0)
+ return {'n':len(same),'groups':len(g),'direction':'B minus A; negative improves',
+ 'MdAPE_delta_pp':float(np.median(be)-np.median(ae)),'MdAPE_CI95':cis[:,0].tolist(),
+ 'MAPE_delta_pp':float(np.mean(be)-np.mean(ae)),'MAPE_CI95':cis[:,1].tolist(),
+ 'MAE_log_delta':float(np.mean(bl)-np.mean(al)),'MAE_log_CI95':cis[:,2].tolist(),
+ 'paired_A':metric(same,a),'paired_B':metric(same,b)}
+def integrity():
+ c=verify()
+ for path,h in read(HERE/'execution_seal.json').items():assert sha(path)==h,path
+ return c
+class YapoModel(FoldModel):
+ def __init__(self,batch,rate):
+  super().__init__(batch,rate)
+  self.original=[l for l in self.original if l.source=='yapo']
+  self.canonical=[l for l in self.canonical if l.source=='yapo']
+  self.classes={f'id:{l.id}':self.classes[f'id:{l.id}'] for l in self.canonical}
+  self.repeated=Counter((round(l.coordinates.lat,7),round(l.coordinates.lon,7)) for l in self.original if l.coordinates)
+def verify_trace(trace,batch,target,source=None):
+ ids=set(trace['selected_ids'])|set(trace['surface_pool_ids']);train={r.row_id:r for r in batch.rows}
+ assert ids<=set(train) and target.row_id not in ids
+ assert not {batch.components[i] for i in ids}&{batch.components[target.row_id]}
+ if source:assert all(train[i].features['source']==source for i in ids)

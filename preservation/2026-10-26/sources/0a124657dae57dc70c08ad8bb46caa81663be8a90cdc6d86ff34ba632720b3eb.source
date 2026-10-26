@@ -1,0 +1,32 @@
+import subprocess,json,pathlib,os,time
+root=pathlib.Path('/home/ubuntu/apps/valoria/private/ingestion-deploy-20261015')
+review=pathlib.Path('/home/ubuntu/apps/valoria/private/ingestion-review-20261015')
+manifest=json.loads((review/'app/release-manifest.json').read_text())
+image='valoria-ingestion-review:'+manifest['commit'][:12]
+pg='valoria-rollback-rehearsal-pg'
+def cmd(args,timeout=120,input=None):
+ r=subprocess.run(args,capture_output=True,text=True,timeout=timeout,input=input)
+ if r.returncode:raise RuntimeError('Rehearsal command failed: '+args[0]+' '+r.stderr[-400:])
+ return r.stdout
+base=['docker','run','--rm','--network','container:'+pg,'--memory=384m','--memory-swap=384m','--cpus=0.25','--pids-limit=96','--cap-drop=ALL','--security-opt=no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=32m',
+      '-e','DATABASE_URL=postgresql+asyncpg://postgres@127.0.0.1/valoria_restore','-e','SYNC_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1/valoria_restore','-e','JWT_SECRET_KEY='+'0'*32,'--entrypoint','python',image,'-B']
+cmd(base+['-m','alembic','upgrade','0023'])
+cmd(['docker','exec',pg,'psql','-U','postgres','-d','valoria_restore','-c',"INSERT INTO ingestion_pending_prices(source,external_id,payload,observed_at) VALUES ('yapo','rollback-proof','{\"price_uf\":1234}',now());"])
+cmd(base+['-m','alembic','downgrade','0022'])
+sql="SELECT version_num FROM alembic_version; SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('ingestion_runs','ingestion_uf_calendar','ingestion_pending_prices');"
+out=cmd(['docker','exec',pg,'psql','-U','postgres','-d','valoria_restore','-Atc',sql]).splitlines()
+assert out==['0022','0'],out
+archive=cmd(['docker','exec',pg,'psql','-U','postgres','-d','valoria_restore','-Atc',"SELECT table_schema FROM information_schema.tables WHERE table_name='ingestion_pending_prices' AND table_schema LIKE 'ingestion_rollback_%' ORDER BY table_schema DESC LIMIT 1;"]).strip()
+assert archive.startswith('ingestion_rollback_') and archive.replace('_','').isalnum()
+retained=cmd(['docker','exec',pg,'psql','-U','postgres','-d','valoria_restore','-Atc',f'SELECT count(*) FROM {archive}.ingestion_pending_prices;']).strip()
+assert retained=='1'
+cmd(base+['-m','alembic','upgrade','0023'])
+# Real current-data gate before any deployment; production DB remains untouched.
+result=subprocess.run(base+['-m','scripts.verify_canonical_live'],capture_output=True,text=True,timeout=120)
+cases=[]
+if result.returncode==0:
+ data=json.loads(result.stdout)
+ cases=[{k:c[k] for k in ('comuna','estimated_uf','frozen_reference_uf','comparable_data_changed','uf_rate')} for c in data['cases']]
+proof={'migration_upgrade_downgrade_upgrade':True,'downgrade_revision':'0022','pending_archived':int(retained),'reference_gate_exit':result.returncode,'reference_cases':cases,'image':image,'timer_rollback':'not yet installed; rehearsal will verify inactive ephemeral unit before production changes'}
+(root/'rollback-proof.json').write_text(json.dumps(proof,indent=2));(root/'rollback-proof.json').chmod(0o600)
+print(json.dumps(proof),flush=True)

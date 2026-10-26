@@ -1,0 +1,90 @@
+from pathlib import Path
+import httpx
+import pytest
+from services.listing_url_lookup import lookup_listing_url, detect_source, validate_public_listing_url
+from tests.unit.factories import make_listing
+
+URL = "https://www.portalinmobiliario.com/MLC-123456789-departamento-en-nunoa-_JM"
+
+async def missing(_):
+    return None
+
+@pytest.mark.parametrize("host", ["portalinmobiliario.com", "www.portalinmobiliario.com"])
+def test_portal_source(host):
+    assert detect_source(f"https://{host}/MLC-123") == "portalinmobiliario"
+
+@pytest.mark.parametrize("url", ["https://portalinmobiliario.com.evil.test/MLC-123", "https://evilportalinmobiliario.com/MLC-123"])
+def test_unrelated_host_not_portal(url):
+    assert detect_source(url) is None
+
+@pytest.mark.parametrize("url", ["https://[USER]:[PASSWORD]@www.portalinmobiliario.com/MLC-123", "https://www.portalinmobiliario.com:8080/MLC-123"])
+def test_unsafe_portal_url(url):
+    assert validate_public_listing_url(url) == "invalid_url"
+
+@pytest.mark.asyncio
+async def test_existing_portal_does_not_fetch():
+    listing = make_listing(source="portalinmobiliario", fingerprint="portal-existing")
+    listing.id = 77
+    listing.url = URL
+    async def existing(_):
+        return listing
+    def handler(_):
+        raise AssertionError("Existing listing must not fetch the portal")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await lookup_listing_url(URL, listing_lookup=existing, http_client=client)
+    assert result.status == "found_existing"
+    assert result.listing_data["listing_id"] == 77
+    assert result.source == "portalinmobiliario"
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fixture", ["portal_detail_real_1_sanitized.html", "portal_detail_real_2_sanitized.html"])
+async def test_saved_real_portal_detail(fixture):
+    from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal
+    html = (Path(__file__).parents[1] / "fixtures" / fixture).read_text(encoding="utf-8")
+    expected = parse_listing_detail_portal(html, URL)
+    calls = []
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, text=html)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await lookup_listing_url(URL, listing_lookup=missing, http_client=client)
+    assert result.status in {"parsed_new", "partial"}
+    assert result.listing_data["title"] == expected["title"]
+    assert result.listing_data["precio_publicado_uf"] == expected["price_uf"]
+    assert result.listing_data["usable_area_m2"] == expected["usable_area_m2"]
+    assert calls == [URL]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,html", [(403,"blocked"),(429,"limited"),(200,"<html><h1>Verifica que eres humano</h1></html>"),(200,"<html>unknown</html>"),(404,"gone")])
+async def test_blocked_or_unknown_not_property(status,html):
+    calls=[]
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(status,text=html)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True) as client:
+        result=await lookup_listing_url(URL,listing_lookup=missing,http_client=client)
+    assert result.status=="failed"
+    assert result.listing_data=={}
+    assert len(calls)==1
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["http://127.0.0.1/private", "https://accounts.mercadolibre.com/login", "https://example.com/other"])
+async def test_redirect_not_followed_outside_portal(target):
+    calls=[]
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(302,headers={"location":target})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler),follow_redirects=True) as client:
+        result=await lookup_listing_url(URL,listing_lookup=missing,http_client=client)
+    assert result.status=="failed"
+    assert len(calls)==1
+
+@pytest.mark.asyncio
+async def test_uf_price_remains_uf_without_invented_conversion():
+    html='''<html><h1>Departamento en Ñuñoa</h1><script type="application/ld+json">{"@type":"Product","name":"Departamento en Ñuñoa","offers":{"price":3200,"priceCurrency":"UF"}}</script></html>'''
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(200,text=html))) as client:
+        result=await lookup_listing_url(URL,listing_lookup=missing,http_client=client)
+    assert result.listing_data["precio_publicado_uf"]==3200
+    assert not result.listing_data["precio_publicado_clp"]
+    assert result.listing_data["property_type"]=="apartment"
+    assert "missing_price" not in result.warnings

@@ -1,0 +1,15 @@
+import pathlib,subprocess
+code=r'''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from config import get_settings
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  days=[dict(r) for r in (await s.execute(text("SELECT observed_at::date AS day,count(*) AS observations,sum(pg_column_size(document)) AS document_bytes FROM listing_observations GROUP BY observed_at::date ORDER BY day DESC LIMIT 10"))).mappings().all()]
+  print(json.dumps({'history_enabled':get_settings().ingestion_observation_history_enabled,'daily_observations':days},default=str))
+  await s.rollback()
+asyncio.run(main())'''
+remote='import subprocess;r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-"],input='+repr(code)+',text=True,capture_output=True,timeout=60);print(r.stdout);raise SystemExit(r.returncode)'
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -'],input=remote,text=True,encoding='utf8',capture_output=True,timeout=90)
+pathlib.Path('outputs/discovery-same-day/history-growth-readonly.json').write_text(r.stdout,encoding='utf8');print(r.stdout if not r.returncode else 'History read failed')

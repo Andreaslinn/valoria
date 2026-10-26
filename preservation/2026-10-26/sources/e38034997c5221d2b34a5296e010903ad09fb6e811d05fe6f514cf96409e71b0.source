@@ -1,0 +1,34 @@
+from pathlib import Path
+import json
+root=Path('outputs/discovery-deploy-20261016')
+def read(name):
+ for line in reversed((root/(name+'.private.log')).read_text(encoding='utf8').splitlines()):
+  if line.startswith('{'):return json.loads(line)
+ raise RuntimeError(name)
+final=read('discovery_final_remote.py');cycle=read('discovery_collect_cycles_remote.py');deploy=read('discovery_rollout_remote.py');backup=read('discovery_backup_remote.py')
+assert final['rollback']=='executed_80bd8a9' and final['health']['status']=='ok'
+budget={'name':'valoria-zero-cost','amount':1,'currency':'CLP','period':'Monthly','scope':'root compartment','threshold_metric':'Actual Spend','threshold_percent':100,'recipients':'andreaspizarro10@gmail.com','created_and_read_back':True,'currency_choice_explicitly_approved_by_user':True}
+oci={'shape':'VM.Standard.A1.Flex','ocpus':1,'memory_gb':6,'instance_console_always_free_badge_visible':False,'volume_size_gb':47,'volume_always_free_badge_visible':True,'infrastructure_resources_created_resized_deleted':0,'budget_alert_configuration':budget,'limits_source':'https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm','literal_all_resources_badged_confirmation':False}
+proof={'deployment':deploy,'backup':backup,'cycles_observed_before_rollback':cycle,'final':final,'oci':oci,'acceptance_passed':False,'failure':'Yapo detail coverage 3 of 4 new source identities = 75%, below 90%','actual_authorized_service_starts':{'portal':1,'yapo':1}}
+(root/'final-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf8')
+(root/'INFORME.md').write_text('''# Despliegue PR #6: rollback ejecutado
+
+El PR #6 se mergeó sobre release/canonical-only-reproducible-20261013 en fdd23f882bb603d1115232fb27ede0da1929a8a6. La imagen se reconstruyó únicamente desde ese commit, sin descargas; los 470 archivos coincidían. El respaldo PostgreSQL se restauró en aislamiento con conteos iguales (7.337 avisos, 7 usuarios, 7 guardados, 41 alertas, 34 UF). SHA256 del respaldo: '''+backup['backup_sha256']+'''.
+
+Las referencias antes/después del despliegue y el ensayo candidato/rollback sobre la misma base y UF 41.168,03 coincidieron: Santiago 70 m² = 3.247,47 UF y La Florida 82 m² = 3.878,19 UF. Estas comparaciones preceden a la ingesta; no se afirma que los datos sean inmutables tras ingresar nuevos comparables.
+
+Se iniciaron una sola vez los servicios normales Portal y Yapo, por autorización explícita. Yapo terminó correctamente a nivel de proceso y ledger: 18 insertados, 409 actualizados, 166 omitidos y 12 rechazos de validación; sus contadores coinciden con el lanzador en todos los campos compartidos. Capturó 3/3 fichas solicitadas de altas, pero solo 3/4 identidades de publicación nuevas (75%). No se detectaron bloqueos ni alarma de sesión. Los logs existentes no registran cada estado HTTP, por lo que no constituyen un conteo exhaustivo de respuestas 302/403/429.
+
+El cuarto ID nuevo, 32747182 (Providencia), reemplazó por deduplicación al ID 32982982 en la misma fila 6612 y con el mismo fingerprint. Se confirmó comparando producción en lectura con el respaldo restaurado. La condición de captura depende de outcome.status == inserted; esta identidad nueva se clasificó como actualización y quedó en stage=card. La métrica de aceptación incluye identidades nuevas por fuente, sin excluir el ID reemplazado. No se alteró código para disimular esa omisión.
+
+Al fallar el 90%, se conservó evidencia y se detuvo Portal todavía en curso: su última lectura era 35/36 identidades con detalle, pero no constituye un ciclo completo aprobado. El rollback se ejecutó a 80bd8a9aae5c1af733778f524ce880efcb5d815e; los 456 archivos del artefacto anterior coinciden, el contenedor está healthy, /health está ok y no hay PORTAL_SESSION_EXPIRED. Los tres timers siguen activos con la imagen anterior. El ledger de Portal interrumpido permanece sin fecha de finalización: no se editó manualmente la DB para cerrarlo. Se conserva la ingesta válida.
+
+Disco libre: 25.669.414.912 bytes antes y 25.614.045.184 después del rollback. No se ejecutó limpieza de caché ni retención. La alarma de 10 GB está descrita, pero no implementada en PR #6, por lo que no se activó código fuera del PR.
+
+Se creó y volvió a leer la regla de presupuesto: CLP 1 mensual, gasto real al 100%, correo andreaspizarro10@gmail.com. El usuario eligió CLP 1 porque esta tenencia fija su moneda en CLP. Se reutilizó el presupuesto existente; no se crearon, ampliaron ni borraron recursos de infraestructura OCI.
+
+OCI muestra la VM A1 de 1 OCPU/6 GB y el volumen de 47 GB. El volumen conserva la etiqueta Always Free; las vistas de la VM no muestran una etiqueta explícita Always Free. Su configuración está dentro del cupo publicado, pero no se afirma que todos los recursos tengan esa marca literal. Referencia: [Oracle Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm). La cuenta sigue siendo Pay As You Go.
+
+La salida exitosa no se cumplió: producción permanece en el rollback aprobado. La siguiente corrección debe detectar la identidad (fuente, ID) nueva antes de deduplicar y capturarla aunque reutilice una fila existente; no se implementó ni desplegó esa corrección en este encargo.
+''',encoding='utf8')
+print(json.dumps({'running_commit':final['running_commit'],'health':final['health']['status'],'disk_before_bytes':final['disk_before_bytes'],'disk_after_bytes':final['disk_after_bytes'],'acceptance_passed':False,'budget_created':True}))

@@ -1,0 +1,14 @@
+import subprocess,pathlib
+code=r'''
+import pathlib,shutil,json,importlib.util,urllib.request
+home=pathlib.Path.home()
+result={'oci_cli_available':bool(shutil.which('oci')),'oci_python_sdk_available':bool(importlib.util.find_spec('oci')),'oci_config_present':(home/'.oci/config').is_file(),'oci_directory_files':[p.name for p in (home/'.oci').iterdir()] if (home/'.oci').is_dir() else []}
+try:
+ req=urllib.request.Request('http://169.254.169.254/opc/v2/instance/',headers={'Authorization':'Bearer Oracle'})
+ with urllib.request.urlopen(req,timeout=4) as response:m=json.load(response)
+ result.update(region=m.get('region'),shape=m.get('shape'),shape_config=m.get('shapeConfig'))
+except Exception as exc:result['metadata_error']=type(exc).__name__
+print(json.dumps(result))
+'''
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -'],input=code,text=True,capture_output=True,timeout=50)
+pathlib.Path('outputs/discovery-same-day/oci-readonly-access.json').write_text(r.stdout,encoding='utf8');print(r.stdout)

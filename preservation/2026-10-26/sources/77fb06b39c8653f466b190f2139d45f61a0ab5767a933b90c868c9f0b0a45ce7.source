@@ -1,0 +1,92 @@
+import sys, types
+m = types.ModuleType('scripts.audit_sii_linkage_readiness')
+sys.modules[m.__name__] = m
+exec('"""Phase-2a prerequisite audit. Explicitly enabled, bounded production reads only.\n\nRun via stdin in the existing API container with python -B. This file never\nimports application settings/ORM, starts scrapers, or issues SQL mutations.\n"""\n\nfrom __future__ import annotations\n\nimport argparse\nimport json\nimport math\nimport os\nimport re\nimport unicodedata\nfrom collections import Counter\nfrom datetime import UTC\n\nCOMMUNES = {\n    "vitacura": 15160,\n    "las_condes": 15108,\n    "nunoa": 15105,\n    "providencia": 15103,\n    "la_florida": 15128,\n    "santiago": 13101,\n    "san_miguel": 16106,\n    "estacion_central": 14157,\n}\nFIELD_KEYS = (\n    "version",\n    "source",\n    "external_id",\n    "stage",\n    "observed_at",\n    "street",\n    "address_number",\n    "address_type",\n    "address_raw",\n    "address_description_raw",\n    "apartment_number",\n    "latitude",\n    "longitude",\n    "coordinates_origin",\n    "coordinates_precision",\n    "coordinates_precision_raw",\n    "useful_area_m2",\n    "provenance",\n    "source_is_project",\n)\n# Select a projection of facts, not complete descriptions, contacts or originals.\nSQL = """SELECT id,source,external_id,url,comuna,property_type,status,lat,lon,geocode_precision,\n usable_area_m2,last_seen_at,scraped_at,\n (SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(raw_metadata::jsonb->\'published_fields\')=\'object\' THEN raw_metadata::jsonb->\'published_fields\' ELSE \'{}\'::jsonb END) WHERE key=ANY(%s)) AS published_fields,\n (SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(raw_metadata::jsonb->\'published_detail_fields\')=\'object\' THEN raw_metadata::jsonb->\'published_detail_fields\' ELSE \'{}\'::jsonb END) WHERE key=ANY(%s)) AS published_detail_fields\n FROM listings WHERE status=\'active\' AND property_type IN (\'apartment\',\'departamento\',\'depto\')\n"""\n\n\ndef normalized(value):\n    value = "".join(\n        c\n        for c in unicodedata.normalize("NFKD", str(value or "").lower())\n        if not unicodedata.combining(c)\n    )\n    return re.sub(r"[^a-z0-9]+", "_", value).strip("_")\n\n\ndef source_name(value):\n    return "portal" if value in ("portal", "portalinmobiliario") else str(value or "")\n\n\ndef positive(value):\n    try:\n        return not isinstance(value, bool) and math.isfinite(float(value)) and float(value) > 0\n    except (TypeError, ValueError):\n        return False\n\n\ndef bound(fields, row):\n    def digits(value):\n        return re.sub(r"\\D", "", str(value or ""))\n\n    return (\n        isinstance(fields, dict)\n        and fields.get("version") == 1\n        and bool(digits(row.get("external_id")))\n        and digits(fields.get("external_id")) == digits(row.get("external_id"))\n        and source_name(fields.get("source")) == source_name(row.get("source"))\n    )\n\n\ndef exact_address(fields):\n    street = str(fields.get("street") or "").strip()\n    number = str(fields.get("address_number") or "").strip()\n    placeholders = {\n        "dp",\n        "dpto",\n        "depto",\n        "departamento",\n        "dep",\n        "n",\n        "no",\n        "nro",\n        "numero",\n        "calle",\n        "av",\n        "avenida",\n        "pasaje",\n        "camino",\n    }\n    tokens = set(normalized(street).split("_")) - {""}\n    if not tokens or tokens.issubset(placeholders) or not re.search(r"[a-z]", normalized(street)):\n        return False, "calle_ausente_o_unidad"\n    if fields.get("address_type") != "exact" or not re.fullmatch(r"[1-9]\\d*[A-Za-z]?", number):\n        return False, "direccion_sin_numero_civico_exacto"\n    if not (fields.get("provenance") or {}).get("address"):\n        return False, "direccion_sin_procedencia"\n    raw = str(fields.get("address_raw") or "")\n    unit = r"\\b(?:dp|dpto|depto|dpto|dep|departamento)\\.?\\s*(?:n(?:[°ºo.]|ro\\.?)?\\s*|[#°º]\\s*)?(\\d+[a-zA-Z]?)\\b"\n    units = re.findall(unit, raw, re.I)\n    if number.casefold() in {u.casefold() for u in units}:\n        remainder = re.sub(unit, "", raw, flags=re.I)\n        if not re.search(r"(?<!\\d)" + re.escape(number) + r"(?!\\d)", remainder, re.I):\n            return False, "numero_departamento_usado_como_calle"\n    return True, None\n\n\ndef coordinate_pair(lat, lon):\n    try:\n        return (\n            math.isfinite(float(lat))\n            and math.isfinite(float(lon))\n            and -56 <= float(lat) <= -17\n            and -76 <= float(lon) <= -66\n        )\n    except (TypeError, ValueError):\n        return False\n\n\ndef published_coordinates(fields):\n    if not coordinate_pair(fields.get("latitude"), fields.get("longitude")):\n        return False\n    origin = str(fields.get("coordinates_origin") or "").lower()\n    precision = str(fields.get("coordinates_precision") or "unknown").lower()\n    raw = fields.get("coordinates_precision_raw") or {}\n    raw = raw if isinstance(raw, dict) else {}\n    return (\n        origin.startswith(("portal:", "portal.", "yapo:", "yapo."))\n        and not any(\n            word in origin + " " + precision\n            for word in ("centroid", "centroide", "geocod", "imput", "office", "oficina")\n        )\n        and precision not in ("comuna", "city", "municipality")\n        and not raw.get("is_centroid")\n        and not raw.get("isCentroid")\n    )\n\n\ndef facts(row):\n    snapshots = [\n        f\n        for f in (row.get("published_fields"), row.get("published_detail_fields"))\n        if bound(f, row)\n    ]\n    addresses = [exact_address(f) for f in snapshots]\n    address = any(x[0] for x in addresses)\n    coords = [f for f in snapshots if published_coordinates(f)]\n    useful = any(\n        positive(f.get("useful_area_m2"))\n        and (f.get("provenance") or {}).get("useful_area_m2")\n        and not any(\n            w in str(f["provenance"]["useful_area_m2"]).lower()\n            for w in ("generic", "fallback", "imput")\n        )\n        for f in snapshots\n    )\n    canonical_coords = coordinate_pair(row.get("lat"), row.get("lon"))\n    reasons = []\n    if not snapshots:\n        reasons.append("sin_snapshot_PR5_vinculado")\n    if not address:\n        reasons.append(\n            next(\n                (x[1] for x in addresses if x[1] == "numero_departamento_usado_como_calle"),\n                addresses[0][1] if addresses else "sin_direccion_publicada",\n            )\n        )\n    if not coords:\n        reasons.append("sin_coordenadas_publicadas_verificables")\n    if not useful:\n        reasons.append("sin_m2_util_explicito")\n    return {\n        "direccion": address,\n        "coordenadas_publicadas": bool(coords),\n        "m2_util_explicito": bool(useful),\n        "direccion_o_coordenadas": address or bool(coords),\n        "localizado_y_m2_util": bool((address or coords) and useful),\n        "los_tres_campos": bool(address and coords and useful),\n        "snapshot_PR5": bool(snapshots),\n        "detalle_PR5": any(f.get("stage") == "detail" for f in snapshots),\n        "coordenadas_canonicas": canonical_coords,\n        "direccion_o_coordenadas_canonicas": address or canonical_coords,\n        "coordenadas_precision_desconocida": any(\n            str(f.get("coordinates_precision") or "unknown").lower() == "unknown" for f in coords\n        ),\n        "proyecto_publicado": any(f.get("source_is_project") is True for f in snapshots),\n        "motivos": reasons,\n        "direccion_raw": next(\n            (f.get("address_raw") for f in snapshots if f.get("address_raw")), None\n        ),\n        "calle": next((f.get("street") for f in snapshots if f.get("street")), None),\n        "numero": next(\n            (f.get("address_number") for f in snapshots if f.get("address_number")), None\n        ),\n    }\n\n\ndef summarize(rows):\n    keys = (\n        "direccion",\n        "coordenadas_publicadas",\n        "m2_util_explicito",\n        "direccion_o_coordenadas",\n        "localizado_y_m2_util",\n        "los_tres_campos",\n        "snapshot_PR5",\n        "detalle_PR5",\n        "coordenadas_canonicas",\n        "direccion_o_coordenadas_canonicas",\n        "coordenadas_precision_desconocida",\n        "proyecto_publicado",\n    )\n    counts = {key: sum(bool(r["facts"][key]) for r in rows) for key in keys}\n    n = len(rows)\n    return {\n        "activos": n,\n        "conteos": counts,\n        "porcentajes": {k: round(100 * v / n, 4) if n else None for k, v in counts.items()},\n        "bajo_40": bool(n and counts["direccion_o_coordenadas"] * 100 < 40 * n),\n        "motivos_falta": dict(Counter(reason for r in rows for reason in r["facts"]["motivos"])),\n    }\n\n\ndef analyze(rows, as_of):\n    cohort = []\n    for row in rows:\n        comuna = normalized(row["comuna"])\n        comuna = "santiago" if comuna == "santiago_centro" else comuna\n        if comuna not in COMMUNES:\n            continue\n        row = {**row, "comuna": comuna, "portal": source_name(row["source"])}\n        row["facts"] = facts(row)\n        cohort.append(row)\n    portals = sorted({"portal", "yapo"} | {r["portal"] for r in cohort})\n    commune_rows = [\n        {\n            "comuna": name,\n            "comuna_sii": code,\n            **summarize([r for r in cohort if r["comuna"] == name]),\n        }\n        for name, code in COMMUNES.items()\n    ]\n    below = [r["comuna"] for r in commune_rows if r["bajo_40"]]\n    examples = {\n        name: [\n            {\n                k: r.get(k)\n                for k in (\n                    "id",\n                    "source",\n                    "external_id",\n                    "url",\n                    "comuna",\n                    "last_seen_at",\n                    "geocode_precision",\n                )\n            }\n            | r["facts"]\n            for r in sorted(cohort, key=lambda r: (r["portal"], r["id"]))\n            if r["comuna"] == name and not r["facts"]["direccion_o_coordenadas"]\n        ][:5]\n        for name in COMMUNES\n    }\n    return {\n        "as_of_utc": as_of,\n        "transaction_read_only": True,\n        "gate": {\n            "threshold_pct": 40,\n            "majority_required": 5,\n            "communes_below_40": below,\n            "stop": len(below) >= 5,\n            "definition": "direccion exacta OR coordenadas publicadas vinculadas al mismo aviso; campos PR5",\n        },\n        "total": summarize(cohort),\n        "por_comuna": commune_rows,\n        "por_portal": [\n            {"portal": p, **summarize([r for r in cohort if r["portal"] == p])} for p in portals\n        ],\n        "por_comuna_y_portal": [\n            {\n                "comuna": name,\n                "comuna_sii": code,\n                "portal": p,\n                **summarize([r for r in cohort if r["comuna"] == name and r["portal"] == p]),\n            }\n            for name, code in COMMUNES.items()\n            for p in portals\n        ],\n        "cinco_ejemplos_sin_ubicacion": examples,\n    }\n\n\ndef main():\n    if os.environ.get("SII_LINKAGE_ENABLED", "false").lower() != "true":\n        print(json.dumps({"enabled": False, "status": "disabled"}))\n        return\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument("--production-readonly", action="store_true", required=True)\n    parser.parse_args()\n    import psycopg\n    from psycopg.rows import dict_row\n\n    dsn = re.sub(\n        r"^postgres(?:ql)?\\+(?:asyncpg|psycopg)://", "postgresql://", os.environ["DATABASE_URL"]\n    )\n    with psycopg.connect(\n        dsn,\n        row_factory=dict_row,\n        connect_timeout=10,\n        options="-c default_transaction_read_only=on -c statement_timeout=20000 -c lock_timeout=1000 -c timezone=UTC",\n        application_name="sii_phase2a_step0_readonly",\n    ) as c:\n        c.read_only = True\n        c.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ\n        with c.cursor() as cur:\n            cur.execute(\n                "SELECT current_setting(\'transaction_read_only\') AS ro,transaction_timestamp() AS as_of"\n            )\n            control = cur.fetchone()\n            assert control["ro"] == "on"\n            cur.execute(SQL, (list(FIELD_KEYS), list(FIELD_KEYS)))\n            rows = cur.fetchall()\n        result = analyze(rows, control["as_of"].astimezone(UTC).isoformat())\n        c.rollback()\n    print(json.dumps(result, default=str, ensure_ascii=False, indent=2))\n\n\n', m.__dict__)
+"""Explicitly enabled, bounded production READ ONLY inventory for local backfill.
+
+--emit-standalone emits a self-contained stdin program. No deployment or file
+installation is necessary on the production container. Do not publish the raw
+inventory: it contains private source observations; publish aggregates instead.
+"""
+
+import argparse
+import json
+import os
+import re
+from pathlib import Path
+
+from scripts.audit_sii_linkage_readiness import COMMUNES, FIELD_KEYS, SQL, normalized
+
+HISTORY_SQL = """SELECT o.listing_id,o.source,o.external_id,o.observed_at,o.event_kind,
+ document::jsonb#>>'{raw_state,_source_evidence,stage}' stage,
+ document::jsonb#>>'{raw_state,_source_evidence,parser,sha256}' parser_sha,
+ document::jsonb#>'{raw_state,raw_metadata,published_fields}' raw_fields,
+ document::jsonb#>'{parsed_state,raw_metadata,published_fields}' parsed_fields,
+ document::jsonb#>'{parsed_state,raw_metadata,published_detail_fields}' detail_fields,
+ document::jsonb#>>'{parsed_state,refresh_status}' refresh_status,
+ document::jsonb#>>'{provenance,origin}' geo_origin,
+ document::jsonb#>>'{parsed_state,coordinates_evidence,source}' coordinate_source,
+ document::jsonb#>'{parsed_state,detail,raw_metadata,published_fields}' geo_fields
+ FROM listing_observations o WHERE listing_id=ANY(%s)
+ AND observed_at >= '2026-10-16 08:51:00+00' ORDER BY observed_at"""
+
+
+def collect():
+    import psycopg
+    from psycopg.rows import dict_row
+    dsn = re.sub(r"^postgres(?:ql)?\+(?:asyncpg|psycopg)://", "postgresql://", os.environ["DATABASE_URL"])
+    with psycopg.connect(dsn, row_factory=dict_row, connect_timeout=10,
+                        options="-c default_transaction_read_only=on -c statement_timeout=20000 -c lock_timeout=1000 -c timezone=UTC",
+                        application_name="published_backfill_diagnosis_readonly") as c:
+        c.read_only = True
+        c.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        with c.cursor() as cur:
+            cur.execute("SELECT current_setting('transaction_read_only') ro,transaction_timestamp() as_of")
+            control = cur.fetchone()
+            assert control["ro"] == "on"
+            query = SQL.replace("usable_area_m2,last_seen_at,scraped_at,",
+                                "usable_area_m2,last_seen_at,scraped_at,last_refresh_attempted_at,last_refresh_status,raw_metadata::jsonb->>'published_detail_attempted_at' detail_attempted_at,")
+            cur.execute(query, (list(FIELD_KEYS), list(FIELD_KEYS)))
+            rows = [r for r in cur.fetchall() if normalized(r["comuna"]) in COMMUNES
+                    or normalized(r["comuna"]) == "santiago_centro"]
+            cur.execute(HISTORY_SQL, ([r["id"] for r in rows],))
+            observations = cur.fetchall()
+            cur.execute("""SELECT source,started_at,finished_at,successful,counters FROM ingestion_runs
+                WHERE source IN ('yapo','portal','portalinmobiliario') AND started_at >= '2026-10-16 08:51:00+00'
+                ORDER BY started_at""")
+            runs = cur.fetchall()
+        c.rollback()
+    return {"as_of_utc": control["as_of"], "transaction_read_only": True,
+            "rows": rows, "observations": observations, "runs": runs}
+
+
+def standalone():
+    base = Path(__file__).with_name("audit_sii_linkage_readiness.py").read_text(encoding="utf-8")
+    base = base.rsplit('if __name__ == "__main__":', 1)[0]
+    own = Path(__file__).read_text(encoding="utf-8")
+    own = own.replace("from __future__ import annotations\n", "")
+    return ("import sys, types\n"
+            "m = types.ModuleType('scripts.audit_sii_linkage_readiness')\n"
+            "sys.modules[m.__name__] = m\n"
+            f"exec({base!r}, m.__dict__)\n" + own)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--emit-standalone", action="store_true")
+    parser.add_argument("--production-readonly", action="store_true")
+    args = parser.parse_args()
+    if args.emit_standalone:
+        print(standalone())
+        return
+    if os.environ.get("SII_PUBLISHED_BACKFILL_ENABLED", "false").lower() != "true":
+        print(json.dumps({"enabled": False, "status": "disabled"}))
+        return
+    if not args.production_readonly:
+        parser.error("--production-readonly required; no other connection mode")
+    print(json.dumps(collect(), default=str, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()
+

@@ -1,0 +1,90 @@
+import subprocess,json,pathlib,os,time,hashlib,datetime
+ROOT=pathlib.Path('/home/ubuntu/apps/valoria');B=ROOT/'private/discovery-redeploy-20261016';API='valoria_oracle_beta-api-1'
+release=json.loads((B/'release.json').read_text());old=json.loads((B/'api-before-private.json').read_text())
+assert json.loads((B/'backup-proof.json').read_text())['restore_verified']
+assert json.loads((B/'rollback-proof.json').read_text())['rollback_80bd8a9_rehearsed']
+assert hashlib.sha256((B/'postgres-before.dump').read_bytes()).hexdigest()==json.loads((B/'backup-proof.json').read_text())['backup_sha256']
+env=dict(os.environ,PORTAL_GEO_RELEASE_IMAGE=old['Config']['Image'])
+def run(args,timeout=120):
+ r=subprocess.run(args,capture_output=True,text=True,timeout=timeout,env=env)
+ if r.returncode:
+  p=B/'deployment-command-private.log';p.write_text(r.stdout+r.stderr);p.chmod(0o600)
+  raise RuntimeError('Controlled deployment command failed: '+args[0])
+ return r.stdout
+def save(name,value):
+ p=B/name;p.write_text(json.dumps(value,indent=2));p.chmod(0o600)
+def inspect():return json.loads(run(['docker','inspect',API]))[0]
+def healthy(image):
+ for _ in range(40):
+  current=inspect()
+  if current['Image']==image and current['State'].get('Health',{}).get('Status')=='healthy':return
+  time.sleep(2)
+ raise RuntimeError('Health deadline')
+probe="from pathlib import Path;p=Path('/app/scripts/verify_canonical_live.py');s=p.read_text();s=s.replace('SELECT value_clp FROM uf_rates WHERE date=CURRENT_DATE',\"SELECT COALESCE((SELECT value FROM ingestion_uf_calendar WHERE date=(CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::date),(SELECT value_clp FROM uf_rates WHERE date<=CURRENT_DATE ORDER BY date DESC LIMIT 1))\");exec(compile(s,str(p),'exec'),{'__file__':str(p),'__name__':'__main__'})"
+def refs():return json.loads(run(['docker','exec',API,'python','-B','-c',probe]))
+def facts(result):return [{'comuna':c['comuna'],'estimated_uf':c['estimated_uf'],'uf_rate':c['uf_rate'],'comparables':c['debug']['comparable_calculation']} for c in result['cases']]
+def health():return json.loads(run(['docker','exec',API,'python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]))
+base=['docker','compose','--project-name','valoria_oracle_beta','--env-file',str(ROOT/'deploy/oracle.env')]
+for f in old['Config']['Labels']['com.docker.compose.project.config_files'].split(','):base+=['-f',f]
+override=B/'merged-image.override.yml';override.write_text('services:\n  api:\n    image: '+release['image']+'\n');override.chmod(0o600)
+new=base+['-f',str(override)]
+original=json.loads(run(base+['config','--format','json']));updated=json.loads(run(new+['config','--format','json']))
+expected=json.loads(json.dumps(original));expected['services']['api']['image']=release['image'];assert updated==expected
+assert inspect()['Id']==old['Id'] and inspect()['Image']==old['Image']
+units=['valoria-uf-calendar','valoria-yapo-discovery','valoria-portal-discovery']
+paths=[pathlib.Path('/etc/systemd/system')/(u+'.service.d/zzz-discovery-image.conf') for u in units]
+assert not any(p.exists() for p in paths)
+baseline_health=health()
+before=refs();save('production-references-before.json',before)
+launcher=ROOT/'scripts/ingestion_launcher.py'
+launcher_backup=B/'launcher-before.py';launcher_backup.write_bytes(launcher.read_bytes());launcher_backup.chmod(0o600)
+timers_before={u:hashlib.sha256(run(['systemctl','cat',u+'.timer']).encode()).hexdigest() for u in units}
+for u in units:
+ state=run(['systemctl','show',u+'.service','--property=ActiveState'])
+ assert 'ActiveState=inactive' in state or (u=='valoria-portal-discovery' and 'ActiveState=failed' in state)
+proof={'commit':release['commit'],'phase':'prepared','before':[{k:c[k] for k in ['comuna','estimated_uf','uf_rate']} for c in before['cases']]}
+save('deployment-state.json',proof)
+changed=False
+try:
+ changed=True
+ launcher.write_bytes((B/'build/app/scripts/ingestion_launcher.py').read_bytes())
+ run(new+['up','-d','--no-deps','--no-build','api'],timeout=180);healthy(release['image_id'])
+ guard=json.loads(run(['docker','exec',API,'python','-B','-c',"import json;from pathlib import Path;from services.release_guard import verify_release_tree;print(json.dumps(verify_release_tree(Path('/app'))))"]))
+ assert guard['commit']==release['commit'] and guard['source_tree_match']
+ after=refs();save('production-references-after.json',after)
+ assert facts(before)==facts(after),'Same-data UF reference gate failed'
+ live=health()
+ if live['status']!='ok':
+  assert baseline_health['status']=='degraded'
+  portal=live['sources']['portalinmobiliario']
+  assert live['sources']['yapo']['status']=='ok' and portal['last_run']['finished_at'] is None and not portal['last_run']['errors']
+  assert portal['last_run']['started_at']==baseline_health['sources']['portalinmobiliario']['last_run']['started_at']
+ assert not any('PORTAL_SESSION_EXPIRED' in str(v.get('alarms',[])) for v in live['sources'].values())
+ current=inspect()
+ for key in ['Memory','MemorySwap','NanoCpus','PidsLimit','ReadonlyRootfs']:
+  assert current['HostConfig'][key]==old['HostConfig'][key],key
+ manifest=json.loads((B/'build/app/release-manifest.json').read_text())
+ for name in ['run_portal_session.py','run_yapo_session.py','run_ingestion_uf_refresh.py','ingestion_launcher.py']:
+  assert hashlib.sha256((ROOT/'scripts'/name).read_bytes()).hexdigest()==manifest['files']['scripts/'+name],name
+ for path in paths:
+  staged=B/(path.parent.name+'.image.conf');staged.write_text('[Service]\nEnvironment=VALORIA_INGESTION_IMAGE='+release['image']+'\n')
+  run(['sudo','-n','cp',str(staged),str(path)])
+ run(['sudo','-n','systemctl','daemon-reload'])
+ for u in units:
+  assert hashlib.sha256(run(['systemctl','cat',u+'.timer']).encode()).hexdigest()==timers_before[u]
+  assert run(['systemctl','is-active',u+'.timer']).strip()=='active'
+  assert 'VALORIA_INGESTION_IMAGE='+release['image'] in run(['systemctl','show',u+'.service','--property=Environment'])
+ proof.update(phase='deployed_waiting_normal_cycles',source_guard=guard,health=live['status'],alarms=[],references_identical=True,after=[{k:c[k] for k in ['comuna','estimated_uf','uf_rate']} for c in after['cases']],deployed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),rollback='ready_80bd8a9',timer_files_unchanged=True,manual_source_runs=0,production_manual_db_writes=0)
+ save('deployment-state.json',proof);print(json.dumps(proof))
+except Exception as exc:
+ if changed:
+  launcher.write_bytes(launcher_backup.read_bytes())
+  for p in paths:
+   if p.exists():run(['sudo','-n','rm','--',str(p)])
+  run(['sudo','-n','systemctl','daemon-reload'])
+  run(base+['up','-d','--no-deps','--no-build','api'],timeout=180);healthy(old['Image'])
+  rollback_refs=refs();assert facts(before)==facts(rollback_refs),'Rollback reference mismatch'
+  assert health()['status'] in {'ok','degraded'}
+  proof.update(phase='rolled_back',rollback='executed_80bd8a9',failure=str(exc),restored_commit=old['Config']['Labels']['org.opencontainers.image.revision'])
+  save('deployment-state.json',proof);print(json.dumps(proof))
+ raise

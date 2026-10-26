@@ -1,0 +1,18 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text("SET TRANSACTION READ ONLY"))
+  rows=(await s.execute(text("SELECT id,title,source,external_id,property_type,status,m2,built_area_m2,usable_area_m2, raw_metadata->>'property_type' AS original_type, raw_metadata->>'category' AS category, raw_metadata->>'source_category' AS source_category FROM listings WHERE id=6842"))).mappings().all()
+  print(json.dumps({"classification_fixture":[dict(r) for r in rows]},default=str))
+  rows=(await s.execute(text("SELECT comuna,count(*) AS offices,count(*) FILTER (WHERE coalesce(built_area_m2,usable_area_m2,m2)>0 AND price_clp>0) AS valid_area_price FROM listings WHERE property_type='office' AND status='active' GROUP BY comuna ORDER BY offices DESC"))).mappings().all()
+  print(json.dumps({"active_office_coverage":[dict(r) for r in rows]},default=str))
+asyncio.run(main())
+'''
+remote="import subprocess,sys\np=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(code)+",text=True,capture_output=True,timeout=40)\nprint(p.stdout)\nsys.exit(p.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=60)
+Path('work/office-classification-evidence.txt').write_text(r.stdout,encoding='utf-8');print(r.stdout)

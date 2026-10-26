@@ -1,0 +1,148 @@
+import pathlib,json,subprocess,sys
+repo=pathlib.Path('work/oracle-ingestion-resilience')
+paths=['infrastructure/scrapers/discovery_fields.py','workers/discovery_admission.py','infrastructure/scrapers/portalinmobiliario.py','workers/portal_geo_enrichment.py','services/ingestion_state.py','workers/scraper_job.py','scripts/portal_card_first.py','infrastructure/scrapers/yapo_modern.py']
+sources={p:(repo/p).read_text(encoding='utf8') for p in paths}
+saved=json.loads(pathlib.Path('outputs/discovery-same-day/measurement-private.json').read_text(encoding='utf8'))
+code=r'''
+import os,asyncio,json,sys,types,importlib,collections,time
+from datetime import UTC,datetime
+from decimal import Decimal
+import httpx
+from sqlalchemy import select,text
+from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.models import ListingORM
+from infrastructure.db.base import Base
+from core.ports.uf_service import UFRateInfo
+from services.ingestion_uf import IngestionRate
+SOURCES=SOURCE_VALUE
+CACHED=CACHE_VALUE
+os.environ['PORTAL_SESSION_READ_ONLY']='1'
+os.environ['PORTAL_HTTP_ENABLED']='true'
+def emit(value):print('AUDIT_RESULT '+json.dumps(value,default=str),flush=True)
+async def main():
+ async with get_session_factory()() as session:
+  await session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  objects=(await session.scalars(select(ListingORM))).all()
+  rows=[]
+  for row in objects:
+   values={c.name:getattr(row,c.name) for c in ListingORM.__table__.columns}
+   meta=values['raw_metadata'] or {}
+   values['raw_metadata']={k:meta[k] for k in ['price_uf','area_source','published_fields','geocode_precision','location_source','coordinates_evidence'] if k in meta}
+   values['property_id']=None
+   rows.append(values)
+  uf=Decimal(str((await session.execute(text("SELECT value FROM ingestion_uf_calendar WHERE date=(CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::date"))).scalar_one()))
+  await session.rollback()
+ for path,source in SOURCES.items():
+  name=path[:-3].replace('/','.')
+  if name in {'infrastructure.scrapers.discovery_fields','workers.discovery_admission'}:
+   module=types.ModuleType(name);module.__file__='/app/'+path;sys.modules[name]=module
+  else:module=importlib.import_module(name)
+  exec(compile(source,'candidate:'+path,'exec'),module.__dict__)
+ from scripts.portal_card_first import run
+ from workers.scraper_job import run_yapo_once
+ from workers.discovery_admission import COMMUNES
+ from scripts.portal_session import portal_client
+ from scripts.portal_smoke import DEFAULT_HEADERS
+ from config.constants import SCRAPER_HTTP_TIMEOUT_SEC,SCRAPER_USER_AGENT
+ from dataclasses import asdict
+ engine=create_async_engine('sqlite+aiosqlite:///:memory:')
+ async with engine.begin() as connection:await connection.run_sync(Base.metadata.create_all)
+ factory=async_sessionmaker(engine,expire_on_commit=False)
+ seeded=set();withheld=collections.Counter()
+ async with factory() as session:
+  for values in rows:
+   eligible=values['status']=='active' and values['property_type']=='apartment' and values['comuna'] in COMMUNES
+   if eligible and values['id']%10==0:
+    withheld[values['source']]+=1;continue
+   seeded.add((values['source'],values['external_id']))
+   session.add(ListingORM(**values))
+  await session.commit()
+ del rows,objects
+ info=UFRateInfo(rate=uf,source='frozen_persisted_calendar',rate_date=datetime.now(UTC).date())
+ resolution=IngestionRate(info,info,())
+ cache={p['url'].rstrip('/'):p for p in CACHED['pages']}
+ outcomes=[]
+ for source in ['portalinmobiliario','yapo']:
+  counts=collections.Counter();request_count=0;cached_count=0;detail_diagnostics=[];saved_rejection=False
+  async def observe(response):
+   counts[str(response.status_code)]+=1
+   nonlocal saved_rejection
+   if source=='yapo' and response.url.path.rstrip('/').rsplit('/',1)[-1].isdigit():
+    await response.aread()
+    from bs4 import BeautifulSoup
+    from infrastructure.scrapers.yapo_modern import payload_items
+    soup=BeautifulSoup(response.text,'lxml');items=payload_items(soup);identity=response.url.path.rstrip('/').rsplit('/',1)[-1]
+    matching=next((v for v in items if str(v.get('id'))==identity),None)
+    detail_diagnostics.append({'id':identity,'url':str(response.url),'payload_ids':[v.get('id') for v in items],'matching_keys':sorted(matching or {}),'title':soup.title.get_text() if soup.title else None,'html_bytes':len(response.content)})
+    if matching is None and not saved_rejection:
+     saved_rejection=True;print('AUDIT_DETAIL_HTML '+json.dumps({'url':str(response.url),'html':response.text}),flush=True)
+  class CachedClient:
+   def __init__(self,client):self.client=client
+   async def get(self,url,**kwargs):
+    nonlocal request_count,cached_count
+    value=cache.pop(str(url).rstrip('/'),None)
+    if value:
+     cached_count+=1;return httpx.Response(value['status'],text=value['html'],request=httpx.Request('GET',url))
+    request_count+=1
+    return await self.client.get(url,**kwargs)
+  emit({'event':'source_started','source':source,'withheld_isolated_rows':withheld[source]})
+  try:
+   if source=='portalinmobiliario':
+    async with portal_client(headers=DEFAULT_HEADERS,timeout=30,follow_redirects=False) as live:
+     live.event_hooks.setdefault('response',[]).append(observe)
+     counters=await run(apply=True,max_pages=1,max_details=5,max_geo_details=5,pause_s=3.1,factory=factory,client=CachedClient(live),resolution=resolution,enrich_admissions=True)
+   else:
+    async with httpx.AsyncClient(headers={'User-Agent':SCRAPER_USER_AGENT},timeout=SCRAPER_HTTP_TIMEOUT_SEC,follow_redirects=False,event_hooks={'response':[observe]}) as live:
+     counters=asdict(await run_yapo_once(factory,max_pages=1,min_pause_s=3.1,resolution=resolution,client=live,legacy_redis=False))
+   error=None
+  except Exception as exc:
+   import traceback
+   traceback.print_exc(file=sys.stderr)
+   error=type(exc).__name__;counters={}
+  async with factory() as session:
+   from infrastructure.db.ingestion_models import IngestionRun
+   ledger_row=await session.scalar(select(IngestionRun).where(IngestionRun.source==source).order_by(IngestionRun.id.desc()).limit(1))
+   stock=(await session.scalars(select(ListingORM).where(ListingORM.source==source,ListingORM.property_type=='apartment',ListingORM.comuna.in_(COMMUNES)))).all()
+   admissions=[r for r in stock if (r.source,r.external_id) not in seeded and not (r.raw_metadata or {}).get('published_fields',{}).get('source_is_project')]
+   details=[r for r in admissions if (r.raw_metadata or {}).get('published_fields',{}).get('stage')=='detail']
+   ledger={'successful':ledger_row.successful,'counters':ledger_row.counters,'errors':ledger_row.errors} if ledger_row else None
+   required={'inserted','updated','same_day_new_apartments','same_day_detail_requests','same_day_detail_captured'}
+   coherent=bool(ledger and not error and required<=ledger['counters'].keys() and all(ledger['counters'].get(k)==counters.get(k) for k in required) and all(ledger['counters'].get(k)==v for k,v in counters.items() if k in ledger['counters']))
+   source_proof={'event':'source_done','source':source,'new_isolated_apartments':len(admissions),'with_detail_published_fields':len(details),'capture_percent':100*len(details)/len(admissions) if admissions else None,'requests':sum(counts.values()),'cached_measurement_requests':cached_count,'statuses':dict(counts),'error_type':error,'counters':counters,'ledger':ledger,'ledger_coherent':coherent}
+   source_proof['detail_diagnostics']=detail_diagnostics
+   outcomes.append(source_proof);emit(source_proof)
+  if error:break
+ proof={'outcomes':outcomes,'production_writes':0,'candidate_loaded_in_memory':True,'isolated_database':'SQLite in RAM','withheld_for_new_admission_test':dict(withheld),'snapshot_uf':str(uf),'passed':len(outcomes)==2 and all(r['capture_percent'] is not None and r['capture_percent']>=80 and not r['error_type'] and r['ledger_coherent'] and r['ledger']['successful'] and not any(r['statuses'].get(str(c),0) for c in [302,403,429]) for r in outcomes)}
+ await engine.dispose();emit({'event':'complete','proof':proof})
+asyncio.run(main())
+'''.replace('SOURCE_VALUE',repr(sources)).replace('CACHE_VALUE',repr(saved))
+selected=[sys.argv[1]] if len(sys.argv)>1 else ['portalinmobiliario','yapo']
+code=code.replace("for source in ['portalinmobiliario','yapo']:", 'for source in '+repr(selected)+':')
+code=code.replace('len(outcomes)==2', 'len(outcomes)=='+str(len(selected)))
+remote='''import subprocess,json,tempfile,os
+api=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+network=next(iter(api['NetworkSettings']['Networks']))
+fd=os.memfd_create('valoria-isolated-admission-env')
+path='/proc/self/fd/'+str(fd)
+try:
+ for value in api['Config']['Env']:
+  assert '\\n' not in value;os.write(fd,(value+'\\n').encode())
+ os.lseek(fd,0,0)
+ args=['docker','run','-i','--name','valoria-discovery-admission-audit','--user',str(os.getuid())+':'+str(os.getgid()),'--network',network,'--memory=384m','--memory-swap=384m','--cpus=0.25','--pids-limit=96','--cap-drop=ALL','--security-opt=no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=32m','--env-file',path,'--entrypoint','python',api['Image'],'-B','-']
+ r=subprocess.run(args,input=CODE,text=True,capture_output=True,timeout=1600,pass_fds=(fd,))
+ print(r.stdout)
+ print('AUDIT_PRIVATE_STDERR '+r.stderr)
+ raise SystemExit(r.returncode)
+finally:os.close(fd)
+'''.replace('CODE',repr(code))
+suffix=selected[0] if len(selected)==1 else 'combined'
+remote=remote.replace("'valoria-discovery-admission-audit'",repr('valoria-discovery-admission-audit-'+suffix+'-flight-fixed-1042'))
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -'],input=remote,text=True,encoding='utf8',capture_output=True,timeout=1650)
+out=pathlib.Path('outputs/discovery-same-day');(out/(suffix+'-cycle-private.log')).write_text(r.stdout+r.stderr,encoding='utf8')
+events=[json.loads(l[len('AUDIT_RESULT '):]) for l in r.stdout.splitlines() if l.startswith('AUDIT_RESULT ')]
+for event in events:print(json.dumps(event))
+if r.returncode:print('Isolated cycle failed; diagnostic in private local log')
+for event in events:
+ if event.get('event')=='complete':(out/(suffix+'-cycle-proof.json')).write_text(json.dumps(event['proof'],indent=2),encoding='utf8')
+raise SystemExit(r.returncode)

@@ -1,0 +1,9 @@
+{
+  "additional_omissions_by_reason": {
+    "local runtime, session, browser profile or dependency": 242,
+    "generated evidence or record-level JSON dataset": 49,
+    "historical generated test output": 5,
+    "property-life record-level reference data": 3
+  },
+  "policy": "No real .env, credentials, databases, per-property datasets, dependencies, browser profiles, generated bundles, HTML captures or operational packed payloads. Example templates retained only in active tree."
+}

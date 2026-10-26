@@ -1,0 +1,21 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''import subprocess,json
+def inspect(n):return json.loads(subprocess.check_output(['docker','inspect',n]))[0]
+prod=inspect('valoria_oracle_beta-api-1');x=inspect('valoria-portal-candidate-api')
+assert prod['Image']==x['Image']=='sha256:76839409d18f17752334fac007215225a7c2d5c8462e52316f31f353722db672'
+env=dict(v.split('=',1) for v in x['Config']['Env']);source=dict(v.split('=',1) for v in prod['Config']['Env'])
+selected={k:v for k,v in source.items() if k.startswith(('VALUATION_','VALORIA_USE_CONSENSUS','VALORIA_EXPERIMENTAL_')) and not any(t in k for t in ['SECRET','TOKEN','PASSWORD','KEY','URL'])};env.update(selected)
+args=['docker','run','-d','--name','valoria-portal-candidate-api','--network','valoria-portal-candidate-net','--memory','384m','--cpus','0.5','-p','127.0.0.1:18013:8000','--volume','/home/ubuntu/apps/valoria/private/portal-session:/portal-session:ro']
+for k,v in env.items():args+=['-e',k+'='+v]
+args+=['--entrypoint','python',prod['Image'],'-B','-m','uvicorn','api.main:app','--host','0.0.0.0','--port','8000']
+subprocess.run(['docker','rm','-f','valoria-portal-candidate-api'],check=True,capture_output=True)
+r=subprocess.run(args,capture_output=True);assert r.returncode==0,'Candidate recreation failed'
+print(json.dumps({'only_isolated_candidate_changed':True,'production_model_flags_preserved':True,'flags_copied':sorted(selected)}))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=40);print(r.stdout);r.check_returncode()
+W=Path(__file__).parent;s=(W/'candidate_restored_data_v3.py').read_text();start=s.index("inner='''")+len("inner='''");end=s.index("'''",start);inner=s[start:end].replace('from services.portfolio_snapshots import _valuation_input_for_listing\n','')
+inner=inner.replace('import asyncio,json,httpx','import asyncio,json,httpx\nfrom sqlalchemy import text').replace('  repo=SqlAlchemyListingRepository(s)',"  await s.execute(text('SET TRANSACTION READ ONLY'))\n  repo=SqlAlchemyListingRepository(s)")
+remote="import subprocess,json\nvalues={}\nfor n in ['valoria_oracle_beta-api-1','valoria-portal-candidate-api']:\n r=subprocess.run(['docker','exec','-i',n,'python','-B','-'],input="+repr(inner)+",capture_output=True,text=True,timeout=70);assert r.returncode==0,'Read-only valuation parity gate failed';values[n]=json.loads(r.stdout)\na,b=values.values();assert a==b,'Model configuration/data parity failed';print(json.dumps({'production_and_candidate_equal':True,'results':a},indent=2))"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=150);(W/'portal-model-parity.json').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr);r.check_returncode()

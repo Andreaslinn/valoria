@@ -1,0 +1,27 @@
+from lab import *
+from models import *
+from avm01.isolation import LabelCustody
+from am import FoldModel,clear_price_surface_cache
+from avm01.canonical_io import target_from_payload
+from domain.valuation.scoring import similarity_score
+from domain.valuation.engines.canonical_comparables import _weighted_total
+from analyze import metrics,interval
+NAMES=['A','MedianA','GeoMeanA']
+def run(seed):
+ c=read(HERE/'aggregation_protocol.json');p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],seed);old={r['row_id']:r['predictions']['A'] for r in prior(seed)};out=HERE/f'aggregation-{seed}.json.dpapi';assert not out.exists();custody=LabelCustody(ds,());rows=[];parity=0
+ for k,s in enumerate(plan.folds):
+  config={'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'aggregation_protocol.json')};batch=custody.issue(ds,s,config,());m=FoldModel(batch,c['uf_reference']['value']);listing={m.rowids[l.id]:l for l in m.canonical};vals={n:{} for n in NAMES}
+  for t in batch.targets:
+   a=old[t.row_id];vals['A'][t.row_id]=a['prediction'];vals['MedianA'][t.row_id]=None;vals['GeoMeanA'][t.row_id]=None
+   if a['prediction'] is None:continue
+   tt=target_from_payload(t.canonical_target);selected=[listing[i] for i in a['selected_ids']];scored=[(similarity_score(tt,l),l) for l in selected];weights=np.array([z.value for z,l in scored]);weights/=weights.sum();prices=np.array([float(l.price.clp)/float(l.built_area_m2 or l.usable_area_m2 or l.m2) for l in selected]);arithmetic=float(weights@prices)
+   expected=float(_weighted_total(tt,scored)/m.rate);assert abs(expected-a['pre'])<=.0051,'Native arithmetic reconstruction';parity+=1
+   order=np.argsort(prices);med=float(prices[order][np.searchsorted(np.cumsum(weights[order]),.5)]);gm=math.exp(float(weights@np.log(prices)));vals['MedianA'][t.row_id]=a['prediction']*med/arithmetic;vals['GeoMeanA'][t.row_id]=a['prediction']*gm/arithmetic
+  custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test)
+  for t in batch.targets:rows.append({'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'comuna':t.features['comuna'],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}})
+ encrypt(out,rows);summary={}
+ for label,subset in [('all',rows),('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('Yapo',[r for r in rows if r['source']=='yapo'])]:summary[label]={'full':{n:metrics(subset,n) for n in NAMES},'paired':{n:interval(subset,'A',n) for n in NAMES if n!='A'}}
+ summary['native_arithmetic_reconstruction']=parity;write(HERE/f'aggregation-{seed}-summary.json',summary);print(json.dumps({'seed':seed,'all':summary['all']['full'],'pairs':{n:{k:v for k,v in z.items() if k not in ['A','B']} for n,z in summary['all']['paired'].items()}}))
+def prepare():
+ c=verify();v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':c['dataset_sha256'],'allowed_engines':NAMES,'uf_reference':c['uf_reference'],'hypothesis':'Arithmetic UF/m2 mean remains sensitive to skew after outlier filtering. Replace only aggregation by weighted median or weighted geometric mean. Exact same selected Listings, native monetary basis, weights, coverage, and frozen multiplicative surface factor. No hyperparameters.','status':'Exploratory follow-up selected after seeing favorable predeclared temporal ablation; temporal dataset is now consumed and cannot confirm selection. No production changes.','code_sha256':sha(__file__)};assert not (HERE/'aggregation_protocol.json').exists();write(HERE/'aggregation_protocol.json',v);(HERE/'aggregation_protocol.sha256').write_text(sha(HERE/'aggregation_protocol.json'));path=RUNTIME/'avm01/pilot_authorization.py';path.write_text(path.read_text().replace("'text_protocol']","'text_protocol','aggregation_protocol']"));seal=read(HERE/'temporal_code_seal.json');seal['runtime/avm01/pilot_authorization.py']=sha(path);write(HERE/'temporal_code_seal.json',seal)
+if __name__=='__main__':prepare() if sys.argv[1]=='prepare' else run(int(sys.argv[1]))

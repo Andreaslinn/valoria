@@ -1,0 +1,20 @@
+import subprocess,json,pathlib,hashlib,tarfile,os,shutil
+ROOT=pathlib.Path('/home/ubuntu/apps/valoria');B=ROOT/'private/discovery-final-redeploy-20261016'
+COMMIT='29eaa0b3f3543c57e1e596eda2fb64e527d3f65a';IMAGE='valoria-discovery:'+COMMIT[:12]
+assert shutil.disk_usage(ROOT).free>8*1024**3
+assert hashlib.sha256((B/'release.tar.gz').read_bytes()).hexdigest()=='8f94e1bfe78329ee80b134057ad4f827a8058c261f6102a032f33fa597dec746'
+src=B/'build';src.mkdir(exist_ok=True)
+with tarfile.open(B/'release.tar.gz') as archive:
+ for member in archive:
+  assert (src/member.name).resolve().is_relative_to(src.resolve()) and member.isfile()
+ archive.extractall(src,filter='data')
+manifest=json.loads((src/'app/release-manifest.json').read_text());assert manifest['commit']==COMMIT
+runtime=json.loads(subprocess.check_output(['docker','image','inspect','valoria-canonical-runtime:22081087e836']))[0]
+assert runtime['Id']==manifest['runtime_dependencies_image_id']
+r=subprocess.run(['docker','build','--network=none','--memory=384m','--cpu-quota=25000','--build-arg','RELEASE_COMMIT='+COMMIT,'-t',IMAGE,str(src)],env=dict(os.environ,DOCKER_BUILDKIT='0'),text=True,capture_output=True,timeout=600)
+(B/'build-private.log').write_text(r.stdout+r.stderr);(B/'build-private.log').chmod(0o600)
+assert r.returncode==0,'Build failed; private log retained'
+image=json.loads(subprocess.check_output(['docker','image','inspect',IMAGE]))[0]
+assert image['Config']['Labels']['org.opencontainers.image.revision']==COMMIT
+proof={'commit':COMMIT,'image':IMAGE,'image_id':image['Id'],'source_files':len(manifest['files']),'network_downloads':False}
+(B/'release.json').write_text(json.dumps(proof,indent=2));print(json.dumps(proof))

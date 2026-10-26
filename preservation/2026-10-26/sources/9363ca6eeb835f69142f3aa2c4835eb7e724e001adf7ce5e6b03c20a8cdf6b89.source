@@ -1,0 +1,29 @@
+from pathlib import Path
+import json,subprocess
+scope={};exec(Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];root=Path('outputs/discovery-final-redeploy-20261016')
+branch='release/canonical-only-reproducible-20261013'
+remote=api('/branches/'+branch.replace('/','%2F'))['commit']['sha']
+command="python3 -B -c 'from pathlib import Path;print(Path(\"/home/ubuntu/apps/valoria/private/discovery-final-redeploy-20261016/acceptance-proof.json\").read_text())'"
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245',command],capture_output=True,text=True,encoding='utf8',timeout=40)
+assert r.returncode==0;proof=json.loads(r.stdout)
+assert proof['accepted'] and proof['commit']==remote
+proof['release_commit']=remote;proof['release_production_same_commit']=True;proof['full_suite_passed']=1999
+(root/'acceptance-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf8')
+(root/'INFORME.md').write_text('''# Redespliegue aceptado
+
+Release y Oracle coinciden en 29eaa0b3f3543c57e1e596eda2fb64e527d3f65a, merge del [PR #8](https://github.com/Andreaslinn/valoria/pull/8), que incluye PR #6 y la corrección del [PR #7](https://github.com/Andreaslinn/valoria/pull/7). Guardia: 472 archivos coincidentes. No queda PR #6 mergeado con un artefacto distinto en producción.
+
+Se completaron tres ciclos normales por fuente: uno bajo 652e2e0 y dos bajo 29eaa0b. Portal mantiene el mismo código de adquisición entre ambos. El primer ciclo Yapo no produjo altas nuevas; el caso y la nueva alta se validaron con la corrección final. Se alcanzó el límite aprobado de tres ciclos, no quince altas por fuente. La cohorte de nuevas identidades persistidas de departamentos individuales en las ocho comunas tiene Portal 12/12 y Yapo 1/1 con ficha propia completa (100%); no se inflaron las muestras con repeticiones o proyectos. El conteo exige observación de detalle vinculada a la fuente e ID; Portal exige además tabla técnica observada.
+
+Los tres ledgers y sus lanzadores concuerdan, las seis ejecuciones finalizaron correctamente y los contadores reales de HTTP registran cero 302/403/429. El último /health está ok y las alarmas están vacías. Los rechazos de tarjetas/detalles antiguos se conservaron en los contadores y stderr; no se ocultaron ni se trataron como altas completas.
+
+Caso 32747182: el respaldo anterior no tenía ficha canónica completa. El historial original distingue HOUM 176619 (32982982) y HOUM 176620 (32747182), con fotos y descripciones distintas; la coincidencia de título genérico y superficie no prueba duplicidad. La ingesta conserva la referencia nativa y evita fusionar referencias HOUM distintas. 32747182 quedó con observación de detalle propia, conservada al volver a leer la tarjeta. Se corrigió también la elegibilidad de la comuna nativa Región Metropolitana, Providencia. No se imputaron datos ni se copió la ficha del otro aviso.
+
+La suite completa final pasó 1.999 pruebas. Respaldo PostgreSQL fresco restaurado: 7.544 avisos, 7 usuarios, 7 guardados, 41 alertas y 34 UF, con conteos iguales; SHA256 5cc16d32661d24a75e339e3a49fc69633cb6539cbc5dad1bec13c1b5b044d1df. El ensayo candidato/rollback sobre esa misma DB y UF 41.168,03 coincide. Las referencias reales antes/después del despliegue, antes de ingesta, son Santiago 70 m² = 3.269,07 UF y La Florida 82 m² = 3.968,45 UF, idénticas también en comparables. No se compara una base anterior a ingesta con otra ya actualizada.
+
+Disco libre antes del despliegue final: 25.556.176.896 bytes; después: '''+str(proof['disk_after_bytes'])+''' bytes. La alarma de 10 GB quedó explícitamente fuera en REDEPLOY.md; no se ejecutó limpieza ni retención. Los tres timers siguen activos y sus archivos coinciden byte por byte con el preflight. El motor y refresher no cambiaron. Las escrituras de datos fueron exclusivamente las de la ingesta normal; no hubo reparación manual de filas o ledgers.
+
+Rollback 80bd8a9 ensayado y disponible; no fue necesario tras la aceptación final. Los artefactos privados y pruebas anteriores se conservaron. Evidencia estructurada: acceptance-proof.json.
+''',encoding='utf8')
+print(json.dumps({'release_commit':remote,'production_commit':proof['commit'],'accepted':True,'cycles':3,'coverage':proof['cohort'],'health':proof['health']}))

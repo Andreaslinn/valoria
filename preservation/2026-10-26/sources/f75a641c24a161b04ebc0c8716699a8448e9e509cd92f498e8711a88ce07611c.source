@@ -1,0 +1,50 @@
+"""Bounded read-only Portal HTTP probe. Never saves session or database data."""
+import subprocess
+
+code = r'''
+import asyncio,json,os
+from scripts.portal_session import portal_client
+from scripts.portal_smoke import DEFAULT_HEADERS
+from infrastructure.scrapers.portalinmobiliario import PortalInmobiliarioScraper,classify_portal_page_state,parse_listing_detail_portal
+os.environ['PORTAL_SESSION_READ_ONLY']='1'
+async def main():
+ async with portal_client(headers=DEFAULT_HEADERS,follow_redirects=True,timeout=30) as c:
+  detail_url='https://www.portalinmobiliario.com/MLC-1938092725'
+  for comuna in []:
+   await asyncio.sleep(3)
+   r=await c.get('https://www.portalinmobiliario.com/venta/departamento/'+comuna+'-metropolitana')
+   state=classify_portal_page_state(r.text,status_code=r.status_code)
+   if r.status_code!=200 or state!='authenticated':
+    print(json.dumps({'comuna':comuna,'status':r.status_code,'state':state}));return
+   report=PortalInmobiliarioScraper.parse_listings_detailed(r.text,uf_to_clp=None)
+   items=report['items']
+   print(json.dumps({'comuna':comuna,'status':r.status_code,'cards':report['cards_detected'],'parsed':len(items),'mapped_comunas':sorted(set(str(x.get('comuna')) for x in items))}))
+   if items and detail_url is None: detail_url=items[0]['url']
+  if detail_url:
+   await asyncio.sleep(3)
+   r=await c.get(detail_url)
+   d=parse_listing_detail_portal(r.text,str(r.url))
+   meta=d.get('raw_metadata') or {}
+   print(json.dumps({'detail_status':r.status_code,'id':d.get('external_id'),'location':d.get('location'),'metadata':{k:v for k,v in meta.items() if 'coord' in k or 'location' in k or 'precision' in k}},default=str))
+   from bs4 import BeautifulSoup
+   soup=BeautifulSoup(r.text,'html.parser')
+   script=soup.find('script',id='__NORDIC_RENDERING_CTX__')
+   if script:
+    from infrastructure.scrapers.portalinmobiliario import _extract_first_json_object
+    payload=json.loads(_extract_first_json_object(script.string or script.get_text()))
+    def walk(obj,path=''):
+     if isinstance(obj,dict):
+      for k,v in obj.items():
+       if k in ('map_info','location_and_points'):
+        print(json.dumps({'original_path':path+'.'+k,'value':v},ensure_ascii=False,default=str))
+       elif k not in ('seller_profile','tracking','analytics'):walk(v,path+'.'+k)
+     elif isinstance(obj,list):
+      for i,v in enumerate(obj):walk(v,path+'.'+str(i))
+    walk(payload)
+asyncio.run(main())
+'''
+remote = 'import subprocess; r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-"],input='+repr(code)+',text=True,capture_output=True,timeout=180);print(r.stdout);print(r.stderr[-1000:] if r.returncode else "");raise SystemExit(r.returncode)'
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=remote,text=True,encoding='utf-8',capture_output=True,timeout=210)
+print(r.stdout)
+if r.returncode:print(r.stderr[-1000:])
+raise SystemExit(r.returncode)

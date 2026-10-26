@@ -1,0 +1,7 @@
+import subprocess,pathlib,json
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-redeploy-20261016');B.mkdir(mode=0o700,exist_ok=True)
+sql="SELECT row_to_json(t) FROM (SELECT id,source,external_id,title,comuna,property_type,m2,bedrooms,bathrooms,parking,lat,lon,url,raw_metadata FROM listings WHERE id=6612) t;"
+old=subprocess.check_output(['docker','exec','valoria-discovery-restore-20261016','psql','-U','postgres','-d','valoria_restore','-Atc',sql],text=True)
+p=B/'case-before-private.json';p.write_text(old);p.chmod(0o600)
+row=json.loads(old);fields=(row['raw_metadata'] or {}).get('published_fields',{})
+print(json.dumps({'backup_id':row['id'],'old_external_id':row['external_id'],'title':row['title'],'area':row['m2'],'rooms':row['bedrooms'],'bathrooms':row['bathrooms'],'lat':row['lat'],'lon':row['lon'],'url':row['url'],'published_stage':fields.get('stage'),'published_detail_fields':bool((row['raw_metadata'] or {}).get('published_detail_fields'))}))

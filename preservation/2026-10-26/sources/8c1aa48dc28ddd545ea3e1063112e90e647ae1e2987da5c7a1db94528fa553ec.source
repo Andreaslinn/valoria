@@ -1,0 +1,30 @@
+"""Explicit, pinned real-data authorization in this sandbox only.
+Original harness is untouched. Trusted controller, not an adversarial sandbox.
+"""
+import hashlib,json
+from pathlib import Path
+from .data import RealExecutionBlocked,InvalidExperiment
+ROOT=Path(__file__).resolve().parents[2]
+def locked():
+    raw=(ROOT/'experiment_config.json').read_bytes()
+    if hashlib.sha256(raw).hexdigest()!=(ROOT/'experiment_config.sha256').read_text().strip():
+        raise RealExecutionBlocked('Pilot protocol seal mismatch')
+    return json.loads(raw)
+def authorize_dataset(ds):
+    c=locked()
+    if ds.origin!='real_retrospective_snapshot_candidate' or ds.hash() not in c['authorized_dataset_sha256'].values():
+        raise RealExecutionBlocked('Dataset is outside explicit user-authorized local pilot')
+    if ds.snapshot_id!=c['snapshot_id'] or len(ds.records)!=791:
+        raise RealExecutionBlocked('Wrong local cohort')
+def authorize_config(config):
+    c=locked()
+    if config.get('real_execution_enabled') is not True:
+        raise InvalidExperiment('Explicit real execution approval required')
+    if config.get('pilot_protocol_sha256')!=(ROOT/'experiment_config.sha256').read_text().strip():
+        raise InvalidExperiment('Wrong pilot authorization')
+    if config.get('seed') not in c['outer_seeds'] or config.get('engines') not in [['A','C1'],['C1']]:
+        raise InvalidExperiment('Unauthorized seed or engine family')
+    if config.get('target')!='log_uf_total' or config.get('geo_ablation') is not False:
+        raise InvalidExperiment('Unauthorized target/feature experiment')
+    if config.get('parameters',{}).get('C1',{}).get('alpha') not in c['C1_alpha_grid']:
+        raise InvalidExperiment('Unauthorized regularization')

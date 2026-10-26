@@ -1,0 +1,19 @@
+"""Measure spawned callbacks against the unchanged 20s production budget."""
+from time import perf_counter
+from infrastructure.thumbnails.pipeline import bounded_process, JOB_TIMEOUT
+from infrastructure.thumbnails.security import Rejected
+from validation.thumbnail_lab.test_pipeline import offline_child, crashed_child
+
+
+if __name__=='__main__':
+    start=perf_counter()
+    thumb=bounded_process([],timeout=JOB_TIMEOUT,target=offline_child)
+    assert thumb.width==320
+    print(f'Offline spawned normalization: {perf_counter()-start:.3f}s; production budget {JOB_TIMEOUT}s',flush=True)
+    start=perf_counter()
+    try:
+        bounded_process([],timeout=JOB_TIMEOUT,target=crashed_child)
+        raise AssertionError('Expected worker_crash')
+    except Rejected as error:
+        assert str(error)=='worker_crash',str(error)
+    print(f'Crash detection: {perf_counter()-start:.3f}s; production budget {JOB_TIMEOUT}s',flush=True)

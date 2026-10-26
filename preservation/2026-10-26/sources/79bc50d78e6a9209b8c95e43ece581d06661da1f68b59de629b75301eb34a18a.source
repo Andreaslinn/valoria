@@ -1,0 +1,25 @@
+"""Read-only production census. No geocoding, scraping or writes."""
+import subprocess,json
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+  queries={
+   "coverage": "SELECT comuna,source,count(*) total,count(*) FILTER(WHERE lat IS NOT NULL AND lon IS NOT NULL) with_pair,count(*) FILTER(WHERE lat IS NOT NULL AND lon IS NOT NULL AND geocode_precision IN ('address','street')) address_or_street FROM listings WHERE status='active' AND property_type='apartment' GROUP BY comuna,source ORDER BY comuna,source",
+   "precision": "SELECT source,geocode_precision,count(*) total FROM listings WHERE status='active' AND property_type='apartment' GROUP BY source,geocode_precision ORDER BY source,geocode_precision",
+   "portal_scope": "SELECT comuna,property_type,status,count(*) total,max(last_seen_at) last_seen FROM listings WHERE source='portalinmobiliario' GROUP BY comuna,property_type,status ORDER BY comuna,property_type,status",
+   "geo_states": "SELECT comuna,coalesce(raw_metadata->'portal_geo_enrichment'->>'outcome','not_attempted') outcome,count(*) total FROM listings WHERE source='portalinmobiliario' AND status='active' AND property_type='apartment' GROUP BY comuna,outcome ORDER BY comuna,outcome",
+   "evidence_keys": "SELECT source,key,count(*) total FROM listings CROSS JOIN LATERAL jsonb_object_keys(raw_metadata::jsonb) AS key WHERE status='active' AND property_type='apartment' AND comuna IN ('providencia','vitacura','la_florida','estacion_central','san_miguel','santiago') AND (key ILIKE '%coord%' OR key ILIKE '%address%' OR key ILIKE '%precision%' OR key ILIKE '%building%') GROUP BY source,key ORDER BY source,key",
+   "history_count": "SELECT event_kind,count(*) total FROM listing_observations GROUP BY event_kind ORDER BY event_kind",
+   "missing_pair_metadata_keys": "SELECT source,key,count(*) total FROM listings CROSS JOIN LATERAL jsonb_object_keys(raw_metadata::jsonb) AS key WHERE status='active' AND property_type='apartment' AND comuna IN ('providencia','vitacura','la_florida','estacion_central','san_miguel','santiago') AND (lat IS NULL OR lon IS NULL) GROUP BY source,key ORDER BY source,total DESC",
+   "geocode_provenance_samples": "SELECT source,comuna,geocode_precision,raw_metadata->'geocode_provider' provider,raw_metadata->'geocode_result' result,raw_metadata->'geocode_query' query,raw_metadata->'geocode_reason' reason,raw_metadata->'geocode_match' match FROM listings WHERE status='active' AND property_type='apartment' AND comuna IN ('providencia','vitacura','la_florida','estacion_central','san_miguel','santiago') AND (lat IS NULL OR lon IS NULL) AND geocode_precision IN ('address','street') LIMIT 8"
+  }
+  for name,q in queries.items():
+   rows=(await s.execute(text(q))).mappings().all()
+   print(json.dumps({"section":name,"rows":[dict(r) for r in rows]},default=str))
+asyncio.run(main())'''
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input=code,text=True,capture_output=True,timeout=60)
+print(r.stdout)
+if r.returncode:print(json.dumps({'error_type':'readonly_census_failed','details':r.stderr[-350:]}));raise SystemExit(r.returncode)

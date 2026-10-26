@@ -1,0 +1,38 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+W=Path(__file__).parent
+s=(W/'candidate_restored_data_v3.py').read_text();start=s.index("inner='''")+len("inner='''");end=s.index("'''",start);inner=s[start:end]
+inner=inner.replace('from services.portfolio_snapshots import _valuation_input_for_listing\n','')
+inner=inner.replace('import asyncio,json,httpx','import asyncio,json,httpx\nfrom sqlalchemy import text\nfrom services.listing_url_lookup import lookup_listing_url')
+inner=inner.replace('  repo=SqlAlchemyListingRepository(s)', '''  await s.execute(text('SET TRANSACTION READ ONLY'))
+  repo=SqlAlchemyListingRepository(s)''')
+inner=inner.replace("  print(json.dumps({'actual1130_excluded'",'''  live_url='https://www.portalinmobiliario.com/MLC-2467200996-do-apartments-_JM'
+  async def readonly_lookup(url):return await find_existing_listing_by_url(s,url)
+  assert await readonly_lookup(live_url) is None,'Expected unseen URL changed; stop for reconciliation'
+  live=await lookup_listing_url(live_url,listing_lookup=readonly_lookup)
+  assert live.status=='parsed_new' and live.listing_data['external_id']=='MLC-2467200996'
+  live_analysis=await analyze_listing_lookup(live.listing_data,valuation_service=service)
+  assert live_analysis.valuation.get('estimated_value_uf') is not None
+  assert await readonly_lookup(live_url) is None,'Read-only acquisition unexpectedly persisted listing'
+  print(json.dumps({'production_new_portal_lookup':live.status,'new_portal_external_id':live.listing_data['external_id'],'new_portal_estimate_uf':live_analysis.valuation.get('estimated_value_uf'),'production_db_transaction':'read_only','actual1130_excluded' ''')
+remote='''import subprocess,json,hashlib,pathlib,re
+def run(a,**kw):
+ r=subprocess.run(a,capture_output=True,text=True,timeout=100,**kw)
+ if r.returncode:
+  print(json.dumps({'smoke_error_types':re.findall(r'^([A-Za-z_.]+(?:Error|Exception)):',r.stderr,re.M),'frames':re.findall(r'File "([^"\\n]+)", line (\\d+)',r.stderr)}))
+  raise RuntimeError('Production smoke failed; sensitive output withheld')
+ return r.stdout
+api=json.loads(run(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+assert api['Image']=='sha256:76839409d18f17752334fac007215225a7c2d5c8462e52316f31f353722db672'
+root=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session');before=hashlib.sha256((root/'session.json').read_bytes()).hexdigest()
+print(run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input=INNER))
+assert hashlib.sha256((root/'session.json').read_bytes()).hexdigest()==before
+caddy=json.loads(run(['docker','inspect','valoria_oracle_beta-caddy-1']))[0]
+env=dict(x.split('=',1) for x in caddy['Config']['Env'])
+host=env.get('ORACLE_API_HOSTNAME','localhost');origin=host if host.startswith(('http://','https://')) else 'https://'+host
+probe="import httpx,json;c=httpx.Client(timeout=30,follow_redirects=True);r=c.get("+repr(origin+'/api/v1/health/capabilities')+");r.raise_for_status();d=r.json();assert d['code_fingerprint']=='2cd008454aaec42a188dbc8bb6fe5f6a372ddc1438bb0621737e8cedb10406f7';print(json.dumps({'proxy_url':str(r.url),'status':r.status_code,'fingerprint':d['code_fingerprint']}))"
+print(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',probe]))
+print(json.dumps({'session_unchanged_after_smoke':True,'deployed_image':api['Image'],'schema_revision_expected':'0022'}))
+'''.replace('INNER',repr(inner))
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=180);(W/'portal-production-smoke.jsonl').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr);r.check_returncode()

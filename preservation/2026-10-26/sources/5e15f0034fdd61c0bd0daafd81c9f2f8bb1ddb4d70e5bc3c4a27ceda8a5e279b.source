@@ -1,0 +1,67 @@
+"""Case reconstruction and territorial evidence, using frozen model/data only."""
+import os,sys,json,time,math
+from pathlib import Path
+import numpy as np
+ROOT=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(ROOT/'work/valoria'))
+DATA=ROOT/'outputs/integrated/vitacura';OUT=ROOT/'outputs/micromarkets'
+os.environ['SII_GEOGRAPHY_DATA_DIR']=str(DATA);os.environ['SII_MICROMARKET_DIR']=str(OUT)
+from services.sii.pure_valuation import sii_valuation
+from services.sii.micromarket import precise
+from services.sii.geographic_opinion import _valuation_geography
+from services.sii.geocoding import distance
+
+cases=[]
+for identity in [{'rol':'1261-6'},{'address':'Laura Tromben 5631'},{'address':'Samotracia 2071'}]:
+    t=time.perf_counter();p=sii_valuation(data_dir=DATA,**identity);elapsed=(time.perf_counter()-t)*1000
+    trace=p['valuation_trace'];comps=trace['comparables']
+    cumulative=0;median_comp=None
+    for c in sorted(comps,key=lambda c:c['uf']/c['m2']):
+        cumulative+=c['weight_share']
+        if cumulative>=.5:median_comp=c;break
+    p['diagnostic_weighted_median_source']=median_comp
+    cases.append({'input':identity,'elapsed_ms':elapsed,'result':p})
+(OUT/'diagnostic-cases.json').write_text(json.dumps(cases,indent=2),encoding='utf8')
+raw=json.loads((DATA/'closings.json').read_text());lookup={r['raw_id']:r for r in raw};geo=_valuation_geography(DATA)
+pred=json.loads((OUT/'predictions.json').read_text());evals=json.loads((OUT/'evaluation.json').read_text())
+analysis={}
+for name in ['baseline','candidate']:
+    ds=[];sameblock=0;count=0;changed=0
+    for r in pred[name]:
+        target=lookup[r['raw_id']];sg=geo.get(r['rol'])
+        for c in r['prediction'].get('comparables',[]):
+            comp=lookup[c['raw_id']];g=geo.get(comp['rol']);count+=1
+            sameblock+=comp['block']==target['block']
+            if precise(sg) and precise(g):ds.append(distance((sg['lat'],sg['lon']),(g['lat'],g['lon'])))
+    analysis[name]={'selected_comparable_count':count,'same_block_fraction':sameblock/count,
+        'precise_distance_pairs':len(ds),'median_distance_m':float(np.median(ds)),
+        'p90_distance_m':float(np.percentile(ds,90))}
+def error(r):return (r['prediction']['value_uf']/r['actual_uf']-1)*100
+for kind in ['casa','depto']:
+    matched=[(b,c,a) for b,c,a in zip(pred['baseline'],pred['candidate'],pred['attributes'],strict=True)
+        if b['kind']==kind and c['prediction'].get('model_used')=='micromarket' and a['prediction']['status']=='ok']
+    analysis[kind+'_local_only']={'n':len(matched),'mdape':{n:float(np.median([abs(error(t[i])) for t in matched])) for i,n in enumerate(['baseline','local','attributes'])},
+        'value_changed_count':sum(t[0]['prediction']['value_uf']!=t[1]['prediction']['value_uf'] for t in matched)}
+    # Error exemplars are diagnostics only. No records removed or reweighted.
+    analysis[kind+'_extreme_errors']=[{'raw_id':b['raw_id'],'rol':b['rol'],'actual_uf':b['actual_uf'],
+        'baseline_uf':b['prediction']['value_uf'],'candidate_uf':c['prediction']['value_uf'],
+        'signed_baseline_error_pct':error(b),'signed_candidate_error_pct':error(c),
+        'candidate_reason':c['prediction'].get('geographic_reason')} for b,c in sorted(
+            [(b,c) for b,c in zip(pred['baseline'],pred['candidate'],strict=True) if b['kind']==kind and b['prediction']['status']==c['prediction']['status']=='ok'],
+            key=lambda t:abs(error(t[0])),reverse=True)[:10]]
+analysis['provenance_search']={'A_SII_9_4':'No executable or evaluation manifest with this model identity found in current/original Valoria sources, local SII/MVP archives, PDF reports and available prior chat turns.',
+    'matching_metric_found':{'path':'reports/sii/closing_layer_20261019/summary.json','commune':'LA FLORIDA','mdape_pct':9.447297423781986,'n':2648,'predicted':2584},
+    '39019_uf':'Not found with source model, coefficients, comparable list or as-of date; cannot reproduce or attribute the difference to one factor.',
+    'pdf_reference':'Local Laura Tromben PDF reports instead show 34900 UF, 30 historical sales, effective sample 14.8 and date indexing. This is a different method/pool, not the current K10 model.',
+    'Hark_reference':'Metodo_informe_riesgo (1).md describes older sales, local land/area elasticities, block-year price index and uncertainty-unaware block fallback; not the current baseline implementation.'}
+analysis['limitations']=['Only Vitacura. Grid cells are analytical geographic sectors, not official neighborhoods.',
+    '2026 evaluation was exposed in previous task; new model not promoted.',
+    'Most manzanas have too few held-out sales to estimate reliable individual performance.',
+    'Snapshot land/area/year from 2026, construction-year guard cannot establish historical cadastral state.',
+    'No condition, renovations, material/quality, lot shape or contemporaneous title/transaction rights features in exported index.',
+    'Low-price extreme errors may reflect transaction/attribute heterogeneity; not automatically excluded as outliers.',
+    'OSM and SII point precision is estimated, not surveyed ground truth; original legacy OSM extract unavailable.']
+(OUT/'diagnosis.json').write_text(json.dumps(analysis,indent=2),encoding='utf8')
+print(json.dumps({'cases':[{'input':x['input'],'baseline':x['result']['value_uf'],'candidate':x['result']['micromarket_candidate']['value_uf'],
+    'elapsed_ms':x['elapsed_ms'],'median_comp':x['result']['diagnostic_weighted_median_source']} for x in cases],
+    'distances':{k:v for k,v in analysis.items() if k in ['baseline','candidate','casa_local_only','depto_local_only']}},indent=2))

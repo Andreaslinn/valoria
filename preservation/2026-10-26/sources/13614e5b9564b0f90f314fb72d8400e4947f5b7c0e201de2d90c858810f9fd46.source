@@ -1,0 +1,337 @@
+"""Create a local authenticated Portal Inmobiliario Playwright session.
+
+This script is intentionally read-only: it connects to an already-open native
+Chrome session over CDP and saves Playwright storage state.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Iterable
+from urllib.parse import urlsplit
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from infrastructure.scrapers.portalinmobiliario import classify_portal_page_state
+
+DEFAULT_ENV_PATH = ROOT / ".local" / "portal.env"
+DEFAULT_HOME_URL = "https://www.portalinmobiliario.com/"
+DEFAULT_AUTH_CHECK_URL = "https://www.portalinmobiliario.com/publicar"
+
+CAPTCHA_SELECTORS = (
+    "iframe[src*='recaptcha']",
+    "iframe[src*='hcaptcha']",
+    ".g-recaptcha",
+    ".h-captcha",
+    "[data-sitekey]",
+)
+VERIFICATION_SELECTORS = (
+    "[data-testid*='verification']",
+    "[class*='verification']",
+    "[id*='verification']",
+    "text=/verifica tu cuenta/i",
+    "text=/verificaci[oó]n telef[oó]nica/i",
+    "text=/c[oó]digo de verificaci[oó]n/i",
+)
+LOGIN_SELECTORS = (
+    "input[type='password']",
+    "input[type='email']",
+    "input[name='login']",
+    "text=/iniciar sesi[oó]n/i",
+    "text=/ingresa a tu cuenta/i",
+)
+AUTHENTICATED_SELECTORS = (
+    "[data-testid*='user']",
+    "[data-testid*='account']",
+    "[class*='nav-header-user']",
+    "[class*='user-menu']",
+    "a[href*='logout']",
+    "button:has-text('Mi cuenta')",
+    "text=/mi cuenta/i",
+    "text=/publicar/i",
+    "text=/mis favoritos/i",
+)
+HOMEPAGE_SELECTORS = (
+    "text=/portal inmobiliario/i",
+    "text=/comprar/i",
+    "text=/arrendar/i",
+    "input[type='search']",
+    "input[placeholder*='Buscar']",
+)
+BLOCKED_SELECTORS = (
+    "text=/acceso denegado/i",
+    "text=/forbidden/i",
+    "text=/too many requests/i",
+    "text=/bloqueado/i",
+)
+
+
+@dataclass(frozen=True)
+class PortalSessionConfig:
+    email: str
+    password: str
+    storage_state_path: Path
+    smoke_search_url: str
+
+
+def load_portal_env(path: Path = DEFAULT_ENV_PATH) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if path.exists():
+        for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def load_config(path: Path = DEFAULT_ENV_PATH) -> PortalSessionConfig:
+    values = {**load_portal_env(path), **os.environ}
+    email = values.get("PORTALINMOBILIARIO_EMAIL", "").strip()
+    password = values.get("PORTALINMOBILIARIO_PASSWORD", "").strip()
+    storage_state = values.get("PORTAL_STORAGE_STATE_PATH", ".local/portal_storage_state.json").strip()
+    smoke_search_url = values.get("PORTAL_SMOKE_SEARCH_URL", "").strip()
+    if not email:
+        raise SystemExit("PORTALINMOBILIARIO_EMAIL is required")
+    if not password:
+        raise SystemExit("PORTALINMOBILIARIO_PASSWORD is required")
+    return PortalSessionConfig(
+        email=email,
+        password=password,
+        storage_state_path=(ROOT / storage_state).resolve() if not Path(storage_state).is_absolute() else Path(storage_state),
+        smoke_search_url=smoke_search_url,
+    )
+
+
+def first_matching_locator(page, selectors: Iterable[str]):
+    for selector in selectors:
+        locator = page.locator(selector).first
+        try:
+            if locator.count() > 0 and locator.is_visible(timeout=1500):
+                return locator
+        except Exception:
+            continue
+    return None
+
+
+def visible_selectors(page, selectors: Iterable[str]) -> list[str]:
+    visible: list[str] = []
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator.count() > 0 and locator.is_visible(timeout=750):
+                visible.append(selector)
+        except Exception:
+            continue
+    return visible
+
+
+def _sanitize_url(url: str) -> str:
+    parsed = urlsplit(url)
+    path = parsed.path or "/"
+    return f"{parsed.scheme}://{parsed.netloc}{path}"
+
+
+def _safe_title(page) -> str:
+    try:
+        return page.title()[:120]
+    except Exception:
+        return ""
+
+
+def _safe_stop_loading(page) -> None:
+    try:
+        page.evaluate("window.stop()")
+    except Exception:
+        pass
+
+
+def _safe_goto(page, url: str) -> int | None:
+    try:
+        response = page.goto(url, wait_until="domcontentloaded")
+        _safe_stop_loading(page)
+        return response.status if response is not None else None
+    except Exception:
+        _safe_stop_loading(page)
+        return None
+
+
+def _session_cookie_count(context) -> int:
+    try:
+        cookies = context.cookies()
+    except Exception:
+        return 0
+    count = 0
+    for cookie in cookies:
+        domain = str(cookie.get("domain", "")).lower()
+        name = str(cookie.get("name", "")).lower()
+        if not ("portalinmobiliario" in domain or "mercadolibre" in domain):
+            continue
+        if any(marker in name for marker in ("session", "ssid", "token", "auth", "orguserid", "_d2id", "meli")):
+            count += 1
+    return count
+
+
+def _is_portal_page(page) -> bool:
+    url = str(getattr(page, "url", "") or "").lower()
+    return "portalinmobiliario.com" in url or "mercadolibre.cl" in url or "mercadolibre.com" in url
+
+
+def find_portal_page(context):
+    for page in context.pages:
+        if _is_portal_page(page):
+            return page
+    return context.pages[0] if context.pages else None
+
+
+def classify_visible_session_state(page, *, status_code: int | None = None) -> tuple[str, list[str]]:
+    current_url = page.url.lower()
+    visible: list[str] = []
+    if status_code in {403, 429} or "/challenge" in current_url or "access-denied" in current_url:
+        visible.extend(visible_selectors(page, BLOCKED_SELECTORS))
+        return "blocked", visible
+
+    captcha = visible_selectors(page, CAPTCHA_SELECTORS)
+    captcha_text = visible_selectors(
+        page,
+        (
+            "text=/verifica que eres humano/i",
+            "text=/completa la verificaci[oó]n/i",
+            "text=/complete the captcha/i",
+        ),
+    )
+    if captcha or captcha_text:
+        return "captcha_visible", [*captcha, *captcha_text]
+
+    verification = visible_selectors(page, VERIFICATION_SELECTORS)
+    if verification:
+        return "verification_visible", verification
+
+    login = visible_selectors(page, LOGIN_SELECTORS)
+    if login or "/login" in current_url or "/lgz/" in current_url:
+        return "login_page", login
+
+    authenticated = visible_selectors(page, AUTHENTICATED_SELECTORS)
+    if authenticated:
+        return "authenticated", authenticated
+
+    homepage = visible_selectors(page, HOMEPAGE_SELECTORS)
+    if homepage:
+        html_state = classify_portal_page_state(page.content(), status_code=status_code)
+        if html_state == "authenticated":
+            return "authenticated", homepage
+        return "homepage", homepage
+
+    html_state = classify_portal_page_state(page.content(), status_code=status_code)
+    return html_state, visible
+
+
+def validate_session(context, page, *, auth_check_url: str = DEFAULT_AUTH_CHECK_URL) -> tuple[str, dict[str, Any]]:
+    status_code = None
+    state, selectors = classify_visible_session_state(page, status_code=status_code)
+    cookie_count = _session_cookie_count(context)
+    login_visible = bool(visible_selectors(page, LOGIN_SELECTORS))
+    account_selectors = visible_selectors(page, AUTHENTICATED_SELECTORS)
+    auth_check_state = "not_run"
+    auth_check_status: int | None = None
+
+    if state in {"captcha_visible", "verification_visible", "blocked", "login_page"}:
+        final_state = state
+    else:
+        check_page = context.new_page()
+        try:
+            auth_check_status = _safe_goto(check_page, auth_check_url)
+            auth_check_state, _ = classify_visible_session_state(check_page, status_code=auth_check_status)
+        finally:
+            check_page.close()
+
+        auth_check_passed = auth_check_state not in {
+            "login_page",
+            "captcha_visible",
+            "verification_visible",
+            "blocked",
+            "unexpected",
+        }
+        if cookie_count > 0 and not login_visible and (auth_check_passed or account_selectors):
+            final_state = "authenticated"
+        elif state == "homepage" and not login_visible:
+            final_state = "guest"
+        else:
+            final_state = "unexpected"
+
+    diagnostics: dict[str, Any] = {
+        "final_url": _sanitize_url(page.url),
+        "title": _safe_title(page),
+        "state": final_state,
+        "visible_selectors": ",".join(selectors[:8]),
+        "session_cookie_count": cookie_count,
+        "account_indicator_count": len(account_selectors),
+        "auth_check_state": auth_check_state,
+        "auth_check_status": auth_check_status if auth_check_status is not None else "unknown",
+    }
+    return final_state, diagnostics
+
+
+def sanitized_result(**values: object) -> None:
+    for key, value in values.items():
+        print(f"{key}={value}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Create a local Portal Inmobiliario authenticated session.")
+    parser.add_argument("--env-file", default=str(DEFAULT_ENV_PATH))
+    parser.add_argument("--cdp-url", required=True)
+    parser.add_argument("--auth-check-url", default=DEFAULT_AUTH_CHECK_URL)
+    args = parser.parse_args()
+
+    config = load_config(Path(args.env_file))
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("status=missing_playwright")
+        print("hint=install Playwright and browser binaries before creating the session")
+        return 2
+
+    config.storage_state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.connect_over_cdp(args.cdp_url)
+        if not browser.contexts:
+            sanitized_result(status="cdp_no_context", storage_saved=False)
+            return 1
+        context = browser.contexts[0]
+        context.set_default_navigation_timeout(30_000)
+        context.set_default_timeout(10_000)
+
+        print("manual_step=confirma que Portal está listo en Chrome y presiona Enter")
+        input()
+
+        page = find_portal_page(context)
+        if page is None:
+            sanitized_result(status="no_page_found", storage_saved=False)
+            return 1
+
+        state, diagnostic = validate_session(context, page, auth_check_url=args.auth_check_url)
+        if state != "authenticated":
+            sanitized_result(status="auth_not_saved", storage_saved=False, **diagnostic)
+            return 1
+
+        context.storage_state(path=str(config.storage_state_path))
+        sanitized_result(
+            status="session_saved",
+            storage_saved=True,
+            storage_state_path=str(config.storage_state_path.relative_to(ROOT)) if config.storage_state_path.is_relative_to(ROOT) else "<outside-repo>",
+            **diagnostic,
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

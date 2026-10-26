@@ -1,0 +1,57 @@
+from pathlib import Path
+import subprocess,json
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+helper=Path('work/github-release/services/valuation_debug.py').read_text(encoding='utf-8')
+overlay=json.loads(Path('work/production-valuation-debug-overlay.json').read_text())
+snapshot=json.loads(Path('work/production-trace-snapshot.json').read_text())
+inner='''import asyncio,json,sys,types
+from decimal import Decimal
+from datetime import datetime,date
+from types import SimpleNamespace
+from core.entities.listing import Listing
+from core.value_objects.price import Price
+from core.value_objects.location import Coordinates
+from core.ports.uf_service import UFRateInfo
+helper=types.ModuleType('services.valuation_debug');helper.__file__='/app/services/valuation_debug.py';sys.modules[helper.__name__]=helper
+exec(compile(HELPER,'<candidate-debug-helper>','exec'),helper.__dict__)
+import services.valuation as svc
+import api.v1.valuations as api
+import services.reports as reports
+for module,path in [(svc,'services/valuation.py'),(api,'api/v1/valuations.py'),(reports,'services/reports.py')]:exec(compile(OVERLAY[path],'<candidate-'+path+'>','exec'),module.__dict__)
+snapshot=SNAPSHOT
+uf=Decimal(snapshot['uf'])
+class FixedUF:
+ async def get_current_rate(self):return uf
+ async def get_current_rate_info(self):return UFRateInfo(rate=uf,source='read_only_daily_db_snapshot',is_fallback=False,rate_date=date.fromisoformat(snapshot['uf_date']))
+def restore(row):
+ d=dict(row);d['price']=Price(clp=Decimal(d['price']['clp']))
+ if d.get('price_uf') is not None:d['price_uf']=Decimal(d['price_uf'])
+ if d.get('coordinates'):d['coordinates']=Coordinates(**d['coordinates'])
+ for k in ['scraped_at','last_seen_at','last_refresh_attempted_at']:
+  if d.get(k):d[k]=datetime.fromisoformat(d[k])
+ return Listing(**d)
+async def main():
+ output=[]
+ for c in snapshot['cases']:
+  pool=[restore(x) for x in c['pool']]
+  class Repo:
+   async def find_active_in_comuna(self,*args,**kwargs):return pool
+  service=svc.ValuationService(listing_repo=Repo(),uf_service=FixedUF())
+  response=await api.valuate(current_user=SimpleNamespace(id=None),payload=api.ValuationRequest(**c['payload']),service=service,session=None)
+  result=response.model_dump(mode='json');debug=result.pop('valuation_debug')
+  assert result==c['route_response'],[k for k in result if result[k]!=c['route_response'].get(k)]
+  assert debug['engine_selected']=='valoria_consensus_v1'
+  assert debug['n_comparables_weighted'] is None
+  assert any(e['engine_selected']=='comparables_canonical_outliers' and e['n_comparables_weighted']==20 for e in debug['engines'])
+  html=reports.build_property_valuation_report_html(valuation_result=dict(result,valuation_debug=debug),valuation_payload=c['payload'])
+  assert 'id="valoria-valuation-debug"' in html
+  output.append({'comuna':c['payload']['comuna'],'estimated_uf':result['estimated_price_uf'],'all_existing_response_fields_unchanged':True,'report_debug_present':True,'debug':debug})
+ print(json.dumps({'status':'passed','database_access':False,'cases':output}))
+asyncio.run(main())
+'''.replace('HELPER',repr(helper)).replace('OVERLAY',repr(overlay)).replace('SNAPSHOT',repr(snapshot))
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=90)\nprint(r.stdout);print(r.stderr[-2200:] if r.returncode else '');raise SystemExit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,encoding="utf-8",capture_output=True,timeout=110)
+if r.returncode:print(r.stdout[-2500:]);print(r.stderr[-1500:]);r.check_returncode()
+data=json.loads(r.stdout);Path('work/production-trace-overlay-test.json').write_text(json.dumps(data,indent=2),encoding='utf-8')
+print(json.dumps({'status':data['status'],'cases':[{k:v for k,v in x.items() if k!='debug'} for x in data['cases']]}))
+

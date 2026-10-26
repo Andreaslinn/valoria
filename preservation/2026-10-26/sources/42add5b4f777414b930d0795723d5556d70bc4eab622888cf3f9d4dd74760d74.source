@@ -1,0 +1,62 @@
+import sys,json,hashlib,zipfile,io,csv
+from pathlib import Path
+from decimal import Decimal
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+sys.path.insert(0,str(ROOT/'valoria'))
+from services.sii.parsing import catastro_row,decimal,dates
+def load(n):return json.loads((OUT/n).read_text(encoding='utf8'))
+sources={r['id']:r for r in load('source-files.json')}
+ids={9,20,25}; checks=[]
+for i in ids:
+    p=Path(sources[i]['ruta']); h=hashlib.sha256()
+    with p.open('rb') as f:
+        while b:=f.read(1024*1024):h.update(b)
+    assert h.hexdigest()==sources[i]['hash']
+    checks.append({'source_file_id':i,'path':str(p),'bytes':p.stat().st_size,'sha256':h.hexdigest(),'matches_database':True})
+selected=load('selected-closings-original.json');neighbours=load('neighbourhood-transfers-original.json')
+target=load('target-original.json')
+roles={(r['manzana'],r['predio']):r for r in selected+neighbours+[target]}
+found={}
+with Path(sources[9]['ruta']).open(encoding='latin1') as f:
+    for n,line in enumerate(f,1):
+        tokens=line.split('|',3)
+        if len(tokens)<4:continue
+        key=(int(tokens[1]),int(tokens[2]))
+        if key in roles:
+            parsed=catastro_row(line,'N',15160,9)
+            db=roles[key]
+            assert parsed[0]==9
+            assert parsed[4]==db.get('direccion_raw')
+            assert parsed[10]==int(db['m2_terreno'])
+            found[key]={'manzana':key[0],'predio':key[1],'source_id':9,'line_number':n,'raw_line':line.rstrip('\r\n'),'parsed_land_m2':parsed[10],'matches_database':True}
+assert set(found)==set(roles)
+nl_expected={(r['manzana'],r['predio'],r['n_linea']):r for r in load('construction-lines-original.json')}
+nl_found=[]
+with Path(sources[20]['ruta']).open(encoding='latin1') as f:
+    for number,line in enumerate(f,1):
+        fields=line.split('|',4)
+        if len(fields)<5:continue
+        key=(int(fields[1]),int(fields[2]),int(fields[3]))
+        if key not in nl_expected:continue
+        expected=nl_expected[key];parsed=catastro_row(line,'NL',15160,20)
+        assert line.rstrip('\r\n')==expected['raw_line'].rstrip('\r\n')
+        assert parsed[5]==expected['destino'] and parsed[8]==expected['anio'] and parsed[9]==int(expected['m2']) and parsed[10]==expected['abierta']
+        nl_found.append({'manzana':key[0],'predio':key[1],'n_linea':key[2],'source_id':20,'source_file_line':number,'raw_matches':True})
+assert len(nl_found)==len(nl_expected)
+raw={r['raw_id']:r for r in selected+neighbours}
+needed={r['raw_fila']:r for r in raw.values()}
+zipchecks=[]
+with zipfile.ZipFile(sources[25]['ruta']) as z:
+    member=z.namelist()[0]
+    with z.open(member) as b,io.TextIOWrapper(b,encoding='latin1',newline='') as f:
+        for n,line in enumerate(f,1):
+            if n not in needed:continue
+            r=needed[n];fields=next(csv.reader([line],delimiter=';'))
+            assert line.rstrip('\r\n')==r.get('transferencia_raw_line',r.get('raw_line')).rstrip('\r\n')
+            assert decimal(fields[5])==(Decimal(r['raw_clp']) if r['raw_clp'] is not None else None)
+            assert decimal(fields[6])==(Decimal(r['raw_uf']) if r['raw_uf'] is not None else None)
+            zipchecks.append({'raw_id':r['raw_id'],'fila':n,'zip_member':member,'raw_line':line.rstrip('\r\n'),'raw_bytes_and_money_match':True})
+            if len(zipchecks)==len(needed):break
+assert len(zipchecks)==len(needed)
+(OUT/'source-byte-verification.json').write_text(json.dumps({'files':checks,'catastro_N_rows':list(found.values()),'catastro_NL_rows':nl_found,'F2890_rows':zipchecks},indent=2,ensure_ascii=False),encoding='utf8')
+print('Verified source hashes',len(checks),'N rows',len(found),'NL rows',len(nl_found),'F2890 rows',len(zipchecks))

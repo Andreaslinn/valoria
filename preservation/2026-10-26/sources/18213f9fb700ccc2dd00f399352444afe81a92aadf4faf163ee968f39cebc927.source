@@ -1,0 +1,47 @@
+import subprocess,json,datetime,pathlib,time,re
+root=pathlib.Path('/home/ubuntu/apps/valoria')
+session=root/'private/portal-session/session.json'
+d=json.loads(session.read_text()); now=time.time()
+c=d.get('cookies',[])
+print(json.dumps({'session_file_mode':oct(session.stat().st_mode&0o777),'cookie_count':len(c),'ssid_present':any(x.get('name')=='ssid' for x in c),'ssid_unexpired':any(x.get('name')=='ssid' and (not x.get('expires') or x['expires']>now) for x in c),'reauth_circuit_present':(session.parent/'reauth_required.json').exists()}))
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text("SET TRANSACTION READ ONLY"))
+  for name,q in [("uf", "select date,value_clp,source,fetched_at from uf_rates order by date desc limit 5"),("listing_columns","select column_name from information_schema.columns where table_name='listings' and column_name in ('source','last_seen_at','status','updated_at','created_at')")]:
+   rows=(await s.execute(text(q))).mappings().all();print(json.dumps({name:[dict(r) for r in rows]},default=str))
+asyncio.run(main())'''
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input=code,text=True,capture_output=True,timeout=25)
+print(r.stdout);print('db_probe_exit',r.returncode)
+logs=subprocess.run(['docker','logs','--since','48h','valoria_oracle_beta-api-1'],capture_output=True,text=True,timeout=20)
+lines=(logs.stdout+'\n'+logs.stderr).splitlines()
+counts={}
+for line in lines:
+ m=re.search(r'HTTP/[0-9.]+" (\d{3})',line)
+ if m:counts[m[1]]=counts.get(m[1],0)+1
+print(json.dumps({'api_http_statuses_48h':counts,'note':'shared traffic, not exhaustive endpoint tests'}))
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text("SET TRANSACTION READ ONLY"))
+  rows=(await s.execute(text("select source, count(*) as total, max(last_seen_at) as last_seen, count(*) filter(where last_seen_at >= current_date) as seen_today from listings group by source"))).mappings().all()
+  print(json.dumps({"listing_freshness":[dict(r) for r in rows]},default=str))
+asyncio.run(main())'''
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input=code,text=True,capture_output=True,timeout=25)
+print(r.stdout);print('freshness_probe_exit',r.returncode)
+import urllib.request,http.cookiejar
+jar=http.cookiejar.CookieJar()
+for x in c:
+ jar.set_cookie(http.cookiejar.Cookie(0,x['name'],x['value'],None,False,x['domain'],True,x['domain'].startswith('.'),x.get('path','/'),True,bool(x.get('secure',True)),x.get('expires'),False,None,None,{}))
+opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+start=time.time()
+try:
+ req=urllib.request.Request('https://www.portalinmobiliario.com/venta/departamento/vitacura-metropolitana/_DisplayType_M',headers={'User-Agent':'Mozilla/5.0'})
+ with opener.open(req,timeout=30) as response:
+  body=response.read(3000000).decode('utf-8','replace');url=response.geturl()
+  print(json.dumps({'portal_single_read':{'http':response.status,'seconds':round(time.time()-start,2),'final_host':urllib.parse.urlsplit(url).hostname,'login_redirect':'login' in url or 'auth' in url,'listing_identifiers':len(set(re.findall(r'MLC-?\d{7,}',body))),'session_written':False}}))
+except Exception as exc:print(json.dumps({'portal_single_read':{'error_type':type(exc).__name__,'http':getattr(exc,'code',None),'seconds':round(time.time()-start,2)}}))

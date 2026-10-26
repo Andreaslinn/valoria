@@ -1,0 +1,137 @@
+"""Decode ONE existing encrypted LOCAL backup; no DB connection/restore/Oracle.
+
+Only pg_restore's listings table is requested. Decrypted dump and SQL stay in
+memory, never terminal/files. User/session/global configuration is not decoded.
+The result is a privacy-minimized listing projection, NOT a RAW archive.
+"""
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import sys
+from urllib.parse import urlsplit, urlunsplit
+import build as b
+
+HERE = Path(__file__).resolve().parent
+PRIVATE = b.ROOT/'private-ingestion-production-20261004'
+
+
+def module(name, path):
+    spec=importlib.util.spec_from_file_location(name,path)
+    m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+    return m
+
+
+def main():
+    out=HERE/'inputs/backup_listings_projection_v2.json'
+    canonical_out=HERE/'inputs/canonical_listings.json.dpapi'
+    if out.exists() or canonical_out.exists():
+        raise ValueError('Refuse overwrite')
+    manifest=b.read(PRIVATE/'RESTORATION_MANIFEST.json')
+    entry=next(a for a in manifest['artifacts'] if a['artifact']=='avm-pre-migration.dump.dpapi')
+    archive=PRIVATE/'avm-pre-migration.dump.dpapi'
+    if b.filehash(archive)!=entry['stored_sha256']:
+        raise ValueError('Encrypted backup hash mismatch')
+    dpapi=module('cohort_dpapi_local',PRIVATE/'recovery_tools.py')
+    data=dpapi.unprotect(archive.read_bytes())
+    if dpapi.sha(data)!=entry['original_sha256'] or not data.startswith(b'PGDMP'):
+        raise ValueError('Decrypted backup hash/format mismatch')
+    command=['docker','exec','-i','valoria-v2-dev-postgres-1','pg_restore',
+             '--data-only','--no-owner','--table=listings','--file=-']
+    proc=subprocess.run(command,input=data,capture_output=True,timeout=90)
+    del data
+    if proc.returncode:
+        raise RuntimeError('Local pg_restore decoder failed; unredacted diagnostics withheld')
+    # Reuse the previously tested COPY escape decoder; do not execute its main.
+    sys.modules['identity']=b.identity
+    old=module('cohort_previous_copy_decoder',b.IDENTITY.parent/'extract_history.py')
+    cols=[];active=False;rows=[];canonical=[];seen_table=False
+    string_cols={'source','external_id','title','url','comuna','property_type','status','fingerprint',
+                 'scraped_at','last_seen_at','last_refresh_attempted_at','last_refresh_status',
+                 'created_at','updated_at','geocode_precision','price_currency','price_uf_source',
+                 'price_uf_confidence','price_recovery_method'}
+    numeric_cols={'id','property_id','m2','built_area_m2','usable_area_m2','land_area_m2',
+                  'bedrooms','bathrooms','parking','lat','lon','price_clp','price_uf'}
+    meta_keys={'currency_original','parser_source','portal_card_first','accepted_rm','price_uf',
+        'price_uf_source','price_uf_confidence','price_provenance_version','price_recovery_method',
+        'price_recovery_rate','price_recovery_note','price_recovered_at','price_clp_provenance',
+        'price_conversion_source','price_conversion_method','price_change_ignored_reason',
+        'uf_rate_used','uf_rate_date','uf_rate_source','uf_rate_stale',
+        'area_parse_version','area_parse_source','built_area_parse_source','usable_area_parse_source',
+        'land_area_parse_source','area_source','source_total_area_m2','explicit_studio',
+        'address','address_label','street_hint','location_text','description','main_image_url',
+        'image_urls','building_name','project_name','unit','unit_number','street_number',
+        'normalized_address','geocode_precision','geocode_precision_reason'}
+    text_keys={'address','address_label','street_hint','location_text','description','building_name',
+               'project_name','normalized_address'}
+    for line in proc.stdout.decode('utf-8').splitlines():
+        if line.startswith('COPY public.listings ('):
+            cols=[x.strip().strip('"') for x in line.split('(',1)[1].split(')',1)[0].split(',')]
+            active=True;seen_table=True;continue
+        if line==r'\.':active=False;continue
+        if not active:continue
+        values=line.split('\t')
+        if len(values)!=len(cols):raise ValueError('Unexpected listing COPY layout')
+        raw=dict(zip(cols,values));r={}
+        for k in string_cols & raw.keys():r[k]=old.pg_text(raw[k])
+        # Keep Decimal source strings, not float-roundtripped prices.
+        for k in numeric_cols & raw.keys():
+            value=old.pg_text(raw[k]);r[k]=value if k in ['price_clp','price_uf'] else b.num(value)
+        r['id']=int(r['id'])
+        if r.get('property_id') is not None:r['property_id']=int(r['property_id'])
+        m=json.loads(old.pg_text(raw.get('raw_metadata')) or '{}') if raw.get('raw_metadata') else {}
+        # Exact canonical Listing projection, encrypted before any persistence.
+        # Prices stay Decimal strings and raw metadata/title remain lossless.
+        dto={k:old.pg_text(raw[k]) for k in string_cols & raw.keys()
+             if k not in ['created_at','updated_at']}
+        for k in numeric_cols & raw.keys():
+            value=old.pg_text(raw[k])
+            if k not in ['price_clp','lat','lon']:
+                dto[k]=value if k=='price_uf' else b.num(value)
+        for k in ['id','property_id','bedrooms','bathrooms','parking']:
+            if dto.get(k) is not None:dto[k]=int(dto[k])
+        dto['price']={'clp':old.pg_text(raw['price_clp'])}
+        dto['coordinates']={'lat':b.num(old.pg_text(raw['lat'])),'lon':b.num(old.pg_text(raw['lon']))} if old.pg_text(raw['lat']) is not None and old.pg_text(raw['lon']) is not None else None
+        dto['raw_metadata']=m
+        canonical.append(dto)
+        r['raw_metadata']={k:b.identity.sanitize(v) if k in text_keys else v for k,v in m.items() if k in meta_keys}
+        r['title']=b.identity.sanitize(r.get('title'))
+        # Strip query credentials from origin image paths; no downloads/content hashes.
+        for k in ['main_image_url','image_urls']:
+            if k in r['raw_metadata']:
+                clean=lambda u:urlunsplit((*urlsplit(u)[:3],'','')) if isinstance(u,str) else None
+                r['raw_metadata'][k]=[clean(u) for u in r['raw_metadata'][k]] if isinstance(r['raw_metadata'][k],list) else clean(r['raw_metadata'][k])
+        rows.append(r)
+    if not seen_table or not rows:raise ValueError('No listing COPY table found')
+    del proc
+    out.parent.mkdir(exist_ok=True)
+    canonical_plain=json.dumps(canonical,sort_keys=True,ensure_ascii=False,allow_nan=False).encode()
+    protected=dpapi.protect(canonical_plain)
+    if dpapi.unprotect(protected)!=canonical_plain:
+        raise ValueError('Encrypted canonical roundtrip failed')
+    with canonical_out.open('xb') as f:f.write(protected)
+    result=dict(schema='backup-listings-projection-v1',captured_at=manifest['database_snapshot_start_utc'],
+       environment='existing_local_encrypted_backup_decoded_without_DB_restore',listings=rows,
+       provenance=dict(encrypted_archive=str(archive.relative_to(b.ROOT)),
+            encrypted_sha256=entry['stored_sha256'],plaintext_sha256=entry['original_sha256'],
+            source_schema=manifest['database_schema_in_dump'],
+            capture_is_pg_dump_snapshot_start=True, metadata_keys=sorted(meta_keys),
+            removed='seller/contact/user configuration, monetary text in titles/descriptions, image query strings; full RAW not reconstructed',
+            original_dump_unchanged=True, db_connection=False, db_restore=False,
+            canonical_DTO_encrypted_path=str(canonical_out.relative_to(b.ROOT)),
+            canonical_DTO_ciphertext_sha256=b.filehash(canonical_out),
+            canonical_DTO_plaintext_sha256=dpapi.sha(canonical_plain),
+            canonical_DTO_fields_lossless=True,
+            decoder_source_sha256=b.filehash(b.IDENTITY.parent/'extract_history.py'),
+            dpapi_source_sha256=b.filehash(PRIVATE/'recovery_tools.py')))
+    b.json_write(out,result)
+    print(json.dumps(dict(listings=len(rows),active=sum(r['status']=='active' for r in rows),
+        captured_at=result['captured_at'],projection_sha256=b.filehash(out),
+        history_schema=result['provenance']['source_schema'],oracle_access=False,db_restore=False)))
+
+
+if __name__=='__main__':
+    try:main()
+    except Exception as exc:
+        print(json.dumps({'error_type':type(exc).__name__,'details':'withheld to avoid decrypted content exposure'}))
+        raise SystemExit(1)

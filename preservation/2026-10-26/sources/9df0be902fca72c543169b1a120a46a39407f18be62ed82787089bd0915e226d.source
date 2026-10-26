@@ -1,0 +1,6 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner="from config import get_settings;import json,os;s=get_settings().model_dump();s.update({k:v for k,v in os.environ.items() if k.startswith(('VALUATION_','VALORIA_USE_CONSENSUS','VALORIA_EXPERIMENTAL_'))});print(json.dumps({k:v for k,v in s.items() if any(t in k.lower() for t in ['valuation','avm','spatial','hedonic','consensus','challenger','calibrat']) and not any(t in k.lower() for t in ['secret','password','token','key','url'])},default=str))"
+code="import subprocess,json\nvalues={}\nfor n in ['valoria_oracle_beta-api-1','valoria-portal-candidate-api']:\n r=subprocess.run(['docker','exec',n,'python','-B','-c',"+repr(inner)+"],capture_output=True,text=True);assert r.returncode==0;values[n]=json.loads(r.stdout)\na,b=values.values();print(json.dumps({k:{'production':a.get(k),'isolated_candidate':b.get(k)} for k in set(a)|set(b) if a.get(k)!=b.get(k)},indent=2))"
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=45);Path(__file__).with_name('valuation-runtime-differences.json').write_text(r.stdout,encoding='utf-8');print(r.stdout);r.check_returncode()

@@ -1,0 +1,566 @@
+"""Authorized local exploratory pilot; original harness/data remain immutable.
+
+prepare -> sealed protocol -> methodology tests -> primary -> fresh reproduction
+-> predefined sensitivities -> joint grouped bootstrap / descriptive diagnostics.
+No network, DB, production imports, model search beyond certified fixture alphas,
+or productive identity changes. Prices are never printed by this controller.
+"""
+from __future__ import annotations
+from collections import Counter, defaultdict
+from copy import deepcopy
+from dataclasses import asdict
+from datetime import datetime, timezone
+import csv
+import difflib
+import hashlib
+import importlib.util
+import io
+import json
+import math
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+import sys
+import time
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+ORIGINAL=ROOT/'research/avm_harness_20261009T064239Z'
+COHORT=ROOT/'research/tasar_cohort_20261009T154414Z'
+PREFLIGHT=ROOT/'research/tasar_pilot_preflight_20261010T123500Z'
+RUNTIME=HERE/'runtime'
+SEEDS=(20261009,20261010,20261011)
+ALPHAS=(1.0,10.0)
+CONFIG=HERE/'experiment_config.json'
+SEAL=HERE/'experiment_config.sha256'
+
+def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def read(path):return json.loads(Path(path).read_text(encoding='utf-8'))
+def digest(obj):return hashlib.sha256(json.dumps(obj,sort_keys=True,ensure_ascii=False,allow_nan=False,separators=(',',':')).encode()).hexdigest()
+def json_write(path,obj):Path(path).write_text(json.dumps(obj,indent=2,ensure_ascii=False,allow_nan=False)+'\n',encoding='utf-8')
+def module(name,path):
+    spec=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(spec);sys.modules[name]=m;spec.loader.exec_module(m);return m
+def csv_read(path):
+    with Path(path).open(encoding='utf-8',newline='') as f:return list(csv.DictReader(f))
+def csv_write(path,rows,fields=None):
+    with Path(path).open('w',encoding='utf-8',newline='') as f:
+        writer=csv.DictWriter(f,fieldnames=fields or list(rows[0]),lineterminator='\n');writer.writeheader();writer.writerows(rows)
+
+def original_checks():
+    pre=read(PREFLIGHT/'manifest.json')
+    if pre['decision']!='READY_FOR_EXPLORATORY_PILOT' or pre['tests']['passed']!=36:raise ValueError('Wrong preflight')
+    hashes=dict(pre['input_sha256'])
+    for name,entry in pre['outputs'].items():hashes[str(PREFLIGHT/name)]=entry['sha256']
+    for name,value in pre['code_sha256'].items():hashes[str(PREFLIGHT/name)]=value
+    hashes[str(PREFLIGHT/'manifest.json')]=sha(PREFLIGHT/'manifest.json')
+    for path,expected in hashes.items():
+        if sha(path)!=expected:raise ValueError('Certified original hash mismatch')
+    if sha(PREFLIGHT/'cv_dependency_groups.csv')!='fa095b8b9b5b56c4879c563b90dccedadb7666f719df1d4da34f77184c2fe5bc':raise ValueError('Wrong grouping version')
+    if sha(COHORT/'runs/candidate-certified/cohort_candidate.csv')!='eff8a23e0b4193a60ace48372d55a946795ff7dcc5eefb4560aaf6b657aa6ae5':raise ValueError('Wrong cohort')
+    return hashes
+
+def reuse_preflight():
+    p=module('pilot_reuse_preflight',PREFLIGHT/'preflight.py')
+    # Preflight imports only the pure cohort parser at module scope. Reassert
+    # sandbox paths before importing any canonical/model modules.
+    sys.path[:0]=[str(RUNTIME),str(RUNTIME/'frozen_a')]
+    return p
+
+def identity_check():
+    p=reuse_preflight();rows,features,cohort,candidates,selected=p.load_blind()
+    aliases,history=p.historical_aliases(rows)
+    pairs,decisions=p.review_tables(features,cohort,candidates,selected,aliases)
+    extra,_=p.extra_candidates(features,cohort,candidates)
+    amendments=[(r['listing_id_a'],r['listing_id_b']) for r in extra if not r['blocks_pilot']]
+    maps,audit=p.grouping(features,candidates,decisions,amendments)
+    saved={int(r['listing_id']):r for r in csv_read(PREFLIGHT/'cv_dependency_groups.csv')}
+    if len(saved)!=791 or len(pairs)!=28 or amendments!=[(4211,4486)]:raise ValueError('Identity scope drift')
+    for i in cohort:
+        for g in maps:
+            if str(maps[g][i])!=saved[i][g]:raise ValueError('Policy/IDs mismatch')
+    if any(a['unresolved_transitive_conflicts'] for a in audit):raise ValueError('Identity conflict')
+    for r in pairs:
+        evidence=json.loads(r['supporting_evidence'])
+        if r['classification']=='INDETERMINATE' and evidence['plausible_cv_risk']:
+            if maps['G3'][r['listing_id_a']]!=maps['G3'][r['listing_id_b']]:raise ValueError('Plausible pair not protected')
+        elif r['classification']=='INDETERMINATE' and 'generic template only' not in r['recommended_cv_treatment']:
+            raise ValueError('Missing reproducible non-grouping reason')
+    return p,rows,cohort,maps,aliases,dict(original_pairs=28,indeterminate=25,plausible_original_edges=9,
+        generic_only_unlinked=16,additional_address_pair=[4211,4486],human_certifications=0,history=history,
+        retained_physical_identity_uncertainty=True)
+
+def load_datasets():
+    p,rows,cohort,maps,aliases,identity=identity_check()
+    from avm01.data import Dataset,Record
+    snapshot=read(ROOT/p.b.POLICY['snapshot']);prov=snapshot['provenance'];cutoff=snapshot['captured_at'];del snapshot
+    private=module('pilot_dpapi_memory_only',ROOT/'private-ingestion-production-20261004/recovery_tools.py')
+    cipher=ROOT/prov['canonical_DTO_encrypted_path']
+    if sha(cipher)!=prov['canonical_DTO_ciphertext_sha256']:raise ValueError('Ciphertext drift')
+    plain=private.unprotect(cipher.read_bytes())
+    if hashlib.sha256(plain).hexdigest()!=prov['canonical_DTO_plaintext_sha256']:raise ValueError('Plaintext drift')
+    archive={int(r['id']):r for r in json.loads(plain)};del plain
+    labels={int(r['listing_id']):float(r['price_uf']) for r in csv_read(COHORT/'runs/candidate-certified/cohort_candidate.csv')}
+    reverse=defaultdict(list)
+    for alias,i in aliases.items():
+        if i in cohort:reverse[i].append(alias)
+    datasets={}
+    for grouping in ('G1','G2','G3'):
+        records=[]
+        for i in sorted(cohort):
+            r=cohort[i];dto=archive[i];coords=dto.get('coordinates')
+            if not math.isclose(labels[i],float(dto['price_uf']),rel_tol=0,abs_tol=1e-10):raise ValueError('Target/DTO mismatch')
+            record=Record(row_id=r['observation_id'],publication_id=r['external_id'],listing_id=str(i),observation_id=r['observation_id'],
+                group_id=f'pilot-{grouping}-{maps[grouping][i]}',identity_status='cv_group_reviewed',features=p.c1_features(r),
+                price_uf=labels[i],observed_at=cutoff,available_at=cutoff,prediction_at=cutoff,price_available_at=cutoff,
+                canonical_url=dto['url'],latitude=coords['lat'] if coords else None,longitude=coords['lon'] if coords else None,
+                canonical_listing=dto,canonical_target=p.target_payload(rows[i]),dependency_aliases=tuple(sorted(reverse[i])))
+            records.append(record)
+        ds=Dataset(tuple(records),'real_retrospective_snapshot_candidate',p.b.POLICY['snapshot_sha256'],
+            'pilot-dependency-preflight-v2:'+grouping,sha(PREFLIGHT/'cv_dependency_groups.csv'),index_policy='first_observation_v1')
+        ds.validate();datasets[grouping]=ds
+    return datasets,cohort,maps,identity
+
+AUTHORIZATION_SOURCE='''"""Explicit, pinned real-data authorization in this sandbox only.
+Original harness is untouched. Trusted controller, not an adversarial sandbox.
+"""
+import hashlib,json
+from pathlib import Path
+from .data import RealExecutionBlocked,InvalidExperiment
+ROOT=Path(__file__).resolve().parents[2]
+def locked():
+    raw=(ROOT/'experiment_config.json').read_bytes()
+    if hashlib.sha256(raw).hexdigest()!=(ROOT/'experiment_config.sha256').read_text().strip():
+        raise RealExecutionBlocked('Pilot protocol seal mismatch')
+    return json.loads(raw)
+def authorize_dataset(ds):
+    c=locked()
+    if ds.origin!='real_retrospective_snapshot_candidate' or ds.hash() not in c['authorized_dataset_sha256'].values():
+        raise RealExecutionBlocked('Dataset is outside explicit user-authorized local pilot')
+    if ds.snapshot_id!=c['snapshot_id'] or len(ds.records)!=791:
+        raise RealExecutionBlocked('Wrong local cohort')
+def authorize_config(config):
+    c=locked()
+    if config.get('real_execution_enabled') is not True:
+        raise InvalidExperiment('Explicit real execution approval required')
+    if config.get('pilot_protocol_sha256')!=(ROOT/'experiment_config.sha256').read_text().strip():
+        raise InvalidExperiment('Wrong pilot authorization')
+    if config.get('seed') not in c['outer_seeds'] or config.get('engines') not in [['A','C1'],['C1']]:
+        raise InvalidExperiment('Unauthorized seed or engine family')
+    if config.get('target')!='log_uf_total' or config.get('geo_ablation') is not False:
+        raise InvalidExperiment('Unauthorized target/feature experiment')
+    if config.get('parameters',{}).get('C1',{}).get('alpha') not in c['C1_alpha_grid']:
+        raise InvalidExperiment('Unauthorized regularization')
+'''
+
+def prepare():
+    if CONFIG.exists() or RUNTIME.exists():raise ValueError('Refuse to overwrite prepared experiment')
+    inputs=original_checks()
+    RUNTIME.mkdir()
+    for name in ('avm01','frozen_a'):shutil.copytree(ORIGINAL/name,RUNTIME/name,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+    replacements={
+      'avm01/data.py':("if self.origin!='synthetic':raise RealExecutionBlocked('AVM-01 permits synthetic execution only; real certification is not execution approval')",
+                       "if self.origin!='synthetic':\n            from .pilot_authorization import authorize_dataset\n            authorize_dataset(self)"),
+      'avm01/isolation.py':("if config.get('real_execution_enabled') is not False:raise InvalidExperiment('Real execution flag must remain false')",
+                            "if config.get('real_execution_enabled') is not False:\n        from .pilot_authorization import authorize_config\n        authorize_config(config)")}
+    diff=[]
+    for name,(old,new) in replacements.items():
+        path=RUNTIME/name;text=path.read_text(encoding='utf-8')
+        if text.count(old)!=1:raise ValueError('Guard code differs from certified version')
+        changed=text.replace(old,new)
+        path.write_text(changed,encoding='utf-8')
+        diff.extend(difflib.unified_diff(text.splitlines(True),changed.splitlines(True),fromfile='certified/'+name,tofile='sandbox/'+name))
+    (HERE/'authorization_changes.patch').write_text(''.join(diff),encoding='utf-8')
+    (RUNTIME/'avm01/pilot_authorization.py').write_text(AUTHORIZATION_SOURCE,encoding='utf-8')
+    datasets,cohort,maps,identity=load_datasets()
+    from avm01.engines import DEFAULTS
+    from avm01.data import CORE
+    if DEFAULTS['C1']!={'alpha':10.0}:raise ValueError('C1 default drift')
+    native={name:sha(RUNTIME/name) for name in read(ORIGINAL/'certification.json')['code_sha256'] if (RUNTIME/name).is_file()}
+    changed=[name for name,h in native.items() if h!=read(ORIGINAL/'certification.json')['code_sha256'][name]]
+    if sorted(changed)!=sorted(replacements):raise ValueError('Unexpected runtime changes')
+    configuration=dict(version='valoria-exploratory-Acore-C1-v1',registered_at_utc=datetime.now(timezone.utc).isoformat(),
+        user_authorization_sha256=sha(Path('C:/Users/heiko/.codex/attachments/769c2901-a497-4ee4-a8d8-fb1e058b1b95/Texto pegado.txt')),
+        cohort_sha256=sha(COHORT/'runs/candidate-certified/cohort_candidate.csv'),harness_certificate_sha256=sha(ORIGINAL/'certification.json'),
+        grouping_sha256=sha(PREFLIGHT/'cv_dependency_groups.csv'),snapshot_id=datasets['G3'].snapshot_id,
+        authorized_dataset_sha256={g:ds.hash() for g,ds in datasets.items()},feature_contract=list(CORE),
+        models={'A':'phase4a_canonical_outliers_v1 unchanged','C1':'avm01-global-v1 unchanged Ridge specification'},
+        target='log_uf_total',retransformation='exp; no smearing; not automatically conditional mean',geo_ablation=False,
+        primary_grouping='G3',outer_K=3,outer_seed=SEEDS[0],outer_seeds=list(SEEDS),
+        outer_partition='Exact certified preflight group-size/SHA protocol; no final holdout',inner_K=3,
+        inner_seed='same as outer',C1_alpha_grid=list(ALPHAS),inner_selection='Complete inner OOF MAE-log; exact tie chooses alpha10, the certified default',
+        grid_provenance='No certified operational grid existed; reuse only [1,10] demonstrated in certified test_harness.test_nested_tuning_does_not_open_holdout. MAE-log explicitly preregistered, replacing demo-only inner MdAPE selection; estimator unchanged.',
+        primary_metric='paired-common MdAPE; delta=C1-A percentage points; Portal priority, identical OOF models for both sources',
+        secondary_metrics=['MAPE','MAE_log','signed_mean_pct','signed_median_pct','bias_log','P90','P95','APE_gt20','APE_gt30','APE_gt50','full_eligible_coverage','abstentions'],
+        metric_precision='Full precision, linear interpolated percentiles; presentation rounding only; definitions equivalent to certified primitives before presentation rounding',
+        abstention_policy='None/nonpositive/nonfinite or status outside ok/success; no fabricated error; full source/cohort denominators remain intact',
+        bootstrap={'groups':'G3 all781 eligible groups jointly resampled; source views from the same draws, including cross-source members together',
+                   'replicates':2000,'seed':20261010,'percentile_95':[2.5,97.5],'statistics':['delta_MdAPE_pp','delta_MAE_log','delta_P90_pp'],
+                   'scope':'Conditional on OOF predictions; no refitting, incomplete identity and sample selection not corrected'},
+        sensitivities='G1/G2/G3 x the three predefined seeds; identical G1/G2 partitions reuse verified identical model inputs/results, explicitly marked; no independent-replication claim',
+        interpretation={'relative_MdAPE_reduction_interesting_pct':5,'automatic_winner':False,'categories':['C1_PROMISING','A_COMPETITIVE_OR_BETTER','INCONCLUSIVE','INVALID'],
+                        'criteria':'Paired MdAPE direction/materiality, MAE-log, tail deterioration, coverage and consistency across source/group/partition; exploratory intervals not confirmatory'},
+        diagnostic_bands={'area':[50,90],'price_uf':[3000,6000],'local_comparables':[5,10,20],'small_group_note':'fewer than30 groups is descriptive only'},
+        stop_conditions=['input/protocol/code drift','identity policy mismatch','any train/test or inner/outer leakage','retained label supplied to model',
+                         'duplicate/incomplete primary OOF','unexpected training/prediction/valuation error','nonreproducible principal beyond tolerance'],
+        reproduction_tolerance={'rtol':1e-10,'atol_UF':1e-8,'reason':'single-thread pinned CPU numerical reproducibility; same missingness and statuses required'},
+        holdout_created=False,holdout_consumed=False,source_predictor=True,
+        manual_valuation_limit='C1 conditions on publication source; no justified source value for manually entered property. No product deployment inference.',
+        uf_reference=read(COHORT/'runs/candidate-certified/canonical_contract_check.json')['uf_context'],
+        original_input_sha256=inputs,runtime_certified_code_sha256=native,
+        runtime_authorization_code_sha256=sha(RUNTIME/'avm01/pilot_authorization.py'),
+        controller_code_sha256={name:sha(HERE/name) for name in ('pilot.py','test_pilot.py')},identity_check=identity)
+    with CONFIG.open('x',encoding='utf-8') as f:json.dump(configuration,f,ensure_ascii=False,indent=2);f.write('\n')
+    SEAL.write_text(sha(CONFIG)+'\n',encoding='ascii')
+    env=dict(python=platform.python_version(),python_executable=sys.executable,platform=platform.platform(),numpy=__import__('numpy').__version__,sklearn=__import__('sklearn').__version__,
+             scipy=__import__('scipy').__version__,single_thread_fit=True,
+             original_harness_unchanged=True,frozen_A_files_unchanged=True,modified_runtime_guard_files=changed,
+             protection='NTFS protected DACL: current user, SYSTEM and Administrators only; derived CSVs ignored by Git; no external publication',
+             protocol_sha256=sha(CONFIG),real_models_not_yet_executed=True)
+    json_write(HERE/'environment_manifest.json',env)
+    print(json.dumps({'prepared':True,'cohort_n':791,'G3_groups':len({r.group_id for r in datasets['G3'].records}),'protocol_sha256':sha(CONFIG)}),flush=True)
+
+def verify_lock():
+    if sha(CONFIG)!=SEAL.read_text().strip():raise ValueError('Immutable protocol changed')
+    c=read(CONFIG)
+    for path,h in c['original_input_sha256'].items():
+        if sha(path)!=h:raise ValueError('Original artifact modified')
+    for name,h in c['runtime_certified_code_sha256'].items():
+        if sha(RUNTIME/name)!=h:raise ValueError('Sandbox estimator/runtime changed')
+    if sha(RUNTIME/'avm01/pilot_authorization.py')!=c['runtime_authorization_code_sha256']:raise ValueError('Authorization changed')
+    for name,h in c['controller_code_sha256'].items():
+        if sha(HERE/name)!=h:raise ValueError('Controller code changed after registration')
+    return c
+
+def create_plan(ds,cohort,mapping,seed):
+    p=reuse_preflight()
+    from avm01.splits import Split,Plan,validate_plan
+    from avm01.isolation import dependency_hash
+    lookup={int(r.listing_id):r.row_id for r in ds.records}
+    all_ids=set(lookup.values());dh=dependency_hash(ds);snap=ds.hash()
+    folds=tuple(Split(tuple(sorted(all_ids-{lookup[i] for i in fold})),tuple(sorted(lookup[i] for i in fold)),seed=seed,
+                      snapshot_hash=snap,dependency_hash=dh) for fold in p.partition(cohort,mapping,seed))
+    return validate_plan(ds,Plan(tuple(sorted(all_ids)),(),folds,seed,snap,dh),seed=seed)
+
+def engine_config(c,seed,alpha,engines):
+    return dict(version='authorized-local-pilot-v1',seed=seed,target=c['target'],geo_ablation=False,n_folds=3,
+        holdout_fraction=0.,bootstrap_replicates=2000,real_execution_enabled=True,engines=list(engines),
+        tuning='grouped_inner_MAE_log',index_policy='first_observation_v1',uf_reference=c['uf_reference'],
+        parameters={'C1':{'alpha':float(alpha)}},pilot_protocol_sha256=sha(CONFIG))
+
+def fit_audit_record(engine,batch,split,outer_ids=None):
+    train={r.row_id for r in batch.rows};test={r.row_id for r in batch.targets}
+    if train!=set(split.train) or test!=set(split.test) or train&test:raise ValueError('Fit lineage mismatch')
+    if outer_ids is not None and not (train|test)<=set(outer_ids):raise ValueError('Outer label entered inner fitting')
+    if engine is not None and set(engine.fit_trace['training_ids'])!=train:raise ValueError('Preprocessing fit outside authorized training')
+    return dict(stage=split.stage,train_n=len(train),test_n=len(test),train_ids_sha256=digest(sorted(train)),
+                test_ids_sha256=digest(sorted(test)),group_overlap=0,outer_containment=True,
+                preprocessing_scope='training_only' if engine else 'A authorized training-only pool')
+
+def choose_alpha(ds,outer,c,seed,audits):
+    from avm01.splits import inner_folds
+    from avm01.isolation import LabelCustody
+    from avm01.engines import LearnedEngine
+    folds=inner_folds(ds,outer,seed,n_folds=3,reserved_holdout=())
+    losses={}
+    for alpha in c['C1_alpha_grid']:
+        custody=LabelCustody(ds,());pred={};truth={}
+        for split in folds:
+            config=engine_config(c,seed,alpha,['C1'])
+            batch=custody.issue(ds,split,config,(),outer)
+            engine=LearnedEngine('C1',seed=seed,parameters={'alpha':alpha}).fit(batch)
+            audits.append(dict(alpha=alpha,**fit_audit_record(engine,batch,split,outer.train)))
+            vals={i:engine.predict(batch.target(i)).value_uf for i in split.test}
+            if not all(valid(v) for v in vals.values()):raise ValueError('Incomplete inner candidate; no artificial tuning advantage')
+            custody.record_predictions(batch,{'C1':vals});pred.update(vals)
+            truth.update(custody.complete({'C1':vals},split.test))
+        if set(pred)!=set(outer.train):raise ValueError('Inner OOF coverage mismatch')
+        losses[float(alpha)]=sum(abs(math.log(pred[i])-math.log(truth[i])) for i in pred)/len(pred)
+    chosen=min(losses,key=lambda alpha:(losses[alpha],alpha!=10.,alpha))
+    return chosen,losses
+
+def valid(v):return isinstance(v,(float,int)) and not isinstance(v,bool) and math.isfinite(v) and v>0
+
+class ObservedA:
+    """Transparent observer around unchanged certified FrozenA, no estimator changes."""
+    def __init__(self,batch,idx):
+        from avm01.engines import FrozenA
+        self.model=FrozenA().fit(batch);self.train={r.row_id for r in batch.rows};self.idx=idx
+        self.observed={};self.current=None
+        for name in ('_structural_pool','_canonical_price_pool','_robust_pool'):
+            original=getattr(self.model.engine,name)
+            def observe(*args,_original=original,_name=name,**kwargs):
+                out=_original(*args,**kwargs);self.observed[self.current][_name]=len(out);return out
+            setattr(self.model.engine,name,observe)
+    def predict(self,target):
+        self.current=target.row_id;self.observed[self.current]={}
+        result=self.model.predict(target)
+        available=set(result.trace['available_pool_ids']);selected=set(result.trace['selected_ids'])
+        if available!=self.train or not selected<=self.train or target.row_id in available:raise ValueError('A global/retained pool leakage')
+        if self.idx[target.row_id].group_id in {self.idx[i].group_id for i in available}:raise ValueError('A target group leakage')
+        if result.status in ('error','training_error','prediction_error'):raise ValueError('Unexpected canonical error, pilot invalid')
+        counts=self.observed[target.row_id]
+        admissible=counts.get('_robust_pool',counts.get('_canonical_price_pool',counts.get('_structural_pool')))
+        if admissible is None:raise ValueError('Missing A eligibility observation')
+        return result,dict(admissible=admissible,structural=counts.get('_structural_pool'),canonical=counts.get('_canonical_price_pool'),
+            robust=counts.get('_robust_pool'),used=len(selected),available_pool_sha256=digest(sorted(available)),selected_sha256=digest(sorted(selected)))
+
+def run_scenario(grouping,seed,tag):
+    path=HERE/(tag+'.csv')
+    if path.exists():raise ValueError('Refuse scenario overwrite')
+    c=verify_lock();datasets,cohort,maps,_=load_datasets();ds=datasets[grouping]
+    if ds.hash()!=c['authorized_dataset_sha256'][grouping]:raise ValueError('Unauthorized dataset')
+    plan=create_plan(ds,cohort,maps[grouping],seed);idx=ds.indexed()
+    from avm01.isolation import LabelCustody
+    from avm01.engines import LearnedEngine
+    custody=LabelCustody(ds,());output=[];params=[];audit=[];assignments=[]
+    start=time.monotonic()
+    for fold,split in enumerate(plan.folds):
+        verify_lock()
+        print(json.dumps({'scenario':tag,'fold':fold,'phase':'inner_training','elapsed_s':round(time.monotonic()-start)}),flush=True)
+        alpha,losses=choose_alpha(ds,split,c,seed,audit)
+        config=engine_config(c,seed,alpha,['A','C1']);batch=custody.issue(ds,split,config,())
+        ridge=LearnedEngine('C1',seed=seed,parameters={'alpha':alpha}).fit(batch)
+        audit.append(fit_audit_record(ridge,batch,split));audit.append(fit_audit_record(None,batch,split))
+        a=ObservedA(batch,idx);values={'A':{},'C1':{}};observations={};states={}
+        for number,i in enumerate(split.test):
+            inference=batch.target(i)
+            if hasattr(inference,'price_uf') or any(k.startswith('price') for k in inference.canonical_target):raise ValueError('Retained monetary target leaked')
+            ap,counts=a.predict(inference);cp=ridge.predict(inference)
+            if cp.status not in ('ok','invalid_prediction'):raise ValueError('Unexpected learned prediction failure')
+            values['A'][i]=ap.value_uf if ap.status in ('ok','success') and valid(ap.value_uf) else None
+            values['C1'][i]=cp.value_uf if cp.status=='ok' and valid(cp.value_uf) else None
+            observations[i]=counts;states[i]=(ap.status,ap.reason,cp.status,cp.reason)
+            if number and number%40==0:print(json.dumps({'scenario':tag,'fold':fold,'phase':'predicting','completed':number,'test_n':len(split.test)}),flush=True)
+        custody.record_predictions(batch,values)
+        truth=custody.complete(values,split.test)  # held labels released only AFTER both estimators finish
+        for i in split.test:
+            r=idx[i];counts=observations[i];ap,ar,cp,cr=states[i]
+            row=dict(observation_id=i,listing_id=r.listing_id,dependency_group=r.group_id,source=r.features['source'],comuna=r.features['comuna'],
+                grouping=grouping,seed=seed,fold=fold,observed_price_uf=truth[i],prediction_A_uf=values['A'][i],prediction_C1_uf=values['C1'][i],
+                status_A=ap,reason_A=ar,status_C1=cp,reason_C1=cr,A_admissible=counts['admissible'],A_structural=counts['structural'],
+                A_canonical=counts['canonical'],A_robust=counts['robust'],A_used=counts['used'],
+                area_m2=math.exp(r.features['log_area']),bedrooms=r.features['bedrooms'],bathrooms=r.features['bathrooms'],parking=r.features['parking'],
+                coordinates_present=r.latitude is not None and r.longitude is not None,geo_precision_verified=False,
+                training_pool_sha256=counts['available_pool_sha256'],selected_comparables_sha256=counts['selected_sha256'])
+            for engine in ('A','C1'):
+                value=values[engine][i];error=100*(value/truth[i]-1) if value else None
+                row.update({f'APE_{engine}_pct':abs(error) if error is not None else None,f'SPE_{engine}_pct':error,
+                            f'log_error_{engine}':math.log(value)-math.log(truth[i]) if value else None})
+            output.append(row)
+            assignments.append(dict(scenario=tag,grouping=grouping,seed=seed,fold=fold,observation_id=i,listing_id=r.listing_id,
+                dependency_group=r.group_id,role='outer_test_once; training in other folds',confirmatory=False))
+        names=list(ridge.preprocess.get_feature_names_out());coefficients=list(map(float,ridge.model.coef_))
+        scaler=ridge.preprocess.named_transformers_['numeric'].named_steps['scale']
+        elasticity=coefficients[0]/float(scaler.scale_[0])
+        for name,beta in zip(names,coefficients):
+            params.append(dict(scenario=tag,grouping=grouping,seed=seed,fold=fold,selected_alpha=alpha,
+                inner_loss_alpha1=losses[1.],inner_loss_alpha10=losses[10.],criterion='inner_MAE_log',
+                coefficient=name,coefficient_scaled=beta,elasticity_log_area=elasticity,intercept_log_scaled=float(ridge.model.intercept_),
+                train_n=len(split.train),fit_scope='outer_train_only'))
+        print(json.dumps({'scenario':tag,'fold':fold,'phase':'complete','valid_A':sum(valid(v) for v in values['A'].values()),
+                          'valid_C1':sum(valid(v) for v in values['C1'].values()),'elapsed_s':round(time.monotonic()-start)}),flush=True)
+    if len(output)!=791 or len({r['observation_id'] for r in output})!=791:raise ValueError('Incomplete/duplicate OOF')
+    output.sort(key=lambda r:r['observation_id']);csv_write(path,output)
+    csv_write(HERE/(tag+'-parameters.csv'),params);csv_write(HERE/(tag+'-folds.csv'),assignments)
+    json_write(HERE/(tag+'-audit.json'),dict(grouping=grouping,seed=seed,protocol_sha256=sha(CONFIG),fit_audits=audit,
+        targets_price_free=True,held_labels_released_after_predictions=True,A_pool_checks=791,selected_only_train=True,
+        no_final_holdout=True,original_inputs_unchanged=original_checks()==c['original_input_sha256']))
+    verify_lock()
+
+def numeric_rows(path):
+    rows=csv_read(path)
+    numeric=('observed_price_uf','prediction_A_uf','prediction_C1_uf','APE_A_pct','APE_C1_pct','SPE_A_pct','SPE_C1_pct',
+             'log_error_A','log_error_C1','area_m2','bedrooms','bathrooms','parking','A_admissible','A_used','fold','seed')
+    for r in rows:
+        for key in numeric:r[key]=float(r[key]) if r[key] else None
+    return rows
+
+def metric(rows,engine):
+    import numpy as np
+    vals=[r for r in rows if valid(r[f'prediction_{engine}_uf'])]
+    if not vals:return dict(metric_n=0,MdAPE=None,MAPE=None,MAE_log=None,signed_mean_pct=None,signed_median_pct=None,bias_log=None,P90=None,P95=None,APE_gt20=None,APE_gt30=None,APE_gt50=None)
+    ape=np.array([r[f'APE_{engine}_pct'] for r in vals]);signed=np.array([r[f'SPE_{engine}_pct'] for r in vals]);logs=np.array([r[f'log_error_{engine}'] for r in vals])
+    return dict(metric_n=len(vals),MdAPE=float(np.median(ape)),MAPE=float(np.mean(ape)),MAE_log=float(np.mean(abs(logs))),
+        signed_mean_pct=float(np.mean(signed)),signed_median_pct=float(np.median(signed)),bias_log=float(np.mean(logs)),
+        P90=float(np.quantile(ape,.9)),P95=float(np.quantile(ape,.95)),APE_gt20=float(np.mean(ape>20)),APE_gt30=float(np.mean(ape>30)),APE_gt50=float(np.mean(ape>50)))
+
+def compare_view(rows,view):
+    common=[r for r in rows if valid(r['prediction_A_uf']) and valid(r['prediction_C1_uf'])];output=[]
+    for support,pool in (('own_valid',rows),('paired_common',common)):
+        for engine in ('A','C1'):
+            n=sum(valid(r[f'prediction_{engine}_uf']) for r in rows)
+            output.append(dict(view=view,support=support,engine=engine,eligible_n=len(rows),predicted_n_full=n,
+                abstentions_full=len(rows)-n,coverage_full=n/len(rows) if rows else None,**metric(pool,engine)))
+    return output
+
+def deltas(rows):
+    common=[r for r in rows if valid(r['prediction_A_uf']) and valid(r['prediction_C1_uf'])]
+    a=metric(common,'A');c=metric(common,'C1')
+    return dict(paired_n=len(common),delta_MdAPE_pp=c['MdAPE']-a['MdAPE'] if common else None,
+        relative_MdAPE_reduction_pct=100*(a['MdAPE']-c['MdAPE'])/a['MdAPE'] if common and a['MdAPE'] else None,
+        delta_MAE_log=c['MAE_log']-a['MAE_log'] if common else None,delta_P90_pp=c['P90']-a['P90'] if common else None)
+
+def source_views(rows):
+    return [('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('Yapo',[r for r in rows if r['source']=='yapo']),('Global',rows)]
+
+def bootstrap(rows,replicates=2000,seed=20261010):
+    import numpy as np
+    groups=sorted({r['dependency_group'] for r in rows});lookup={g:j for j,g in enumerate(groups)}
+    members=[np.array([j for j,r in enumerate(rows) if r['dependency_group']==g],dtype=int) for g in groups]
+    rng=np.random.default_rng(seed);output=[]
+    # All source views use each identical joint group draw. Cross-source group
+    # multiplicities therefore match; source members never become independent units.
+    for replicate in range(replicates):
+        draw=rng.integers(0,len(groups),size=len(groups));sample=np.concatenate([members[j] for j in draw])
+        sampled=[rows[j] for j in sample]
+        for view,subset in source_views(sampled):
+            result=deltas(subset)
+            output.append(dict(replicate=replicate,view=view,**result,unique_groups=len({r['dependency_group'] for r in subset})))
+    return output
+
+def reproduce_check(primary,repeated):
+    import numpy as np
+    if len(primary)!=len(repeated):raise ValueError('Reproduction row count mismatch')
+    compare_keys=('observed_price_uf','prediction_A_uf','prediction_C1_uf','APE_A_pct','APE_C1_pct','log_error_A','log_error_C1')
+    maximum=0.
+    for a,z in zip(primary,repeated):
+        for key in ('observation_id','listing_id','dependency_group','status_A','reason_A','status_C1','reason_C1','training_pool_sha256','selected_comparables_sha256'):
+            if a[key]!=z[key]:raise ValueError('Reproduction lineage/status/pool mismatch')
+        for key in compare_keys:
+            if (a[key] is None)!=(z[key] is None):raise ValueError('Reproduction missingness mismatch')
+            if a[key] is not None:
+                maximum=max(maximum,abs(a[key]-z[key]))
+                if not np.isclose(a[key],z[key],rtol=1e-10,atol=1e-8):raise ValueError('Prediction not reproducible')
+    for view,pool in source_views(primary):
+        other=dict(source_views(repeated))[view]
+        for x,y in zip(compare_view(pool,view),compare_view(other,view)):
+            for key,value in x.items():
+                if isinstance(value,(int,float)) and value is not None and not np.isclose(value,y[key],rtol=1e-10,atol=1e-8):raise ValueError('Metric not reproducible')
+    return dict(status='PASS',rows=791,max_abs_numeric_difference=maximum,predictions_and_metrics_equal_within_registered_tolerance=True)
+
+def analyze():
+    c=verify_lock();rows=numeric_rows(HERE/'principal.csv');repeat=numeric_rows(HERE/'reproduction.csv')
+    reproducibility=reproduce_check(rows,repeat)
+    for view,pool in source_views(rows):csv_write(HERE/('metrics_'+{'Portal':'portal','Yapo':'yapo','Global':'global'}[view]+'.csv'),compare_view(pool,view))
+    bootstrap_rows=bootstrap(rows,c['bootstrap']['replicates'],c['bootstrap']['seed']);csv_write(HERE/'bootstrap_differences.csv',bootstrap_rows)
+    import numpy as np
+    intervals=[]
+    for view,pool in source_views(rows):
+        for name in ('delta_MdAPE_pp','delta_MAE_log','delta_P90_pp'):
+            vals=[r[name] for r in bootstrap_rows if r['view']==view and r[name] is not None]
+            bounds=np.quantile(vals,[.025,.975]) if vals else [None,None]
+            intervals.append(dict(view=view,statistic=name,estimate=deltas(pool)[name],lower_95=float(bounds[0]) if vals else None,
+                upper_95=float(bounds[1]) if vals else None,valid_replicates=len(vals),total_replicates=2000,joint_groups='G3',sampling_scope='conditional OOF uncertainty, not repeated-training uncertainty'))
+    csv_write(HERE/'bootstrap_intervals.csv',intervals)
+    scenarios=[('G3',SEEDS[0],'principal'),('G3',SEEDS[1],'G3-20261010'),('G3',SEEDS[2],'G3-20261011')]
+    scenarios += [('G1',seed,f'G1-{seed}') for seed in SEEDS]
+    sensitivity=[];all_assignments=[];all_params=[];sensitivity_oof=[]
+    for grouping,seed,tag in scenarios:
+        values=numeric_rows(HERE/(tag+'.csv'))
+        for view,pool in source_views(values):
+            sensitivity.append(dict(grouping=grouping,seed=seed,view=view,execution='executed',paired_A_MdAPE=metric([r for r in pool if valid(r['prediction_A_uf']) and valid(r['prediction_C1_uf'])],'A')['MdAPE'],
+                paired_C1_MdAPE=metric([r for r in pool if valid(r['prediction_A_uf']) and valid(r['prediction_C1_uf'])],'C1')['MdAPE'],
+                coverage_A=sum(valid(r['prediction_A_uf']) for r in pool)/len(pool),coverage_C1=sum(valid(r['prediction_C1_uf']) for r in pool)/len(pool),**deltas(pool)))
+        all_assignments.extend(csv_read(HERE/(tag+'-folds.csv')));all_params.extend(csv_read(HERE/(tag+'-parameters.csv')))
+        if tag!='principal':sensitivity_oof.extend(csv_read(HERE/(tag+'.csv')))
+    # G1 and G2 are identical partitions, grouping membership and model inputs.
+    # Validate before reuse; no new source/model fitting, no independent replicate.
+    datasets,cohort,maps,_=load_datasets();p=reuse_preflight()
+    if any(maps['G1'][i]!=maps['G2'][i] for i in cohort):raise ValueError('G2 reuse invalid: different groups')
+    for seed in SEEDS:
+        if p.partition(cohort,maps['G1'],seed)!=p.partition(cohort,maps['G2'],seed):raise ValueError('G2 reuse invalid: different folds')
+    for row in list(sensitivity):
+        if row['grouping']=='G1':sensitivity.append(dict(row,grouping='G2',execution='identical-input/partition reuse of G1, not independent execution'))
+    csv_write(HERE/'grouping_sensitivity.csv',sensitivity)
+    csv_write(HERE/'fold_assignments.csv',all_assignments);csv_write(HERE/'c1_parameters_by_fold.csv',all_params)
+    csv_write(HERE/'sensitivity_oof_predictions.csv',sensitivity_oof)
+    shutil.copyfile(HERE/'principal.csv',HERE/'oof_predictions.csv')
+    cover=[]
+    for key in ('fold','comuna'):
+        out=[]
+        for value in sorted({r[key] for r in rows}):
+            subset=[r for r in rows if r[key]==value]
+            for view,pool in source_views(subset):
+                if not pool:continue
+                for engine in ('A','C1'):
+                    n=sum(valid(r[f'prediction_{engine}_uf']) for r in pool)
+                    out.append({key:value,'view':view,'engine':engine,'eligible_n':len(pool),'valid_n':n,'abstentions':len(pool)-n,'coverage':n/len(pool),
+                        'abstention_reasons':json.dumps(dict(Counter(r[f'reason_{engine}'] or r[f'status_{engine}'] for r in pool if not valid(r[f'prediction_{engine}_uf']))),sort_keys=True)})
+        csv_write(HERE/('coverage_by_'+key+'.csv'),out)
+    diagnostics=[]
+    def tags(r):
+        area=r['area_m2'];price=r['observed_price_uf'];n=r['A_admissible'];parking=r['parking'];beds=r['bedrooms']
+        return {'comuna':r['comuna'],'area':'<50' if area<50 else '50-90' if area<90 else '>=90',
+                'bedrooms':str(int(beds)) if beds is not None and beds<4 else '4+' if beds is not None else 'missing',
+                'parking':'missing' if parking is None else 'zero_ambiguous' if parking==0 else '1' if parking==1 else '2+',
+                'coordinates':r['coordinates_present'],'A_support':'<5' if n<5 else '5-9' if n<10 else '10-19' if n<20 else '20+',
+                'price_band':'<3000' if price<3000 else '3000-6000' if price<6000 else '>=6000'}
+    for view,pool in source_views(rows):
+        strata=defaultdict(list)
+        for r in pool:
+            for key,value in tags(r).items():strata[key,value].append(r)
+        for (dimension,value),subset in sorted(strata.items()):
+            common=[r for r in subset if valid(r['prediction_A_uf']) and valid(r['prediction_C1_uf'])]
+            for m in compare_view(subset,view):diagnostics.append(dict(dimension=dimension,category=value,groups_n=len({r['dependency_group'] for r in subset}),
+                note='descriptive small N' if len({r['dependency_group'] for r in subset})<30 else 'descriptive, no causal claim',
+                C1_lower_APE_n=sum(r['APE_C1_pct']<r['APE_A_pct'] for r in common),A_lower_APE_n=sum(r['APE_A_pct']<r['APE_C1_pct'] for r in common),**m))
+    csv_write(HERE/'diagnostics.csv',diagnostics)
+    # Source quality/context is descriptive, not a causal explanation of errors.
+    quality=[]
+    for view,pool in source_views(rows):
+        quality.append(dict(view=view,n=len(pool),parking_zero=sum(r['parking']==0 for r in pool),parking_missing=sum(r['parking'] is None for r in pool),
+            built_useful_area_is_proxy_n=len(pool),coordinates_present=sum(r['coordinates_present']=='True' for r in pool),
+            source_T1_selection='Only certified parsed native UF offers; not transaction prices or all source inventory',
+            territorial_counts=json.dumps(dict(Counter(r['comuna'] for r in pool)),sort_keys=True)))
+    csv_write(HERE/'source_context.csv',quality)
+    coefficient_summary=[]
+    principal_params=csv_read(HERE/'principal-parameters.csv')
+    for name in sorted({r['coefficient'] for r in principal_params}):
+        subset=[r for r in principal_params if r['coefficient']==name]
+        values=[float(r['coefficient_scaled']) for r in subset]
+        coefficient_summary.append(dict(coefficient=name,folds_present=len(subset),minimum=min(values),maximum=max(values),
+            mean=float(np.mean(values)),sd=float(np.std(values)),scale='fold-local standardized coefficient; category absence is not zero',
+            elasticity_min=min(float(r['elasticity_log_area']) for r in principal_params),
+            elasticity_max=max(float(r['elasticity_log_area']) for r in principal_params)))
+    csv_write(HERE/'coefficient_stability.csv',coefficient_summary)
+    audits=[read(HERE/(tag+'-audit.json')) for _,_,tag in scenarios]+[read(HERE/'reproduction-audit.json')]
+    leak=dict(status='PASS',protocol_sha256=sha(CONFIG),identical_original_hashes=True,cohort_n=791,primary_groups=781,
+        primary_OOF_unique=True,same_outer_folds_A_C1=True,outer_inner_group_containment=True,held_targets_not_features=True,
+        labels_released_only_after_receipts=True,all_A_comparables_train_only=True,known_history_aliases_purged=True,
+        modern_history_completeness_not_certified=True,holdout_created=False,holdout_consumed=False,
+        runtime_copy_guard_only=True,estimator_files_byte_identical=True,source_is_C1_predictor=True,
+        real_derived_files_private_ACL=True,reproducibility=reproducibility,audits=audits)
+    json_write(HERE/'leakage_checks.json',leak)
+    summary=dict(primary={view:dict(delta=deltas(pool),metrics=compare_view(pool,view)) for view,pool in source_views(rows)},
+                 bootstrap_intervals=intervals,reproduction=reproducibility,limitations=c['manual_valuation_limit'])
+    json_write(HERE/'results_summary.json',summary)
+    verify_lock()
+    print(json.dumps({'analysis':'PASS','OOF_rows':len(rows),'bootstrap_replicates':2000,'views':3,'reproduction':reproducibility['status']}),flush=True)
+
+def finalize():
+    verify_lock()
+    tests=read(HERE/'methodology_tests.json')
+    if tests['failures'] or tests['errors'] or not tests['post_execution']:raise ValueError('Final methodology tests missing/failing')
+    if read(HERE/'leakage_checks.json')['status']!='PASS':raise ValueError('Leakage checks failed')
+    files=[]
+    for path in sorted(HERE.rglob('*')):
+        if not path.is_file() or '__pycache__' in path.parts or path.name=='experiment_manifest.csv':continue
+        files.append(dict(artifact=str(path.relative_to(HERE)),size_bytes=path.stat().st_size,sha256=sha(path),
+            sensitivity='private experimental derived data' if path.suffix=='.csv' else 'local protocol/code/evidence',
+            timestamp_utc=datetime.fromtimestamp(path.stat().st_mtime,timezone.utc).isoformat(),
+            original_inputs_unchanged=True))
+    csv_write(HERE/'experiment_manifest.csv',files)
+    print(json.dumps({'final_manifest':'PASS','artifacts':len(files)}))
+
+def main():
+    if len(sys.argv)<2:raise SystemExit('prepare | run GROUP SEED TAG | analyze | verify')
+    command=sys.argv[1]
+    if command=='prepare':prepare()
+    elif command=='run':run_scenario(sys.argv[2],int(sys.argv[3]),sys.argv[4])
+    elif command=='analyze':analyze()
+    elif command=='verify':verify_lock();print('LOCK_AND_ORIGINAL_HASHES_PASS')
+    elif command=='finalize':finalize()
+    else:raise SystemExit('Unknown command')
+
+if __name__=='__main__':main()

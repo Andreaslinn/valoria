@@ -1,0 +1,4 @@
+from pathlib import Path
+p=Path('frontend-v2/src/features/valuation/warning-taxonomy.ts')
+s=p.read_text(encoding='utf-8').replace('const WARNING_DEFINITIONS:', 'export const WARNING_DEFINITIONS:')
+p.write_text(s,encoding='utf-8')

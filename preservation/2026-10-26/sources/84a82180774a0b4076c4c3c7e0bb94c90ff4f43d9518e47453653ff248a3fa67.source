@@ -1,0 +1,169 @@
+# Portal geography: operational release procedure
+
+Development branch: `feat/portal-geography-pipeline`. Functional commits: `2c8f6da`, `12d113f`.
+This closure adds operational tests and release documentation only. No new runtime
+architecture, dependency, migration, AVM or production change.
+
+## Validation boundary
+
+ARM64 is emulated with Docker Desktop/QEMU on Windows amd64, not native Oracle.
+The local representative base uses Python 3.13.14, Debian 13.6 and the same 81
+distribution versions inventoried READ ONLY from Oracle. Already archived local
+ingestion v3 and deployed thumbnail sources reconstruct the relevant code in the
+older local validation base. Source comparisons normalize CRLF/LF only.
+The production image itself was not exported. This is not a byte-identical copy
+of all production layers, nor an Oracle performance/load certification.
+
+The actual release Dockerfile still overlays only ten runtime files onto the
+verified current production image. The representative base/reconstruction is
+strictly local validation material and must **not** replace that production base.
+
+PostgreSQL validation uses official 16.14-alpine on an internal Docker network,
+synthetic listings and archived HTML only. The application/test client is ARM64;
+the PostgreSQL server is native amd64, same PostgreSQL release as Oracle's ARM64
+server. No Oracle DB dump or production credentials enter these tests.
+Tests refuse other database names/hosts/users and create/drop only their random
+`portal_geo_op_*` schemas. Real simultaneous sessions, row locks, SKIP LOCKED,
+commits, cancellations and rollback execute against PostgreSQL. The per-worker
+request budget is independent: two invocations with budget1 may make two distinct
+requests total, never two requests for the same reserved publication.
+
+The harness permits 30-second statements for QEMU client round trips, retaining
+a strict 1.5-second lock timeout and PostgreSQL lock-wait logging at 100ms.
+These are test settings, not production configuration or a latency target.
+Initial incorrect fixture parsing and short QEMU timeouts are retained in local
+validation logs; they are not represented as passing tests.
+
+## Promotion and preflight (not executed)
+
+1. Promote only the geography commits plus this operational closure, preserving
+   the deployed History v3 prerequisite. Do not replace the dirty local UI branch
+   or all Oracle checkout files. Review `git diff 5adc256..HEAD` and the ten runtime
+   paths in `Dockerfile.portal-geography-overlay`.
+2. Re-read current image/tag, effective settings, mounts, schema0021, API health,
+   three Compose file paths and Portal/Yapo timer state. Abort/reconcile if any
+   relevant deployed source hash has changed from the recorded baseline.
+3. Preserve existing private configuration through the previously approved secure
+   backup mechanism. Verify a current PostgreSQL dump/globals and retain the
+   existing image by immutable release tag. No migration is required or permitted
+   by this release; do not rerun History0021 on production.
+4. Build the production overlay on the verified current image, not the older
+   Oracle checkout or local representative base:
+
+   ```sh
+   docker image inspect valoria-thumbnails:shared-v2-20261008 --format '{{.Id}}'
+   # Must still equal sha256:85b7c668299eb7883ef668f422583adc226d5d1e21fbc1d08ae13de82bf88147
+   docker image tag sha256:85b7c668299eb7883ef668f422583adc226d5d1e21fbc1d08ae13de82bf88147 valoria-portal-geo-rollback:20261011
+   docker build --pull=false --network=none --platform=linux/arm64 \
+     -f Dockerfile.portal-geography-overlay \
+     --build-arg BASE_IMAGE=valoria-thumbnails:shared-v2-20261008 \
+     -t valoria-portal-geo:<approved-commit> .
+   ```
+
+   This is a future authorized release operation. Validate the resulting image
+   digest and record it before changing the API service. Retain the previous tag.
+
+## Stage A â€” code deployment, Portal paused (not executed)
+
+The READ ONLY inventory found exactly these existing Compose files:
+
+- `docker-compose.oracle.yml`
+- `deploy/ingestion-v3-20261004.override.yml`
+- `deploy/thumbnails-v2-20261008.override.yml`
+
+The new code-only override sets Portal false and geo budget0 explicitly, leaving
+all existing History, volumes, Yapo and scheduler configuration inherited.
+
+After deployment approval and preflight, from `/home/ubuntu/apps/valoria`:
+
+```sh
+export PORTAL_GEO_RELEASE_IMAGE='valoria-portal-geo:<approved-commit>'
+docker compose -p valoria_oracle_beta \
+  -f docker-compose.oracle.yml \
+  -f deploy/ingestion-v3-20261004.override.yml \
+  -f deploy/thumbnails-v2-20261008.override.yml \
+  -f deploy/portal-geography-code.override.yml \
+  up -d --no-deps --no-build api
+```
+
+No timer command, manual scrape, migration or history/data rewrite belongs here.
+Before calling deployment successful:
+
+1. Check expected image ID, API running/healthy and zero restart loop.
+2. Require HTTP200/`status=ok` from `/health` and `/api/v1/health`. Check DB SELECT1
+   and Redis PING against existing service dependencies; inspect no private config.
+3. Read only the named flags: `portal_http_enabled=false`, geo budget0, attempts3,
+   cooldown24, History ON; preserve scheduler/workers effective baseline.
+4. Verify authenticated read-only Radar/watchlist/thumbnail responses and existing
+   Tasar contract/routes. Observe normal user flows; no synthetic production
+   valuation writes or scrape is necessary for code-only acceptance.
+5. Require Portal timer still inactive, Yapo timer unchanged, no new Portal source
+   requests/observations caused by release, schema still0021, no import/DB errors.
+   Roll back on any attributable health, authentication or existing-flow regression.
+
+## Exact Stage A rollback (prepared, not executed)
+
+Keep Portal inactive and reuse the **same four Compose files**. Set the immutable
+retained image tag; recreate only API:
+
+```sh
+export PORTAL_GEO_RELEASE_IMAGE='valoria-portal-geo-rollback:20261011'
+docker compose -p valoria_oracle_beta \
+  -f docker-compose.oracle.yml \
+  -f deploy/ingestion-v3-20261004.override.yml \
+  -f deploy/thumbnails-v2-20261008.override.yml \
+  -f deploy/portal-geography-code.override.yml \
+  up -d --no-deps --no-build api
+```
+
+Recheck the expected old image ID and Stage A health/flags checks. The old Settings
+ignores the additive geo variables. No DB downgrade, restore, observation deletion
+or inverse backfill: retain any lat/lon/provenance already written and History ON.
+Preserve the thumbnail volume and Yapo timer. A database restoration is not part
+of a code rollback.
+
+## Stage B â€” separately authorized activation (not executed)
+
+Code deployment is **not** permission to reactivate Portal. A later authorization
+must specify Portal acquisition resumption and its existing timer/service controls,
+as well as geo budget1, max attempts3 and cooldown24h. The Stage A false/zero
+override must be superseded explicitly in that later approved configuration;
+do not merely change a lower-precedence environment file.
+
+Observe the next normal cycle and subsequent cooldown/reobservation cycle. Record
+commercial versus extra/reused requests, accepted/missing/rejected/blocked and
+exhausted counts, canonical coverage, MLC/provenance agreement, history events,
+wall time, locks, errors, storage and resources. A pin with unknown physical
+accuracy stays unknown. Budget1 permits at most one additional detail per normal
+invocation, not one per card, and no new job/timer.
+
+Stop enrichment on accepted identity/context conflicts, unexpected overwrites,
+privacy incidents, request-budget violations, persistent blocks, transaction/lock
+errors or storage pressure. First return the extra budget to0 through the approved
+operational configuration; keep/pause Portal if acquisition itself is unhealthy.
+Do not retry through challenges, bypass403/429 or erase evidence. Stage B rollback
+also restores the Stage A Portal false/zero configuration before code rollback.
+
+## Evidence
+
+Machine-readable final evidence: `portal-geography-operational-validation.json`.
+PostgreSQL test: `tests/integration_pg/test_portal_geography_operational.py`.
+The previously excluded Yapo test is rerun against both baseline and candidate;
+the unchanged CLP-price-zero rejection is inherited, not repaired by this release.
+The broader inherited suite is not claimed globally green.
+
+
+## Repeating the isolated PostgreSQL tests
+
+With the validated local ARM64 image present, from this repository:
+
+```sh
+docker compose -f tests/integration_pg/compose.portal-geography.yml up --abort-on-container-exit --exit-code-from validation
+docker compose -f tests/integration_pg/compose.portal-geography.yml down
+```
+
+The Compose file is a repeatability recipe for the same image/test/network/DB
+configuration exercised during closure; its local roles/JWT are synthetic test
+values. No persistent data or host port is mounted. Without the explicit opt-in
+URL the test class is skipped by ordinary pytest. Production paths and credentials
+are never accepted by this harness.

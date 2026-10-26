@@ -1,0 +1,49 @@
+from pathlib import Path
+import os,shutil,json,hashlib
+src=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled');dst=Path('work/github-release');manifest={}
+for current,dirs,files in os.walk(src/'frontend-v2'):
+ dirs[:]=[d for d in dirs if d not in ['node_modules','.next','.next-dev','.netlify','.git','out']]
+ for name in files:
+  if name.endswith(('.log','.tsbuildinfo')) or (name.startswith('.env') and name!='.env.example'):continue
+  p=Path(current)/name;relative=p.relative_to(src);target=dst/relative;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(p,target);manifest[str(relative).replace('\\','/')]=hashlib.sha256(p.read_bytes()).hexdigest()
+for name in ['load-ts.cjs','remediation.test.cjs']:
+ p=dst/'tests/frontend'/name;p.parent.mkdir(exist_ok=True);shutil.copy2(src/'tests/frontend'/name,p)
+Path('work/frontend-validated-source-manifest.json').write_text(json.dumps(manifest,indent=2))
+(dst/'netlify.toml').write_text('''# Valoria V2. Keep the existing Oracle backend and the legacy frontend intact.
+[build]
+  base = "frontend-v2"
+  command = "npm ci --no-audit --no-fund && node ../tests/frontend/remediation.test.cjs && npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22.14.0"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# The modern Netlify OpenNext adapter is detected automatically.
+# Set NEXT_PUBLIC_API_BASE_URL in Netlify to the validated HTTPS Oracle origin.
+# Do not add static-export settings or a catch-all SPA redirect.
+''',encoding='utf-8')
+p=dst/'.gitignore';s=p.read_text(encoding='utf-8');s+='''
+# Local frontend/deployment/runtime material
+**/node_modules/
+**/.next/
+**/.next-dev/
+**/.netlify/
+*.tsbuildinfo
+*.dump
+*.pem
+*.key
+*.pfx
+*storage_state*.json
+*cookie*.json
+private/
+''';p.write_text(s,encoding='utf-8')
+(dst/'frontend-v2/README.md').write_text('''# Valoria V2
+
+Next.js15 App Router frontend for the existing Valoria Oracle API. Run `npm ci` and `npm run dev`; build with `npm run build`. Dependency versions are locked in package-lock.json.
+
+Browser API requests use `/backend` on the same origin. next.config.ts forwards only that fixed path to NEXT_PUBLIC_API_BASE_URL; set it to the validated HTTPS Oracle origin in Netlify. Authentication uses the existing bearer token and backend authorization, with no backend secret in public environment variables. Development-only fixtures are disabled in production.
+
+Netlify builds frontend-v2 using the root netlify.toml and its modern automatic OpenNext adapter. Use the release branch and deploy-preview acceptance before production publication. Keep the legacy site and Oracle services unchanged. Exact backend image, release source hashes, deployment IDs and rollback state are recorded in deployment acceptance artifacts.
+''',encoding='utf-8')
+print(json.dumps({'validated_frontend_files_copied':len(manifest),'original_worktree_unchanged':True}))

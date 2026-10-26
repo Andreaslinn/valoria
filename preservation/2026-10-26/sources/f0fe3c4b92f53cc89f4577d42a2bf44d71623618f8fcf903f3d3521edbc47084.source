@@ -1,0 +1,11 @@
+import sys,json
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+from scripts.validate_sii_closing import connect
+with connect('postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55432/valoria_sii_local') as c:
+    c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    cols=c.execute("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema='sii' AND table_name IN ('predio','linea_construccion') ORDER BY table_name,ordinal_position").fetchall()
+    print(json.dumps(cols,indent=2))
+    print(c.execute("SELECT id,tipo,hash,semestre FROM sii.source_file WHERE comuna=15160 ORDER BY id").fetchall())
+    c.rollback()

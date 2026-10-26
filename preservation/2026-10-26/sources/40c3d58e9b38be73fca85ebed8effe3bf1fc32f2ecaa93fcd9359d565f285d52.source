@@ -1,0 +1,832 @@
+"""Market Intelligence v1 read models for dashboard contracts.
+
+These summaries are deterministic and read-only. They do not run AVM, Radar,
+scrapers, refresh jobs, external calls, or database writes.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from itertools import pairwise
+from statistics import median
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.db.models import ListingORM, PriceHistoryORM
+
+MARKET = "Santiago, Chile"
+PROPERTY_TYPE = "apartment"
+DEFAULT_COMMUNE_MIN_ACTIVE_LISTINGS = 30
+DEFAULT_COMMUNE_MIN_TIME_SAMPLE = 20
+DEFAULT_COMMUNE_MIN_PRICE_HISTORY_SAMPLE = 15
+RELIABLE_PRICE_UF_CONFIDENCE = frozenset({"", "high", "medium", "derived", "explicit"})
+REMOVED_STATUSES = frozenset(
+    {
+        "removed",
+        "inactive",
+        "removed_redirect",
+        "inactive_explicit",
+        "not_found",
+        "unavailable",
+    }
+)
+VALID_CHANGE_BASIS_PREFIXES = ("uf", "clp", "observed")
+INVALID_CHANGE_BASIS_VALUES = frozenset(
+    {
+        "",
+        "legacy_unrecoverable",
+        "legacy_uf_unknown",
+        "uf_rate_artifact",
+    }
+)
+
+
+@dataclass(frozen=True)
+class MarketIntelligenceConfig:
+    commune_min_active_listings: int = DEFAULT_COMMUNE_MIN_ACTIVE_LISTINGS
+    commune_min_time_sample: int = DEFAULT_COMMUNE_MIN_TIME_SAMPLE
+    commune_min_price_history_sample: int = DEFAULT_COMMUNE_MIN_PRICE_HISTORY_SAMPLE
+
+
+@dataclass(frozen=True)
+class ListingRow:
+    id: int
+    comuna: str
+    status: str
+    price_uf: Decimal | None
+    price_uf_source: str | None
+    price_uf_confidence: str | None
+    price_recovery_method: str | None
+    m2: float | None
+    built_area_m2: float | None
+    usable_area_m2: float | None
+    scraped_at: datetime
+    last_seen_at: datetime | None
+    last_refresh_attempted_at: datetime | None
+    last_refresh_status: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True)
+class PricePoint:
+    listing_id: int
+    observed_at: datetime
+    price_uf: Decimal | None
+    price_clp: Decimal | None
+    price_clp_snapshot: Decimal | None
+    change_basis: str | None
+    is_artifact: bool
+    listing_price_uf_source: str | None
+    listing_price_recovery_method: str | None
+
+
+@dataclass(frozen=True)
+class PriceDropStats:
+    unique_24h: int
+    unique_7d: int
+    unique_30d: int
+    events_24h: int
+    events_7d: int
+    events_30d: int
+    eligible_listings: int
+
+
+@dataclass(frozen=True)
+class ObservedTimeStats:
+    status: str
+    median_days: int | None
+    p25_days: int | None
+    p75_days: int | None
+    sample_size: int
+    usable_timestamp_share: float
+
+
+async def build_market_pulse(
+    session: AsyncSession,
+    *,
+    config: MarketIntelligenceConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or MarketIntelligenceConfig()
+    dataset = await _load_dataset(session)
+    activity = _recent_activity(dataset)
+    observed_time = _observed_publication_time(dataset)
+    price_drops = _price_drop_stats(dataset.price_points, now=dataset.now)
+    commune_items = _commune_items(dataset, price_drops_by_listing=_drop_listing_ids_30d(dataset.price_points, dataset.now), config=cfg)
+    balance = _market_balance(
+        activity=activity,
+        price_drops=price_drops,
+        observed_time=observed_time,
+        active_count=len(dataset.active),
+    )
+    dynamism = _market_dynamism(
+        activity=activity,
+        active_count=len(dataset.active),
+        communes_with_activity=sum(1 for item in commune_items if item["new_7d"] or item["removed_7d"] or item["price_drops_30d"]),
+        total_communes=len(commune_items),
+    )
+    featured = _featured_commune(commune_items)
+    insight = _market_insight(activity=activity, balance=balance, featured=featured)
+
+    return {
+        "status": "available" if dataset.scoped else "empty",
+        "market": MARKET,
+        "property_type": PROPERTY_TYPE,
+        "updated_at": dataset.now,
+        "market_balance": balance,
+        "recent_activity": activity,
+        "observed_publication_time": _observed_time_contract(observed_time),
+        "featured_commune": featured,
+        "market_dynamism": dynamism,
+        "insight": insight,
+        "coverage": {
+            "active_listings": len(dataset.active),
+            "eligible_for_flow": len(dataset.scoped),
+            "eligible_for_observed_time": observed_time.sample_size,
+            "eligible_for_price_changes": price_drops.eligible_listings,
+            "communes_with_minimum_sample": sum(
+                1 for item in commune_items if item["active_listings"] >= cfg.commune_min_active_listings
+            ),
+        },
+    }
+
+
+async def build_communes_summary(
+    session: AsyncSession,
+    *,
+    config: MarketIntelligenceConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or MarketIntelligenceConfig()
+    dataset = await _load_dataset(session)
+    items = _commune_items(dataset, price_drops_by_listing=_drop_listing_ids_30d(dataset.price_points, dataset.now), config=cfg)
+    return {
+        "status": "available" if items else "empty",
+        "market": MARKET,
+        "updated_at": dataset.now,
+        "items": sorted(items, key=lambda item: (item["active_listings"], item["new_7d"]), reverse=True),
+        "sort": "active_listings_desc",
+        "minimum_sample": {
+            "active_listings": cfg.commune_min_active_listings,
+            "observed_time": cfg.commune_min_time_sample,
+            "price_history": cfg.commune_min_price_history_sample,
+        },
+    }
+
+
+async def build_dynamism_summary(session: AsyncSession) -> dict[str, Any]:
+    dataset = await _load_dataset(session)
+    activity = _recent_activity(dataset)
+    commune_items = _commune_items(
+        dataset,
+        price_drops_by_listing=_drop_listing_ids_30d(dataset.price_points, dataset.now),
+        config=MarketIntelligenceConfig(),
+    )
+    return {
+        **_market_dynamism(
+            activity=activity,
+            active_count=len(dataset.active),
+            communes_with_activity=sum(1 for item in commune_items if item["new_7d"] or item["removed_7d"] or item["price_drops_30d"]),
+            total_communes=len(commune_items),
+        ),
+        "market": MARKET,
+        "updated_at": dataset.now,
+        "methodology": "market_dynamism_v1",
+    }
+
+
+@dataclass(frozen=True)
+class MarketDataset:
+    now: datetime
+    scoped: list[ListingRow]
+    active: list[ListingRow]
+    removed: list[ListingRow]
+    price_points: list[PricePoint]
+
+
+async def _load_dataset(session: AsyncSession) -> MarketDataset:
+    now = datetime.now(UTC)
+    listing_result = await session.scalars(
+        select(ListingORM).where(ListingORM.property_type == PROPERTY_TYPE)
+    )
+    scoped = [_listing_row(row) for row in listing_result.all()]
+    price_result = await session.execute(
+        select(
+            PriceHistoryORM.listing_id,
+            PriceHistoryORM.observed_at,
+            PriceHistoryORM.price_uf,
+            PriceHistoryORM.price_clp,
+            PriceHistoryORM.price_clp_snapshot,
+            PriceHistoryORM.change_basis,
+            PriceHistoryORM.is_artifact,
+            ListingORM.price_uf_source,
+            ListingORM.price_recovery_method,
+        )
+        .join(ListingORM, ListingORM.id == PriceHistoryORM.listing_id)
+        .where(ListingORM.property_type == PROPERTY_TYPE)
+    )
+    price_points = [
+        PricePoint(
+            listing_id=row.listing_id,
+            observed_at=_aware(row.observed_at),
+            price_uf=row.price_uf,
+            price_clp=row.price_clp,
+            price_clp_snapshot=row.price_clp_snapshot,
+            change_basis=row.change_basis,
+            is_artifact=bool(row.is_artifact),
+            listing_price_uf_source=row.price_uf_source,
+            listing_price_recovery_method=row.price_recovery_method,
+        )
+        for row in price_result.all()
+    ]
+    return MarketDataset(
+        now=now,
+        scoped=scoped,
+        active=[row for row in scoped if _normalized(row.status) == "active"],
+        removed=[row for row in scoped if _is_removed(row)],
+        price_points=price_points,
+    )
+
+
+def _recent_activity(dataset: MarketDataset) -> dict[str, Any]:
+    new_24h = _new_count(dataset.scoped, now=dataset.now, days=1)
+    new_7d = _new_count(dataset.scoped, now=dataset.now, days=7)
+    removed_24h = _removed_count(dataset.removed, now=dataset.now, days=1)
+    removed_7d = _removed_count(dataset.removed, now=dataset.now, days=7)
+    price_drops = _price_drop_stats(dataset.price_points, now=dataset.now)
+    return {
+        "new_24h": new_24h,
+        "new_7d": new_7d,
+        "removed_24h": removed_24h,
+        "removed_7d": removed_7d,
+        "price_drops_24h": price_drops.unique_24h,
+        "price_drops_7d": price_drops.unique_7d,
+        "price_drops_30d": price_drops.unique_30d,
+        "unique_listings_with_price_drop_30d": price_drops.unique_30d,
+        "total_price_drop_events_30d": price_drops.events_30d,
+        "net_flow_24h": new_24h - removed_24h,
+        "net_flow_7d": new_7d - removed_7d,
+        "status": "available" if dataset.scoped else "empty",
+    }
+
+
+def _observed_publication_time(dataset: MarketDataset) -> ObservedTimeStats:
+    ages: list[int] = []
+    usable_count = 0
+    for row in dataset.active:
+        first_seen = _first_seen_at(row)
+        if first_seen is None or first_seen > dataset.now:
+            continue
+        if first_seen < dataset.now - timedelta(days=3650):
+            continue
+        usable_count += 1
+        ages.append(max((dataset.now - first_seen).days, 0))
+    if not ages:
+        return ObservedTimeStats("empty", None, None, None, 0, 0.0)
+    ordered = sorted(ages)
+    return ObservedTimeStats(
+        status="available",
+        median_days=round(float(median(ordered))),
+        p25_days=_percentile(ordered, 0.25),
+        p75_days=_percentile(ordered, 0.75),
+        sample_size=len(ordered),
+        usable_timestamp_share=_ratio(usable_count, len(dataset.active)),
+    )
+
+
+def _price_drop_stats(points: list[PricePoint], *, now: datetime) -> PriceDropStats:
+    grouped: dict[int, list[tuple[datetime, Decimal]]] = defaultdict(list)
+    for point in points:
+        value = _valid_price_point_value(point)
+        if value is not None:
+            grouped[point.listing_id].append((point.observed_at, value))
+    drop_events: list[tuple[int, datetime]] = []
+    for listing_id, listing_points in grouped.items():
+        ordered = sorted(listing_points, key=lambda item: item[0])
+        for previous, current in pairwise(ordered):
+            if current[1] < previous[1]:
+                drop_events.append((listing_id, current[0]))
+    return PriceDropStats(
+        unique_24h=_unique_drop_count(drop_events, now=now, days=1),
+        unique_7d=_unique_drop_count(drop_events, now=now, days=7),
+        unique_30d=_unique_drop_count(drop_events, now=now, days=30),
+        events_24h=_event_drop_count(drop_events, now=now, days=1),
+        events_7d=_event_drop_count(drop_events, now=now, days=7),
+        events_30d=_event_drop_count(drop_events, now=now, days=30),
+        eligible_listings=len(grouped),
+    )
+
+
+def _market_balance(
+    *,
+    activity: dict[str, Any],
+    price_drops: PriceDropStats,
+    observed_time: ObservedTimeStats,
+    active_count: int,
+) -> dict[str, Any]:
+    supply_raw = _ratio(activity["net_flow_7d"], active_count) if active_count else 0.0
+    supply_norm = _clamp(0.5 + supply_raw * 5)
+    price_drop_share = _ratio(price_drops.unique_30d, price_drops.eligible_listings)
+    price_norm = _clamp(price_drop_share / 0.20) if price_drops.eligible_listings else 0.50
+    time_norm = _clamp(((observed_time.median_days or 53) - 15) / 75) if observed_time.sample_size else 0.50
+    components = [
+        _component(
+            "supply_flow",
+            "Oferta",
+            supply_norm,
+            0.30,
+            "available" if active_count else "unavailable",
+            "medium",
+            supply_raw,
+            "Flujo neto semanal relativo a publicaciones activas; mayor entrada favorece al comprador.",
+            "up" if activity["net_flow_7d"] > 0 else "down" if activity["net_flow_7d"] < 0 else "flat",
+        ),
+        _component(
+            "price_reductions",
+            "Rebajas",
+            price_norm,
+            0.30,
+            "available" if price_drops.eligible_listings else "unavailable",
+            "high" if price_drops.eligible_listings >= 100 else "medium" if price_drops.eligible_listings >= 15 else "low",
+            price_drop_share,
+            f"El {round(price_drop_share * 100, 1)}% de publicaciones con historial registró al menos una rebaja en 30 dias.",
+            "up" if price_drop_share >= 0.10 else "flat",
+        ),
+        _component(
+            "observed_time",
+            "Tiempo observado",
+            time_norm,
+            0.25,
+            observed_time.status,
+            "high" if observed_time.sample_size >= 300 else "medium" if observed_time.sample_size >= 50 else "low",
+            observed_time.median_days,
+            "Mayor tiempo observado publicado indica mas espacio potencial de negociacion.",
+            "slower" if time_norm > 0.55 else "faster" if time_norm < 0.45 else "flat",
+        ),
+        _component(
+            "price_trend",
+            "Precio UF/m2",
+            0.50,
+            0.15,
+            "unavailable",
+            "low",
+            None,
+            "Sin ventanas temporales comparables suficientes; componente neutral.",
+            "unknown",
+        ),
+    ]
+    score = round(sum(item["score"] * item["weight"] for item in components))
+    label, side = _balance_label(score)
+    confidence = _balance_confidence(active_count, price_drops, observed_time, components)
+    return {
+        "status": "available" if active_count else "empty",
+        "score": _score(score),
+        "max": 100,
+        "label": label,
+        "side": side,
+        "headline": _balance_headline(side, label),
+        "summary": _balance_summary(side, activity, price_drops),
+        "confidence": confidence["label"],
+        "confidence_score": confidence["score"],
+        "confidence_coverage": confidence["coverage"],
+        "components": components,
+        "methodology": "market_balance_v1",
+    }
+
+
+def _market_dynamism(
+    *,
+    activity: dict[str, Any],
+    active_count: int,
+    communes_with_activity: int,
+    total_communes: int,
+) -> dict[str, Any]:
+    new_rate = _ratio(activity["new_7d"], active_count)
+    removed_rate = _ratio(activity["removed_7d"], active_count)
+    price_rate = _ratio(activity["price_drops_30d"], active_count)
+    territory = _ratio(communes_with_activity, total_communes)
+    components = [
+        {"key": "new_supply", "value": activity["new_7d"], "normalized": _clamp(new_rate / 0.10), "weight": 0.30},
+        {"key": "withdrawals", "value": activity["removed_7d"], "normalized": _clamp(removed_rate / 0.10), "weight": 0.25},
+        {"key": "price_changes", "value": activity["price_drops_30d"], "normalized": _clamp(price_rate / 0.20), "weight": 0.25},
+        {"key": "territorial_activity", "value": communes_with_activity, "normalized": territory, "weight": 0.20},
+    ]
+    score = _score(100 * sum(item["normalized"] * item["weight"] for item in components))
+    return {
+        "status": "available" if active_count else "empty",
+        "score": score,
+        "max": 100,
+        "label": _dynamism_label(score),
+        "summary": "El mercado presenta flujo de publicaciones, retiros y rebajas de precio." if score >= 50 else "El mercado muestra actividad acotada en publicaciones y cambios de precio.",
+        "confidence": "medium" if active_count >= 100 else "low",
+        "components": components,
+        "raw_metrics": {
+            "active_listings": active_count,
+            "new_7d": activity["new_7d"],
+            "removed_7d": activity["removed_7d"],
+            "price_drops_30d": activity["price_drops_30d"],
+            "communes_with_activity": communes_with_activity,
+        },
+        "methodology": "market_dynamism_v1",
+    }
+
+
+def _commune_items(
+    dataset: MarketDataset,
+    *,
+    price_drops_by_listing: set[int],
+    config: MarketIntelligenceConfig,
+) -> list[dict[str, Any]]:
+    by_comuna: dict[str, list[ListingRow]] = defaultdict(list)
+    for row in dataset.scoped:
+        by_comuna[_display_comuna(row.comuna)].append(row)
+    items: list[dict[str, Any]] = []
+    for comuna, rows in by_comuna.items():
+        active = [row for row in rows if _normalized(row.status) == "active"]
+        if len(active) < config.commune_min_active_listings:
+            continue
+        observed = _observed_days_for_rows(active, dataset.now)
+        price_m2 = [_price_m2_uf(row) for row in active]
+        price_m2 = [value for value in price_m2 if value is not None]
+        row_ids = {row.id for row in rows}
+        new_7d = _new_count(rows, now=dataset.now, days=7)
+        removed_7d = _removed_count([row for row in rows if _is_removed(row)], now=dataset.now, days=7)
+        price_drops_30d = len(row_ids & price_drops_by_listing)
+        price_eligible = sum(1 for point in dataset.price_points if point.listing_id in row_ids and _valid_price_point_value(point) is not None)
+        price_drop_share = _ratio(price_drops_30d, len({point.listing_id for point in dataset.price_points if point.listing_id in row_ids}))
+        balance_score = _score(100 * _clamp(0.45 + _ratio(new_7d - removed_7d, len(active)) * 4 + price_drop_share))
+        label, _side = _balance_label(balance_score)
+        items.append(
+            {
+                "comuna": comuna,
+                "active_listings": len(active),
+                "new_24h": _new_count(rows, now=dataset.now, days=1),
+                "new_7d": new_7d,
+                "removed_7d": removed_7d,
+                "net_flow_7d": new_7d - removed_7d,
+                "price_drops_30d": price_drops_30d,
+                "price_drop_share_30d": round(price_drop_share, 3),
+                "median_observed_days": round(float(median(observed))) if len(observed) >= config.commune_min_time_sample else None,
+                "observed_time_sample": len(observed),
+                "median_price_m2_uf": round(float(median(price_m2)), 1) if price_m2 else None,
+                "price_m2_sample": len(price_m2),
+                "price_history_sample": price_eligible,
+                "market_balance_score": balance_score,
+                "market_balance_label": label,
+                "buyer_seller_balance": label,
+                "confidence": _commune_confidence(len(active), len(observed), price_eligible, config),
+            }
+        )
+    return items
+
+
+def _featured_commune(items: list[dict[str, Any]]) -> dict[str, Any]:
+    if not items:
+        return {"status": "empty", "criterion": "highest_supply_pressure"}
+    ranked = sorted(
+        items,
+        key=lambda item: (
+            _ratio(item["net_flow_7d"], item["active_listings"])
+            + _ratio(item["new_7d"], item["active_listings"])
+            + item["price_drop_share_30d"],
+            item["active_listings"],
+        ),
+        reverse=True,
+    )
+    item = ranked[0]
+    return {
+        "status": "available",
+        "comuna": item["comuna"],
+        "criterion": "highest_supply_pressure",
+        "reason_code": "net_flow_new_supply_price_drops",
+        "headline": "Mayor presión de oferta esta semana",
+        "metric_label": f"{item['new_7d']} nuevas publicaciones",
+        "metric_value": item["new_7d"],
+        **{key: item[key] for key in (
+            "active_listings",
+            "new_7d",
+            "removed_7d",
+            "price_drops_30d",
+            "median_observed_days",
+            "median_price_m2_uf",
+            "confidence",
+        )},
+    }
+
+
+def _market_insight(
+    *,
+    activity: dict[str, Any],
+    balance: dict[str, Any],
+    featured: dict[str, Any],
+) -> dict[str, Any]:
+    reason_codes: list[str] = []
+    sentences: list[str] = []
+    if activity["net_flow_7d"] > 0:
+        sentences.append("Durante los últimos siete días ingresaron más publicaciones de las que salieron, aumentando las opciones para compradores.")
+        reason_codes.append("positive_net_flow_7d")
+    elif activity["net_flow_7d"] < 0:
+        sentences.append("Durante los últimos siete días salieron más publicaciones de las que ingresaron, reduciendo parte de la oferta visible.")
+        reason_codes.append("negative_net_flow_7d")
+    else:
+        sentences.append("Durante los últimos siete días la entrada y salida de publicaciones estuvo equilibrada.")
+        reason_codes.append("flat_net_flow_7d")
+    if activity["price_drops_7d"] > 0:
+        sentences.append(f"Además, {activity['price_drops_7d']} publicaciones registraron rebajas de precio en la semana.")
+        reason_codes.append("weekly_price_drops")
+    elif featured.get("status") == "available":
+        sentences.append(f"{featured['comuna']} destacó por presión de oferta entre las comunas con muestra suficiente.")
+        reason_codes.append("featured_commune")
+    return {
+        "status": "available",
+        "text": " ".join(sentences[:2]),
+        "reason_codes": reason_codes,
+        "metrics_used": {
+            "net_flow_7d": activity["net_flow_7d"],
+            "price_drops_7d": activity["price_drops_7d"],
+            "market_balance_score": balance["score"],
+        },
+    }
+
+
+def _observed_time_contract(stats: ObservedTimeStats) -> dict[str, Any]:
+    return {
+        "status": stats.status,
+        "median_days": stats.median_days,
+        "p25_days": stats.p25_days,
+        "p75_days": stats.p75_days,
+        "sample_size": stats.sample_size,
+        "usable_timestamp_share": round(stats.usable_timestamp_share, 3),
+        "label": "Tiempo observado publicado",
+        "comparison": {
+            "status": "unavailable",
+            "previous_period_median_days": None,
+            "change_days": None,
+            "direction": None,
+        },
+        "methodology": "Dias desde la primera observacion de Valoria; no equivale necesariamente al tiempo real desde la publicacion original.",
+    }
+
+
+def _component(
+    key: str,
+    label: str,
+    normalized: float,
+    weight: float,
+    status: str,
+    confidence: str,
+    raw_value: float | int | None,
+    explanation: str,
+    direction: str,
+) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "score": _score(normalized * 100),
+        "raw_value": raw_value,
+        "normalized_value": round(normalized, 3),
+        "weight": weight,
+        "status": status,
+        "confidence": confidence,
+        "direction": direction,
+        "effect": "buyer" if normalized >= 0.55 else "seller" if normalized <= 0.45 else "neutral",
+        "explanation": explanation,
+    }
+
+
+def _balance_confidence(
+    active_count: int,
+    price_drops: PriceDropStats,
+    observed_time: ObservedTimeStats,
+    components: list[dict[str, Any]],
+) -> dict[str, Any]:
+    coverage = {
+        "supply_flow": 1.0 if active_count >= 50 else _ratio(active_count, 50),
+        "price_reductions": _ratio(price_drops.eligible_listings, active_count),
+        "observed_time": observed_time.usable_timestamp_share,
+        "price_trend": 0.0,
+    }
+    available_weight = sum(item["weight"] for item in components if item["status"] == "available")
+    score = round((sum(coverage.values()) / len(coverage)) * 0.7 + available_weight * 0.3, 2)
+    label = "high" if score >= 0.75 else "medium" if score >= 0.45 else "low"
+    return {"score": score, "label": label, "coverage": coverage}
+
+
+def _listing_row(row: ListingORM) -> ListingRow:
+    return ListingRow(
+        id=row.id,
+        comuna=row.comuna,
+        status=row.status,
+        price_uf=row.price_uf,
+        price_uf_source=row.price_uf_source,
+        price_uf_confidence=row.price_uf_confidence,
+        price_recovery_method=row.price_recovery_method,
+        m2=row.m2,
+        built_area_m2=row.built_area_m2,
+        usable_area_m2=row.usable_area_m2,
+        scraped_at=_aware(row.scraped_at),
+        last_seen_at=_optional_aware(row.last_seen_at),
+        last_refresh_attempted_at=_optional_aware(row.last_refresh_attempted_at),
+        last_refresh_status=row.last_refresh_status,
+        created_at=_optional_aware(row.created_at),
+        updated_at=_optional_aware(row.updated_at),
+    )
+
+
+def _new_count(rows: list[ListingRow], *, now: datetime, days: int) -> int:
+    cutoff = now - timedelta(days=days)
+    return sum(1 for row in rows if (first_seen := _first_seen_at(row)) is not None and cutoff <= first_seen <= now)
+
+
+def _removed_count(rows: list[ListingRow], *, now: datetime, days: int) -> int:
+    cutoff = now - timedelta(days=days)
+    return sum(1 for row in rows if (removed_at := _removed_detected_at(row)) is not None and cutoff <= removed_at <= now)
+
+
+def _first_seen_at(row: ListingRow) -> datetime | None:
+    return row.created_at or row.scraped_at
+
+
+def _removed_detected_at(row: ListingRow) -> datetime | None:
+    return row.last_refresh_attempted_at or row.updated_at or row.last_seen_at
+
+
+def _is_removed(row: ListingRow) -> bool:
+    return _normalized(row.status) in REMOVED_STATUSES or _normalized(row.last_refresh_status) in REMOVED_STATUSES
+
+
+def _valid_price_point_value(point: PricePoint) -> Decimal | None:
+    if point.is_artifact:
+        return None
+    if "legacy_unrecoverable" in {
+        _normalized(point.listing_price_uf_source),
+        _normalized(point.listing_price_recovery_method),
+    }:
+        return None
+    basis = _normalized(point.change_basis)
+    if basis in INVALID_CHANGE_BASIS_VALUES:
+        return None
+    if not basis.startswith(VALID_CHANGE_BASIS_PREFIXES):
+        return None
+    value = point.price_uf or point.price_clp_snapshot or point.price_clp
+    if value is None or value <= 0:
+        return None
+    return value
+
+
+def _drop_listing_ids_30d(points: list[PricePoint], now: datetime) -> set[int]:
+    cutoff = now - timedelta(days=30)
+    grouped: dict[int, list[tuple[datetime, Decimal]]] = defaultdict(list)
+    for point in points:
+        value = _valid_price_point_value(point)
+        if value is not None:
+            grouped[point.listing_id].append((point.observed_at, value))
+    ids: set[int] = set()
+    for listing_id, listing_points in grouped.items():
+        for previous, current in pairwise(sorted(listing_points)):
+            if current[1] < previous[1] and current[0] >= cutoff:
+                ids.add(listing_id)
+    return ids
+
+
+def _unique_drop_count(events: list[tuple[int, datetime]], *, now: datetime, days: int) -> int:
+    cutoff = now - timedelta(days=days)
+    return len({listing_id for listing_id, observed_at in events if cutoff <= observed_at <= now})
+
+
+def _event_drop_count(events: list[tuple[int, datetime]], *, now: datetime, days: int) -> int:
+    cutoff = now - timedelta(days=days)
+    return sum(1 for _listing_id, observed_at in events if cutoff <= observed_at <= now)
+
+
+def _observed_days_for_rows(rows: list[ListingRow], now: datetime) -> list[int]:
+    values: list[int] = []
+    for row in rows:
+        first_seen = _first_seen_at(row)
+        if first_seen is not None and now - timedelta(days=3650) <= first_seen <= now:
+            values.append(max((now - first_seen).days, 0))
+    return values
+
+
+def _price_m2_uf(row: ListingRow) -> float | None:
+    if row.price_uf is None or row.price_uf <= 0:
+        return None
+    if _normalized(row.price_uf_source) == "legacy_unrecoverable":
+        return None
+    if _normalized(row.price_recovery_method) == "legacy_unrecoverable":
+        return None
+    if _normalized(row.price_uf_confidence) not in RELIABLE_PRICE_UF_CONFIDENCE:
+        return None
+    surface = _surface(row)
+    if surface is None:
+        return None
+    return float(row.price_uf) / surface
+
+
+def _surface(row: ListingRow) -> float | None:
+    for value in (row.usable_area_m2, row.built_area_m2, row.m2):
+        if value is not None and value > 0:
+            return value
+    return None
+
+
+def _percentile(values: list[int], percentile: float) -> int:
+    if not values:
+        return 0
+    index = min(round((len(values) - 1) * percentile), len(values) - 1)
+    return values[index]
+
+
+def _balance_label(score: int) -> tuple[str, str]:
+    if score <= 34:
+        return "Favorece al vendedor", "seller"
+    if score <= 44:
+        return "Leve ventaja vendedor", "seller"
+    if score <= 55:
+        return "Mercado equilibrado", "balanced"
+    if score <= 65:
+        return "Leve ventaja comprador", "buyer"
+    return "Favorece al comprador", "buyer"
+
+
+def _balance_headline(side: str, label: str) -> str:
+    if side == "buyer":
+        return "El mercado favorece al comprador"
+    if side == "seller":
+        return "El mercado favorece al vendedor"
+    return label
+
+
+def _balance_summary(side: str, activity: dict[str, Any], price_drops: PriceDropStats) -> str:
+    if side == "buyer":
+        return "La oferta reciente y las rebajas aumentan el espacio potencial de negociacion."
+    if side == "seller":
+        return "La oferta visible se contrae y hay menos senales de rebaja."
+    if activity["net_flow_7d"] or price_drops.unique_30d:
+        return "Las senales recientes se compensan entre oferta, retiros y rebajas."
+    return "No hay senales suficientes para inclinar el mercado hacia comprador o vendedor."
+
+
+def _dynamism_label(score: int) -> str:
+    if score <= 29:
+        return "Actividad baja"
+    if score <= 49:
+        return "Actividad moderada-baja"
+    if score <= 69:
+        return "Actividad moderada"
+    if score <= 84:
+        return "Actividad alta"
+    return "Actividad muy alta"
+
+
+def _commune_confidence(
+    active_count: int,
+    observed_count: int,
+    price_history_count: int,
+    config: MarketIntelligenceConfig,
+) -> str:
+    checks = sum(
+        (
+            active_count >= config.commune_min_active_listings,
+            observed_count >= config.commune_min_time_sample,
+            price_history_count >= config.commune_min_price_history_sample,
+        )
+    )
+    return "high" if checks == 3 else "medium" if checks == 2 else "low"
+
+
+def _ratio(numerator: float | int, denominator: float | int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
+
+
+def _clamp(value: float) -> float:
+    return max(0.0, min(value, 1.0))
+
+
+def _score(value: float | int) -> int:
+    return max(0, min(round(value), 100))
+
+
+def _normalized(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _display_comuna(value: str) -> str:
+    return " ".join(part.capitalize() for part in value.replace("_", " ").split())
+
+
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _optional_aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return _aware(value)

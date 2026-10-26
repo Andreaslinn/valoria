@@ -1,0 +1,55 @@
+import json
+import runpy
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent/'valoria'))
+from services.sii import jobs, reporting
+from services.sii.settings import Settings
+
+base=Path(__file__).parent
+deadline=datetime(2026,10,19,15,59,0,tzinfo=timezone.utc)
+original_connect=jobs.connect
+def bounded_connect(settings):
+    remaining=int((deadline-datetime.now(timezone.utc)).total_seconds()*1000)-180000
+    if remaining<=0:
+        raise RuntimeError('Timebox exhausted; reserve time for reporting')
+    c=original_connect(settings)
+    c.execute(f'SET statement_timeout={min(1200000,remaining)}')
+    return c
+jobs.connect=reporting.connect=bounded_connect
+
+def save(name,value):
+    (base/name).write_text(json.dumps(value,default=str,ensure_ascii=False,indent=2),encoding='utf8')
+def apartment_rows():
+    with jobs.connect(Settings.load()) as c:
+        return c.execute("SELECT raw_id,comuna,rol FROM sii.transferencia WHERE fi>=DATE '2024-01-01' AND cierre_comparable AND tipo='depto'").fetchall()
+
+old=apartment_rows()
+print(json.dumps({'stage':'first_rebuild_started','started_at':datetime.now(timezone.utc).isoformat()}),flush=True)
+first=jobs.rebuild()
+print(json.dumps({'stage':'first_rebuild_finished','counters':first}),flush=True)
+snapshot=reporting.health()
+save('health-v2-first.json',snapshot)
+new=apartment_rows()
+old_ids={r[0] for r in old}; new_ids={r[0] for r in new}
+changes=[]
+for row in snapshot['por_comuna']:
+    code=row['comuna']
+    changes.append({'comuna':code,'before':sum(r[1]==code for r in old),'after':row['deptos'],
+      'added_examples':[r[2] for r in new if r[1]==code and r[0] not in old_ids][:5],
+      'removed_examples':[r[2] for r in old if r[1]==code and r[0] not in new_ids][:5]})
+save('v2-changes.json',changes)
+with jobs.connect(Settings.load()) as c:
+    restored=c.execute("SELECT rol,cierre_comparable,paquete,motivos_exclusion FROM sii.transferencia WHERE rol='15103-854-86' AND fi=DATE '2025-07-29' AND fe=DATE '1997-11-12'").fetchall()
+save('v2-restored-case.json',restored)
+assert restored==[('15103-854-86',True,False,[])]
+print(json.dumps({'stage':'first_metrics','benchmark':snapshot['benchmark'],'restored':restored},default=str),flush=True)
+if not(snapshot['benchmark']['conteo_cumple'] and snapshot['benchmark']['medianas_cumplen']):
+    raise SystemExit('Acceptance failed; stop and report per-commune evidence')
+print(json.dumps({'stage':'second_run_started'}),flush=True)
+runpy.run_path(str(base/'check_idempotence.py'),run_name='__main__')
+snapshot=reporting.health()
+save('health-v2-final.json',snapshot)
+assert snapshot['benchmark']['conteo_cumple'] and snapshot['benchmark']['medianas_cumplen']
+print(json.dumps({'stage':'complete','benchmark':snapshot['benchmark'],'disk':snapshot['disk']}),flush=True)

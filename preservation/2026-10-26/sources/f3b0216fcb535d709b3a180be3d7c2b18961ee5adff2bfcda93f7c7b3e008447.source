@@ -1,0 +1,33 @@
+from pathlib import Path
+import json,httpx,re
+from playwright.sync_api import sync_playwright,expect
+
+ROOT=Path(__file__).parent/'e2e-portal';ROOT.mkdir(exist_ok=True)
+BASE='http://127.0.0.1:3003';API='http://127.0.0.1:18013'
+results=[];events=[]
+r=httpx.post(API+'/api/v1/auth/login',data={'username':'portal-candidate@example.test','password':'[REDACTED]'});r.raise_for_status();token=r.json()['access_token']
+with sync_playwright() as pw:
+ b=pw.chromium.launch(headless=True);ctx=b.new_context(viewport={'width':1440,'height':1000});ctx.tracing.start(screenshots=True,snapshots=True);page=ctx.new_page();page.set_default_timeout(30000)
+ def forward(route):
+  # Transparent real transport to the isolated Oracle API; no mock payloads.
+  path=route.request.url.split('/api/v1/',1)[1];response=route.fetch(url=API+'/api/v1/'+path,timeout=90000);events.append({'path':path.split('?')[0],'status':response.status});route.fulfill(response=response)
+ page.route('**/api/v1/**',forward)
+ page.goto(BASE+'/resumen');page.evaluate('(t)=>localStorage.setItem("valoria_access_token",t)',token)
+ def lookup(url):
+  page.goto(BASE+'/analizar-url',wait_until='networkidle');page.get_by_label('URL de la publicación',exact=True).fill(url);page.get_by_role('button',name='Consultar publicación',exact=True).click()
+ def test(name,fn):
+  try:fn();results.append({'name':name,'status':'PASS'});print('PASS',name,flush=True)
+  except Exception as exc:results.append({'name':name,'status':'FAIL','error':str(exc)});print('FAIL',name,str(exc)[:300],flush=True)
+  page.screenshot(path=str(ROOT/(name+'.png')),full_page=True)
+ def existing():
+  lookup('https://www.portalinmobiliario.com/MLC-4082793840-changed-slug?utm_source=browser');expect(page.locator('body')).to_contain_text('Macul');expect(page.get_by_role('button',name='Guardar en watchlist',exact=True)).to_be_enabled()
+ test('17-portal-existing-real-oracle-candidate',existing)
+ def new():
+  lookup('https://www.portalinmobiliario.com/MLC-2467200996-do-apartments-_JM');expect(page.locator('body')).to_contain_text('Do Apartments',timeout=90000);page.get_by_role('button',name='Analizar precio',exact=True).click();expect(page.locator('.analyze-verdict')).to_be_visible(timeout=90000)
+ test('18-portal-new-live-lookup-and-analysis',new)
+ def historical():
+  lookup('https://www.portalinmobiliario.com/MLC-990002990002-historical-fixture');expect(page.locator('body')).to_contain_text('histórica');expect(page.locator('body')).to_contain_text('2026')
+ test('19-portal-known-withdrawn-candidate-fixture',historical)
+ ctx.tracing.stop(path=str(ROOT/'portal-lifecycle-trace.zip'));ctx.close();b.close()
+(ROOT/'results.json').write_text(json.dumps({'results':results,'real_http_events':events},indent=2),encoding='utf-8')
+raise SystemExit(any(x['status']=='FAIL' for x in results))

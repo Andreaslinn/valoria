@@ -1,0 +1,33 @@
+# Auditoría reproducible del universo AVM
+
+Auditoría cuantitativa offline de dependencias, cobertura, geografía, temporalidad y leakage. No se entrena A/C1/C1-flex/C2. No se llaman motores de valoración, bases de datos, red ni Oracle durante esta fase. Todo lo creado está en esta carpeta experimental, fuera del checkout productivo.
+
+## Bases y procedencia
+
+- Código inspeccionado: `C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled`.
+- HEAD: `5288dded72df3608d495eb9b2bedb3e1839996dc`. El checkout contiene cambios previos: **60 entradas de status**. HEAD solo no representa el código analizado. `integrity_before.json` conserva status y SHA-256 de **857 archivos** rastreados/no ignorados; `integrity_after.json` coincide.
+- Fuente de observaciones: snapshot read-only previo `C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\work\spatial-readiness-20261002\oracle-snapshot.json`, no resultados de benchmarks.
+- Copia inmutable para esta auditoría: `input_snapshot.json`, capturado `2026-10-02T12:27:06.041740-03:00`, SHA-256 `a5991dd086056fa304416ddfa1ad464352957bebcb5df9fcd2ce5565938e3641`, schema `0020`.
+- Query original: `SELECT * FROM listings WHERE status = 'active' ORDER BY id`, mediante ListingORM y listing_from_orm, transacción `REPEATABLE READ, READ ONLY`. El extractor original se conserva en `source_extract.py` como evidencia; **no hace falta ejecutarlo**.
+- No se mezclan datos del snapshot local anterior. Las reglas se interpretan desde el checkout reconciliado local y la observación es el snapshot Oracle ya existente.
+- No se exportaron rows de `properties` ni `price_history`; sí `listings.property_id`. No se puede reconstruir el histórico ni los anchors originales de matching desde esta fotografía. Metadata original de seller/contacto no fue exportada. El inventario de nombres de metadata se preserva sin esos valores.
+
+## Reproducir
+
+PowerShell, desde `C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped`:
+
+```powershell
+python -B research/tasar_avm_audit_20261002/audit.py
+python -B research/tasar_avm_audit_20261002/test_audit.py
+python -B research/tasar_avm_audit_20261002/report.py
+```
+
+Entorno usado: Python 3.13.4, NumPy 2.2.6, pandas 2.2.3; dependencias de dominio ya disponibles en el host. El Python bundled carecía de pydantic_settings y matplotlib; no se instalaron paquetes. SVG producidos con histogramas NumPy y primitivas SVG, sin servicios externos. No se autoran workbooks Excel.
+
+Debe conservarse el código cuyos hashes figuran en `integrity_before.json`. Si se reproduce con otra versión, es una auditoría de otro código aunque el snapshot sea igual. `audit.py` verifica que el checkout no cambió entre inicio/fin de cada ejecución. Seed 20261002; cuantiles pandas con interpolación lineal; std muestral; skew/kurtosis ajustadas pandas, kurtosis de exceso. Spearman = Pearson de ranks medios. No imputación, winsorización ni filtros por error/performance. Los ceros se preservan. Los bins de precio sirven únicamente para missingness/EDA.
+
+## Grupos y privacidad
+
+`group_id` es componente conexa de **dependencia observada**, no ID físico certificado. Usa publicaciones exactas y property_id almacenado a través de los 4.908 nodos activos, incluidos posibles nodos puente fuera del universo candidato. `publication_group_id` excluye property_id. No se consultan precios para agregar aristas. Los grupos weak no se transforman en supuesta confianza alta.
+
+Artefactos derivados no incluyen nombres de corredores, contactos, direcciones completas ni textos libres: se entregan hashes de dirección/título y URLs públicas para revisión. `input_snapshot.json` es evidencia local de acceso restringido, no material para publicar; conservarla en privado. No se guarda ningún fold/holdout oficial. El manifest enumera rutas absolutas y hashes de los entregables.

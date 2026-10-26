@@ -1,0 +1,53 @@
+# Revisión independiente — emitida antes de implementar FASE 1
+
+## A. Veredicto: MODIFY (acotado)
+
+Si fuera responsable científico mantendría A/C1/C1-flex/C2 y el diseño grouped CV + confirmación prospectiva. Cambiaría la noción de certificación: demostrar dependencias conocidas, auditar contaminación residual y delimitar la inferencia defendible, sin exigir una identidad física perfecta e imposible de probar con estas fuentes. Separaría exploración, confirmación y uso productivo. No cambio los thresholds existentes ni autorizo entrenamiento en esta tarea.
+
+## B. Justificación: hechos, supuestos, riesgos e inferencias
+
+**Hechos verificados.** Repositorio principal: `C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2`, HEAD `08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6`, con cambios sin commit. `services/valuation.py:234` consulta activos por comuna y tipo; excluye target_listing_id cuando existe. El pool se entrega a Consensus si está habilitado o a comparables y superficie de precios. La configuración runtime actual no puede inferirse del checkout.
+
+A de AVM-01 es `comparables_canonical_outliers`, no todo Tasar/Consensus. Sus fuentes coinciden con el principal tras normalizar saltos de línea. No renombraría la evaluación de A como evaluación de la tasación final. Si el objetivo fuera comparar contra la salida productiva completa, requeriría otro baseline explícito, sin reemplazar silenciosamente A.
+
+Ridge/spline/boosting y métricas están implementados. Transformaciones se ajustan en train, pools de A son fold-local y el código bloquea real fit. Pero FrozenA reconstruye metadata, fingerprint y UF sintéticos; no demuestra fidelidad con inputs reales. El DTO tampoco conserva todas las señales de Listing. El lock de holdout comprueba hashes declarados, no custodia etiquetas; una reserva relacionada por grupo que no figure por row_id puede entrar en tuning. `inner_folds()` depende de una validación externa del outer. Son contratos a cerrar antes del benchmark real, no motivos para modificar A.
+
+El patch productivo preservado localmente separa raw_state/parsed_state/persisted_state y provenance, registra listing_seen/refresh_result y append-only idempotente en la misma transacción. El principal y valoria-reconciled no contienen esa integración completa: se inspeccionó el artefacto aplicado, sin afirmar que representa el container actual.
+
+Fingerprint usa estructura y tokens de título incluidos números; property matching usa comuna/área/dormitorios/baños/parking con tolerancia, sin identidad de unidad. Esas claves no demuestran identidad física. Auditoría histórica: 1.179 candidatos, 635 componentes débiles, 0/133/39 agrupaciones respaldadas/ambiguas/contradichas. Auditoría moderna previa: 892 candidatos, ningún componente físico certificado. History mejora conservación, no resuelve automáticamente cross-source.
+
+**Supuestos.** Continuidad del pipeline después de la última lectura local y existencia de futuras señales útiles no están verificadas. No se accede a Oracle en esta tarea. La última información es del 8 de octubre 01:00 UTC; no describe necesariamente el estado al emitir este informe.
+
+**Riesgos.** Dependencia desconocida; moneda reconstruida; superficie proxy; cero/missing ambiguo; selección/supervivencia de anuncios; desbalance source×comuna; timestamps mutables; mezcla de proyectos/inversión/reventa; labels de oferta, no transacciones. Controlar deduplicación no resuelve esos problemas.
+
+**Inferencias propias.** Repetir cards aporta estabilidad/price history, pero pocas features nuevas de unidad/edificio. Siete rondas no equivalen a potencia ni 500 publicaciones a 500 inmuebles. Exigir certeza física total bloquearía investigación; aceptar singletons como independencia produciría falsa precisión. Spatial holdout y temporal holdout por sí solos no eliminan dependencia y cambian el estimando.
+
+Las dependencias requieren validación apropiada y transformaciones train-only; la separación espacial depende del escenario de generalización. Véanse [scikit-learn 1.7: validación agrupada y temporal](https://scikit-learn.org/1.7/modules/cross_validation.html) y [Roberts et al., 2017](https://doi.org/10.1111/ecog.02881). La recomendación aplicada a Valoria es una inferencia propia, no un umbral tomado de esas fuentes.
+
+## C. Estrategia principal que defendería
+
+1. Estimando explícito: reconstrucción de precio de oferta de una publicación nueva, en comunas conocidas, a un cutoff con datos disponibles. No afirmar precisión de precio de cierre.
+2. Una observation índice por publicación, regla temporal fijada antes de errores. Todas las reobservaciones relacionadas quedan juntas; precios/fingerprint/property_id no crean identidad física.
+3. Grouped CV de dependencia observable y escenarios históricos conservadores como sensibilidad, con adjudicación offline ciega al precio de pares difíciles. Incertidumbre residual cuantificada solo dentro de marcos muestreables; ausencia de match no prueba independencia.
+4. Tuning agrupado interno pequeño; primero contraste falsable A vs C1 con parámetros fijos cuando se autorice. Mantener flex/boosting preparados, no multiplicar tuning antes de saber si core features contienen señal suficiente. No ejecutarlo ahora.
+5. Confirmación prospectiva futura: publicaciones nuevas respecto de train, purgando republicaciones/grupos relacionados y preservando custody de labels. Temporal analiza drift/availability; spatial fuera de comuna es stress de extrapolación, no ranking primario.
+6. Reportar universo elegible completo, común y pares, cobertura/colas/source/comuna; sensibilidad sin imputar unidad física. Si no se acota el riesgo residual, exploración descriptiva puede ser útil, confirmación queda bloqueada.
+
+No crearía nuevas familias, microzonas o C3 ni reemplazaría grouped CV por geografía general sin justificar el cambio de pregunta. Una comparación confirmatoria requiere aprobar tolerancia de contaminación residual y magnitud práctica de mejora antes de ver resultados.
+
+## D. Comparación
+
+| Dimensión | Plan anterior | Recomendación |
+|---|---|---|
+| Validez | Gate de grouping certificado, fácil de leer como identidad perfecta | Certificar una política de dependencia y alcance inferencial; reconocer lo no identificable |
+| Leakage | Cruces conocidos bloqueados | Además adjudicación, reservas por grupo y purga prospectiva |
+| Potencia | 7/500 puede confundirse con tamaño científico | Umbral operativo sin cambios; publicar n de filas/publicaciones/grupos y concentración |
+| Reproducibilidad | Seeds/hashes y freeze A | Se conserva; añade export contract y outputs inmutables por input hash |
+| Complejidad | Espera de acumulación + CV | Auditoría dirigida y decisiones explícitas, sin infraestructura nueva |
+| Tiempo útil | Dependiente de señales acumuladas | Exploración limitada posible tras aprobación; no acumular indefinidamente por un déficit estructural |
+| Falsos positivos | Holdout/grupos aparentes pueden dar falsa seguridad | Confirmación prospectiva purgada, guardrails y denominadores comunes |
+| Reversibilidad | Sandbox, sin producción | Idéntica |
+
+## E. Decisión final
+
+Ejecutar FASE 1 con estas modificaciones acotadas: estados separados, evidencia local fechada, desconocidos explícitos, revisión estática crítica del harness y propuestas de contratos faltantes. No redefinir 7/500/99/95, no crear folds reales ni evaluar performance. Si falta un snapshot moderno con observations, el resultado debe decir NOT_READY y especificar exportación controlada pendiente de aprobación. MODIFY no implica autorizar el experimento pequeño ni una política nueva de grouping en producción.

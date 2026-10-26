@@ -1,0 +1,54 @@
+"""Reuse frozen Valoria summary primitives; add validity/denominator contracts."""
+import sys,math
+from pathlib import Path
+from statistics import median
+from itertools import combinations
+from .data import InvalidExperiment,positive
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'frozen_a'))
+from domain.valuation.evaluation.metrics import _percentile,_mean_raw
+
+def metrics(truth,predictions):
+    if set(predictions)-set(truth):raise InvalidExperiment('Predictions outside declared universe')
+    if any(not positive(v) for v in truth.values()):raise InvalidExperiment('Invalid target in denominator')
+    good={i:predictions[i] for i in truth if positive(predictions.get(i))}
+    ape=[100*abs(good[i]/truth[i]-1) for i in good]
+    signed=[100*(good[i]/truth[i]-1) for i in good]
+    log_error=[math.log(good[i])-math.log(truth[i]) for i in good]
+    n=len(truth);m=len(good)
+    result={'eligible_n':n,'predicted_n':m,'unpredicted_n':n-m,'coverage':m/n if n else None,
+            'invalid_n':sum(v is not None and not positive(v) for v in predictions.values()),
+            'MdAPE':median(ape) if ape else None,'MAPE':_mean_raw(ape) if ape else None,
+            'MAE_log':_mean_raw([abs(v) for v in log_error]) if m else None,
+            'bias_signed_pct':_mean_raw(signed) if m else None,'bias_log':_mean_raw(log_error) if m else None,
+            'P90':_percentile(ape,90),'P95':_percentile(ape,95)}
+    for k in [20,30,50]:
+        hit=sum(v<=k+1e-10 for v in ape)
+        result[f'within_{k}_pct']={'count':hit,'denominator_predicted':m,'rate':hit/m if m else None,
+                                 'denominator_eligible':n,'eligible_success_rate':hit/n if n else None}
+    return result
+
+def compare(truth,by_engine):
+    full={e:metrics(truth,p) for e,p in by_engine.items()}
+    common={i:truth[i] for i in truth if all(positive(p.get(i)) for p in by_engine.values())}
+    pairs={}
+    for a,b in combinations(sorted(by_engine),2):
+        shared={i:truth[i] for i in truth if positive(by_engine[a].get(i)) and positive(by_engine[b].get(i))}
+        pairs[f'{a}__{b}']={'paired_n':len(shared),a:metrics(shared,{i:by_engine[a][i] for i in shared}),b:metrics(shared,{i:by_engine[b][i] for i in shared})}
+    return {'per_engine':full,'common_n':len(common),'common_ids':sorted(common),
+            'common':{e:metrics(common,{i:p[i] for i in common}) for e,p in by_engine.items()},'pairs':pairs,
+            'warning':'NON_COMPARABLE_SUCCESS_UNIVERSES' if any({i for i in truth if positive(p.get(i))}!=set(common) for p in by_engine.values()) else None}
+
+def grouped_bootstrap_delta(truth,left,right,groups,seed=42,replicates=500):
+    """Caller must provide reviewed dependency groups; resample whole paired clusters."""
+    import random
+    ids=[i for i in truth if positive(left.get(i)) and positive(right.get(i))]
+    if any(not groups.get(i) for i in ids):raise InvalidExperiment('Bootstrap needs validated groups')
+    names=sorted({groups[i] for i in ids})
+    if len(names)<2:raise InvalidExperiment('Too few clusters for uncertainty')
+    rng=random.Random(seed);values=[]
+    for _ in range(replicates):
+        draw=rng.choices(names,k=len(names));sample=[i for g in draw for i in ids if groups[i]==g]
+        a=median(100*abs(left[i]/truth[i]-1) for i in sample);b=median(100*abs(right[i]/truth[i]-1) for i in sample)
+        values.append(b-a)
+    return {'estimand':'MdAPE(right)-MdAPE(left), paired group bootstrap','groups_n':len(names),'paired_n':len(ids),
+            'interval_95':[_percentile(values,2.5),_percentile(values,97.5)],'replicates':replicates,'seed':seed}

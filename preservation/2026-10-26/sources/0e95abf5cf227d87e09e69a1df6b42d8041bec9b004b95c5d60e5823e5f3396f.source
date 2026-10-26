@@ -1,0 +1,14 @@
+"""Read-only hashes of deployed parsers + operational state; no content/secrets output."""
+import subprocess,json,sys
+from common import save,H
+SSH=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+CODE="""import json,hashlib,pathlib
+paths=['infrastructure/scrapers/yapo.py','infrastructure/scrapers/yapo_modern.py','infrastructure/scrapers/portalinmobiliario.py','domain/ingestion/data_cleaning.py','domain/ingestion/pipeline.py','infrastructure/db/models.py','infrastructure/db/mappers.py','scripts/portal_card_first.py','scripts/portal_canary.py']
+print(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes().replace(b'\\r\\n',b'\\n')).hexdigest() if pathlib.Path(p).is_file() else None for p in paths}))
+"""
+if __name__=='__main__':
+    label=sys.argv[1] if len(sys.argv)>1 else 'before'
+    hashes=subprocess.run(SSH+['docker exec -i valoria_oracle_beta-api-1 python -B -'],input=CODE.encode(),capture_output=True,check=True)
+    state=subprocess.run(SSH+['docker ps --format "{{.Names}} {{.Image}} {{.ID}}"; systemctl is-enabled valoria-yapo-discovery.timer valoria-portal-discovery.timer; systemctl is-active valoria-yapo-discovery.timer valoria-portal-discovery.timer'],capture_output=True)
+    save('oracle_runtime_'+label+'.json',dict(parser_hashes_normalized_LF=json.loads(hashes.stdout),operational_state=state.stdout.decode(),access='read-only hashes/docker ps/systemctl is-enabled/is-active; no modifications'))
+    print('Saved Oracle read-only probe',label)

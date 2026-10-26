@@ -1,0 +1,127 @@
+"""Regressions for the bounded local quick-win fixes."""
+from datetime import date
+from decimal import Decimal
+from itertools import permutations
+from unittest.mock import Mock
+
+import httpx
+import pytest
+from fastapi import FastAPI
+
+from api.v1 import valuations
+from config import Settings, get_settings
+from core.ports.uf_service import UFRateInfo, UFService
+from domain.valuation.comparables import score_and_rank
+from domain.valuation.engines.contracts import EngineComparable
+from services.market_intelligence import ObservedTimeStats, PriceDropStats, _market_balance
+from services.valuation import ValuationInput, ValuationService, _selected_comparable_dtos
+from tests.unit.factories import make_listing, make_property
+from tests.unit.test_valuation_service import FakeListingRepository
+
+
+@pytest.mark.parametrize("days, expected", [(0, 0), (None, 51), (53, 51)])
+def test_market_balance_distinguishes_zero_days_from_missing(days, expected):
+    balance = _market_balance(
+        activity={"net_flow_7d": 0},
+        price_drops=PriceDropStats(0, 0, 0, 0, 0, 0, 0),
+        observed_time=ObservedTimeStats("available", days, days, days, 30, 1.0),
+        active_count=30,
+    )
+    observed = next(item for item in balance["components"] if item["key"] == "observed_time")
+    assert observed["score"] == expected
+
+
+def test_feedback_is_disabled_by_default():
+    settings = Settings(
+        _env_file=None, database_url="sqlite+aiosqlite:///:memory:",
+        sync_database_url="sqlite:///:memory:", jwt_secret_key="0" * 32,
+    )
+    assert getattr(settings, "valuation_feedback_enabled", True) is False
+
+
+@pytest.mark.parametrize("environment, enabled, expected", [
+    ("development", False, 403), ("beta", True, 403),
+    ("production", True, 403), ("local", True, 200),
+])
+async def test_feedback_cannot_write_unless_explicitly_enabled_locally(monkeypatch, environment, enabled, expected):
+    settings = Settings(
+        _env_file=None, database_url="sqlite+aiosqlite:///:memory:",
+        sync_database_url="sqlite:///:memory:", jwt_secret_key="0" * 32,
+        environment=environment, valuation_feedback_enabled=enabled,
+    )
+    writer = Mock(return_value={"record": {}, "path": "unused.jsonl"})
+    monkeypatch.setattr(valuations, "submit_valuation_feedback", writer)
+    app = FastAPI()
+    app.include_router(valuations.router, prefix="/api/v1")
+    app.dependency_overrides[get_settings] = lambda: settings
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/valuations/feedback", json={
+            "valuation_result": {}, "valuation_payload": {}, "feedback": "reasonable",
+        })
+    assert response.status_code == expected
+    assert writer.call_count == (1 if expected == 200 else 0)
+
+
+class FixedUF(UFService):
+    async def get_current_rate(self):
+        return Decimal("40000")
+
+    async def get_current_rate_info(self):
+        return UFRateInfo(rate=Decimal("40000"), source="test_provider", rate_date=date(2026, 9, 23))
+
+
+@pytest.mark.parametrize("consensus", [False, True])
+async def test_comparable_prices_match_canonical_calculation_without_mutating_snapshot(monkeypatch, consensus):
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", str(consensus).lower())
+    monkeypatch.setenv("VALUATION_CANONICAL_PRICE_ENABLED", "true")
+    listings = [make_listing(
+        fingerprint=f"native-{i}", price_clp=195_000_000,
+        price_uf=5000, price_currency="UF", price_uf_source="scraped", price_uf_confidence="high",
+    ) for i in range(5)]
+    result = await ValuationService(listing_repo=FakeListingRepository(listings), uf_service=FixedUF()).valuate_property(
+        ValuationInput(comuna="nunoa", property_type="apartment", m2=75, dormitorios=3, banos=2, estacionamientos=1)
+    )
+    assert len(result.comparables) == 5
+    assert {c.price_uf for c in result.comparables} == {5000.0}
+    assert {c.price_clp for c in result.comparables} == {200_000_000}
+    assert {listing.price.clp for listing in listings} == {Decimal("195000000")}
+
+
+async def test_valuation_response_preserves_uf_provenance(monkeypatch):
+    monkeypatch.setenv("VALORIA_USE_CONSENSUS", "false")
+    monkeypatch.setenv("VALUATION_CANONICAL_PRICE_ENABLED", "false")
+    result = await ValuationService(
+        listing_repo=FakeListingRepository([make_listing(fingerprint=f"trace-{i}") for i in range(5)]),
+        uf_service=FixedUF(),
+    ).valuate_property(ValuationInput(comuna="nunoa", property_type="apartment", m2=75))
+    payload = valuations.ValuationResponse.model_validate(result, from_attributes=True).model_dump()
+    assert payload.get("uf_rate_date") == "2026-09-23"
+    assert payload.get("uf_rate_source") == "test_provider"
+    assert payload.get("uf_rate_is_stale") is False
+
+
+@pytest.mark.parametrize("canonical, expected_uf", [(False, 4875.0), (True, 5000.0)])
+def test_legacy_engine_comparable_display_respects_the_selected_price_basis(canonical, expected_uf):
+    listing = make_listing(
+        fingerprint="legacy-price-basis", price_clp=195_000_000,
+        price_uf=5000, price_currency="UF", price_uf_source="scraped", price_uf_confidence="high",
+    )
+    selected = [EngineComparable(listing_id=None, fingerprint=listing.fingerprint, score=0.9)]
+    displayed = _selected_comparable_dtos(
+        selected, [listing], Decimal("40000"), canonical_price_enabled=canonical,
+    )
+    assert displayed[0].price_uf == expected_uf
+    assert listing.price.clp == Decimal("195000000")
+
+
+@pytest.mark.parametrize("persisted", [False, True])
+def test_comparable_ties_are_independent_of_database_row_order(persisted):
+    listings = [make_listing(fingerprint=f"tie-{i}") for i in range(3)]
+    if persisted:
+        for i, listing in enumerate(listings, 1):
+            listing.id = i
+    rankings = {
+        tuple(listing.fingerprint for _, listing in score_and_rank(make_property(), order))
+        for order in permutations(listings)
+    }
+    assert len(rankings) == 1

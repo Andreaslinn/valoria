@@ -1,0 +1,35 @@
+"use client";
+import { useState } from "react";
+import { Building2 } from "lucide-react";
+import { Card, Tabs } from "@/components/ui/primitives";
+import { formatNumber } from "@/lib/formatters";
+import type { SummaryModel } from "./use-summary";
+import { StateNotice, type SummaryActions } from "./state-notice";
+import { marketWidgetView, type MarketMetric } from "./market-view-model";
+import { pctText } from "./view-model";
+
+const metrics = ["Entradas", "Salidas", "Rebajas"] as const;
+const labels = { Entradas: "publicaciones nuevas", Salidas: "publicaciones retiradas o inactivas", Rebajas: "eventos de rebaja" };
+const dateLabel = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString("es-CL", { day: "numeric", month: "short", timeZone: "UTC" });
+
+export function MarketToday({ model, actions }: { model: SummaryModel; actions: SummaryActions }) {
+  const [metric, setMetric] = useState<MarketMetric>("Entradas");
+  const resource = model.sources.marketFlow;
+  const view = model.fixture?.marketWidget[metric] ?? (resource.data ? marketWidgetView(resource.data, model.sources.market.data, metric) : null);
+  const max = Math.max(1, ...(view?.points.map(point => point.value) ?? []));
+  const line = view?.points.map((point, index) => `${index * 150 / 29},${45 - point.value / max * 40}`).join(" ");
+  return <Card label="Tu mercado hoy" className={`market-today metric-${metric.toLowerCase()}`}>
+    <header className="market-widget-heading"><h2>Tu mercado hoy</h2><p>Actividad observada · departamentos</p></header>
+    <div className="market-controls"><span>Últimos 30 días completos</span><Tabs options={metrics} value={metric} onChange={setMetric} label="Actividad del mercado"/></div>
+    {!model.fixture && resource.phase !== "ready" ? <StateNotice resource={resource} empty="Mercado no disponible." {...actions}/> : !view ? <StateNotice resource={resource} empty="No hay una serie diaria suficiente para este período." {...actions}/> : <>
+      <div className="market-hero"><div className="market-main-kpi"><div><strong>{formatNumber(view.total, 0)}</strong><span>{labels[metric]}</span></div><p className="market-delta">{pctText(view.change)}</p><small>{view.previous == null ? "Sin período anterior comparable" : `${formatNumber(view.previous, 0)} en el período anterior`}</small></div><svg className="market-sparkline" viewBox="0 0 150 50" aria-hidden="true"><polyline points={line} fill="none" stroke="currentColor" strokeWidth="2"/></svg><div className="market-secondary"><Building2 size={23}/><div><strong>{formatNumber(view.active, 0)}</strong><span>Publicaciones activas</span><small>Oferta observada actual</small></div></div></div>
+      <div className="market-detail-grid"><section className="market-inset"><h3>{metric} por comuna</h3><small>Últimos 30 días · {metric === "Rebajas" ? "propiedades con rebajas" : "publicaciones"}</small>{!model.fixture && model.sources.market.phase !== "ready" && metric !== "Salidas" ? <p className="market-empty">{model.sources.market.error ?? "Cargando comunas…"}</p> : view.communes.length ? <div className="market-communes">{view.communes.map(row => <div key={row.name}><span title={row.name}>{row.name}</span><b>{formatNumber(row.value, 0)}</b><i><em style={{ width: `${row.value / Math.max(1, ...view.communes.map(item => item.value)) * 100}%` }}/></i></div>)}</div> : <p className="market-empty">{metric === "Salidas" ? "El contrato actual no desglosa las salidas por comuna." : "Sin actividad registrada en las comunas."}</p>}</section>
+      <section className="market-inset"><h3>Evolución diaria</h3><svg className="market-daily" viewBox="0 0 280 140" role="img" aria-label={`${labels[metric]}: ${view.total} en los últimos 30 días completos`}>
+        {[0, 0.5, 1].map(ratio => <g key={ratio}><line x1="25" x2="275" y1={112 - ratio * 95} y2={112 - ratio * 95} stroke="#293b43"/><text x="20" y={116 - ratio * 95} textAnchor="end">{Math.ceil(max * ratio)}</text></g>)}
+        {view.points.map((point, index) => <rect key={point.date} x={28 + index * 8.2} y={112 - point.value / max * 95} width="5" height={point.value / max * 95} rx="1" fill="currentColor"><title>{dateLabel(point.date)}: {point.value}</title></rect>)}
+        {[0, 14, 29].map(index => <text key={index} x={28 + index * 8.2} y="134" textAnchor={index === 0 ? "start" : index === 29 ? "end" : "middle"}>{dateLabel(view.points[index].date)}</text>)}
+      </svg>{view.total === 0 && <span className="market-zero">Sin eventos registrados en el período</span>}</section></div>
+      <p className="market-method">{metric === "Salidas" ? "Retirada o inactividad detectada; no equivale a una venta." : metric === "Rebajas" ? "Una propiedad puede registrar varias rebajas. Descuento promedio no disponible." : "Fechas de primera observación en Valoria, no de publicación en el portal."}</p>
+    </>}
+  </Card>;
+}

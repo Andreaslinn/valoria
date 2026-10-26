@@ -1,0 +1,101 @@
+"""Integration checks use only the dedicated loopback database; opt-in."""
+
+import os
+from datetime import date
+
+import pytest
+from alembic.config import Config
+from sqlalchemy import func, select, text
+
+from alembic import command
+from infrastructure.db import property_life as db
+from services.property_life import import_bundle, reconstruct
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("PROPERTY_LIFE_TEST_PG") != "true",
+    reason="Requires dedicated Docker PostgreSQL on 127.0.0.1:55439",
+)
+
+
+def test_migration_roundtrip_and_idempotent_raw_import(tmp_path):
+    cfg = Config("alembic.property-life.ini")
+    probe = db.engine()
+    try:
+        with probe.connect() as conn:
+            present = conn.execute(text("SELECT to_regclass('property_life.source_file')")).scalar()
+            if present and conn.execute(select(func.count()).select_from(db.source_file)).scalar():
+                pytest.skip(
+                    "La base local ya contiene datos: no se ejecuta downgrade sobre imports existentes"
+                )
+    finally:
+        probe.dispose()
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "base")
+    eng = db.engine()
+    with eng.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT count(*) FROM pg_namespace WHERE nspname='property_life'")
+            ).scalar()
+            == 0
+        )
+    command.upgrade(cfg, "head")
+    n = tmp_path / "BRTMPCATASN_2026_2_15108"
+    construction_path = tmp_path / "BRTMPCATASNL_2026_2_15108"
+    f = tmp_path / "F2890.txt"
+    uf = tmp_path / "uf2024.htm"
+    n.write_text(
+        "\n".join(
+            "|".join(
+                map(
+                    str, [15108, 1, p, addr, 1000000, 1000, "H", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                )
+            )
+            for p, addr in [(1, "CALLE 100 DP 1"), (2, "CALLE 100 BOX 1")]
+        ),
+        encoding="latin1",
+    )
+    construction_path.write_text("15108|1|1|1|B|2|1990|100|H|0|1\n", encoding="latin1")
+    lines = [
+        "LAS CONDES;1;1;20240115;20240115;0;1000",
+        "LAS CONDES;1;1;20240115;20240115;0;1000",
+        "LAS CONDES;1;2;20240115;20240115;0;100",
+        "LAS CONDES;999;999;20240115;20240115;0;1200",
+        "bad;row",
+    ]
+    f.write_text(
+        "COMUNA;MANZANA;PREDIO;FECHA_INSCRIPCION;FECHA_ESCRITURA;MONTO_PESOS;MONTO_UF\n"
+        + "\n".join(lines)
+        + "\n",
+        encoding="latin1",
+    )
+    uf.write_text("<h2>ENERO</h2><strong>15</strong></th><td>40.000,00</td>", encoding="utf-8")
+    try:
+        first = import_bundle(n, construction_path, f, [uf], date(2026, 10, 1))
+        assert import_bundle(n, construction_path, f, [uf], date(2026, 10, 1)) == first
+        with eng.begin() as conn:
+            assert conn.execute(select(func.count()).select_from(db.transfer_raw)).scalar() == len(
+                lines
+            )
+            assert conn.execute(select(func.count()).select_from(db.source_file)).scalar() == 4
+            key, *_ = reconstruct(conn, "Las Condes", date(2026, 10, 16))
+            assert conn.execute(select(func.count()).select_from(db.transfer)).scalar() == 1
+            assert conn.execute(select(func.count()).select_from(db.transfer_unit)).scalar() == 1
+            assert conn.execute(select(db.transfer.c.uf_total)).scalar() == 1100
+            key2, *_ = reconstruct(conn, "Las Condes", date(2026, 10, 16))
+            assert key2 == key
+            assert conn.execute(select(func.count()).select_from(db.transfer)).scalar() == 1
+        f.write_text(
+            f.read_text(encoding="latin1").replace(";0;1000", ";0;1200"), encoding="latin1"
+        )
+        import_bundle(n, construction_path, f, [uf], date(2026, 10, 2))
+        with eng.begin() as conn:
+            new_key, *_ = reconstruct(conn, "Las Condes", date(2026, 10, 16))
+            assert new_key != key
+            assert conn.execute(
+                select(func.count()).select_from(db.transfer_raw)
+            ).scalar() == 2 * len(lines)
+            assert conn.execute(select(func.count()).select_from(db.transfer)).scalar() == 2
+    finally:
+        eng.dispose()
+        command.downgrade(cfg, "base")

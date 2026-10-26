@@ -1,0 +1,25 @@
+import json
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0,str(Path(__file__).parent/"valoria"))
+from services.sii.jobs import connect
+from services.sii.reporting import health
+from services.sii.settings import Settings
+
+with connect(Settings.load()) as conn:
+    deadline=time.monotonic()+2400
+    while True:
+        row=conn.execute("SELECT successful FROM sii.job_run WHERE job='sii_rebuild' ORDER BY id DESC LIMIT 1").fetchone()
+        if row and row[0] is not None:
+            if not row[0]:
+                raise SystemExit("Latest rebuild failed; inspect local job evidence")
+            break
+        if time.monotonic()>deadline:
+            raise SystemExit("Timed out waiting for local rebuild")
+        time.sleep(10)
+snapshot=health()
+path=Path(__file__).parent/sys.argv[1]
+path.write_text(json.dumps(snapshot,default=str,ensure_ascii=False,indent=2),encoding="utf8")
+print(json.dumps({"saved":str(path),"benchmark":snapshot["benchmark"],"disk":snapshot["disk"]},default=str))

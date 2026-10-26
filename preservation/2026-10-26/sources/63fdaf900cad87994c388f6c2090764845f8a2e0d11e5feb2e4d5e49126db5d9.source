@@ -1,0 +1,30 @@
+import pathlib,subprocess,json
+source=pathlib.Path('work/oracle-ingestion-resilience/scripts/portal_session.py').read_text(encoding='utf8')
+code=r"""
+import asyncio,json,os,types,sys,stat,time
+from unittest.mock import patch
+from scripts.portal_smoke import DEFAULT_HEADERS
+import scripts.portal_session as module
+exec(compile(SOURCE_VALUE,'candidate:portal_session.py','exec'),module.__dict__)
+os.environ.pop('PORTAL_SESSION_FILE',None)
+os.environ['PORTAL_SESSION_READ_ONLY']='1'
+async def main():
+ proof={'production_session_unchanged':True,'production_db_unchanged':True}
+ with patch.object(module.Path,'lstat',return_value=types.SimpleNamespace(st_mode=stat.S_IFREG|0o600)),patch.object(module.Path,'read_text',return_value=json.dumps({'cookies':[{'domain':'.portalinmobiliario.com','name':'ssid','value':'expired-test','expires':time.time()-1}]})):
+  try:module.load_session('/in-memory-expired-session')
+  except module.PortalSessionExpired:proof['expired_loader_alarm']=True
+ try:
+  async with module.portal_client(headers=DEFAULT_HEADERS,timeout=30,follow_redirects=True) as client:
+   client.cookies.set('ssid','invalid-session-audit',domain='.portalinmobiliario.com',path='/')
+   await client.get('https://www.portalinmobiliario.com/MLC-1778189475-excelente-oportunidad-de-compra-en-la-florida-uf-3750-_JM')
+ except module.PortalSessionExpired as exc:
+  proof['invalid_live_session_alarm']=True
+  proof['reason']=str(exc)
+ print(json.dumps(proof))
+ assert proof.get('expired_loader_alarm') and proof.get('invalid_live_session_alarm')
+asyncio.run(main())
+""".replace('SOURCE_VALUE',repr(source))
+remote='import subprocess;r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-"],input='+repr(code)+',text=True,capture_output=True,timeout=70);print(r.stdout);print(r.stderr);raise SystemExit(r.returncode)'
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=remote,text=True,encoding='utf8',capture_output=True,timeout=90)
+pathlib.Path('outputs/published-fields/portal-invalid-session-proof.txt').write_text(r.stdout+r.stderr,encoding='utf8')
+print(r.stdout[-1200:]);raise SystemExit(r.returncode)

@@ -1,0 +1,16 @@
+from pathlib import Path
+import subprocess,json
+scope={};exec(Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];repo=Path('work/oracle-ingestion-resilience');branch='release/canonical-only-reproducible-20261013'
+expected=json.loads(Path('outputs/discovery-redeploy-20261016/merge-proof.json').read_text())['commit'];rollback='80bd8a9aae5c1af733778f524ce880efcb5d815e'
+tip=api('/branches/'+branch.replace('/','%2F'))['commit']['sha'];assert tip in {expected,rollback}
+if tip!=rollback:
+ subprocess.run(['git','push','origin',expected+':refs/tags/deployment-rolled-back-'+expected[:12]],cwd=repo,check=True,capture_output=True,text=True)
+ subprocess.run(['git','push','origin','--force-with-lease=refs/heads/'+branch+':'+expected,rollback+':refs/heads/'+branch],cwd=repo,check=True,capture_output=True,text=True)
+labels=api('/labels?per_page=100')
+if not any(v['name']=='deployment-rolled-back' for v in labels):
+ api('/labels',{'name':'deployment-rolled-back','color':'b60205','description':'Not deployed on Oracle; production rolled back to 80bd8a9.'})
+for number in [6,7]:api('/issues/'+str(number)+'/labels',{'labels':['deployment-rolled-back']})
+actual=api('/branches/'+branch.replace('/','%2F'))['commit']['sha'];assert actual==rollback
+proof={'release_commit':actual,'production_expected':rollback,'marked_prs':[6,7],'merge_commit_retained_in_tag':'deployment-rolled-back-'+expected[:12]}
+Path('outputs/discovery-redeploy-20261016/release-alignment.json').write_text(json.dumps(proof,indent=2));print(json.dumps(proof))

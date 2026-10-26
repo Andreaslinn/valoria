@@ -1,0 +1,41 @@
+from lab import *
+from models import *
+from avm01.isolation import LabelCustody
+from avm01.splits import inner_folds
+NAMES=['A','R0','Rsource','Flex','Trees','Adjusted','AdjustedPre','LocalResidual']
+def config(c,seed):return {'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'protocol.json')}
+def run(seed):
+ c=verify();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],seed)
+ out=HERE/f'iteration1-{seed}.json.dpapi';assert not out.exists(),'No overwrite'
+ old={r['row_id']:r for r in prior(seed)};custody=LabelCustody(ds,());rows=[];checks=0
+ for fold,split in enumerate(plan.folds):
+  print(json.dumps({'seed':seed,'fold':fold,'phase':'fit'}),flush=True)
+  batch=custody.issue(ds,split,config(c,seed),());targets=list(batch.targets)
+  models={'R0':Model(batch,'R0'),'Rsource':Model(batch,'R0',True),'Flex':Model(batch,'Flex'),'Trees':Model(batch,'Trees')}
+  logs={name:dict(zip([t.row_id for t in targets],m.predict_log(targets))) for name,m in models.items()}
+  # Three inner folds supply honest residuals for every outer-training publication.
+  residual={};inner_custody=LabelCustody(ds,())
+  for inner in inner_folds(ds,split,seed=seed):
+   ib=inner_custody.issue(ds,inner,config(c,seed),(),outer=split);im=Model(ib,'Flex');ts=list(ib.targets)
+   iv={n:{t.row_id:None for t in ts} for n in NAMES};lv=im.predict_log(ts)
+   for t,v in zip(ts,lv):iv['Flex'][t.row_id]=math.exp(float(v))
+   inner_custody.record_predictions(ib,iv);truth=inner_custody.complete(iv,inner.test)
+   residual.update({t.row_id:math.log(truth[t.row_id])-float(v) for t,v in zip(ts,lv)})
+  assert set(residual)==set(split.train)
+  train={r.row_id:r for r in batch.rows};lt=dict(zip(train,models['R0'].train_log()));vals={n:{} for n in NAMES};traces={}
+  for t in targets:
+   assert old[t.row_id]['fold']==fold
+   a=old[t.row_id]['predictions']['A'];assert set(a['selected_ids'])<=set(train) and set(a['surface_pool_ids'])<=set(train)
+   for n in models:vals[n][t.row_id]=math.exp(float(logs[n][t.row_id]))
+   vals['A'][t.row_id]=a['prediction']
+   post,pre,factor=adjusted(a,t,train,logs['R0'][t.row_id],lt)
+   vals['Adjusted'][t.row_id]=post;vals['AdjustedPre'][t.row_id]=pre
+   corr,k=local_residual(t,list(batch.rows),residual,batch.components)
+   vals['LocalResidual'][t.row_id]=vals['Flex'][t.row_id]*math.exp(corr)
+   traces[t.row_id]={'adjustment_factor':factor,'local_residual_log':corr,'local_n':k,'A_pre':a['pre'],'A_post':a['prediction'],'A_selected':a['selected_ids']}
+  custody.record_predictions(batch,vals);truth=custody.complete(vals,split.test)
+  for t in targets:rows.append({'row_id':t.row_id,'group':batch.components[t.row_id],'fold':fold,'source':t.features['source'],'comuna':t.features['comuna'],'area':math.exp(t.features['log_area']),'bedrooms':t.features['bedrooms'],'parking':t.features['parking'],'geo':t.latitude is not None,'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES},'trace':traces[t.row_id]})
+  print(json.dumps({'seed':seed,'fold':fold,'complete':len(targets)}),flush=True)
+ h=encrypt(out,rows);write(HERE/f'iteration1-{seed}-manifest.json',{'n':len(rows),'sha256_plaintext':h,'sha256_ciphertext':sha(out),'protocol_sha256':sha(HERE/'protocol.json'),'code_sha256':{str(f.relative_to(HERE)):sha(f) for f in HERE.glob('*.py')}})
+ print(json.dumps({'seed':seed,'completed':len(rows),'encrypted':True}),flush=True)
+if __name__=='__main__':run(int(sys.argv[1]))

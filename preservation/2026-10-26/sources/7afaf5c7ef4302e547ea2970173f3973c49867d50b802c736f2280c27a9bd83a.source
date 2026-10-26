@@ -1,0 +1,65 @@
+"""Offline search-page detector regressions; no source requests."""
+from pathlib import Path
+
+import pytest
+
+from infrastructure.scrapers.portalinmobiliario import (
+    classify_portal_detail_page_state,
+    classify_portal_page_state,
+)
+
+FIXTURES = Path(__file__).parents[1] / "fixtures"
+
+
+@pytest.mark.parametrize("style", ["display:none", "visibility:hidden", "opacity:0"])
+@pytest.mark.parametrize(
+    "content",
+    [
+        '<iframe src="https://www.google.com/recaptcha/api2/anchor"></iframe>',
+        '<span>Verifica que eres humano</span>',
+    ],
+)
+def test_search_results_ignore_captcha_inside_hidden_ancestor(style, content):
+    results = (FIXTURES / "portal_list.html").read_text(encoding="utf-8")
+    html = results.replace("</body>", f'<div style="{style}">{content}</div></body>')
+    assert classify_portal_page_state(html, status_code=200) == "authenticated"
+
+
+@pytest.mark.parametrize("fixture", ["portal_list.html", "portal_results_real_sanitized.html"])
+def test_valid_results_with_passive_captcha_scripts_remain_results(fixture):
+    html = (FIXTURES / fixture).read_text(encoding="utf-8")
+    scripts = '<script src="https://www.google.com/recaptcha/api.js"></script>'
+    scripts += '<script>function verifyChallenge(){}; const tokenName="_bmc";</script>'
+    html = html.replace("</body>", scripts + "</body>")
+    assert classify_portal_page_state(html, status_code=200) == "authenticated"
+
+
+def test_visible_captcha_still_stops_results_page():
+    results = (FIXTURES / "portal_list.html").read_text(encoding="utf-8")
+    html = results.replace("</body>", '<div class="g-recaptcha">Verifica que eres humano</div></body>')
+    assert classify_portal_page_state(html, status_code=200) == "captcha_visible"
+
+
+@pytest.mark.parametrize("opacity", ["0.5", "0.05", ".5"])
+def test_nonzero_opacity_does_not_hide_a_visible_challenge(opacity):
+    results = (FIXTURES / "portal_list.html").read_text(encoding="utf-8")
+    challenge = f'<div style="opacity:{opacity}"><iframe src="https://www.google.com/recaptcha/api2/anchor"></iframe></div>'
+    html = results.replace("</body>", challenge + "</body>")
+    assert classify_portal_page_state(html, status_code=200) == "captcha_visible"
+
+
+@pytest.mark.parametrize("status", [403, 429])
+def test_blocked_status_still_overrides_valid_results(status):
+    html = (FIXTURES / "portal_list.html").read_text(encoding="utf-8")
+    assert classify_portal_page_state(html, status_code=status) == "blocked"
+
+
+@pytest.mark.parametrize("fixture", ["portal_detail_real_1_sanitized.html", "portal_detail_real_2_sanitized.html"])
+def test_real_detail_fixtures_keep_positive_evidence(fixture):
+    html = (FIXTURES / fixture).read_text(encoding="utf-8")
+    assert classify_portal_detail_page_state(html, status_code=200) == "detail"
+
+
+def test_passive_script_shell_is_unexpected_not_confirmed_captcha():
+    html = '<html><body><script>document.cookie="_bmc=example";function verifyChallenge(){}</script></body></html>'
+    assert classify_portal_page_state(html, status_code=200) == "unexpected"

@@ -1,0 +1,67 @@
+# Valoria: investigación autónoma de valoración — cierre 2026-10-11
+
+**Resultado:** candidato experimental A + texto para pasar a validación temporal congelada. No reemplazo productivo aprobado, no superioridad universal certificada. A permanece idéntico. El alcance numérico es **A_core**, la familia comparable congelada, no la salida completa de Tasar/Consensus.
+
+## Hallazgos comprobados
+
+- Las particiones G3 y el linaje de comparables/superficie pasan las comprobaciones ejecutables. MdAPE/MAPE coinciden con un cálculo independiente; P90/P95 anteriores tenían únicamente redondeo de presentación.
+- El benchmark original contiene 791 ofertas UF elegibles, dentro de 2.396 departamentos activos y 6.283 listings. Su entrenamiento utiliza otros objetivos elegibles del fold, no todo el inventario operativo. No se ha demostrado que todo el inventario restante sea monetariamente utilizable.
+- Portal representa 51% de la cohorte y aproximadamente 19% del inventario activo. Las superficies medianas son 35 m² en Portal y 68 m² en Yapo; fuente, territorio y tipología están confundidos. Los 406 objetivos Portal tienen estacionamientos=0 de semántica incierta; 791/791 igualan superficie construida/útil como proxy. No certificamos esas equivalencias como datos físicos reales.
+- En el benchmark, 289/385 objetivos Yapo tienen coordenadas y ninguno de los 406 Portal. Esto **no** afirma que el Oracle actual carezca de coordenadas Portal.
+- El contrato manual local de Tasar no recibe coordenadas ni texto del objetivo. Su ablación cambia modestamente A: MdAPE 14,00%/14,33%, frente a 13,97%/13,75%. La discrepancia existe, pero no explica todos los resultados negativos.
+- Los labels son precios publicados, no ventas cerradas. La cohorte antigua conserva trazabilidad PARSED; las cohortes modernas corroboran UF con el payload RAW. No se reparó ningún precio.
+- Los rangos heurísticos de A contienen el precio publicado en 74/120 casos temporales (61,7%). No tienen un nivel nominal declarado y no deben presentarse como intervalos calibrados de 90/95%.
+
+## Experimentos y candidato
+
+Se probaron ajustes físicos de los mismos comparables, Ridge con/sin fuente, spline de superficie, árboles pequeños, correcciones con residuos espaciales honestamente cross-fitted, kernels físicos/geográficos con selección interna, agregación mediana/geométrica, texto, 21 indicadores semánticos, controles negativos e híbridos.
+
+Ninguna de las especificaciones físicas/espaciales probadas mostró una ventaja general estable. Esto refuta esas especificaciones, no todas sus familias. La media geométrica mejora MAPE y colas pero no MdAPE consistentemente: no cambiamos la métrica principal para declararla ganadora.
+
+El candidato combina el A intacto con una regresión de log-precio sobre atributos físicos, comuna y TF-IDF alfabético del texto disponible. El vector no utiliza fuente, IDs, URL ni importes numéricos. Vocabulario, escalado y regularización se ajustan solo en entrenamiento. El peso de texto se seleccionó junto con la regularización **exclusivamente en folds internos**: 0,5 en cinco folds externos y 0,75 en uno; para entrenar con los 791 registros, los folds internos eligieron 0,5, Ridge alpha=1 y peso TF-IDF=1. A peso 0,5, la combinación es `sqrt(A × Text)`.
+
+| Evaluación, soporte común | Casos | MdAPE A → candidato | MAPE A → candidato |
+|---|---:|---:|---:|
+| Cohorte original, seed 20261009 | 702 | 13,97 → 13,26% | 17,98 → 16,58% |
+| Cohorte original, seed 20261010 | 710 | 13,75 → 13,23% | 18,05 → 16,90% |
+| Nuevas publicaciones 5–10 octubre | 120 | 14,97 → 13,42% | 17,73 → 16,62% |
+| Comprobación posterior 11 octubre | 19 | 16,36 → 13,04% | 17,64 → 16,75% |
+
+En las dos particiones originales, los IC bootstrap pareados por dependencia para ΔMAPE son [-1,93; -0,92] y [-1,75; -0,53] puntos. MAE-log también mejora en ambas y en ambas fuentes. Los IC de ΔMdAPE incluyen cero. Son intervalos exploratorios sin corrección por múltiples hipótesis; las dos seeds reutilizan los mismos inmuebles y no constituyen dos muestras independientes. Los intervalos temporales de las mejoras también incluyen cero. En la muestra nueva de 19, P90 pasa 33,76→36,73% y P95 38,69→39,35%: la mejora no es uniforme.
+
+**Cobertura separada:** Blend conserva exactamente la disponibilidad de A. BlendSupported añade Text solo cuando hay ≥5 registros de entrenamiento de la misma comuna y la superficie cae dentro del rango observado; no usa el precio objetivo. Cobertura original 88,75→95,83% y 89,76→95,58%; temporal 80,54→87,25%; nueva 90,48→95,24%. En los diez casos adicionales temporales, seis quedan dentro de 20%, pero uno supera 50%: el fallback requiere validación propia.
+
+**Atribución:** el texto no es todavía una ficha de calidad/edificio. Hay título en 791/791, descripción en solo 11 y dirección en 25. Intercambiar texto entre objetivos de la misma fuente/comuna deteriora el resultado; permutar precios de entrenamiento produce errores grandes. La señal persiste al retirar 24/26 títulos casi idénticos con superficie cercana. No se encontraron URLs embebidas ni el patrón examinado de importes escritos en palabras. Esto apoya señal contextual, pero no certifica ausencia de toda dependencia oculta ni identifica una prima causal por edificio.
+
+## Evidencia temporal y privacidad
+
+Se hicieron dos exportaciones limitadas desde Oracle con transacción `READ ONLY`, timeout y proyección de campos permitidos. Primera captura: 3.274 observaciones; continuación: 3.824, con las primeras 3.274 idénticas. Sin scraping ni escrituras productivas.
+
+La primera cohorte temporal aporta 149 publicaciones, 148 grupos efectivos, exclusivamente Yapo. El grafo incluye los 6.283 registros antiguos, todas las primeras observaciones modernas, dependencias G3 y aliases de listing; se excluyen conexiones con registros antiguos. Sus resultados se consumieron durante la investigación posterior y son exploratorios.
+
+Antes de la segunda captura se fijaron código, pesos y reglas en `fresh_design.json`. El siguiente ciclo natural aportó 550 observaciones y 153 primeras publicaciones. Se excluyeron 99 por calidad monetaria/estructural y 33 por aliases previos: quedaron 21 departamentos nuevos, 19 tasables por A. Se evaluaron una sola vez con el candidato congelado, sin tuning posterior. Siete pertenecen a Vitacura y siete tienen coordenadas. Son datos cronológicos adicionales no vistos al elegir el candidato, pero ya existían antes de registrar el protocolo: **no** es un estudio prospectivo ni una prueba amplia del mercado. El holdout confirmatorio protegido anterior no se abrió ni evaluó.
+
+Todos los nuevos artefactos individuales están cifrados con DPAPI CurrentUser y fuera del versionado. Para descifrarlos se requiere el usuario/contexto Windows correspondiente; los hashes no sustituyen esa clave. Los informes contienen únicamente agregados. Las reparaciones de ejecución (autorización de A en un batch interno, enum temporal e import numpy) están documentadas; no cambiaron criterios científicos ni se tomaron después de observar outcomes nuevos.
+
+## Reproducción y comprobaciones
+
+Desde `C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped`:
+
+```powershell
+# Solo archivos archivados; ninguna conexión a Oracle ni nuevas consultas.
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/valuation_discovery_20261011/fresh_replay.py
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/valuation_discovery_20261011/synthesize.py
+python -B -c "import sys;sys.path.insert(0,'work/avm-01-20261008/.venv-repro/Lib/site-packages');import pytest;raise SystemExit(pytest.main(['research/valuation_discovery_20261011/test_lab.py','-q','-p','no:cacheprovider']))"
+```
+
+`results.json` reúne métricas de soporte propio/común, segmentos, incertidumbre y errores en cobertura adicional. `metrics.csv` permite comparar esas dimensiones sin confundir denominadores. Protocolos, parámetros elegidos, predicciones cifradas y snapshots quedan archivados. `manifest.json` conserva versiones y hashes. Los runners originales rechazan sobrescribir resultados: no ejecutar `setup`, `prepare`, `capture` ni `build` nuevamente sobre este archivo de investigación. El replay del candidato confirma 84/84 predicciones idénticas, sobre 21 objetivos, sin red. Pasaron 22 tests; se verificaron 1.437 hashes originales y 124 archivos del runtime copiado, exceptuando únicamente el registro de autorizaciones experimental.
+
+## Decisión técnica
+
+Se cumple el criterio de parada **A en alcance experimental**: existe una mejora defendible para justificar el siguiente paso técnico, no para desplegar. No se declara una barrera general ni una solución definitiva al AVM.
+
+Prioridad: conservar este candidato sin nuevos ajustes sobre estas cohortes y validar por bloques temporales de publicaciones nuevas del pipeline normal, con los mismos gates de dependencia/moneda. Evaluar por separado Blend y el fallback de cobertura; incluir soporte común, MdAPE, MAE-log, colas y error por fuente/tamaño/territorio. Definir la precisión de incertidumbre requerida antes de calcular el tamaño de muestra; no elegir un N para obtener significancia. Mantener los precios de futuras observaciones sin consultar hasta el corte fijado.
+
+En paralelo, preparar un benchmark con candidatos monetariamente fiables más representativos del pool operativo y contratos distintos para Tasar manual versus URL/Radar. Preservar y normalizar superficie, estacionamientos desconocidos, antigüedad, estado, edificio y ubicación con procedencia. No inferir ceros ni calidad física a partir de ausencia de datos. Antes de una decisión productiva será necesaria evaluación de la salida completa de Consensus y de señales correlacionadas: estos números no autorizan agregar otra familia al consenso.
+
+Oracle, scrapers, History, timers, Tasar, Consensus y los datos productivos no fueron modificados.

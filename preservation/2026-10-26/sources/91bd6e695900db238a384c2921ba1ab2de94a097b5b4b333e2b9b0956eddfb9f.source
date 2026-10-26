@@ -1,0 +1,113 @@
+import unittest,copy,itertools,json,csv,contextlib,io,hashlib
+from pathlib import Path
+from collections import Counter
+from identity import sanitize,normalize,features,pair_rules,graph,stable_sample,canonical_url,address_parts,contradictions
+from run import pairs_for,main
+
+H=Path(__file__).resolve().parent; A=H.parents[1]/'research/tasar_avm_audit_20261002'
+
+def fixture(i,unit='101',coords=True):
+    return dict(id=i,source='yapo',external_id=str(i),comuna='nunoa',property_type='apartment',
+        m2=50,built_area_m2=50,bedrooms=2,bathrooms=2,parking=1,
+        title='Terraza soleada luminoso balcon panoramico',geocode_precision='address',
+        coordinates=dict(lat=-33.45,lon=-70.65) if coords else None,
+        raw_metadata=dict(address='Calle Los Olmos 123'+(' Dpto N° '+unit if unit else '')))
+
+def signature(rows,repeated=None):
+    nodes={r['id']:features(r,repeated) for r in rows}; pairs,_=pairs_for(nodes)
+    e=[pair_rules(nodes[a],nodes[b]) for a,b in sorted(pairs)]
+    return {s:graph(nodes,[(r['id_a'],r['id_b']) for r in e if r[s]]) for s in ['G1','G2','G3']}
+
+class IdentityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        snap=json.loads((A/'input_snapshot.json').read_text(encoding='utf-8'))
+        with (A/'candidate_dataset_with_group_id.csv').open(encoding='utf-8') as f:
+            ids={int(r['id']) for r in csv.DictReader(f)}
+        cls.rows=[r for r in snap['listings'] if r['id'] in ids]
+        cls.repeated=Counter((r['comuna'],round(r['coordinates']['lat'],7),round(r['coordinates']['lon'],7))
+            for r in snap['listings'] if r.get('coordinates'))
+        cls.baseline=signature(cls.rows,cls.repeated)
+
+    def test_01_price_changes_all_candidates_no_group_change(self):
+        rows=copy.deepcopy(self.rows)
+        for r in rows:
+            r['price']={'clp':'NaN'}; r['price_uf']=-999999; r['canonical_price']=999999999
+            r['raw_metadata'].update(price_uf=1,price_clp=999,opportunity_score=100,valuation=0)
+        self.assertEqual(self.baseline,signature(rows,self.repeated))
+
+    def test_02_uf_rate_changes_all_candidates_no_group_change(self):
+        rows=copy.deepcopy(self.rows)
+        for r in rows: r['uf_rate']=1; r['raw_metadata']['uf_rate_used']=999999999
+        self.assertEqual(self.baseline,signature(rows,self.repeated))
+
+    def test_03_monetary_title_and_description_neutralized(self):
+        rows=[fixture(1),fixture(2)]
+        for r in rows: r['title']+=' UF2500'; r['raw_metadata']['description']='Precio $100.000.000'
+        expected=signature(rows)
+        for r in rows: r['title']=r['title'].replace('UF2500','UF:99000'); r['raw_metadata']['description']='Precio $900.000.000'
+        self.assertEqual(expected,signature(rows))
+        for text in ['UF2500','UF:2500','2500 UF','$100.000.000','120 millones','CLP 120000000','precio 4500']:
+            self.assertFalse(any(c.isdigit() for c in sanitize(text)),text)
+
+    def test_04_high_and_conservative_graphs_have_separate_transitivity(self):
+        a,b,c=map(features,[fixture(1),fixture(2),fixture(3,None)])
+        evidence=[pair_rules(x,y) for x,y in itertools.combinations([a,b,c],2)]
+        high=graph([1,2,3],[(e['id_a'],e['id_b']) for e in evidence if e['high']])
+        cv=graph([1,2,3],[(e['id_a'],e['id_b']) for e in evidence if e['G2']])
+        self.assertEqual(high[1],high[2]); self.assertNotEqual(high[2],high[3])
+        self.assertEqual(len(set(cv.values())),1)
+
+    def test_05_same_coordinates_without_other_evidence_not_union(self):
+        rows=[fixture(1,None),fixture(2,None)]
+        for r in rows: r['raw_metadata']={}; r['title']='Departamento en venta'
+        e=pair_rules(*map(features,rows))
+        self.assertFalse(e['high']); self.assertFalse(e['G3'])
+
+    def test_06_structure_alone_not_high(self):
+        rows=[fixture(1,None,False),fixture(2,None,False)]
+        for r in rows: r['raw_metadata']={}
+        e=pair_rules(*map(features,rows))
+        self.assertFalse(e['high']); self.assertFalse(e['G3'])
+
+    def test_07_strong_geographic_contradiction_not_high(self):
+        rows=[fixture(1),fixture(2)]; rows[1]['coordinates']['lat']=-33.48
+        e=pair_rules(*map(features,rows))
+        self.assertTrue(e['identity_contradiction']); self.assertFalse(e['high']); self.assertFalse(e['G3'])
+
+    def test_08_sampling_fixed_seed_and_order_independent(self):
+        pairs=list(itertools.combinations(range(40),2))
+        self.assertEqual(stable_sample(pairs,20,str),stable_sample(list(reversed(pairs)),20,str))
+
+    def test_09_explicit_different_units_in_title_block_same_coordinates(self):
+        rows=[fixture(1,None),fixture(2,None)]
+        for idx,r in enumerate(rows):
+            r['raw_metadata']={}; r['title']=f'Dpto N° {101+idx}, Terraza soleada luminoso balcon, Calle Los Olmos'
+        e=pair_rules(*map(features,rows))
+        self.assertIn('explicit_different_unit',e['contradiction_reason']); self.assertFalse(e['G3'])
+
+    def test_10_url_canonicalization_preserves_semantic_query_ids(self):
+        self.assertEqual(canonical_url('http://www.yapo.cl/ad/123/?utm_source=x'),canonical_url('https://yapo.cl/ad/123'))
+        self.assertNotEqual(canonical_url('https://yapo.cl/ad?id=1'),canonical_url('https://yapo.cl/ad?id=2'))
+
+    def test_11_numeric_identity_survives_price_sanitization_no_bedroom_as_unit(self):
+        a=address_parts('Av. Los Olmos N°123, Dpto N°305, UF2500')
+        b=address_parts('Av. Los Olmos N°123, Dpto N°305, UF9900')
+        self.assertEqual(a['full_key'],b['full_key']); self.assertEqual(a['unit'],'305')
+        self.assertIsNone(address_parts('Dpto 2D+1B')['unit'])
+
+    def test_12_actual_csv_outputs_reproduce_byte_for_byte(self):
+        with contextlib.redirect_stdout(io.StringIO()): main()
+        before={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in H.glob('*.csv')}
+        with contextlib.redirect_stdout(io.StringIO()): main()
+        after={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in H.glob('*.csv')}
+        self.assertEqual(before,after)
+
+    def test_13_history_export_contains_no_price_amount_columns(self):
+        history=json.loads((H/'historical_identity_snapshot.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(history['history_relationships']),12583)
+        for row in history['history_relationships']:
+            self.assertEqual(set(row),{'id','listing_id','observed_at','created_at'})
+        for row in history['listings']: self.assertFalse(any(k.startswith('price') for k in row))
+
+if __name__=='__main__': unittest.main()

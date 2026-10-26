@@ -1,0 +1,15 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+
+code="""import subprocess,json,re
+names=['valoria-portal-candidate-api','valoria-portal-candidate-redis','valoria-portal-candidate-pg','valoria-portal-release-restore-check','valoria-portal-final-restore-check']
+for name in names:
+ x=json.loads(subprocess.check_output(['docker','inspect',name]))[0]
+ assert x['Name']=='/'+name and x['HostConfig']['Memory'] in [33554432,268435456,402653184]
+ for mount in x['Mounts']:
+  if mount['Type']=='volume':pass
+  else:assert name=='valoria-portal-candidate-api' and mount['Destination']=='/portal-session' and not mount['RW']
+print(json.dumps({name:[{k:m.get(k) for k in ['Type','Name','Destination','RW']} for m in json.loads(subprocess.check_output(['docker','inspect',name]))[0]['Mounts']] for name in names},indent=2))
+"""
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=35);print(r.stdout);print(r.stderr);r.check_returncode()

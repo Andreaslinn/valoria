@@ -1,0 +1,14 @@
+import subprocess,tarfile,io
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code="""from pathlib import Path
+import tarfile,sys
+root=Path('/home/ubuntu/apps/valoria/scripts/portal_session_runtime')
+with tarfile.open(fileobj=sys.stdout.buffer,mode='w|gz') as t:
+ for p in root.rglob('*.py'):
+  if '__pycache__' not in p.parts:t.add(p,arcname=str(p.relative_to(root)),recursive=False)
+"""
+r=subprocess.run(ssh+['python3 -B -'],input=code.encode(),capture_output=True,timeout=40);r.check_returncode()
+out=Path(__file__).parent/'portal-session-source';out.mkdir(exist_ok=True)
+with tarfile.open(fileobj=io.BytesIO(r.stdout),mode='r:gz') as t:t.extractall(out,filter='data')
+print('Session runtime Python source paths:',[str(p.relative_to(out)) for p in out.rglob('*.py')])

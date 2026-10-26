@@ -1,0 +1,48 @@
+from pathlib import Path
+p = Path('outputs/valoria/services/property_life.py')
+s = p.read_text(encoding='utf-8')
+a = s.index('    converted = hv.to_uf', s.index('def reconstruct'))
+b = s.index('\n    return key, N, L, F, uf, V', a)
+s = s[:a] + '''    saved = conn.execute(select(db.transfer.c.data).where(db.transfer.c.dataset_key == key)).scalars().all()
+    if saved:
+        V = pd.DataFrame(saved)
+        V['fecha'] = pd.to_datetime(V.fecha)
+        return key, N, L, F, uf, V.sort_values('fecha')
+    converted = hv.to_uf(F.copy(), uf)
+    uf_av = uf.asof(pd.Timestamp(hv.UF_AVALUO_DATE)) if len(uf) else None
+    V = hv.marcar_atipicas(hv.ventas(converted, N, uf_av, L, today=today))
+    ids = {(mz, pr): pid for pid, mz, pr in conn.execute(select(db.property.c.id, db.property.c.mz, db.property.c.pr).where(
+        db.property.c.source_file_id == n_id, db.property.c.comuna == cod))}
+    groups = converted.sort_values('uf_total', na_position='first').drop_duplicates(['mz', 'pr', 'FE', 'FI'], keep='last')
+    groups = groups.merge(N[['mz', 'pr', 'tipo']], on=['mz', 'pr'], how='left')
+    auxiliaries = {}
+    for (mz, fe, fi), group in groups.groupby(['mz', 'FE', 'FI']):
+        aux = group[group.tipo.isin(['estac', 'bodega'])]
+        if not aux.empty:
+            auxiliaries[f'{mz}:{fe}:{fi}'] = [ids[r.mz, r.pr] for r in aux.itertuples()]
+    batch = []
+    def flush():
+        if not batch:
+            return
+        stmt = insert(db.transfer).values(batch).on_conflict_do_nothing().returning(
+            db.transfer.c.id, db.transfer.c.operation_key, db.transfer.c.confianza)
+        links = []
+        for tid, operation, confidence in conn.execute(stmt):
+            if confidence in {'desglosado', 'paquete_no_desglosado'}:
+                links.extend(dict(transfer_id=tid, property_id=pid) for pid in auxiliaries.get(operation, []))
+        if links:
+            conn.execute(insert(db.transfer_unit).values(links).on_conflict_do_nothing())
+        batch.clear()
+    for r in V.to_dict('records'):
+        exclusion = r['atipica'] or ('' if r['usable'] else r['confianza'])
+        if not exclusion and not 15 <= r['ufm2'] <= 500:
+            exclusion = 'UF/m² fuera del rango 15–500 del prototipo'
+        batch.append(dict(dataset_key=key, property_id=ids[r['mz'], r['pr']],
+            fecha=r['fecha'].date() if pd.notna(r['fecha']) else None,
+            uf_principal=hv.clean_json(r['uf_principal']), uf_total=hv.clean_json(r['uf_total']),
+            confianza=r['confianza'], motivo_exclusion=exclusion or None, usable=bool(r['usable']),
+            data=hv.clean_json(r), operation_key=r['operation_key']))
+        if len(batch) == 1000:
+            flush()
+    flush()''' + s[b:]
+p.write_text(s, encoding='utf-8')

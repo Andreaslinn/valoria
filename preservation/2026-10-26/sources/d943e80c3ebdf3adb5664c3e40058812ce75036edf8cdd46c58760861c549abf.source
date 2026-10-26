@@ -1,0 +1,45 @@
+"""Price-blind text availability, template stress and matched negative controls."""
+from lab import *
+from text_models import text,STOP
+from analyze import metrics,interval
+import re,unicodedata
+
+def title_tokens(r):
+ p=r.canonical_target;m=p.get('raw_metadata') or {};s=str(m.get('title') or '')
+ s=''.join(c for c in unicodedata.normalize('NFD',s.lower()) if unicodedata.category(c)!='Mn')
+ return set(re.findall(r'\b[^\W\d_]{3,}\b',s))-set(STOP)-{'vende','venta','arriendo','depto','dpto','departamento','santiago','chile'}
+
+def similar(a,b,tokens):
+ if a.features['comuna']!=b.features['comuna'] or abs(math.exp(a.features['log_area']-b.features['log_area'])-1)>.1:return False
+ ta,tb=tokens[a.row_id],tokens[b.row_id]
+ return len(ta&tb)>=3 and len(ta&tb)/len(ta|tb)>=.8
+
+def assess(ds,splits,predpath,qualitypath):
+ idx=ds.indexed();tok={i:title_tokens(r) for i,r in idx.items()};close=set();eligible=set()
+ for split in splits:
+  for i in split.test:
+   eligible.add(i)
+   if any(similar(idx[i],idx[j],tok) for j in split.train):close.add(i)
+ rows=decrypt(predpath);quality={r['row_id']:r for r in decrypt(qualitypath)}
+ for r in rows:r['predictions'].update(quality[r['row_id']]['predictions'])
+ out={'near_template_rule':'Same commune, area +/-10%, >=3 shared alphabetic title tokens and Jaccard>=.8; price-blind sensitivity screen, NOT an identity assertion or changed grouping','near_template':len(close),'far_template':len(eligible-close)}
+ for label,ss in [('all',rows),('near',[r for r in rows if r['row_id'] in close]),('far',[r for r in rows if r['row_id'] not in close])]:
+  out[label]={'n':len(ss),'A_vs_Text':interval(ss,'A','Text'),'Text_vs_Quality':interval(ss,'Text','Quality'),'Text_vs_Shuffled':interval(ss,'Text','TextShuffled'),'metrics':{n:metrics(ss,n) for n in ['A','Text','Quality','TextShuffled','TextPriceNegative']}}
+ return out
+
+def main():
+ p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];out={}
+ for seed in [20261009,20261010]:
+  plan=p.create_plan(ds,cohort,maps['G3'],seed);out[str(seed)]=assess(ds,plan.folds,HERE/f'text-{seed}.json.dpapi',HERE/f'quality-{seed}.json.dpapi')
+ from temporal_prepare import temporal_data
+ from avm01.splits import Split
+ from avm01.isolation import dependency_hash
+ td,train,test,_=temporal_data();sp=Split(train,test,'temporal',20261009,td.hash(),dependency_hash(td));out['temporal']=assess(td,[sp],HERE/'text-temporal.json.dpapi',HERE/'quality-temporal.json.dpapi')
+ availability={}
+ for source in ['yapo','portalinmobiliario']:
+  rows=[r for r in ds.records if r.features['source']==source];keys=['title','description','address_label','street_hint','location_text']
+  availability[source]={'n':len(rows),'train_target_text_identical':sum(text(r)==text(r.inference()) for r in rows),'target_fields':{k:sum(bool((r.canonical_target.get('raw_metadata') or {}).get(k)) for r in rows) for k in keys},'embedded_URLs':sum(bool(re.search(r'https?://|www\.',text(r),re.I)) for r in rows),'monetary_word_risk':sum(bool(re.search(r'\b(?:cien|ciento|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos|mil)\b.{0,30}\b(?:uf|pesos|millones)\b',text(r),re.I)) for r in rows)}
+ out['availability']=availability;out['limits']='Stress uses held features only and never their prices to define subsets. Templates may be valid local information or unresolved dependence; removal is a sensitivity check, not certification of physical independence. Temporal subset is exploratory.'
+ write(HERE/'text_diagnostics.json',out);print(json.dumps({s:{'near':z['near_template'],'far':z['far_template'],'far_A_vs_Text':{k:v for k,v in (z['far']['A_vs_Text'] or {}).items() if k not in ['A','B']}} for s,z in out.items() if s not in ['availability','limits']}));print(json.dumps(availability))
+
+if __name__=='__main__':main()

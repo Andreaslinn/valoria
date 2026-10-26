@@ -1,0 +1,39 @@
+from pathlib import Path
+import subprocess,json
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+patched=(Path(__file__).parent/'radar-engine-candidate/services/radar.py').read_text(encoding='utf-8')
+inner='''import asyncio,json,httpx,time
+import services.radar as radar_module
+exec(compile(PATCH, '<isolated-radar-candidate>', 'exec'), radar_module.__dict__)
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+from infrastructure.external.uf_client import UFClient
+from services.valuation import ValuationService
+from services.listing_url_lookup import listing_to_form_data
+from services.listing_analysis import _valuation_input,analyze_listing_lookup
+async def main():
+ async with get_session_factory()() as s,httpx.AsyncClient() as http:
+  await s.execute(text('SET TRANSACTION READ ONLY'));repo=SqlAlchemyListingRepository(s)
+  uf=UFClient(api_url='https://mindicador.cl/api/uf',http_client=http,redis=None,session_factory=get_session_factory())
+  service=ValuationService(listing_repo=repo,uf_service=uf)
+  start=time.perf_counter();rows=await radar_module.RadarService(listing_repo=repo,uf_service=uf,valuation_service=service).opportunities(limit=20);seconds=time.perf_counter()-start
+  assert seconds<90,seconds
+  checked=[]
+  for row in rows:
+   listing=await repo.find_by_id(row.listing_id);inp,missing=_valuation_input(listing_to_form_data(listing));assert not missing
+   direct=await service.valuate_property(inp,valuation_strategy='consensus_v1')
+   assert row.estimated_price_uf==row.estimated_value_uf==direct.estimated_price_uf,(row.listing_id,row.estimated_price_uf,direct.estimated_price_uf)
+   assert row.discount_pct==round((1-row.price_uf/row.estimated_price_uf)*100,2)
+   assert (row.confidence_score,row.confidence_label)==(direct.confidence_score,direct.confidence_label)
+   assert row.listing_id not in [x.listing_id for x in direct.comparables]
+   checked.append({'listing_id':row.listing_id,'estimate_uf':row.estimated_price_uf,'discount_pct':row.discount_pct,'confidence_score':row.confidence_score,'consensus_used':row.consensus_used})
+  target=next(x for x in rows if x.listing_id==1130)
+  analysis=await analyze_listing_lookup(listing_to_form_data(await repo.find_by_id(1130)),valuation_service=service)
+  assert target.estimated_price_uf==analysis.valuation['estimated_value_uf']
+  assert [x.score for x in rows]==sorted([x.score for x in rows],reverse=True)
+  print(json.dumps({'candidate_radar_seconds':round(seconds,2),'rows_checked':len(rows),'all_rows_match_tasar':True,'all_targets_excluded':True,'1130_analysis_match':True,'comparisons':checked}))
+asyncio.run(main())
+'''.replace('PATCH',repr(patched))
+remote="import subprocess,json\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=160)\nprint(r.stdout)\nif r.returncode:print(r.stderr[-1800:]);raise SystemExit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=175);Path(__file__).with_name('radar-shared-candidate-parity.json').write_text(r.stdout,encoding='utf-8');print(r.stdout);r.check_returncode()

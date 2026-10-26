@@ -1,0 +1,24 @@
+"""Manufactured lineage, prices and timestamps: never evidence of AVM accuracy."""
+import math
+from .data import Record,Dataset
+
+def synthetic(groups=30,publications_per_group=1):
+    records=[]
+    for g in range(groups):
+        for pub in range(publications_per_group):
+          for obs in range(2):
+            row=f'fixture-{g:03d}-{obs}' if publications_per_group==1 else f'fixture-{g:03d}-p{pub}-{obs}'
+            publication=f'publication-{g}-p{pub}'
+            area=70+g%7;value=float(4000+30*g+10*obs);date=f'2026-01-0{obs+1}T00:00:00+00:00'
+            target={'id':None,'comuna':'fixture-comuna','m2':area,'built_area_m2':area,'bedrooms':2,'bathrooms':2,'parking':1,'property_type':'apartment'}
+            listing=dict(target,id=g*publications_per_group+pub+1,source='fixture-source',external_id=publication,title='Departamento residencial de fixture',
+                price={'clp':str(value*41040.82)},price_uf=str(value),price_currency='UF',price_uf_source='scraped',price_uf_confidence='high',
+                status='active',fingerprint=f'fixture-fingerprint-{g}',scraped_at=date,last_seen_at=date,url=f'https://fixture.invalid/{g}/p{pub}',
+                property_id=999,raw_metadata={'price_raw':str(value),'price_currency_raw':'UF','images':['https://fixture.invalid/photo.jpg'],'fixture':True})
+            records.append(Record(row,publication,str(listing['id']),row,f'physical-{g}','synthetic_known',
+                {'log_area':math.log(70+g%7),'bedrooms':2,'bathrooms':2,'parking':1,'comuna':'fixture-comuna','source':'fixture-source'},
+                value,date,date,
+                '2026-01-10T00:00:00+00:00',f'2026-01-0{obs+1}T00:00:00+00:00',
+                physical_identity=f'physical-{g}',canonical_url=listing['url'],image_evidence=True,
+                comparable_density='synthetic_dense',canonical_listing=listing,canonical_target=target))
+    return Dataset(tuple(records),'synthetic',f'manufactured-{groups}groups-{publications_per_group}pub-v2','synthetic_known_identity',index_policy='first_observation_v1')

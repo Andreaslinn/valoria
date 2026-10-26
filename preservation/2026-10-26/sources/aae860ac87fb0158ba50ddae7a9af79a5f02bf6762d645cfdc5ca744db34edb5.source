@@ -1,0 +1,76 @@
+"""Offline archived-detail recovery. Writes allowed only to a SQLite sandbox."""
+from pathlib import Path
+import sys,json,hashlib,importlib.util,collections
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1]
+sys.path.insert(0,str(HERE/'integration'))
+from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal
+from domain.geocoding.source_quality import assess,mlc
+def module(name,path):
+ s=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(s);sys.modules[name]=m;s.loader.exec_module(m);return m
+CRYPTO=module('geo_recovery_cipher',ROOT/'private-ingestion-production-20261004/recovery_tools.py')
+def plan_for(row,ev):
+ if row['source']!='portalinmobiliario' or mlc(row['external_id'])!=ev['source_listing_id']:raise ValueError('Unaligned source/MLC')
+ point=ev.get('normalized')
+ if not point or assess(point['lat'],point['lon'])['status']=='INVALID':return None
+ if row.get('lat') is not None or row.get('lon') is not None:return None
+ return {'listing_id':row['id'],'external_id':row['external_id'],'coordinates':point,'evidence':ev,
+         'operation':'fill_missing_only','expected_lat':None,'expected_lon':None}
+async def apply_to_copy(session,plan):
+ if session.get_bind().dialect.name!='sqlite':raise RuntimeError('This experimental tool only writes to SQLite copies')
+ from infrastructure.db.models import ListingORM
+ applied=0
+ for item in plan:
+  r=await session.get(ListingORM,item['listing_id'])
+  if r is None or r.source!='portalinmobiliario' or r.external_id!=item['external_id']:raise ValueError('Listing/MLC changed')
+  if r.lat is not None or r.lon is not None:continue
+  r.lat=item['coordinates']['lat'];r.lon=item['coordinates']['lon'];r.geocode_precision='unknown'
+  r.raw_metadata={**(r.raw_metadata or {}),'coordinates_evidence':item['evidence'],
+                  'location_source':item['evidence']['source'],'geocode_precision':'unknown',
+                  'geocode_precision_reason':'archived_source_map_accuracy_not_certified'}
+  applied+=1
+ await session.flush()
+ return applied
+def inventory():
+ snap_path=ROOT/'research/tasar_local_optimization_20261010T182745Z/current_snapshot.json.dpapi'
+ snapshot=json.loads(CRYPTO.unprotect(snap_path.read_bytes()));rows=snapshot['listings']
+ portal=[r for r in rows if r['source']=='portalinmobiliario' and r['status']=='active' and r['property_type']=='apartment']
+ lookup={mlc(r['external_id']):r for r in portal};plan=[];archived=[];seen=set()
+ for path in sorted((HERE/'fixtures').glob('portal_detail*.html')):
+  raw=path.read_bytes();sha=hashlib.sha256(raw).hexdigest()
+  if sha in seen:continue
+  seen.add(sha);d=parse_listing_detail_portal(raw.decode('utf-8'),'')
+  ev=d['raw_metadata'].get('coordinates_evidence')
+  if not ev:continue
+  ev={**ev,'archive_sha256':sha,'archive_name':path.name,'observed_at':None,
+      'availability_note':'Archive acquisition timestamp not certified; excluded from retrospective benchmark augmentation'}
+  key=ev['source_listing_id'];archived.append({'mlc':key,'coordinates':ev['normalized'],'active_apartment_match':key in lookup})
+  if key in lookup:
+   item=plan_for(lookup[key],ev)
+   if item:plan.append(item)
+ quality={}
+ for source in ('portalinmobiliario','yapo'):
+  active=[r for r in rows if r['source']==source and r['status']=='active' and r['property_type']=='apartment'];counts=collections.Counter()
+  repeated=collections.Counter((r['comuna'],round(float(r['lat']),7),round(float(r['lon']),7)) for r in active if r.get('lat') is not None and r.get('lon') is not None)
+  for r in active:
+   m=r.get('raw_metadata') or {}
+   # Stored address labels can be inferred. Do not call them source-certified precision.
+   precision=r.get('geocode_precision') if r.get('geocode_precision') in ('comuna','comuna_centroid') else 'unknown'
+   x,y=r.get('lat'),r.get('lon');key=(r['comuna'],round(float(x),7),round(float(y),7)) if x is not None and y is not None else None
+   q=assess(x,y,precision=precision,source=m.get('location_source') or m.get('coordinates_source'),repeated=bool(key and repeated[key]>=5))
+   if q['status']=='MISSING' and ('lat' in m or 'lon' in m):
+    q=assess(m.get('lat'),m.get('lon'),source=m.get('location_source'))
+   counts[q['status']]+=1
+   counts['with_numeric_columns']+=int(r.get('lat') is not None and r.get('lon') is not None)
+   counts['local_eligible_uncertain']+=int(q['status']=='UNCERTAIN' and q.get('local_eligible',False))
+  quality[source]={'active_apartments':len(active),**dict(counts)}
+ cipher=CRYPTO.protect(json.dumps(plan,sort_keys=True).encode());(HERE/'backfill_plan.json.dpapi').write_bytes(cipher)
+ summary={'snapshot_at':snapshot['captured_at'],'snapshot_cipher_sha256':hashlib.sha256(snap_path.read_bytes()).hexdigest(),
+  'coverage':quality,'unique_archived_details_with_bound_geo':len(archived),
+  'Portal_active_apartments_recoverable_from_available_archives':len(plan),
+  'Portal_needing_other_archives_or_normal_future_details':len(portal)-len(plan),
+  'legacy_out_of_range_metadata_pairs':sum('lat' in (r.get('raw_metadata') or {}) for r in portal),
+  'confirmatory_holdout_touched':False,'backfill_applied_to_production':False,
+  'benchmark_augmentation':False,'note':'No inferred decimal rescaling; archive replays are not new observations or certified exact locations.'}
+ (HERE/'geographic_coverage.json').write_text(json.dumps(summary,indent=2))
+ print(json.dumps(summary))
+if __name__=='__main__':inventory()

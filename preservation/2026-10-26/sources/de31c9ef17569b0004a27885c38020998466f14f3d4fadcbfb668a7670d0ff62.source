@@ -1,0 +1,110 @@
+# Portal geography — integration and deployment runbook
+
+Status: development integration only. No deployment, activation, timer change, migration or production backfill performed.
+
+Operational closure: ARM64 representative build/startup and PostgreSQL16.14 concurrent tests PASS. GO for Stage A code deployment with Portal paused/budget0, pending authorization. See [closure and exact rollback](portal-geography-operational-closure.md) and [final evidence](portal-geography-operational-validation.json). Earlier validation limitations below describe the initial integration; the operational evidence supersedes those two pending gates.
+
+## Release boundaries and baseline
+
+Development branch: `feat/portal-geography-pipeline`. Baseline commit: `5adc256`.
+The baseline records archived source, including deployed ingestion preservation v3, independently of the dirty local UI branch. It is **not** a claim that the entire baseline tree equals today's running image. On 2026-10-11, READ ONLY checks verified eight relevant existing code/schema/history files byte-for-byte (using the raw archived files; Git normalizes line endings) against the active container. The Git baseline is equivalent after CRLF/LF normalization. Settings only acquire the three additive controls.
+
+Active image at preflight: `valoria-thumbnails:shared-v2-20261008`, ID `sha256:85b7c668299eb7883ef668f422583adc226d5d1e21fbc1d08ae13de82bf88147`. Checkout `06723a9` differs from the image and has pre-existing API changes. Do not deploy this development tree as a replacement for all production source or overwrite the checkout.
+
+Use `Dockerfile.portal-geography-overlay` to layer **only the ten changed runtime files** over the verified current image, retaining its API, thumbnails, dependencies, entrypoint and user. No frontend or AVM file is overlaid. If any existing overlaid file has changed since preflight, reconcile that file before building; do not silently replace it. Preserve History v3, the Yapo parser and effective production configuration.
+
+## Flow and contracts
+
+```mermaid
+flowchart LR
+  C[Existing Portal discovery cards] --> P[Existing commercial persistence]
+  P --> Q[Active listings missing usable point]
+  Q --> R[Stored RAW / observation history]
+  R -->|recoverable| G[Validated canonical geography]
+  R -->|missing| B[Separate bounded detail stage]
+  B --> D[Existing HTTP client and rate limiter]
+  D --> M[map_info.location + independent MLC]
+  M --> V[Numeric / identity / context validation]
+  V --> G
+  G --> H[Append-only geographic event]
+  G --> X[Radar and Tasar repository contracts]
+```
+
+`USABLE` requires an explicitly declared source precision; source map points normally remain `UNCERTAIN`, with `local_eligible=true` when binding/context pass. The canonical precision is `unknown`, never inferred `address`. This does not modify scoring or make unknown precision eligible for every existing microzone policy.
+
+Stored evidence: `raw_metadata.coordinates_evidence`: version, source extraction path, source_listing_id, original values, normalized values, source precision, original observed_at, commune evidence and quality. `coordinates_quality` describes the canonical point. Conflicting incoming evidence is kept separately in `coordinates_candidate_evidence` and append-only history. Multiple property map components differing by >1 m are quarantined, not resolved; the tolerance tests source consistency, not physical accuracy.
+
+A broad 50 km distance from the configured commune centroid quarantines gross contradictions; it does not prove commune membership. Explicit contradictory commune evidence is rejected. A known commune centroid is not promoted to a property pin. No new geocoding requests, polygons or physical identity matching.
+
+## Enrichment controls
+
+| Setting | Default | Limits / purpose |
+|---|---:|---|
+| `PORTAL_GEO_DETAIL_BUDGET` | 0 | 0–5 extra detail requests per existing discovery run |
+| `PORTAL_GEO_MAX_ATTEMPTS` | 3 | 1–3 attempts per publication |
+| `PORTAL_GEO_COOLDOWN_HOURS` | 24 | Minimum 24 h between attempts |
+
+CLI override: `--max-geo-details 0..5`. It does not activate Portal. `PORTAL_HTTP_ENABLED=false` stops the entrypoint before HTTP/UF access. Commercial incomplete-card budget stays separately capped at five. Existing commercial detail responses are reused without extra requests. Budget zero disables the extra stage, including its archive scan; ordinary already-acquired details still preserve geography.
+
+Queue state lives additively in `raw_metadata.portal_geo_enrichment`: attempts, last_attempt_at, next_attempt_at, outcome, exhausted. PostgreSQL row locking / SKIP LOCKED reserve an attempt in a short transaction before I/O. Crashes consume one attempt and cool down. No locks are held during requests. Successful points and exhausted rows are skipped; inactive publications are not requested. Keyset scanning prevents exhausted low IDs from hiding later candidates. Individual HTTP failures continue; 403/429 or unexpected/challenge HTML stop the stage. Discovery commits remain intact if the extra stage fails.
+
+The generic refresh worker also captures geography from its already-acquired Portal detail response, independently of commercial UF conversion. It does not add HTTP requests. Capture cannot invent a price, update property_id, or mark archived evidence as a new market observation.
+
+## Historical recovery (offline only in this release)
+
+Current READ ONLY inventory 2026-10-11: 448 active Portal apartments, 0 canonical pairs, 12 legacy metadata-coordinate records, 0 nested latitude records, 0 Portal listing_seen history documents. The two archived real detail fixtures match two current publications. Prior inspection found the 12 legacy pairs out of range; do not rescale them. At most two publications are supported by the examined archives, not 448. Other archives may exist outside the examined set.
+
+`python -m scripts.recover_portal_geography` accepts **only an explicit existing SQLite copy**. No PostgreSQL/Oracle URL, HTTP client or portal acquisition exists in the tool. Dry-run enables SQLite query_only. Both apply and dry-run append JSONL audit entries without RAW/secrets. Resume rechecks canonical state; already recovered, inactive or geolocated rows are preserved. Each applied recovery and its append-only `geo_recovered` event commit together. Original unknown acquisition time stays null; recovery time is recorded separately. Price, property_id, scraped_at, last_seen_at and prior observations are untouched.
+
+Archive manifest format: `{ "MLC-...": { "path": "absolute archived detail HTML path", "observed_at": null } }`. Only populate observed_at from documented acquisition evidence. Preserve archives unchanged.
+
+```powershell
+# LOCAL COPY ONLY; run from the development repository, using test configuration.
+python -B -m scripts.recover_portal_geography --sqlite-copy C:/sandbox/copy.sqlite --archive-manifest C:/sandbox/archives.json --audit C:/sandbox/geo-audit.jsonl
+# After reviewing the dry-run and backing up that copy:
+python -B -m scripts.recover_portal_geography --sqlite-copy C:/sandbox/copy.sqlite --archive-manifest C:/sandbox/archives.json --audit C:/sandbox/geo-audit.jsonl --apply
+```
+
+No production recovery command is supplied. A future PostgreSQL batch runner must be separately authorized and reviewed; the existing shared transactional geography helper is ready for that adapter. Archive-first recovery in normal discovery works after separately authorized activation.
+
+## Preflight before a future approved deployment
+
+1. Recheck active image ID/tag, API health, checkout diff, mounts, effective flags, Portal service/timer, schema version and History ON. Record hashes for the ten runtime paths. Never print environment values wholesale.
+2. Confirm current deployed schema includes 0021/listing_observations. No migration is introduced or required by this change. Do not rerun 0021. Check JSON columns, transaction permissions and available disk.
+3. Preserve compose/overrides, effective private config securely, current release/image, scheduler/timer state and existing off-host recovery materials. Take and verify a fresh full PostgreSQL dump and necessary globals; keep secrets in approved private/encrypted storage. Check hashes and restore/pg_restore listing on a copy, not production.
+4. Build the overlay on an isolated ARM64 environment with the verified current image available locally. Never pull a substitute base or use the Oracle checkout as a proxy for the image. Example only:
+   `docker build --pull=false --network=none --platform=linux/arm64 -f Dockerfile.portal-geography-overlay --build-arg BASE_IMAGE=valoria-thumbnails:shared-v2-20261008 -t valoria-portal-geo:<approved-commit> .`
+5. Test that image against an isolated copy: imports/settings, existing health/auth/Radar/Tasar/thumbnail paths, SQLite E2E fixtures, PostgreSQL transactional history + concurrent claims, clean startup. All source HTTP must be mocked/disabled. Verify inherited command/user and all existing flags. The active production base image was not available in local Docker during this task, so its overlay build/ARM64 runtime is still a release gate.
+6. Review diff/checksums and obtain deployment approval. Obtain **separate** approval for Portal reactivation, geo budget and any production recovery. Existing unit may inject PORTAL_HTTP_ENABLED=true; keep the timer stopped until explicitly authorized. Do not edit timers merely to ship code.
+
+## Future activation and acceptance (not executed)
+
+1. Deploy a versioned overlay with the previous image retained and `PORTAL_GEO_DETAIL_BUDGET=0`; preserve all other effective flags and volumes, especially History ON and thumbnails. Portal remains paused. Confirm health/smoke contracts and no unintended background requests.
+2. Only after explicit activation approval, set geo budget **1** (attempts3/cooldown24) in the normal Portal service execution environment. Use the normal scheduled cycle; no manual scrape or new schedule. Existing max-five commercial details remain unchanged, so total may increase by at most one detail per cycle, not one per card.
+3. Observe at least one normal complete-card enrichment and one reobservation/cooldown cycle. Inspect accepted/rejected/missing/exhausted counts, HTTP totals, actual new canonical pairs, source MLC agreement, precision, refresh wall time, DB/history bytes, locks and errors. Do not interpret a 200 response or a marker as physical precision certification.
+4. Confirm Radar service DTO/API returns stored lat/lon/unknown precision, and Tasar repository candidates expose the pair without adding target coordinates to the manual form or modifying calculations. Confirm History has geo events and preserves all prior documents, with no synthetic listing_seen during recovery.
+5. Stop enrichment on identity/context conflicts being accepted, unexpected coordinate overwrites, privacy incidents, quota breach, repeated blocking, transaction errors, excessive locks or storage pressure. Set geo budget0 first; pause Portal through its authorized operational control if acquisition itself is unhealthy. Do not evade blocks.
+
+Example aggregate SQL (READ ONLY; no RAW printed):
+```sql
+BEGIN READ ONLY;
+SELECT source, count(*), count(*) FILTER (WHERE lat IS NOT NULL AND lon IS NOT NULL)
+FROM listings WHERE status='active' AND property_type='apartment' GROUP BY source;
+SELECT raw_metadata->'portal_geo_enrichment'->>'outcome' AS outcome, count(*)
+FROM listings WHERE source='portalinmobiliario' GROUP BY 1;
+SELECT event_kind, count(*) FROM listing_observations
+WHERE source='portalinmobiliario' GROUP BY event_kind;
+COMMIT;
+```
+
+## Rollback
+
+Disable the additional budget and keep/pause Portal before rollback; revert the API/application image to the retained prior tag using the preserved operational compose configuration. Preserve History ON, 0021, thumbnails volume, canonical lat/lon, raw_metadata and observations. **No database down migration, deletion, inverse backfill or coordinate erasure.** The old schema/code can read the additive fields; leave future Portal acquisition paused until provenance handling is safe again. Validate health, auth, Radar, Tasar, thumbnails and normal Yapo execution. Do not change prices or historical data to hide a code regression.
+
+## Local regression command
+
+Load `-p tests.portal_geo_offline_plugin` for API regressions: it replaces only the shared rate-limit Redis storage with a fresh in-memory store per test. Rate limits remain enabled; tests explicitly injecting their own Redis/BrokenRedis still exercise those paths. This avoids shared Redis 429s without changing production settings/code. HTTP acquisitions in the geographic tests use MockTransport and archived HTML. The one inherited Yapo CLP-detail refresh failure is listed explicitly in the validation JSON, not reported as passing.
+
+## Validation evidence
+
+Tests and exact results are recorded in `portal-geography-validation.json` alongside this runbook. No claim of an all-green inherited repository suite: baseline failures and shared auth rate-limit test isolation errors are explicitly separated from the new geographic tests. No AVM experiment, holdout access, new source request or production mutation is part of this integration.

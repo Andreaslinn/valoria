@@ -1,0 +1,477 @@
+# Valoria Risk Report IO Contract Latest
+
+Fecha: 2026-06-18  
+Alcance: `PROPERTY_VALUATION`, `LISTING_ANALYSIS`  
+Restricciones cumplidas: no se modifico codigo productivo, no se cambio UI, no se redisenaron estilos/layout, no se generaron commits, no se tocaron base de datos, scrapers ni migraciones.
+
+## Resumen Ejecutivo
+
+El Risk Report actual ya tiene una estructura HTML util y conectada a Tasar Playground. El problema principal no es visual: es semantico. Los inputs y outputs mezclan senales de tasacion, publicacion y diagnostico tecnico dentro de los mismos bloques.
+
+La recomendacion es mantener la estructura visual actual y agregar, en una fase futura, una capa conceptual previa: `RiskReportInput` -> `RiskReportOutput` -> shape HTML existente. Esa capa debe separar `PROPERTY_VALUATION` de `LISTING_ANALYSIS`, usar `warning_taxonomy_latest.*` para poblar `evidence_flags`, y evitar que campos no aplicables aparezcan como riesgos.
+
+Regla central: en `PROPERTY_VALUATION`, no tener precio publicado, URL, `listing_id`, watchlist, historial, actividad de publicacion o descuento no es un riesgo. En `LISTING_ANALYSIS`, esas mismas senales si pueden afectar evidencia y oportunidad.
+
+## Fuentes Revisadas
+
+- `signals_inventory_latest.md`
+- `signals_inventory_latest.json`
+- `investment_score_model_latest.md`
+- `investment_score_model_latest.json`
+- `warning_taxonomy_latest.md`
+- `warning_taxonomy_latest.json`
+- `ui/components/risk_report_html.py`
+- `ui/redesign/tasar_playground_adapter.py`
+- `ui/redesign/tasar_playground.py`
+- `ui/pages/tasacion.py`
+
+## Estructura Actual Reutilizable
+
+El HTML actual se construye desde `build_risk_report_html(report_data)` y consume un diccionario modular. La estructura visual se puede reutilizar sin cambios.
+
+| Bloque visual actual | Inputs actuales | Output visual | Reutilizable |
+|---|---|---|---|
+| Header/topbar | `header.title`, `headline`, `accent`, `subtitle`, `listing_id`, `price_main`, `price_secondary` | Titulo, metadata, resumen superior | Yes |
+| Gauge principal | `scores.overall`, `scores.label` | Score central con tono | Yes |
+| KPI grid | `kpis[]` | Tarjetas metricas | Yes |
+| Sections | `sections[].title`, `sections[].cards[]` | `Valuation Analysis`, `Market Support`, `Risk Analysis` | Yes |
+| Score breakdown | `scores.items[]` | Componentes ponderados | Yes |
+| Reliability | `reliability.available`, `estimated`, `missing`, `overall`, `score` | Campos disponibles/faltantes y confiabilidad | Yes |
+| Catalysts/Risks | `catalysts[]`, `risks[]` | Listas de senales positivas y limitaciones | Yes |
+| Bottom Line | `bottom_line.verdict`, `bottom_line.summary` | Veredicto y resumen | Yes |
+
+## Builders Actuales
+
+| Funcion | Contexto actual | Inputs principales | Problema semantico |
+|---|---|---|---|
+| `build_radar_risk_report_data` | Radar / listing-like | listing, precio, valor estimado, descuento, confianza, comparables, warnings, signals | Usa `score` Radar como score general y muestra warnings crudos. |
+| `build_valuation_risk_report_data` | Infiera `PROPERTY_VALUATION` o `LISTING_ANALYSIS` | `valuation_result`, `valuation_payload`, `lookup_result` | Mezcla score de descuento, calidad de datos y warnings en un score general. |
+| `build_tasar_risk_report_contract` | Tasar Playground | `TasarValuationViewModel`, payload, lookup | Sus estados `requires_*` son readiness de UI, no evidencia de riesgo. |
+
+Hallazgo positivo: ya existe `_valuation_analysis_context`, que distingue por URL/source/listing_id, y `_valuation_contextual_warnings`, que filtra algunos warnings listing-only para `PROPERTY_VALUATION`. Esto es la base correcta.
+
+## Inputs Actuales
+
+### Campos comunes
+
+- `estimated_value`
+- `valuation_range`
+- `price_m2`
+- `confidence_contract`
+- `comparable_count`
+- `comparable_quality`
+- `comuna`
+- `property_type`
+- `area_profile`
+- `physical_attributes`
+- `microzone_match_ratio`
+- `segment_depth`
+- `price_surface_context`
+- `evidence_flags` futuros
+
+### Campos especificos de listing
+
+- `published_price`
+- `discount_pct`
+- `listing_identity`
+- `listing_id`
+- `URL`
+- `source`
+- `listing_status_freshness`
+- `canonical_price_basis`
+- `watchlist_state`
+- `price_history_series`
+- `price_drop_event`
+- `alert_state`
+- `days_on_market`
+- `listing_url_lookup_status`
+
+### Campos tecnicos
+
+- raw `warnings`
+- `confidence_risk_flags`
+- `comparable_quality_flags`
+- `beta_scope_flags`
+- `risk_flags`
+- `engine_results`
+- `consensus_summary`
+- `surface_adjustment_weight`
+- `surface_adjustment_reason`
+- raw `canonical_price_basis`
+- `price_history_artifact`
+- `artifact_reason`
+- `uf_rate_source`
+- `uf_rate_is_fallback`
+- raw error messages
+- `requires_valuation`
+- `requires_comparables`
+- `requires_risk_inputs`
+
+## Outputs Actuales
+
+El shape actual produce:
+
+- `header`
+- `scores.overall`
+- `scores.items`
+- `kpis`
+- `sections`
+- `reliability`
+- `catalysts`
+- `risks`
+- `bottom_line`
+- `disclaimer`
+
+Estos outputs son suficientes para mantener el HTML. Lo que debe cambiar conceptualmente es que el report builder futuro no deberia derivar esos campos directamente desde inputs crudos, sino desde un output normalizado por contexto.
+
+## Problemas De Mezcla De Contexto
+
+| Problema | Impacto |
+|---|---|
+| El score principal se llama igual aunque mida cosas distintas. | `PROPERTY_VALUATION` y `LISTING_ANALYSIS` quedan semanticamente confundidos. |
+| `valuation_score` depende de descuento cuando en tasacion manual no hay listing. | La tasacion pura puede quedar con score artificialmente bajo o ambiguo. |
+| `warnings` se muestran como codigos crudos. | El usuario ve lenguaje tecnico en vez de limitaciones de evidencia. |
+| `missing` puede mezclar campos globales con campos contextuales. | Faltantes de listing pueden parecer riesgos de tasacion. |
+| `Risk Analysis` combina legal futuro, data quality, listing id y warnings tecnicos. | El bloque es visualmente util, pero conceptualmente heterogeneo. |
+| `engine_results`, `consensus_summary` y provenance pueden filtrarse por API o warnings. | Diagnosticos internos se confunden con senales de usuario. |
+
+## Contrato De Entrada Propuesto
+
+Nombre recomendado: `RiskReportInput`.
+
+```json
+{
+  "analysis_context": "PROPERTY_VALUATION",
+  "report_intent": "Investment Intelligence Report",
+  "valuation_core": {
+    "estimated_value": null,
+    "valuation_range": null,
+    "price_m2": null
+  },
+  "valuation_quality": {
+    "confidence_contract": null,
+    "valuation_confidence_score": null,
+    "comparable_count": null,
+    "comparable_quality_level": null,
+    "comparable_quality_metrics": null,
+    "beta_scope": null,
+    "price_surface_context": null
+  },
+  "market_context": {
+    "comuna": null,
+    "microzone_match_ratio": null,
+    "segment_depth": null,
+    "m2_bucket_coverage": null,
+    "source_diversity": null
+  },
+  "asset_profile": {
+    "property_type": null,
+    "area_profile": null,
+    "physical_attributes": null,
+    "asset_consistency": null
+  },
+  "listing_context": null,
+  "listing_evidence": null,
+  "price_opportunity": null,
+  "evidence_flags": [],
+  "technical_provenance": {}
+}
+```
+
+## Contratos Derivados
+
+### PROPERTY_VALUATION
+
+Acepta solo senales aplicables a tasacion manual:
+
+- `estimated_value`
+- `valuation_range`
+- `price_m2`
+- `confidence_contract`
+- `comparable_count`
+- `comparable_quality`
+- `evidence_flags` aplicables a tasacion
+- `comuna`
+- `property_type`
+- `area_profile`
+- `physical_attributes`
+- `microzone_match_ratio`
+- `segment_depth`
+- `price_surface_context`
+- data quality aplicable al input manual
+
+Debe excluir o marcar como `not_applicable`:
+
+- `published_price`
+- `discount_pct`
+- `listing_identity`
+- `listing_id`
+- `URL`
+- `watchlist_state`
+- `price_history_series`
+- `price_drop_event`
+- `alert_state`
+- `days_on_market`
+- `listing_url_lookup_status`
+
+Reporte resultante:
+
+- report type: `Investment Intelligence Report`
+- headline score: `investment_score`
+- secondary score: `valuation_confidence_score`
+
+### LISTING_ANALYSIS
+
+Acepta senales de tasacion + publicacion:
+
+- `estimated_value`
+- `valuation_range`
+- `confidence_contract`
+- `comparable_count`
+- `comparable_quality`
+- `evidence_flags` aplicables a tasacion y listing
+- `published_price`
+- `discount_pct`
+- `listing_identity`
+- `URL`
+- `source`
+- `listing_status_freshness`
+- `canonical_price_basis` traducido a label humano
+- `watchlist_state`
+- `price_history_series`
+- `price_drop_event`
+- `alert_state`
+- `listing_url_lookup_status`
+- `market_context`
+
+Reporte resultante:
+
+- report type: `Listing Opportunity Report`
+- headline score: `listing_opportunity_score`
+- secondary score: `valuation_confidence_score`
+
+## Contrato De Salida Propuesto
+
+Nombre recomendado: `RiskReportOutput`.
+
+```json
+{
+  "report_type": "Investment Intelligence Report",
+  "analysis_context": "PROPERTY_VALUATION",
+  "headline_score": {},
+  "secondary_scores": [],
+  "score_components": [],
+  "summary_cards": [],
+  "positive_signals": [],
+  "evidence_limitations": [],
+  "market_notes": [],
+  "listing_notes": [],
+  "contextual_missing_fields": [],
+  "not_applicable": [],
+  "technical_hidden": [],
+  "bottom_line": {}
+}
+```
+
+## Mapping Por Contexto
+
+### PROPERTY_VALUATION
+
+Bloques recomendados:
+
+- Valor estimado
+- Investment Score
+- Confianza de tasacion
+- Soporte de mercado
+- Perfil del activo
+- Limitaciones de evidencia
+- Bottom Line
+
+Output esperado:
+
+- `report_type`: `Investment Intelligence Report`
+- `headline_score`: `investment_score`
+- `secondary_scores`: `valuation_confidence_score`, `market_context_score`, `data_quality_score`
+- `evidence_limitations`: solo limitaciones de tasacion/mercado/activo
+- `not_applicable`: listing-only fields
+- `technical_hidden`: engine/provenance/debug
+
+### LISTING_ANALYSIS
+
+Bloques recomendados:
+
+- Precio publicado vs valor estimado
+- Listing Opportunity Score
+- Confianza de tasacion
+- Evidencia de publicacion
+- Historial / alertas / watchlist
+- Soporte de mercado
+- Bottom Line
+
+Output esperado:
+
+- `report_type`: `Listing Opportunity Report`
+- `headline_score`: `listing_opportunity_score`
+- `secondary_scores`: `valuation_confidence_score`, `listing_evidence_score`, `market_context_score`
+- `evidence_limitations`: tasacion + listing
+- `listing_notes`: watchlist, historial, alertas, lookup
+- `technical_hidden`: raw provenance/artifacts/engines
+
+## Mapping A La Estructura HTML Actual
+
+No se requiere cambiar estructura visual. Se debe mapear el nuevo output al shape existente:
+
+| HTML actual | PROPERTY_VALUATION | LISTING_ANALYSIS | Cambia layout |
+|---|---|---|---|
+| `scores.overall` | `headline_score.investment_score` | `headline_score.listing_opportunity_score` | No |
+| `scores.items` | valuation confidence, market context, asset profile, data quality | price opportunity, valuation confidence, listing evidence, market context | No |
+| `kpis` | valuation core, quality, market, asset | price opportunity, valuation core, listing evidence, quality | No |
+| `Valuation Analysis` | `valuation_core` | `price_opportunity` + `valuation_core` | No |
+| `Market Support` | `market_context` + `valuation_quality` | `market_context` + `listing_context` | No |
+| `Risk Analysis` | `evidence_limitations`, future legal note | `evidence_limitations`, `listing_notes`, future legal note | No |
+| `reliability` | contextual missing fields excluding listing-only | contextual missing fields including listing evidence | No |
+| `catalysts` | positive market/asset/valuation signals | discount, price drop, support, confidence | No |
+| `risks` | evidence limitations only | evidence and listing limitations only | No |
+| `bottom_line` | Investment Intelligence summary | Listing Opportunity summary | No |
+
+## Warning Taxonomy Integration
+
+Fuente obligatoria: `warning_taxonomy_latest.*`. No se debe redisenar la taxonomia; solo usarla dentro del contrato IO.
+
+| Elemento de taxonomia | Uso en Risk Report |
+|---|---|
+| canonical warning code | `evidence_flags[].code` y clave estable de deduplicacion. |
+| raw warning codes | Guardar en `evidence_flags[].raw_codes` o `technical_provenance.raw_warnings`; no renderizar crudo. |
+| severity | Ordenar limitaciones y sugerir tono; `high` no significa automaticamente mala inversion. |
+| category | Enrutar a `evidence_limitations`, `market_notes`, `listing_notes`, `technical_hidden` o `not_applicable`. |
+| score_effect | Agregar a `score_effects`; aplicar solo si corresponde al contexto. |
+| applies_to/context | Filtrar por `PROPERTY_VALUATION`, `LISTING_ANALYSIS`, `both` o `technical_only`. |
+| user_title | Usar como titulo visible en cards/listas. |
+| user_message | Usar como copy visible beta-safe. |
+| visibility | Decidir user report, advanced/debug, API o internal diagnostics. |
+| deduplication rules | Aplicar `raw_to_canonical.priority` y `merge_strategy`; mostrar una limitacion por concepto. |
+
+Buckets de salida:
+
+- `evidence_flags`: flags normalizados aplicables al contexto.
+- `evidence_limitations`: flags visibles que reducen confianza, mercado, investment/listing opportunity o listing evidence.
+- `technical_hidden`: flags `technical_only` o `hide_from_user`.
+- `not_applicable`: flags listing-only cuando el contexto es `PROPERTY_VALUATION`.
+- `contextual_missing_fields`: campos faltantes requeridos solo por el contexto activo.
+- `user_facing_warnings`: copy visible desde `copy.title` y `copy.message`.
+- `score_effects`: efectos agregados desde la taxonomia.
+
+## Campos No Aplicables Por Contexto
+
+| Field/signal | PROPERTY_VALUATION behavior | LISTING_ANALYSIS behavior | Output section | User visible | Notes |
+|---|---|---|---|---|---|
+| `published_price` | `not_applicable`; no penaliza | Requerido para descuento/oportunidad | `price_opportunity` / `not_applicable` | Listing only | Si falta en listing: `published_price_missing`. |
+| `discount_pct` | `not_applicable` | Input principal de oportunidad | `price_opportunity` | Listing only | Bloquear si no hay precio publicado o estimacion. |
+| `listing_id` | `not_applicable` | Evidencia de listing/watchlist | `listing_evidence` | Listing only | No mostrar como faltante en tasacion manual. |
+| `URL` | `not_applicable` | Evidencia de identidad | `listing_evidence` | Listing only | Lookup solo aplica al listing flow. |
+| `source` | Label opcional/manual | Provenance de publicacion traducida | `listing_context` | Yes | Raw internals ocultos. |
+| `watchlist_state` | `not_applicable` | Evidencia de seguimiento | `listing_notes` | Listing only | Ausencia reduce listing evidence, no AVM confidence. |
+| `price_history_series` | `not_applicable` | Historial de precio | `listing_notes` | Listing only | Artifacts ocultos. |
+| `price_drop_event` | `not_applicable` | Senal de oportunidad | `positive_signals` | Listing only | Usar `price_drop_observed`. |
+| `alert_state` | `not_applicable` | Nota de seguimiento | `listing_notes` | Listing only | Payload interno oculto. |
+| `days_on_market` | `not_applicable`/future | `coming_soon` hasta dato real | `listing_notes` | Coming soon only | No scorear aun. |
+| `listing_url_lookup_status` | `not_applicable` | Evidencia traducida | `listing_evidence` | Translated only | Raw `failed/partial/unsupported_source` -> `listing_identity_missing`. |
+| `canonical_price_basis` | tecnico/no aplicable | Label humano de calidad de precio | `listing_evidence` / `technical_hidden` | Translated only | Ocultar source/confidence/fallback raw. |
+| `engine_results` | `technical_hidden` | `technical_hidden` | `technical_hidden` | No | Advanced/API only. |
+| `consensus_summary` | `technical_hidden` | `technical_hidden` | `technical_hidden` | No | Traducir solo si afecta calidad. |
+| `surface_adjustment` | Traducir a `price_surface_limited` si aplica | Traducir a `price_surface_limited` si aplica | `evidence_limitations` / `technical_hidden` | Translated only | Ocultar weight/reason. |
+| `price_history_artifact` | tecnico/no aplicable | tecnico oculto | `technical_hidden` | No | Sirve para evitar falsas alertas. |
+
+## Que NO Cambia
+
+- Layout.
+- Estilos.
+- HTML base.
+- Boton del reporte.
+- Integracion general con Tasar Playground.
+- Estructura visual principal.
+- Naturaleza standalone del HTML.
+
+## Que Cambia Conceptualmente
+
+- Contrato de inputs.
+- Calculo de campos disponibles/faltantes por contexto.
+- Significado del score principal.
+- Warnings visibles.
+- Campos no aplicables por contexto.
+- Nomenclatura del reporte segun contexto.
+- Uso de `evidence_flags` normalizados.
+- Separacion de `technical_provenance` y usuario final.
+
+## Estrategia Beta-Safe
+
+1. Fase 1: crear contrato/mapping documentado. Sin codigo productivo.
+2. Fase 2: crear tests esperados para `PROPERTY_VALUATION` y `LISTING_ANALYSIS`.
+3. Fase 3: crear adapter interno que traduzca inputs actuales al nuevo contrato, sin cambiar HTML.
+4. Fase 4: usar el nuevo contrato en shadow mode.
+5. Fase 5: reemplazar gradualmente raw warnings por `evidence_flags` user-facing.
+6. Fase 6: activar score diferenciado por contexto.
+7. Fase 7: eliminar o esconder campos tecnicos visibles.
+
+## Impacto Esperado En Beta
+
+### Que mejora
+
+- Reduce falsos riesgos en tasacion manual.
+- Hace clara la diferencia entre Investment Intelligence y Listing Opportunity.
+- Mantiene estable el HTML actual.
+- Convierte raw warnings en lenguaje beta-safe.
+- Prepara score diferenciado sin forzar cambios visuales.
+
+### Que riesgo reduce
+
+- Penalizar `PROPERTY_VALUATION` por datos solo aplicables a listings.
+- Mostrar codigos tecnicos a usuarios.
+- Sobreinterpretar descuento con precio publicado debil.
+- Confundir confianza de tasacion con atractivo de inversion.
+- Romper la integracion del reporte con Tasar Playground.
+
+### Que no conviene tocar todavia
+
+- Visual/layout/CSS.
+- Base de datos.
+- Scrapers.
+- Migraciones.
+- Score legal.
+- `days_on_market` como input real.
+- Liquidez como input real.
+- Heatmap/mapa como evidencia real.
+
+### Datos futuros como coming soon
+
+- Legal/CBR/SII oficial.
+- `days_on_market` real.
+- Liquidez real.
+- Heat zones/mapa de mercado real.
+- Portfolio AVM delta.
+- Microzona geografica con cobertura suficiente.
+
+### Tests minimos antes de activar
+
+- `PROPERTY_VALUATION` oculta campos y warnings listing-only.
+- `LISTING_ANALYSIS` incluye faltantes de listing evidence.
+- Raw warnings se mapean a `evidence_flags` canonicos con dedup.
+- Flags tecnicos entran a `technical_hidden`.
+- El nombre del score principal cambia por contexto sin cambiar HTML.
+- Discount se bloquea cuando falta precio publicado en listing.
+- Tasar Playground sigue recibiendo HTML valido.
+
+## Proximos Pasos Tecnicos
+
+1. Convertir este contrato en fixtures JSON de golden tests.
+2. Definir `RiskReportInput` y `RiskReportOutput` como modelos internos o TypedDicts.
+3. Crear un adapter puro current inputs -> `RiskReportInput`.
+4. Crear un normalizador de warnings que consuma `warning_taxonomy_latest`.
+5. Generar en shadow mode el output nuevo y compararlo con `report_data` actual.
+6. Activar primero solo `contextual_missing_fields` y `technical_hidden`.
+7. Luego reemplazar raw warnings visibles por `user_facing_warnings`.
+8. Finalmente activar `investment_score` y `listing_opportunity_score` diferenciados.
+
+## Artefacto JSON
+
+La version estructurada de esta auditoria esta en `risk_report_io_contract_latest.json` y debe parsear con `python -m json.tool`.

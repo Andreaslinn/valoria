@@ -1,0 +1,55 @@
+import json
+from pathlib import Path
+import socket
+import pytest
+from services.sii.pure_valuation import sii_valuation
+from api.sii_closing_contract import SiiClosingOpinionOut
+
+ROOT=Path(__file__).resolve().parents[4]
+GEO=ROOT/'outputs/integrated/vitacura'
+OUT=ROOT/'outputs/house-rules'
+
+
+@pytest.fixture
+def local(monkeypatch):
+    if not (OUT/'policy.json').exists(): pytest.skip('Frozen local files required')
+    monkeypatch.setenv('SII_GEOGRAPHY_DATA_DIR',str(GEO))
+    monkeypatch.delenv('SII_MICROMARKET_DIR',raising=False)
+    monkeypatch.delenv('SII_HOUSE_RULES_DIR',raising=False)
+    monkeypatch.setattr(socket,'create_connection',lambda *a,**k:pytest.fail('Network request'))
+    # Explicitly test phase2 before approval, independently of local activation.
+    monkeypatch.setattr('services.sii.house_opinion.load_hybrid_activation',lambda root:None)
+    return monkeypatch
+
+
+@pytest.mark.parametrize('rol',['1261-6','1261-7','2481-13'])
+def test_local_hybrid_is_additive_and_published_price_unchanged(local,rol):
+    before=sii_valuation(rol=rol,data_dir=GEO)
+    local.setenv('SII_HOUSE_RULES_DIR',str(OUT))
+    after=sii_valuation(rol=rol,data_dir=GEO)
+    assert all(before[k]==after[k] for k in ['status','model_used','value_uf','p25_uf','p75_uf','selected_comparables','confidence_label'])
+    hybrid=after['house_rules_candidate']['hybrid']
+    expected=next(x for x in json.loads((ROOT/'outputs/house-hybrid/cases.json').read_text()) if x['target']['rol']=='15160-'+rol)
+    assert all(hybrid[k]==expected[k] for k in ['model_used','motivo','confianza','value_uf','effective_n'])
+    assert hybrid['approval_pending'] and hybrid['published_unchanged']
+    assert all('rol' not in c and 'building' not in c for c in hybrid['comparables'])
+    public=SiiClosingOpinionOut.model_validate(after).model_dump()
+    assert public['house_rules_candidate']['hybrid']==hybrid
+
+
+def test_hybrid_does_not_change_departments(local):
+    rol=next(r['rol'] for r in json.loads((GEO/'closings.json').read_text()) if r['kind']=='depto')
+    before=sii_valuation(rol=rol,data_dir=GEO)
+    local.setenv('SII_HOUSE_RULES_DIR',str(OUT))
+    assert sii_valuation(rol=rol,data_dir=GEO)==before
+
+
+@pytest.mark.parametrize('reason',['sin_terreno','geografia','sin_comparables','iqr'])
+def test_runtime_fallback_matches_frozen_historical_baseline(local,reason):
+    from services.sii.house_opinion import hybrid_candidate
+    expected=next(r for r in json.loads((ROOT/'outputs/house-hybrid/predictions.json').read_text())
+                  if r['hybrid']['motivo']==reason)
+    actual=hybrid_candidate(str(OUT),str(GEO),(),expected['rol'],expected['date'])
+    assert actual['model_used']=='baseline' and actual['motivo']==reason
+    assert actual['value_uf']==expected['baseline']['value_uf']
+    assert actual['confianza']==('media' if reason=='sin_terreno' else 'baja')

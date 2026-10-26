@@ -1,0 +1,6 @@
+import httpx,json
+from pathlib import Path
+with httpx.Client(base_url='http://127.0.0.1:8013',timeout=40) as c:
+ r=c.post('/api/v1/auth/login',data={'username':'candidate-b@example.test','password':'[REDACTED]'});r.raise_for_status();c.headers['Authorization']='Bearer '+r.json()['access_token']
+ url='https://portalinmobiliario.com/MLC-3705880440-coronel-godoy-ingevec-_JM'
+ r=c.post('/api/v1/listings/lookup-url',json={'url':url});data={'http_status':r.status_code,'lookup':r.json()};Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\new-live-portal.json').write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8');print('HTTP',r.status_code,'status',r.json().get('status'),'source',r.json().get('source'),'warning',r.json().get('warnings'))

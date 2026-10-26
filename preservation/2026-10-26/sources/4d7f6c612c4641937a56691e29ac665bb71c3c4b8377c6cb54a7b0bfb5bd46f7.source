@@ -1,0 +1,59 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''import subprocess,json,pathlib,time,hashlib,os
+root=pathlib.Path('/home/ubuntu/apps/valoria');name='valoria_oracle_beta-api-1'
+old='sha256:3342a667c071319097e6c6aed23bfd03ec231f6bf44cd17434d6a0de13187f15';new='sha256:70447ccad59a69df70c52a1ee90cac8f3f92d98dff818c48c02abf24fec3297d'
+def inspect(n):return json.loads(subprocess.check_output(['docker','inspect',n]))[0]
+def run(args,timeout=90):
+ p=subprocess.run(args,capture_output=True,text=True,timeout=timeout,env=release_env)
+ if p.returncode:raise RuntimeError('Controlled release command failed; sensitive diagnostics withheld')
+ return p.stdout
+before=inspect(name);assert before['Image']==old and before['State']['Health']['Status']=='healthy'
+release_env=dict(os.environ,PORTAL_GEO_RELEASE_IMAGE=before['Config']['Image'])
+others={n:inspect(n) for n in ['valoria_oracle_beta-postgres-1','valoria_oracle_beta-redis-1','valoria_oracle_beta-thumbnails-1','valoria_oracle_beta-caddy-1']}
+session=root/'private/portal-session/session.json';session_hash=hashlib.sha256(session.read_bytes()).hexdigest()
+files=before['Config']['Labels']['com.docker.compose.project.config_files'].split(',');assert len(files)==5
+base=['docker','compose','--project-name','valoria_oracle_beta','--env-file',str(root/'deploy/oracle.env')]
+for f in files:base+=['-f',f]
+override=root/'deploy/remediation-portal-active.override.yml'
+expected_override='services:\\n  api:\\n    image: valoria-remediation:candidate-20261012-v6\\n    environment:\\n      PORTAL_SESSION_FILE: /portal-session/session.json\\n    volumes:\\n      - /home/ubuntu/apps/valoria/private/portal-session:/portal-session:ro\\n'.replace(chr(92)+'n',chr(10))
+assert override.exists() and override.read_text()==expected_override.replace('-v6','-v5'),'Refuse overwrite unexpected inactive override'
+previous_override=root/'deploy/remediation-portal-v5.inactive.override.yml'
+assert not previous_override.exists(),'Refuse overwrite saved inactive override'
+previous_override.write_text(override.read_text());previous_override.chmod(0o600)
+override.write_text(expected_override)
+override.chmod(0o600);candidate=base+['-f',str(override)]
+original=json.loads(run(base+['config','--format','json']));merged=json.loads(run(candidate+['config','--format','json']))
+for service in original['services']:
+ if service!='api':assert original['services'][service]==merged['services'][service], 'Unexpected unrelated service change'
+a=original['services']['api'];b=merged['services']['api']
+for key in set(a)|set(b):
+ if key not in ['image','environment','volumes']:assert a.get(key)==b.get(key),'Unexpected API configuration change'
+expected_env=dict(a.get('environment',{}));expected_env['PORTAL_SESSION_FILE']='/portal-session/session.json';assert b['environment']==expected_env
+assert len(b['volumes'])==len(a['volumes'])+1 and all(v in b['volumes'] for v in a['volumes'])
+assert any(v.get('target')=='/portal-session' and v.get('read_only') is True for v in b['volumes'])
+assert run(['docker','image','inspect',b['image'],'--format','{{.Id}}']).strip()==new
+result={'before_image':old,'candidate_image':new,'override':str(override),'migration':'pending','deployment':'pending'}
+try:
+ run(candidate+['run','--rm','--no-deps','-T','--entrypoint','python','api','-B','-m','alembic','upgrade','head'],120);result['migration']='0022_upgrade_head_verified'
+ run(candidate+['up','-d','--no-deps','--no-build','api'],120)
+ for _ in range(30):
+  current=inspect(name)
+  if current['State'].get('Health',{}).get('Status')=='healthy':break
+  time.sleep(2)
+ assert current['Image']==new and current['State']['Health']['Status']=='healthy','Candidate health/image mismatch'
+ check="import httpx;from services.v2_contract import check_v2_contract;c=httpx.Client();s=c.get('http://127.0.0.1:8000/openapi.json').json();cap=c.get('http://127.0.0.1:8000/api/v1/health/capabilities').json();assert cap['code_fingerprint']=='6995bb1144c5070d27f89cd94b70e622dc5569bf70fbb950b85e0f536d375847';assert check_v2_contract(s,cap)==[];print('served_contract_gate_pass')"
+ assert 'served_contract_gate_pass' in run(['docker','exec',name,'python','-B','-c',check],45)
+ for n,previous in others.items():
+  now=inspect(n);assert now['Id']==previous['Id'] and now['State']['StartedAt']==previous['State']['StartedAt'],'Unrelated container changed'
+ assert hashlib.sha256(session.read_bytes()).hexdigest()==session_hash,'Production session changed'
+ result.update(deployment='healthy_and_served_contract_verified',api_started=current['State']['StartedAt'],other_containers_unchanged=True,session_unchanged=True,session_mount_readonly=True)
+except Exception:
+ run(base+['up','-d','--no-deps','--no-build','api'],120)
+ assert inspect(name)['Image']==old,'Rollback image verification failed'
+ result['deployment']='rolled_back_to_previous_image';result['rollback']='additive0022_retained';print(json.dumps(result));raise
+private=root/'deploy/portal-final-release-result.json';private.write_text(json.dumps(result,indent=2));private.chmod(0o600)
+print(json.dumps(result,indent=2))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=300);Path(__file__).with_name('portal-final-release-result.json').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr);r.check_returncode()

@@ -1,0 +1,31 @@
+import subprocess,json
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner='''import asyncio,json,logging
+from pathlib import Path
+import httpx
+from scripts.portal_session import load_session
+from scripts.portal_smoke import DEFAULT_HEADERS
+from services.listing_url_lookup import lookup_listing_url
+logging.getLogger('httpx').setLevel(logging.WARNING)
+async def main():
+ assert not Path('/portal-session/reauth_required.json').exists(),'Official re-verification required'
+ jar=load_session('/portal-session/session.json');events=[]
+ async def event(r):events.append({'status':r.status_code,'host':r.url.host})
+ async def missing(_):return None
+ async with httpx.AsyncClient(cookies=jar,headers=DEFAULT_HEADERS,timeout=15,follow_redirects=False,event_hooks={'response':[event]}) as client:
+  r=await lookup_listing_url('https://portalinmobiliario.com/MLC-3705880440-coronel-godoy-ingevec-_JM',listing_lookup=missing,http_client=client)
+  print(json.dumps({'path':'production_verified_loader_readonly','events':events,'result':r.to_dict()},default=str))
+asyncio.run(main())
+'''
+remote='''import subprocess,json,os
+root='/home/ubuntu/apps/valoria'
+args=['docker','run','-i','--rm','--memory','256m','--cpus','0.25','-e','DATABASE_URL=sqlite+aiosqlite:///:memory:','-e','SYNC_DATABASE_URL=sqlite:///:memory:','-e','JWT_SECRET_KEY=isolated-portal-probe-no-authentication','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=16m','--cap-drop','ALL','--security-opt','no-new-privileges','--volume',root+'/private/portal-session:/portal-session:ro','--volume',root+'/scripts/portal_session_runtime/scripts/portal_session.py:/app/scripts/portal_session.py:ro','--entrypoint','python','valoria-remediation:candidate-20261012-v3','-B','-']
+args[2:2]=['--user',str(os.getuid())+':'+str(os.getgid())]
+r=subprocess.run(args,input=INNER,text=True,capture_output=True,timeout=75)
+print(r.stdout)
+if r.returncode:
+ import re
+ print(json.dumps({'probe_exit':r.returncode,'exception_types':re.findall(r'^([A-Za-z_.]+(?:Error|Exception)):',r.stderr,re.M),'frames':re.findall(r'File "([^"\\n]+)", line (\\d+)',r.stderr)}))
+'''.replace('INNER',repr(inner))
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=90);Path(__file__).with_name('portal-authorized-probe.json').write_text(r.stdout,encoding='utf-8');print(r.stdout)

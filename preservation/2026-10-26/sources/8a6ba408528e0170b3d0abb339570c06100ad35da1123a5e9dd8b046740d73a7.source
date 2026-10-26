@@ -1,0 +1,30 @@
+import pathlib,subprocess
+key_source=pathlib.Path('work/oracle-ingestion-resilience/domain/ingestion/location_evidence.py').read_text()
+code=key_source+r'''
+import asyncio,json,collections
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  rows=(await s.execute(text("SELECT comuna,source,external_id,raw_metadata FROM listings WHERE status='active' AND property_type='apartment' AND comuna IN ('providencia','vitacura','la_florida','estacion_central','san_miguel','santiago')"))).mappings().all()
+  groups=collections.defaultdict(set);counts=collections.Counter();addresses=collections.Counter();samples=[]
+  for r in rows:
+   meta=r['raw_metadata'] or {};ev=meta.get('address_evidence') or {}
+   address=ev.get('original') or meta.get('address_label')
+   if address and len(samples)<4:samples.append({'source':r['source'],'value':address})
+   if isinstance(address,dict): address=address.get('text') or address.get('label')
+   if address:addresses[(r['comuna'],r['source'])]+=1
+   key=candidate_building_key(address,r['comuna'])
+   if key:
+    counts[(r['comuna'],r['source'])]+=1
+    groups[(r['comuna'],key['key'])].add((r['source'],r['external_id']))
+  communes=['providencia','vitacura','la_florida','estacion_central','san_miguel','santiago']
+  print(json.dumps({'read_only':True,'address_samples':samples,'candidate_method':'source_street_number_commune; not certified buildings','rows':[{'comuna':c,'source':src,'address_available':addresses[(c,src)],'with_candidate_key':counts[(c,src)],'candidate_buildings_two_plus_source':sum(1 for (co,k),ids in groups.items() if co==c and sum(x[0]==src for x in ids)>=2)} for c in communes for src in ['portalinmobiliario','yapo']], 'combined_two_plus':{c:sum(1 for (co,k),ids in groups.items() if co==c and len(ids)>=2) for c in communes}}))
+  await s.rollback()
+asyncio.run(main())
+'''
+remote='import subprocess;r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-"],input='+repr(code)+',text=True,capture_output=True,timeout=60);print(r.stdout);print(r.stderr[-400:] if r.returncode else "");raise SystemExit(r.returncode)'
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=remote,text=True,encoding='utf-8',capture_output=True,timeout=90)
+print(r.stdout)
+raise SystemExit(r.returncode)

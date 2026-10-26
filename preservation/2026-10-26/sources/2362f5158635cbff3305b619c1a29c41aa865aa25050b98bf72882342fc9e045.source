@@ -1,0 +1,176 @@
+import json,hashlib,zipfile,subprocess,shutil
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/geografia-existente-1261-6';REPO=ROOT/'valoria'
+def load(n):return json.loads((OUT/n).read_text(encoding='utf8'))
+rows=load('roles-y-manzanas-verificados.json');block=load('manzana-1261-procedencia.json')['block'];db=load('SII-inventario.json')
+head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip()
+assert not subprocess.check_output(['git','status','--porcelain'],cwd=REPO,text=True).strip()
+table='| Rol | Dirección | Punto del rol en ZIP v2.1 | Centro de manzana | Radio interno de manzana |\n| --- | --- | --- | --- | --- |\n'
+for r in rows:
+    point='Interpolado' if r['artifact_point_lat'] is not None else 'Ausente'
+    bc='Disponible, aproximado' if r['block_center_lat'] is not None else 'Ausente; solo ID'
+    table+=f"| {r['rol']} | {r['direccion']} | {point} | {bc} | {int(r['block_radius_m']) if r['block_radius_m'] is not None else 'ND'} m |\n"
+report=f'''# Geografía existente · Vitacura, rol 1261-6
+
+Verificación local del 20/10/2026. Sin consultas nuevas a mapas, geocodificación, desarrollo de producto, cambios de modelo, cargas de datos, merge o deploy. Base y archivos originales solo leídos. Commit del producto: `{head}`.
+
+## Resultado principal
+
+**Sí tenemos información espacial adicional que Tasar no utiliza:** los ZIP anteriores de entorno/alertas contienen coordenadas de roles derivadas de OSM e interpolación y posiciones aproximadas de manzanas. El rol 1261-6 no tiene punto individual guardado, pero su manzana 1261 sí tiene una posición aproximada. De los diez cierres seleccionados, cinco tienen punto interpolado y nueve tienen posición aproximada de manzana.
+
+La conclusión de la auditoría anterior debe acotarse: **no hay coordenadas en la base/capa que actualmente consume Tasar**. Eso sigue comprobado, pero no agota los archivos antiguos: dentro de los ZIP sí existen posiciones aproximadas aprovechables tras verificar su calidad e integración. No equivalen a coordenadas prediales exactas.
+
+Sobre Hark: el usuario aclaró que **no entregó archivos**, sino que localizaba una dirección al consultársela. No hay evidencia local de qué servicio usaba o de que guardara su respuesta. No se atribuyen a Hark los ZIP encontrados: se documentan como artefactos locales existentes, sin autoría demostrada. Resolver una dirección en otro entorno no implica que Valoria disponga de ese mismo resultado persistido.
+
+## 1. Base SII local: tablas y campos existentes
+
+Se inventariaron todas las tablas y columnas de `valoria_sii_local`, no solo el esquema SII ni las filas del objetivo. La transacción fue `REPEATABLE READ READ ONLY`. Hay ocho tablas SII más `public.ingestion_uf_calendar`; solo está instalada la extensión `plpgsql`. No hay columnas geometry/geography ni capa de polígonos de manzana en esta base.
+
+| Tabla/archivo | Campos geográficos o de identidad | Qué hay realmente |
+| --- | --- | --- |
+| `sii.predio` | `comuna`, `comuna_ine`, `manzana`, `predio`, `rol`, `direccion_raw`, `calle`, `numero`, `unidad` | Identidad catastral y dirección, sin lat/lon. |
+| `sii.transferencia` | `comuna`, `manzana`, `predio`, `rol`, `predio_source_file_id` | Permite asociar cada cierre al rol y versión; no tiene coordenadas. |
+| `sii.transferencia_raw` | `comuna`, `manzana`, `predio` | Identidad del registro F2890, no geometría. |
+| `sii.geo_predio` | `lat`, `lon`, `metodo`, `precision_m`, `predio_source_file_id`, `osm_source_file_id`, `evidencia`, clave comuna/manzana/predio | Tabla preparada, **0 filas en toda la base**. |
+| `address-index.sqlite`, tabla `role` | `comuna`, `block`, `street`, `number`, `unit`, `tower`, `raw`, `rol`, `source` | La copia de Tasar conserva IDs y texto; no tiene lat/lon ni polígonos. |
+| `address-details.sqlite`, tabla `facts` | `rol`, `source_id`, `land_area_m2`, `source_period` | Atributos de superficie, sin localización. |
+| `closings.json` | `rol`, `comuna`, `block`, `building` | Identificadores de edificio/manzana/comuna; sin puntos ni geometría. |
+
+Los cuatro registros de rebuild examinados informan `geo.status=pending_local_osm_extract`, cero solicitudes públicas de Nominatim y cero filas geográficas nuevas. `sii.source_file` tiene tipos N, NL y F2890; no tiene fuente OSM registrada. Falta el archivo `data/sii/osm/addresses.csv` que espera ese proceso. No se ejecutó ningún rebuild.
+
+Esta ausencia es de **carga y conexión**, no prueba de que nunca se hubiese trabajado geografía en otros prototipos.
+
+## 2. Archivos antiguos que sí contienen geografía
+
+Se revisaron directamente los miembros de 65 ZIP, además de archivos de Documentos, Descargas y Escritorio, bases SQLite antiguas y anexos locales. Los archivos relevantes están en `C:/Users/heiko/Downloads/`:
+
+### A. `valoria_alertas_obra_mvp.zip`
+
+- `obras/predios_8c.parquet`: **1.820.888 filas**; `c,mz,pr,dir,st,num,lat,lon,geo`. Identidad por rol y método `osm_exacta`/`interpolada`.
+- `obras/mz_centroides.parquet`: **8.365 manzanas**; `c,mz,lat,lon,n_geo`. Son medianas de puntos de roles, no centroides de polígonos oficiales.
+- `obras/bt_manzanas.parquet`: **7.131 filas**, con posiciones y estadísticas de backtest.
+- `obras/mz_stats.parquet`: **10.751 filas**, identificación y estadísticas sin geometría.
+- `build.py` y `build2.py` muestran la unión a un extracto OSM local y la interpolación por numeración. La segunda versión admite también puntos de vecino próximo, por lo que no debe confundirse su etiqueta con posición exacta de parcela.
+
+### B. `valoria_entorno_mvp_v2.zip`, `valoria_entorno_mvp_v2.1.zip` y `Valoria_Cerro_Blanco_2120_Datos_y_MVP_revision.zip`
+
+Los tres llevan copias **idénticas por SHA-256** de los siguientes dos Parquet. No constituyen tres coberturas independientes:
+
+- `data/processed/predios.parquet`: **1.820.888 roles**, con `c,mz,pr,dir,st,num,lat,lon,geo_method`. **1.095.236** tienen coordenadas. En Vitacura: **74.065 de 115.264**, aproximadamente 64,3%.
+- `data/processed/manzanas.parquet`: **8.124 manzanas**, campos `c,mz,lat,lon,n_geo,radius_m,n_roles`.
+- `data/cache/sii_predio_coords.json`: **6 roles** con posiciones etiquetadas por el código como provenientes del visor SII. Incluye el rol de Samotracia 2071, pero **no 1261-6 ni los diez cierres auditados**. El JSON guarda pares de coordenadas, no la respuesta original completa, fecha individual o prueba topográfica.
+- `data/provenance.json`: fuentes y hashes abreviados. El hash de catastro Vitacura comienza `62428dac31e5fcfd`, que coincide con el source N **9** de la base local; el NL coincide con el source **20**. Además se cotejaron clave y dirección de los once roles, sin mezclarlos por coincidencia numérica.
+
+Estos archivos contienen datos reales derivados, no solo código vacío. Se leyeron los Parquet, se localizaron las filas del caso y se verificó su método; no se aceptó un informe anterior como prueba de cobertura.
+
+### C. Otras capas existentes, con otro alcance
+
+El ZIP de Cerro Blanco incluye **170 polígonos municipales de Lo Barnechea** con campos `rol_sii`, `comuna`, `calle`, `numero` y geometría Polygon; también actos vinculados y puntos de actos. No corresponden a Vitacura ni contienen el objetivo. No se pueden cruzar roles cortos entre comunas: Vitacura es SII **15160**, INE **13132**; Lo Barnechea es otro código.
+
+También hay `ine_pe.parquet` (**4.968 permisos**) con `COD_COMUNA`, `PRECISION_`, `lat,lon`; e `ine_crf.parquet` (**1.861 recepciones**) con `CUT`, `lat,lon,wkt`. Son localizaciones de proyectos/recepciones y polígonos de esa fuente, no un catastro universal de roles o límites de manzana. Su mera existencia no permite asignar una coordenada exacta a 1261-6.
+
+### D. Publicaciones y bases históricas AVM
+
+La captura que usa Tasar tiene **1.365 de 3.895 anuncios con coordenadas**, y en Vitacura 254 de 750. De los veinte avisos del caso, cinco tienen punto y precisión declarada `address`; el objetivo no tiene coordenadas para compararlos geográficamente. `address` es una etiqueta del sistema y no una validación topográfica independiente.
+
+Se inspeccionaron seis SQLite antiguos en Documentos/AVM, tasador_simple y la copia AVM de Descargas. Sus tablas `listings` y `properties` tienen lat/lon, pero no clave rol/manzana ni un vínculo confirmado con esta casa. En `Documents/AVM/tasador.db` hay 187 anuncios con coordenadas; **180 coinciden exactamente con las anclas fijas de comuna o microzona del código**. En Vitacura, 9 de 14 usan el mismo punto comunal (-33,385; -70,565). Los siete restantes no se convierten automáticamente en exactos por ser distintos. No hubo coincidencias de Tromben/Denegri o del rol en los campos textuales revisados.
+
+Los CSV antiguos de direcciones publicadas tienen lat/lon y metadatos de precisión, pero en el archivo de 800 casos revisado no aparece el objetivo ni se intersectan los veinte avisos seleccionados por ID+fuente. No permiten inventar una unión al rol de esta casa.
+
+## 3. El objetivo y sus diez cierres: resultado concreto
+
+En la base SII actual: **0/11 con coordenadas**, y tampoco hay otro rol geocodificado en sus manzanas. En el Parquet antiguo v2.1: **5/10 comparables con coordenadas, todas interpoladas**, y **9/10 con posición aproximada de manzana**. Todos conservan el identificador de manzana, aun cuando no haya punto.
+
+{table}
+
+El CSV `roles-y-manzanas-verificados.csv` incluye los pares numéricos de coordenadas y los nombres exactos de ZIP/miembro. La fila del objetivo es:
+
+```text
+rol: 15160-1261-6
+dirección catastral: L TROMBER 5631
+punto del rol: no guardado
+manzana: 15160 / 1261
+posición aproximada de manzana:
+  lat = -33.38844085081301
+  lon = -70.58285787845529
+n_geo = 2 de 28 roles
+radius_m = 101
+```
+
+Ese centro se obtiene de **solo dos puntos interpolados**, de Laura Tromben 5607 (rol 1261-3) y Laura Tromben 5729 (1261-15). La función toma medianas de latitud y longitud. `radius_m` es el percentil 90 de las distancias de esos puntos al centro, con mínimo de 30 m; **101 m no es un error máximo certificado, un radio real de manzana ni una precisión medida de la casa**. No hay polígono de manzana detrás de esa fila.
+
+En las direcciones del mismo sector coexisten `L TROMBER`, `L TROMBEN` y `LAURA TROMBEN`. La normalización antigua no las unifica todas, por lo que la cobertura de esa calle es incompleta. No se corrigieron alias ni se generaron puntos nuevos durante esta revisión.
+
+## 4. Exactas, aproximadas e identificadores: distinción necesaria
+
+| Clase | Evidencia disponible | Interpretación válida |
+| --- | --- | --- |
+| Coordenada predial SII cacheada | Seis pares por rol, según `locate.py`; ninguno es el objetivo/comparables. | Punto referido al rol según ese servicio, con procedencia declarada; no demuestra linderos ni precisión topográfica. La incertidumbre 15 m configurada es un supuesto. |
+| Dirección OSM coincidente | `geo_method=direccion_osm` o etiqueta antigua `osm_exacta`. | Coincidencia textual de dirección con un punto OSM; no prueba que sea el centro o el límite de la parcela. Incertidumbre 25 m configurada, no medida. |
+| Interpolación de calle | Cinco de los diez cierres. `geo_method=interpolacion_calle`. | Posición aproximada entre anclas por número. La configuración usa 45 m, sin garantía de error. El pipeline antiguo limita salto numérico a 200, pero no exige misma paridad, misma manzana o distancia física máxima entre anclas. |
+| Centro de manzana derivado | Disponible para el objetivo y nueve cierres. | Mediana de roles geocodificados, algunos interpolados. Puede servir como aproximación de barrio/manzana, conservando cobertura y dispersión. |
+| Centro fijo de comuna/sector | Frecuente en las SQLite antiguas. | Referencia general para mostrar la comuna, insuficiente para ordenar ventas próximas a esta parcela. |
+| Identificador de manzana | `15160/1261`, presente en SII y exportaciones. | Permite afirmar misma manzana. No permite medir metros, forma, adyacencia ni inferir que 1262 sea la manzana vecina. |
+
+La palabra «exacta» en un nombre de método debe interpretarse según la operación que hizo ese código, no como una calidad geodésica demostrada.
+
+## 5. Qué está usando Tasar y qué está dejando fuera
+
+### Capa SII
+
+**Sí usa la identidad espacial disponible de manzana.** `closing_knn.py` asigna ubicación 1 a mismo edificio, 0,7 a misma manzana y 0,2 a misma comuna; esa similitud pesa 0,30 en el score total. Denegri 5630 y 5698 reciben la categoría de misma manzana. La casa no está siendo tratada como una dirección completamente desconocida en esta capa.
+
+**No usa las posiciones aproximadas guardadas en los ZIP.** Hay tres desconexiones verificadas:
+
+1. El proceso de geografía SII solo busca `data/sii/osm/addresses.csv`, con cabecera `comuna,calle,numero,lat,lon,osm_id`. Los Parquet de esos MVP están comprimidos en Descargas y no se cargan automáticamente. La tabla `geo_predio` está vacía.
+2. El exportador del índice y de los cierres no incorpora lat/lon, método o radio. Los SQLite/JSON de Tasar no pueden transportar una coordenada que no exportan.
+3. `build_opinion` construye objetivo con rol, comuna, block, building, tipo, fecha, área y año; `ClosingKNN` solo consume identidad edificio/manzana/comuna. No lee `geo_predio`, `predios.parquet`, `manzanas.parquet` ni la caché del MVP, ni calcula una distancia en metros. Incluso cargar puntos en otra tabla no cambiaría por sí solo su comportamiento.
+
+El resultado es que una venta de otra manzana próxima y otra al otro lado de Vitacura reciben ambas L=0,2. Eso es una limitación del contrato y del criterio actual, no ausencia total de datos potenciales.
+
+### Motor principal de publicaciones
+
+El router entrega `ValuationInput` sin rol, dirección o coordenadas de objetivo. `ValuationService` crea `Property` sin `coordinates` ni precisión geográfica. Aunque `Property` admite esas propiedades, no se rellenan en Tasar. Los puntos que sí tienen cinco de los veinte anuncios no pueden generar distancias al objetivo; el score de distancia queda neutral en 0,5 y no se activa el corte de 5 km.
+
+Además, el vocabulario actual de precisión es `address`, `street`, `comuna`, `comuna_centroid`, `unknown`. No tiene categorías explícitas para `interpolacion_calle` o centro de manzana. No sería correcto insertar estos datos con etiqueta `address` para forzar su uso; pasar un nombre de método no reconocido se normaliza a `unknown`.
+
+### Capacidad del MVP antiguo frente a datos ya guardados
+
+`valoria_entorno/locate.py` ya contiene un flujo que puede consultar el visor público SII por rol, guardar la respuesta, o recurrir al punto OSM/interpolación y después al centro de manzana. **Esta es una capacidad de ese MVP, no un servicio activo del Tasar actual**. Solo sus seis respuestas cacheadas son datos locales ya existentes; no se llamó a ese servicio en esta comprobación. No se puede afirmar que Hark usara ese mismo mecanismo.
+
+## 6. Qué falta realmente para priorizar ventas próximas
+
+**Para distinguir misma manzana no falta conseguir un mapa nuevo:** ya tenemos los identificadores y el kNN ya los utiliza. Otra cuestión es cuánto pesa ese criterio frente a área/edad y qué se hace con otras manzanas; no se modificó.
+
+**Para una cercanía aproximada entre manzanas, ya hay material reutilizable.** Falta evaluar formalmente esos centros, preservar método/n_geo/radio/versiones y conectar una representación geográfica al dato consumido por Tasar. El caso 1261 tiene solo dos puntos interpolados de 28 roles, por lo que su centro requiere cautela. La manzana 1383 de un comparable sigue sin centro guardado. No hace falta reconstruir desde cero toda la geografía para estudiar esa cobertura aproximada.
+
+**Para afirmar cercanía precisa de ventas a esta casa**, falta una posición fiable del objetivo y de los cierres que aún no la tienen, o cartografía con geometría y vínculo predial comprobado. Las cinco posiciones interpoladas pueden ser candidatas, no reemplazan coordenadas verificadas. Habría que resolver la cadena de dirección/rol y sus variantes con procedencia, fecha e incertidumbre, y ampliar la cobertura sin presentar centroides como parcelas.
+
+**Para que el resultado use esa cercanía**, falta conectar objetivo y comparables con una política explícita de precisión y después validar el criterio de selección/peso geográfico. El motor principal ya tiene funciones de distancia que no reciben un objetivo localizado; el kNN SII no tiene un componente métrico. Son dos problemas de integración diferentes. Importar datos, por sí solo, no da prioridad automática a ventas cercanas.
+
+Finalmente, no se deben copiar todas las columnas del Parquet antiguo sobre el catastro actual: allí `m2c` suma todas las líneas, mientras que la capa SII de tasación usa H cerrado. La posible reutilización es geográfica y debe conservar las bases de superficie actuales.
+
+## Evidencia, alcance y estado
+
+`SII-inventario.json` y `consultas-SII.json`: base, columnas, consultas y transacción de lectura. `ZIP-datos-geograficos.json`: esquemas, conteos, hashes de miembros y filas encontradas. `manzana-1261-procedencia.json`: centro y sus dos anclas. `roles-y-manzanas-verificados.csv`: el objetivo y los diez cierres. `archivos-fuente-hashes.json`: hashes de cuatro ZIP originales. `artefactos-texto/`: copias de la lógica/procedencia leída, sin ejecutarla.
+
+La búsqueda por nombres de archivo no detectaba la cartografía comprimida; se inspeccionaron los miembros y Parquet para resolverlo. El inventario de carpetas tuvo rutas antiguas inaccesibles/largas, por lo que no se afirma haber examinado todo archivo posible del equipo. Esto no limita la comprobación concreta de los once roles en los cuatro ZIP encontrados. La identificación de autoría de esos ZIP no se deduce de que el usuario haya usado Hark.
+
+**21 controles correctos**, incluido cotejo de identidad/dirección de once roles, fuente catastral, cobertura real y repositorio limpio. No se modificó el expediente de auditoría previo, algoritmos, reglas congeladas, producción ni fuentes. Todos los registros y el nuevo expediente permanecen únicamente en local.
+'''
+(OUT/'INFORME_GEOGRAFIA.md').write_text(report,encoding='utf8')
+code=['services/sii/geocoding.py','services/sii/closing_opinion.py','services/sii/closing_knn.py','services/sii/closing_address.py','services/valuation.py','api/v1/valuations.py','scripts/validate_sii_closing.py','core/normalization/geocode_precision.py','domain/valuation/scoring.py']
+codeman=[]
+for rel in code:
+    p=REPO/rel;dest=OUT/'codigo-actual'/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(p,dest);codeman.append({'path':rel,'sha256_LF':hashlib.sha256(p.read_bytes().replace(b'\r\n',b'\n')).hexdigest()})
+(OUT/'codigo-manifiesto.json').write_text(json.dumps(codeman,indent=2),encoding='utf8')
+manifest=[]
+for p in sorted(OUT.rglob('*')):
+    if p.is_file() and p.name!='MANIFEST.sha256':manifest.append(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.relative_to(OUT).as_posix())
+(OUT/'MANIFEST.sha256').write_text('\n'.join(manifest)+'\n',encoding='utf8')
+dest=ROOT.parent/'outputs/GEOGRAFIA_EXISTENTE_1261-6.zip'
+with zipfile.ZipFile(dest,'w',compression=zipfile.ZIP_DEFLATED) as z:
+    for p in sorted(OUT.rglob('*')):
+        if p.is_file():z.write(p,arcname='geografia-existente-1261-6/'+p.relative_to(OUT).as_posix())
+with zipfile.ZipFile(dest) as z:assert z.testzip() is None
+print(json.dumps({'report_bytes':(OUT/'INFORME_GEOGRAFIA.md').stat().st_size,'package_bytes':dest.stat().st_size,'controls':len(load('CONTROLES.json')),'target_block_radius_m':block['radius_m'],'model_changed':False,'production_accessed':False},ensure_ascii=False))

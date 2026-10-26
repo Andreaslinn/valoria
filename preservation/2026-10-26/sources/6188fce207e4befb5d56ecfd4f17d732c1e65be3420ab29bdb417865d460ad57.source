@@ -1,0 +1,36 @@
+# Coordenadas forward-only
+
+Los parsers reutilizan exclusivamente HTML recibido: Portal reconoce el mapa de
+`location_and_points` y `location`; Yapo reconoce el iframe titulado
+`Mapa de la propiedad` y su parámetro `q`. No consultan el iframe ni hacen HTTP.
+Los pares incompletos, no numéricos o fuera de rango se descartan juntos.
+`location_source` identifica la evidencia; un punto del mapa no acredita precisión de dirección.
+La normalización, columnas nullable lat/lon y respuesta Radar existentes ya transportan el par.
+
+## Cobertura y límites
+
+No se encontraron coordenadas por publicación en el fixture real de resultados
+Portal inspeccionado. No se extrapola un centro de comuna ni país a sus cards.
+Portal mantiene el detalle solamente para cards incompletas, con el límite existente
+`max_details` (5 en el servicio auditado), pausas y parada ante 403/429 intactos.
+Yapo aprovecha mapas dentro de una card o un detalle que otro flujo ya haya obtenido;
+el discovery de cards sin mapa seguirá sin coordenadas. No hay porcentaje global
+defendible sin medir futuros payloads. No se promete cobertura de todas las altas.
+
+## Históricos, más adelante (no implementado)
+
+Primero inventariar raw_metadata, HTML y cachés ya guardados, sin requests externas.
+Aceptar sólo pares válidos y ligados inequívocamente al ID/URL del listing; generar
+un dry-run revisable antes de cualquier escritura. La auditoría encontró 21 pares
+Portal corruptos en metadata (decimales eliminados), no evidencia utilizable:
+no reparar adivinando el separador. Los históricos sin evidencia quedan sin coordenadas.
+Un eventual backfill de visitas requiere autorización independiente y evaluación de
+bloqueos; no forma parte de este cambio ni se visitan los 20 resultados de Radar.
+
+## Despliegue propuesto, pendiente de autorización
+
+Revisar diff y tests offline; desplegar únicamente parsers/helper con el procedimiento
+habitual, sin migraciones ni cambios de límites. Observar el siguiente ciclo normal,
+sin disparar crawling extra: errores, 403/429 y altas con location_source/lat/lon.
+Verificar lectura API/Radar de un alta enriquecida. Revertir código ante regresión;
+no borrar ni reescribir datos preservados. Oracle no se modifica en esta fase.

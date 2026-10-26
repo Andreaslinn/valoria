@@ -1,0 +1,11 @@
+import subprocess
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  rows=(await s.execute(text("SELECT external_id,listing_id,document FROM listing_observations WHERE source='yapo' AND external_id IN ('32982982','32747182') ORDER BY observed_at DESC LIMIT 2"))).mappings().all()
+  print(json.dumps([{'external_id':r['external_id'],'listing_id':r['listing_id'],'keys':list(r['document']),'nested':{k:list(v)[:20] for k,v in r['document'].items() if isinstance(v,dict)}} for r in rows]))
+asyncio.run(main())'''
+print(subprocess.check_output(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',code],text=True,timeout=90))

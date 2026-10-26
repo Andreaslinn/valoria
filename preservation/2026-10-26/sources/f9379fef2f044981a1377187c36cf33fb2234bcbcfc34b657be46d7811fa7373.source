@@ -1,0 +1,30 @@
+"use client";
+import {useState} from "react";
+import {Building2} from "lucide-react";
+import {API_BASE_URL} from "@/lib/config";
+import type {ThumbnailRef} from "@/types/thumbnail";
+import "./property-photo.css";
+
+export function thumbnailSrc(ref: ThumbnailRef | undefined): string | null {
+  if (!ref || !Number.isInteger(ref.width) || !Number.isInteger(ref.height) || ref.width <= 0 || ref.height <= 0
+      || ref.width > 8192 || ref.height > 8192 || !Number.isInteger(ref.bytes) || ref.bytes <= 0
+      || !/^[a-f0-9]{64}$/.test(ref.hash)) return null;
+  const expected = new RegExp(`^/api/v1/thumbnails/${ref.hash}\\.webp\\?expires=[0-9]+&sig=[a-f0-9]{64}$`);
+  return expected.test(ref.url) ? `${API_BASE_URL}${ref.url}` : null;
+}
+
+export function PropertyPhoto({thumbnail,title,className="",small=false,illustrativeSrc}: {
+  thumbnail: ThumbnailRef | undefined; title: string; className?: string; small?: boolean; illustrativeSrc?: string;
+}) {
+  const src = thumbnailSrc(thumbnail) ?? (process.env.NODE_ENV === "development" && illustrativeSrc && /^\/images\/[a-z0-9-]+\.jpg$/.test(illustrativeSrc) ? illustrativeSrc : null);
+  // Key isolates load failures across URL changes, including returning to a prior URL.
+  return <Photo key={src ?? "missing"} src={src} thumbnail={thumbnail} title={title} className={className} small={small}/>;
+}
+
+function Photo({src,thumbnail,title,className,small}: {src:string|null;thumbnail:ThumbnailRef|undefined;title:string;className:string;small:boolean}) {
+  const [failed,setFailed]=useState(false);
+  return <div className={`property-photo ${className}`} data-photo-state={src&&!failed?"image":"fallback"}>
+    {src&&!failed?<img src={src} alt={`Fotografía de la publicación · ${title}`} width={thumbnail?.width??320} height={thumbnail?.height??240}
+      loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={()=>setFailed(true)}/>:<><Building2 size={small?20:40} aria-hidden="true"/>{!small&&<span>Fotografía no disponible</span>}</>}
+  </div>;
+}

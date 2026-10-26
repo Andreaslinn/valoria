@@ -1,0 +1,38 @@
+# Lifecycle simple
+
+| Evento | Comportamiento |
+|---|---|
+| Entra a superficie autorizada | Actualiza membership/last_seen; ref si listo, job si falta |
+| Vuelve a mostrarse | Reutiliza WebP y actualiza last_seen; no fetch remoto |
+| URL fuente cambia | Mantiene un thumbnail bueno; no invalida automáticamente |
+| Sale de Radar | Mantiene caché con gracia; no elimina al desaparecer del feed |
+| Sale de Watchlist/Cartera | leave elimina solo ese pin; gracia desde última vista |
+| Otro usuario/superficie lo conserva | El resto de memberships siguen independientes |
+| Vuelve antes del TTL | Reutiliza asset; reinicia last_seen/pin |
+| Sin vista durante 90 días | Expira membership y fila; no borra lease activa |
+| Asset compartido por otro listing | No se borra mientras exista una referencia viva |
+| Asset/temp huérfano | Gracia 24h y GC posterior; evita carreras con publicación |
+| Asset dañado/perdido | Hash/tamaño falla; placeholder y regeneración selectiva |
+| Sin referencia | missing/no_source; ninguna descarga, puede reintentarse con nueva evidencia |
+| 403/404/expirada/corrupto | failed; no retries inmediatos; 24h de cooldown |
+| Timeout/network/429/5xx | Máximo 3 intentos; backoff 5s,30s; después cooldown 24h |
+| Worker interrumpido | Lease vence a 30s; otro claim, token CAS rechaza resultado antiguo |
+| Presupuesto agotado | storage_budget y placeholder; no sobrepasa cuota de payload |
+
+TTL cuenta última visualización seleccionada por servidor, no fecha de scraping.
+Un listing guardado que nadie visita en 90d puede perder la foto: se vuelve a
+generar al visitarlo. Esta elección conserva utilidad sin pin eterno. No necesita
+consultar todo Watchlist, History o inventario para GC.
+
+GC es una función explícita, idempotente, bajo transacción y lock local; no se
+instaló timer ni scheduler. En integración, ejecutar una vez al día fuera del
+request. Jobs no preservan un álbum: máximo 3 intentos de fuentes y un único éxito.
+Una caída después del rename y antes del commit puede dejar un huérfano; GC lo
+recoge. Una caída de proceso con fila pendiente recupera el job al vencer lease.
+
+Backup: crear snapshot consistente con SQLite backup API bajo el lock, y copiar
+solo los assets referidos con manifest SHA256. Conservar los archivos fuente de
+ingestión por su mecanismo actual, sin modificarlo. Restaurar sidecar/assets al
+mismo root; validar hashes y regenerar solo faltantes al reaparecer. No copiar
+únicamente thumbnail.sqlite3 abierto ignorando WAL. El prototipo prueba reapertura
+del sidecar y recuperación de leases; no se ha realizado restauración del host.

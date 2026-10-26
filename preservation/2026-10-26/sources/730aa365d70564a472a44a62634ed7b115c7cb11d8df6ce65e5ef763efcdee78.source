@@ -1,0 +1,27 @@
+import subprocess,json,pathlib,shutil,datetime
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-deploy-20261016');API='valoria_oracle_beta-api-1'
+def run(args):return subprocess.check_output(args,text=True,timeout=90)
+api=json.loads(run(['docker','inspect',API]))[0]
+assert api['Config']['Labels']['org.opencontainers.image.revision']=='80bd8a9aae5c1af733778f524ce880efcb5d815e'
+health=json.loads(run(['docker','exec',API,'python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]))
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  r=(await s.execute(text("SELECT id,external_id,comuna,property_type,status,fingerprint,scraped_at,last_seen_at,raw_metadata FROM listings WHERE source='yapo' AND external_id='32747182'"))).mappings().one()
+  meta=r['raw_metadata'] or {}; value=dict(r);value['raw_metadata']={k:meta[k] for k in ['parser_source','published_fields','currency_original','data_quality_warnings','original_currency','conversion_status','uf_rate_date'] if k in meta}
+  print(json.dumps(value,default=str))
+asyncio.run(main())'''
+missing=json.loads(run(['docker','exec',API,'python','-B','-c',code]))
+sql="SELECT json_build_object('id',id,'external_id',external_id,'source',source,'comuna',comuna,'fingerprint',fingerprint) FROM listings WHERE id="+str(int(missing['id']))+';'
+old=run(['docker','exec','valoria-discovery-restore-20261016','psql','-U','postgres','-d','valoria_restore','-Atc',sql]).strip()
+proof={'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'running_commit':api['Config']['Labels']['org.opencontainers.image.revision'],'container_healthy':api['State'].get('Health',{}).get('Status'),'health':health,'disk_before_bytes':json.loads((B/'preflight.json').read_text())['disk_free_bytes'],'disk_after_bytes':shutil.disk_usage(B).free,'references_same_snapshot':json.loads((B/'rollback-proof.json').read_text()),'missing_yapo_detail':missing,'same_primary_id_in_verified_backup':json.loads(old) if old else None,'rollback':'executed_80bd8a9','authorized_service_starts':{'portal':1,'yapo':1},'manual_production_db_writes':0,'cache_cleanup_executed':False,'retention_executed':False,'disk_alarm_implemented_in_pr':False}
+assert health['status']=='ok'
+assert not any('PORTAL_SESSION_EXPIRED' in str(v.get('alarms',[])) for v in health['sources'].values())
+for name in ['uf-calendar','portal-discovery','yapo-discovery']:
+ assert run(['systemctl','is-active','valoria-'+name+'.timer']).strip()=='active'
+ assert 'VALORIA_INGESTION_IMAGE=valoria-published-fields:80bd8a9aae5c' in run(['systemctl','show','valoria-'+name+'.service','--property=Environment'])
+p=B/'final-proof.json';p.write_text(json.dumps(proof,indent=2));p.chmod(0o600)
+print(json.dumps(proof))

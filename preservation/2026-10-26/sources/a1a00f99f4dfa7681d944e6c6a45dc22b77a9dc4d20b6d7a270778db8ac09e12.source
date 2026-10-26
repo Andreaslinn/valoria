@@ -1,0 +1,16 @@
+import subprocess,json,pathlib
+root=pathlib.Path('/home/ubuntu/apps/valoria/private/ingestion-deploy-20261015')
+before=json.loads((root/'api-before-private.json').read_text())
+images=[before['Image'],'valoria-ingestion-review:1f0e0fde0f9e']
+results=[]
+for image in images:
+ args=['docker','run','--rm','--network','container:valoria-rollback-rehearsal-pg','--memory=384m','--memory-swap=384m','--cpus=0.25','--pids-limit=96','--cap-drop=ALL','--security-opt=no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=32m',
+       '-e','DATABASE_URL=postgresql+asyncpg://postgres@127.0.0.1/valoria_restore','-e','SYNC_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1/valoria_restore','-e','JWT_SECRET_KEY='+'0'*32,'--entrypoint','python',image,'-B','-m','scripts.verify_canonical_live']
+ r=subprocess.run(args,capture_output=True,text=True,timeout=120)
+ if r.returncode:raise RuntimeError('Reference gate failed on isolated restored database')
+ d=json.loads(r.stdout)
+ results.append({'image':image,'cases':[{k:c[k] for k in ('comuna','estimated_uf','frozen_reference_uf','comparable_data_changed','uf_rate')} for c in d['cases']]})
+assert results[0]['cases']==results[1]['cases']
+proof={'identical_on_same_database_and_uf':True,'results':results,'historical_numbers_not_met':True}
+(root/'reference-comparison.json').write_text(json.dumps(proof,indent=2));(root/'reference-comparison.json').chmod(0o600)
+print(json.dumps(proof))

@@ -1,0 +1,362 @@
+# Preserve reference dataframe names and record construction for direct comparison.
+# ruff: noqa: N806, C408
+"""Versioned imports and reconstruction, restricted to the local property-life DB."""
+
+import hashlib
+import json
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+
+from domain.property_life import engine as hv
+from domain.property_life.readers import parse_catastro, parse_uf
+from infrastructure.db import property_life as db
+
+
+def digest(path):
+    with Path(path).open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def _insert_batches(conn, table, records, size=2000):
+    batch = []
+    for record in records:
+        batch.append(record)
+        if len(batch) == size:
+            conn.execute(table.insert(), batch)
+            batch = []
+    if batch:
+        conn.execute(table.insert(), batch)
+
+
+def _source(conn, kind, path, version_date):
+    stmt = insert(db.source_file).values(
+        kind=kind,
+        filename=Path(path).name,
+        sha256=digest(path),
+        version_date=version_date,
+        imported_at=datetime.now(),
+        row_count=0,
+    )
+    identity = conn.execute(stmt.on_conflict_do_nothing().returning(db.source_file.c.id)).scalar()
+    if identity is not None:
+        return identity, True
+    return conn.execute(
+        select(db.source_file.c.id).where(
+            db.source_file.c.kind == kind, db.source_file.c.sha256 == digest(path)
+        )
+    ).scalar_one(), False
+
+
+def import_bundle(n_path, l_path, f_path, uf_paths, version_date):
+    """Each file is atomic and idempotent. Raw rows include duplicates and unknown roles."""
+    N, L = parse_catastro(n_path, l_path)
+    results = {}
+    eng = db.engine()
+    try:
+        with eng.begin() as conn:
+            for kind, path, frame, table in [
+                ("catastro", n_path, N, db.property),
+                ("construction", l_path, L, db.construction_line),
+            ]:
+                sid, fresh = _source(conn, kind, path, version_date)
+                if fresh:
+
+                    def rows(frame=frame, sid=sid, kind=kind):
+                        for i, raw in enumerate(frame.to_dict("records"), 1):
+                            data = hv.clean_json(raw)
+                            row = dict(
+                                source_file_id=sid,
+                                comuna=int(raw["c"]),
+                                mz=int(raw["mz"]),
+                                pr=int(raw["pr"]),
+                                data=data,
+                            )
+                            if kind == "catastro":
+                                row.update(
+                                    dir=data["dir"],
+                                    tipo=data["tipo"],
+                                    m2=data["m2"],
+                                    terreno=data["supter"],
+                                    anio=data["anio"],
+                                    avaluo=data["avaluo"],
+                                    contribucion=data["contrib"],
+                                )
+                            else:
+                                row["row_number"] = i
+                            yield row
+
+                    _insert_batches(conn, table, rows())
+                    conn.execute(
+                        db.source_file.update()
+                        .where(db.source_file.c.id == sid)
+                        .values(row_count=len(frame))
+                    )
+                results[str(path)] = sid
+            sid, fresh = _source(conn, "f2890", f_path, version_date)
+            if fresh:
+                count = 0
+
+                def raw_rows():
+                    nonlocal count
+                    with Path(f_path).open(encoding="latin1", newline="") as stream:
+                        header = stream.readline().rstrip("\r\n").split(";")
+                        expected = ["COMUNA", "MANZANA", "PREDIO", "FI", "FE", "CLP", "UF"]
+                        official = [
+                            "COMUNA",
+                            "MANZANA",
+                            "PREDIO",
+                            "FECHA_INSCRIPCION",
+                            "FECHA_ESCRITURA",
+                            "MONTO_PESOS",
+                            "MONTO_UF",
+                        ]
+                        if header not in [expected, official]:
+                            raise ValueError(f"Cabecera F2890 inesperada: {header}")
+                        for count, line in enumerate(stream, 1):
+                            fields = line.rstrip("\r\n").split(";")
+                            # Preserve even malformed/empty rows; reconstruction reports them separately.
+                            data = (
+                                dict(zip(expected, fields, strict=True))
+                                if len(fields) == 7
+                                else {"parse_error": "expected 7 fields", "fields": fields}
+                            )
+                            yield dict(
+                                source_file_id=sid, row_number=count, raw_line=line, data=data
+                            )
+
+                _insert_batches(conn, db.transfer_raw, raw_rows())
+                conn.execute(
+                    db.source_file.update()
+                    .where(db.source_file.c.id == sid)
+                    .values(row_count=count)
+                )
+            results[str(f_path)] = sid
+            for path in uf_paths:
+                sid, fresh = _source(conn, "uf", path, version_date)
+                if fresh:
+                    uf = parse_uf([path])
+                    _insert_batches(
+                        conn,
+                        db.uf_daily,
+                        (dict(source_file_id=sid, fecha=d.date(), value=v) for d, v in uf.items()),
+                    )
+                    conn.execute(
+                        db.source_file.update()
+                        .where(db.source_file.c.id == sid)
+                        .values(row_count=len(uf))
+                    )
+                results[str(path)] = sid
+    finally:
+        eng.dispose()
+    return results
+
+
+def _latest(conn, table, kind, cod=None, commune_name=None):
+    statement = select(db.source_file.c.id).where(db.source_file.c.kind == kind)
+    if cod is not None:
+        ids = select(table.c.source_file_id).where(table.c.comuna == cod)
+        statement = statement.where(db.source_file.c.id.in_(ids))
+    if commune_name is not None:
+        ids = select(table.c.source_file_id).where(
+            table.c.data["COMUNA"].as_string() == commune_name
+        )
+        statement = statement.where(db.source_file.c.id.in_(ids))
+    identity = conn.execute(
+        statement.order_by(
+            db.source_file.c.version_date.desc(),
+            db.source_file.c.imported_at.desc(),
+            db.source_file.c.id.desc(),
+        ).limit(1)
+    ).scalar()
+    if identity is None:
+        raise ValueError(f"Faltan datos importados: {kind} / {cod}")
+    return identity
+
+
+def load_dataset(conn, comuna):
+    cod, name = hv.COMUNAS[hv.norm(comuna)]
+    n_id = _latest(conn, db.property, "catastro", cod)
+    l_id = _latest(conn, db.construction_line, "construction", cod)
+    f_id = _latest(conn, db.transfer_raw, "f2890", commune_name=name)
+    N = pd.DataFrame(
+        conn.execute(
+            select(db.property.c.data).where(
+                db.property.c.source_file_id == n_id, db.property.c.comuna == cod
+            )
+        )
+        .scalars()
+        .all()
+    )
+    L = pd.DataFrame(
+        conn.execute(
+            select(db.construction_line.c.data).where(
+                db.construction_line.c.source_file_id == l_id, db.construction_line.c.comuna == cod
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Recompute aggregates from the selected construction version, not stale property m².
+    H = L[(L.dest == "H") & (L.sup > 0)]
+    agg = (
+        H.groupby(["mz", "pr"])
+        .agg(m2=("sup", "sum"), anio=("anio", "min"), anio_max=("anio", "max"))
+        .reset_index()
+    )
+    N = N.drop(columns=["m2", "anio", "anio_max"]).merge(agg, on=["mz", "pr"], how="left")
+    raw = conn.execute(
+        select(db.transfer_raw.c.data).where(
+            db.transfer_raw.c.source_file_id == f_id,
+            db.transfer_raw.c.data["COMUNA"].as_string() == name,
+        )
+    ).scalars()
+    frame = pd.DataFrame([r for r in raw if r.get("COMUNA") == name and "parse_error" not in r])
+    if frame.empty:
+        raise ValueError(f"Faltan filas F2890 para {name}")
+    frame["mz"] = pd.to_numeric(frame.MANZANA, errors="coerce")
+    frame["pr"] = pd.to_numeric(frame.PREDIO, errors="coerce")
+    # Exact reference selection for reconstruction; raw storage retains every line.
+    frame = frame[frame.mz.isin(set(N.mz))].copy()
+    for dest, orig in [("fi", "FI"), ("fe", "FE")]:
+        frame[dest] = pd.to_datetime(frame[orig], format="%Y%m%d", errors="coerce")
+    for key in ["UF", "CLP"]:
+        frame[key] = pd.to_numeric(frame[key], errors="coerce")
+    frame = frame.drop_duplicates(["mz", "pr", "FI", "FE", "CLP", "UF"])
+    # A file per year; select latest imported version of each date, never sum versions.
+    uf_rows = conn.execute(
+        select(db.uf_daily.c.fecha, db.uf_daily.c.value, db.uf_daily.c.source_file_id)
+        .join(db.source_file)
+        .order_by(db.source_file.c.version_date, db.source_file.c.imported_at, db.source_file.c.id)
+    ).all()
+    selected_uf = {d: (v, sid) for d, v, sid in uf_rows}
+    uf = pd.Series(
+        {pd.Timestamp(d): v for d, (v, _) in selected_uf.items()}, dtype=float
+    ).sort_index()
+    source_ids = sorted({n_id, l_id, f_id, *(r[1] for r in selected_uf.values())})
+    return cod, n_id, source_ids, N, L, frame, uf
+
+
+def reconstruct(conn, comuna, today):
+    cod, n_id, source_ids, N, L, F, uf = load_dataset(conn, comuna)
+    key = hashlib.sha256(
+        json.dumps([source_ids, str(pd.Timestamp(today).date()), "reference-v1"]).encode()
+    ).hexdigest()
+    saved = (
+        conn.execute(select(db.transfer.c.data).where(db.transfer.c.dataset_key == key))
+        .scalars()
+        .all()
+    )
+    if saved:
+        V = pd.DataFrame(saved)
+        V["fecha"] = pd.to_datetime(V.fecha)
+        return key, N, L, F, uf, V.sort_values("fecha")
+    converted = hv.to_uf(F.copy(), uf)
+    uf_av = uf.asof(pd.Timestamp(hv.UF_AVALUO_DATE)) if len(uf) else None
+    V = hv.marcar_atipicas(hv.ventas(converted, N, uf_av, L, today=today))
+    ids = {
+        (mz, pr): pid
+        for pid, mz, pr in conn.execute(
+            select(db.property.c.id, db.property.c.mz, db.property.c.pr).where(
+                db.property.c.source_file_id == n_id, db.property.c.comuna == cod
+            )
+        )
+    }
+    groups = converted.sort_values("uf_total", na_position="first").drop_duplicates(
+        ["mz", "pr", "FE", "FI"], keep="last"
+    )
+    groups = groups.merge(N[["mz", "pr", "tipo"]], on=["mz", "pr"], how="left")
+    auxiliaries = {}
+    for (mz, fe, fi), group in groups.groupby(["mz", "FE", "FI"]):
+        aux = group[group.tipo.isin(["estac", "bodega"])]
+        if not aux.empty:
+            auxiliaries[f"{mz}:{fe}:{fi}"] = [ids[r.mz, r.pr] for r in aux.itertuples()]
+    batch = []
+
+    def flush():
+        if not batch:
+            return
+        stmt = (
+            insert(db.transfer)
+            .values(batch)
+            .on_conflict_do_nothing()
+            .returning(db.transfer.c.id, db.transfer.c.operation_key, db.transfer.c.confianza)
+        )
+        links = []
+        for tid, operation, confidence in conn.execute(stmt):
+            if confidence in {"desglosado", "paquete_no_desglosado"}:
+                links.extend(
+                    dict(transfer_id=tid, property_id=pid) for pid in auxiliaries.get(operation, [])
+                )
+        if links:
+            conn.execute(insert(db.transfer_unit).values(links).on_conflict_do_nothing())
+        batch.clear()
+
+    for r in V.to_dict("records"):
+        exclusion = r["atipica"] or ("" if r["usable"] else r["confianza"])
+        if not exclusion and not 15 <= r["ufm2"] <= 500:
+            exclusion = "UF/m² fuera del rango 15-500 del prototipo"
+        batch.append(
+            dict(
+                dataset_key=key,
+                source_file_ids=source_ids,
+                reference_date=pd.Timestamp(today).date(),
+                property_id=ids[r["mz"], r["pr"]],
+                fecha=r["fecha"].date() if pd.notna(r["fecha"]) else None,
+                uf_principal=hv.clean_json(r["uf_principal"]),
+                uf_total=hv.clean_json(r["uf_total"]),
+                confianza=r["confianza"],
+                motivo_exclusion=exclusion or None,
+                usable=bool(r["usable"]),
+                data=hv.clean_json(r),
+                operation_key=r["operation_key"],
+            )
+        )
+        if len(batch) == 1000:
+            flush()
+    flush()
+    return key, N, L, F, uf, V
+
+
+def life(direccion, comuna, *, today=None):
+    today = today or pd.Timestamp.now(tz="America/Santiago").tz_localize(None)
+    today = pd.Timestamp(today).normalize()
+    eng = db.engine()
+    try:
+        with eng.begin() as conn:
+            key, N, L, F, uf, V = reconstruct(conn, comuna, today)
+            result = hv.report(direccion, comuna, N, L, F, uf, today=today, index=hv.house_index(V))
+            result.update(terminologia="precio de transacción declarado", dataset_key=key)
+            return result
+    finally:
+        eng.dispose()
+
+
+def audit(comuna, *, today):
+    eng = db.engine()
+    try:
+        with eng.connect() as conn:
+            _, _, _, N, L, F, uf = load_dataset(conn, comuna)
+        converted = hv.to_uf(F.copy(), uf)
+        V = hv.ventas(converted, N, uf.asof(pd.Timestamp(hv.UF_AVALUO_DATE)), L, today=today)
+        V10 = V[V.fecha >= pd.Timestamp(today) - pd.DateOffset(years=10)]
+        joined = F.merge(N[["mz", "pr", "tipo"]], on=["mz", "pr"], how="left")
+        return hv.clean_json(
+            dict(
+                filas_f2890=len(F),
+                pct_rol_en_catastro=round(joined.tipo.notna().mean() * 100, 1),
+                tipo_filas=joined.tipo.fillna("sin_catastro").value_counts().to_dict(),
+                transferencias_unidad_principal=len(V),
+                ultimos_10a=len(V10),
+                confianza_10a=V10.groupby(["tipo", "confianza"])
+                .size()
+                .unstack(fill_value=0)
+                .to_dict("index"),
+                usable_10a={t: len(V10[(V10.tipo == t) & V10.usable]) for t in ["casa", "depto"]},
+            )
+        )
+    finally:
+        eng.dispose()

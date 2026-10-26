@@ -1,0 +1,195 @@
+"""Opt-in Docker PostgreSQL test, NEVER accepts a production database name.
+
+TEST_MATURITY_DATABASE_URL must point at the disposable valoria_maturity_fixture
+database. This fixture setup writes ONLY there. The audited script only SELECTs.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from scripts.audit_published_maturity import build_report, fetch_snapshot
+
+DSN = os.environ.get("TEST_MATURITY_DATABASE_URL")
+pytestmark = pytest.mark.skipif(not DSN, reason="explicit disposable PostgreSQL fixture required")
+
+
+@pytest.fixture(scope="module")
+def fixture_database():
+    import psycopg
+    from psycopg.types.json import Jsonb
+
+    from tests.unit.test_published_maturity import listing
+
+    params = psycopg.conninfo.conninfo_to_dict(DSN)
+    assert params["dbname"] == "valoria_maturity_fixture"
+    assert params["host"] in ("127.0.0.1", "localhost")
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        for table in ("listing_observations", "ingestion_runs", "listings"):
+            conn.execute("DROP TABLE IF EXISTS " + table)
+        conn.execute(
+            "CREATE TABLE listings (id int PRIMARY KEY,source text,external_id text,url text,comuna text,property_type text,status text,bedrooms int NOT NULL,bathrooms int NOT NULL,land_area_m2 float,raw_metadata json)"
+        )
+        conn.execute(
+            "CREATE TABLE listing_observations (listing_id int,source text,external_id text,observed_at timestamptz,event_kind text,document json)"
+        )
+        conn.execute(
+            "CREATE TABLE ingestion_runs (source text,started_at timestamptz,finished_at timestamptz,successful boolean,counters json,errors json)"
+        )
+        if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='maturity_reader'").fetchone():
+            conn.execute("CREATE ROLE maturity_reader LOGIN")
+        conn.execute("GRANT USAGE ON SCHEMA public TO maturity_reader")
+        conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO maturity_reader")
+        for i in range(1, 5):
+            row = listing(
+                i, source="yapo" if i % 2 else "portalinmobiliario", day=16 if i < 3 else 17
+            )
+            meta = {
+                "published_fields": row["published_fields"],
+                "published_detail_fields": row["published_detail_fields"],
+            }
+            if i == 3:
+                meta["published_fields"]["stage"] = "merged"
+            conn.execute(
+                "INSERT INTO listings VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (
+                    i,
+                    row["source"],
+                    str(i),
+                    row["url"],
+                    "santiago",
+                    "apartment",
+                    "active",
+                    2,
+                    2,
+                    None,
+                    Jsonb(meta),
+                ),
+            )
+            document = {
+                "raw_state": {"raw_metadata": meta},
+                "parsed_state": {"raw_metadata": meta, "bedrooms": 2, "bathrooms": 2},
+            }
+            for _ in range(2):
+                conn.execute(
+                    "INSERT INTO listing_observations VALUES (%s,%s,%s,%s,%s,%s)",
+                    (
+                        i,
+                        row["source"],
+                        str(i),
+                        row["published_fields"]["observed_at"],
+                        "listing_seen",
+                        Jsonb(document),
+                    ),
+                )
+            if i == 1:
+                geography_document = {"parsed_state": {"detail": {"raw_metadata": meta}}}
+                conn.execute(
+                    "INSERT INTO listing_observations VALUES (%s,%s,%s,%s,%s,%s)",
+                    (
+                        i,
+                        row["source"],
+                        str(i),
+                        row["published_fields"]["observed_at"],
+                        "geo_enriched",
+                        Jsonb(geography_document),
+                    ),
+                )
+        for source in ("portalinmobiliario", "yapo"):
+            conn.execute(
+                "INSERT INTO ingestion_runs VALUES (%s,'2026-10-17T10:00Z','2026-10-17T10:01Z',true,%s,%s)",
+                (source, Jsonb({"published_detail_captured": 2}), Jsonb([])),
+            )
+    params = psycopg.conninfo.conninfo_to_dict(DSN)
+    params["user"] = "maturity_reader"
+    yield psycopg.conninfo.make_conninfo(**params)
+
+
+def uri(reader):
+    import psycopg
+
+    params = psycopg.conninfo.conninfo_to_dict(reader)
+    return f"postgresql://maturity_reader@{params.get('host', '127.0.0.1')}:{params.get('port', '55439')}/valoria_maturity_fixture"
+
+
+def test_real_postgres_read_only_snapshot_and_cli(fixture_database):
+    import psycopg
+
+    since = datetime(2026, 10, 16, tzinfo=UTC)
+    as_of = datetime(2026, 10, 18, tzinfo=UTC)
+    rows, observations, runs = fetch_snapshot(uri(fixture_database), since, as_of)
+    assert len(rows) == 4 and len(observations) == 13 and len(runs) == 2
+    assert any(o.get("geography_fields") for o in observations)
+    result = build_report(rows, observations, runs, since=since, as_of=as_of)
+    assert len(result["groups"]) == 44
+    assert all(v["verdict"] == "MADURO" for v in result["source_type_verdicts"] if v["active"])
+    assert sum(g["rhythm"]["distinct_detail_snapshots"] for g in result["groups"]) == 4
+    env = {**os.environ, "DATABASE_URL": uri(fixture_database), "PYTHONIOENCODING": "utf-8"}
+    script = Path(__file__).resolve().parents[2] / "scripts/audit_published_maturity.py"
+    output = subprocess.run(
+        [sys.executable, str(script), "--as-of", as_of.isoformat()],
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    parsed = json.loads(output.stdout)
+    assert parsed["schema_version"] == 1
+    assert "Porcentajes" in output.stderr
+    export = subprocess.run(
+        [sys.executable, str(script), "--export-csv"],
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    import csv
+    import io
+
+    exported = list(csv.DictReader(io.StringIO(export.stdout)))
+    assert len(exported) == 4 and json.loads(exported[0]["published_fields"])["version"] == 1
+    with (
+        psycopg.connect(fixture_database) as conn,
+        pytest.raises(psycopg.errors.InsufficientPrivilege),
+    ):
+        conn.execute("UPDATE listings SET bedrooms=99")
+    with psycopg.connect(DSN) as conn:
+        assert conn.execute("SELECT sum(bedrooms),count(*) FROM listings").fetchone() == (8, 4)
+
+
+def test_read_only_guard_protects_even_an_admin_connection(fixture_database, monkeypatch):
+    import psycopg
+
+    import scripts.audit_published_maturity as audit
+
+    monkeypatch.setattr(audit, "LISTINGS_SQL", "UPDATE listings SET bedrooms=99 RETURNING *")
+    with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+        audit.fetch_snapshot(
+            DSN, datetime(2026, 10, 16, tzinfo=UTC), datetime(2026, 10, 18, tzinfo=UTC)
+        )
+    with psycopg.connect(DSN) as conn:
+        assert conn.execute("SELECT sum(bedrooms) FROM listings").fetchone()[0] == 8
+
+
+def test_credentials_never_printed_on_connection_error():
+    import io
+    from unittest.mock import patch
+
+    from scripts.audit_published_maturity import main
+
+    sink = io.StringIO()
+    with (
+        patch.dict(
+            os.environ, {"DATABASE_URL": "postgresql://[USER]:[PASSWORD]@127.0.0.1:1/absent"}
+        ),
+        patch("sys.stderr", sink),
+    ):
+        assert main(["--format", "json"]) == 2
+    assert "never-print" not in sink.getvalue() and "postgresql://" not in sink.getvalue()

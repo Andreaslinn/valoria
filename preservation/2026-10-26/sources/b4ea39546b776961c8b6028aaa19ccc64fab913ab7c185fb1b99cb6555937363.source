@@ -1,0 +1,114 @@
+# Auditoría del dataset AVM — 2 octubre 2026
+
+## Hallazgo principal
+
+Hay **1.179 publicaciones candidatas**, **1.179 componentes de publicación** y **635 componentes de dependencia observada** incorporando property_id. **N de inmuebles físicos aproximadamente independientes sigue sin identificarse de forma fiable.** No son 635 propiedades verificadas ni 1.179 observaciones independientes. No se plantea entrenamiento ni split oficial hasta resolver conceptualmente esa amenaza.
+
+Los identificadores almacenados sobreagrupan: **29 de 44 grupos con ≥2 coordenadas abarcan >1 km; 3 >5 km**; máximo 7,18 km. La etiqueta de dirección no prueba precisión física, pero esa extensión es incompatible con asumir sin revisión una única unidad. También hay **795 pares no agrupados** compatibles con el matcher estructural actual: son evidencia de insuficiencia de las reglas, **no 795 duplicados físicos confirmados**. No se repara ni inventa identidad.
+
+## Universo y precio
+
+| stage | n | definition |
+| --- | --- | --- |
+| active snapshot (all types) | 4908 | SELECT * FROM listings WHERE status='active' ORDER BY id |
+| apartments | 2326 | property_type == 'apartment' |
+| canonical price usable | 1179 | valuation_price_basis.is_usable_for_valuation |
+| positive finite area (final candidates) | 1179 | built_area_m2 or usable_area_m2 or m2 > 0, finite |
+| plausible area, diagnostic only | 1178 | 10 <= area <= 1000; no extra exclusion |
+| exclusion: legacy_uf_missing_price_uf | 1147 | existing canonical price rules / finite area |
+| existing strict price pass, diagnostic only | 1164 | canonical engine _strict_price_exclusion; candidate universe unchanged |
+
+
+Precio canónico del helper `domain/valuation/canonical_price.py::valuation_price_basis`: UF nativa preservada y confianza/provenance admisible; CLP positivo convertido con UF fija 41.040,82; moneda desconocida, fallback o UF débil/ausente se excluyen conforme al helper. 864 targets UF nativa, 315 CLP convertidos. Se conserva uf_rate_date/uf_rate_used cuando está presente, pero no una serie UF proveedor solicitada/efectiva que permita certificar todas las conversiones históricas: esta conversión fija es reproducible, **no conversión histórica certificada**. El campo estructurado price_uf aparece en 812 filas; metadata puede aportar UF al helper (ver numeric_statistics y price_basis).
+
+Los 1.147 departamentos excluidos por `legacy_uf_missing_price_uf` son Yapo. Eso introduce selección monetaria diferencial por fuente, no un mero missing completamente aleatorio. No se recuperan ni inventan precios. Las etiquetas son precios pedidos, no transacciones ni verdad de mercado verificada. El universo es active-only; no describe ventas cerradas ni publicaciones eliminadas/inactivas.
+
+Área de target = built_area_m2 or usable_area_m2 or m2, igual que el experimento anterior. Se conservan todos los valores positivos: **1.178** están dentro de los límites de ingesta existentes 10–1.000; uno no. Los límites son diagnóstico, no nuevo filtro. `anomaly_flags.csv` registra un área **2.025 m² frente a m2=25** y un parking **45**, sin reparar. El precio/m² mínimo 0,74 deriva del área anómala. Hay un total de 2 filas señaladas por estos criterios.
+
+No se ejecuta Tasar: filtros productivos target-específicos (comuna, tipo, ±30% superficie, exclusión del objetivo, mínimo 5, etc.) no son filtros del universo global candidato. El engine canonical tiene protecciones adicionales `_strict_price_exclusion`; la validez del helper no equivale a disponibilidad automática como comparable para todos los targets. No se usa performance para elegir el universo.
+
+Contraste explícito, sin cambiar el universo: calidad `scraped` 799, `recovered_high_confidence` 13, `canonical_clp` 315 y genérica `canonical_uf` **52**. La protección existente `_strict_price_exclusion` marca **15 de los 1.179 como `legacy_unrecoverable`** por provenance de metadata, aunque el helper los admite; **1.164** pasan ese control diagnóstico. No se excluyen esas 15 del candidato ni se equipara el resto a verdad de mercado. El artefacto conserva tanto el motivo como la procedencia monetaria para que un futuro diseño declare su criterio de fiabilidad antes de medir performance.
+
+## Identidad: reglas realmente existentes
+
+- `domain/ingestion/deduplication.py:13`: completos → SHA1 de comuna, m2 redondeado, dormitorios, baños, parking y tokens de título normalizados/ordenados. Incompletos → source/external_id/url/comuna/título. No incluye precio estructurado, geografía, dirección ni unidad. Ignora property_type en fingerprint completo. Un título genérico puede colisionar entre distintas unidades del mismo segmento, y un título modificado puede romper la coincidencia.
+- `domain/ingestion/pipeline.py:54`: lookup source+external_id primero, fingerprint después. Actualiza una sola fila existente; puede sobrescribir source/external_id al coincidir cross-source. La unicidad de fingerprint en ORM explica que una fotografía pueda no conservar múltiples publicaciones que ya fueron colapsadas. No recuperamos ese histórico.
+- `infrastructure/db/repositories/property_repo.py:48`: mismo tipo cuando suministrado, comuna, habitaciones/baños/parking exactos, m2 ±1 y built/m2 ±1; para casas tolerancia de terreno. `limit(1)` sin orden; no verifica edificio, dirección, unidad, lat/lon ni distancia. Reutilizado por `_find_or_create_property` en pipeline. No expone confidence calibrada.
+- Fingerprint invariante ante alterar price/price_uf en **2.326** replays, pero **9 fingerprints almacenados difieren del replay** de los campos actuales: causa histórica no demostrada. Además **27 títulos**, **17 candidatos**, tienen patrones monetarios explícitos. Los tokens numéricos del título **sí pueden introducir precio indirectamente en el fingerprint**. No se certifica que el fingerprint histórico sea target-free. En esta fotografía no hay aristas por fingerprint duplicado; el riesgo principal observado de los 635 grupos viene del matching estructural/property_id.
+- Grafo sobre 4.908 listings activos por ID, source+external_id, URL, fingerprint y property_id. Componentes conexas transitivas antes de restringir a candidatos; no se crean aristas con UF ni UF/m². Evidencia de publicación y weak property_id se exportan por separado. No se ejecuta un matcher nuevo ni clustering de precio.
+
+Distribución: 463 singletons (72,91% de grupos; 39,27% de publicaciones), 82 tamaño 2, 32 tamaño 3, 21 tamaño 4, 37 tamaño ≥5, máximo 28. Ratio listings/grupo=1,857. **42 grupos cross-source**, **170 con repetición de al menos una misma fuente**. **163/172 grupos múltiples tienen precios distintos**; rango relativo mediano **26,42%**, P95 **75,38%**, máximo **425,83%** respecto a mediana interna. Superficie: rango mediano 1 m², máximo 2. Sin diferencias de dormitorios/baños/parking en estos grupos, algo esperado porque esos campos definen el matcher: no constituye validación independiente del matching.
+
+No hay duplicados de publicación simultáneos detectados entre candidatos (todos singleton por IDs/URL/fingerprint). **No hay grupos físicos de confianza alta certificados.** Weak: 172 componentes múltiples con property_id. Singleton ≠ inmueble independiente. `manual_group_review.csv`: 10 grupos de 2 + 10 de ≥3, elegidos por hash y seed; `suspicious_ungrouped_pairs.csv`: 10 de 795 pares, selección sin precio. Son muestras para revisar, no adjudicaciones de verdad física. No se visitan URLs ni se añaden PII.
+
+## Fuentes, comunas y concentración
+
+| source | listings | observed_groups |
+| --- | --- | --- |
+| yapo | 730 | 548 |
+| portalinmobiliario | 449 | 129 |
+
+
+Los grupos por fuente se solapan en 42 componentes; 548+129−42=635. `source_comuna_summary.csv` incluye cobertura, medianas y ceros por celda. 20 comunas. Top 5 por publicaciones: Estación Central 264; Santiago 156; Macul 133; Ñuñoa 105; Independencia 78. Comunas <10 grupos: colina (1), pudahuel (1), renca (2), la_cisterna (2), quinta_normal (3), san_joaquin (4). No se fusionan ni eliminan comunas.
+
+HHI territorial por listings=0.108372, número efectivo de comunas=9.23; por componentes observadas HHI=0.072736, efectivo=13.75. La diferencia depende del sobreagrupamiento, no demuestra mayor diversidad física.
+
+## Geografía
+
+357 candidatos tienen lat/lon válidos globalmente; 338 address antes de guardrails, 19 otras precisiones, 822 sin coordenadas. Aplicando la regla existente de coordenadas repetidas ≥5 **sobre todo el snapshot activo o todos los departamentos**, quedan **336 address (28,50%)**. Aplicada solo a candidatos monetariamente válidos, serían **337**. El 338 anterior era raw: el ámbito del pool cambia la calidad; no se oculta esa diferencia.
+
+Se llaman utilizables **según las etiquetas/guardrails actuales**, no direcciones verificadas. **6 de esos 336 address están >100 km de una referencia fija Santiago**; latitud mínima −36,82168, máxima −29,920282, longitud mínima −73,04387. Conservados y señalados en geo_location_flags.csv; no se confunde rango global válido con geografía coherente. 330 quedan si se resta esa alerta, pero **no se adoptó ese filtro** ni se certificaron los restantes como exactos.
+
+Todos los 449 Portal carecen de coordenadas; en Yapo 357/730 tienen coordenadas y 336/730 address guarded. `repeated_coordinates.csv` describe clusters idénticos y precisión. Centroides son etiquetas existentes y repetición sospechosa, no se valida contra una cartografía externa ni se geocodifica. Los edificios pueden contener distintas unidades: coordenadas idénticas no se convierten en arista de identidad.
+
+## Missingness y atributos
+
+Superficie seleccionada, comuna, habitaciones/baños/parking y timestamps principales están poblados en 100% de candidatos. **No significa calidad 100%**: parking=0 en **858 (72,77%)**, incluidos los **449 Portal** y **409 Yapo**; baños=0 en 7, dormitorios=0 en 6. No se convierte cero a missing ni se asume que siempre representa ausencia real. Lat/lon faltan en 822 (69,72%). Tipo/fuente de coordenadas y dirección se informan por separado en feature_coverage; cobertura estructurada de atributos de edificio/antigüedad y publicación original no está disponible en el snapshot. El inventario agregado de claves original no tiene año/antigüedad estructurados; no se infiere ausencia de toda señal textual.
+
+Missingness por source, comuna, bins fijos de UF y área en `missingness_summary.csv`; correlaciones phi entre indicadores (incluido usable_geo y parking_zero separados) en `missingness_associations.csv`. Constantes producen correlaciones indefinidas, no ceros artificiales. Tener coordenadas y el cero de estacionamientos son proxies claros de fuente; por eso no se justifica asumir missing aleatorio. No se imputan datos.
+
+## Fechas y representatividad temporal
+
+| feature | N | missing | first | last | span_days |
+| --- | --- | --- | --- | --- | --- |
+| stored_created_at | 1179 | 0 | 2026-05-07 19:46:58.105892+00:00 | 2026-10-02 06:17:07.553203+00:00 | 147.4376093438773 |
+| stored_updated_at | 1179 | 0 | 2026-06-08 10:39:26.202437+00:00 | 2026-10-02 06:17:07.580096+00:00 | 115.8178400192014 |
+| scraped_at | 1179 | 0 | 2026-05-11 08:30:42.189338+00:00 | 2026-10-02 06:16:21.918931+00:00 | 143.9067098332523 |
+| last_seen_at | 1179 | 0 | 2026-05-11 08:30:42.189338+00:00 | 2026-10-02 06:16:21.918931+00:00 | 143.9067098332523 |
+| last_refresh_attempted_at | 97 | 1082 | 2026-06-05 15:48:13.748696+00:00 | 2026-07-18 22:59:46.808035+00:00 | 43.29968818679398 |
+| publication_date | 0 | 1179 | None | None | nan |
+| snapshot_date | 1179 | 0 | 2026-10-02 15:27:06.041740+00:00 | 2026-10-02 15:27:06.041740+00:00 | 0.0 |
+| uf_rate_date | 384 | 795 | 2026-09-29 00:00:00+00:00 | 2026-10-02 00:00:00+00:00 | 3.0 |
+| price_recovered_at | 307 | 872 | 2026-06-05 21:13:37.591755+00:00 | 2026-06-05 21:13:37.618405+00:00 | 3.0844907407407405e-07 |
+
+
+Scraped/last_seen cubren **18 semanas con observaciones y 6 meses calendario**; rango de última observación 143,91 días. Created_at cubre 147,44 días, sin garantizar primera aparición. No hay first_seen/publication_date certificados. `price_history.observed_at` existe en schema y almacena precios anteriores, pero no fue exportado: no se inventan episodios/republicaciones. `group_temporal_spans.csv` compara fechas entre listings weak; no confirma que sean republicaciones de una misma unidad. Un snapshot active-only y campos actualizados no permiten un backtest temporal as-of fiable por sí solos.
+
+## Target y EDA
+
+| feature | min | median | P95 | max | skewness | excess_kurtosis |
+| --- | --- | --- | --- | --- | --- | --- |
+| area_m2 | 10.0 | 48.0 | 138.1 | 2025.0 | 18.5194 | 488.6218 |
+| price_uf_canonical | 950.27 | 2700.0 | 10265.0 | 37500.0 | 3.8829 | 21.6057 |
+| uf_m2 | 0.7407 | 57.6154 | 114.0989 | 570.0 | 4.7152 | 65.7995 |
+| log_price_uf | 6.8567 | 7.901 | 9.2365 | 10.5321 | 0.9605 | 0.9212 |
+| log_uf_m2 | -0.3001 | 4.0538 | 4.7371 | 6.3456 | -0.727 | 10.3248 |
+
+
+Histogramas de P, Q, log(P), log(Q) y superficie y cuatro scatterplots, sin recortes. Precio pedido mediano 2.700 UF; área mediana 48 m²; Q mediano 57,62 UF/m². Log(P) reduce skew de 3,88 a 0,96; log(Q) conserva cola problemática (kurtosis 10,32) influida por la superficie anómala. No se usa normalidad para filtrar.
+
+Pearson corr(log área, log precio)=**0,75705**. EDA log(P)=a+b log(A): a=4.4378, b=**0.9097**, SE HC1=0,0525; IC normal descriptivo 95% [0,8067;1,0126]; bootstrap por grupos weak, 1.000 réplicas seed fijo: **[0,7915;1,0097]**. Elasticidad bruta confundida por fuente/comuna/segmento y errores de atributos; incertidumbre condicionada a grupos no certificados. **No es C1 entrenado, ni evaluación predictiva, ni criterio para elegir filtros.**
+
+## Leakage y decisión de diseño
+
+Tabla explícita en `leakage_audit.csv`: atributos físicos pre-tasación SAFE con semántica; agregados de precio/superficie territorial/encodings/imputación/scaling/selección FOLD-LOCAL; precios y derivados, provenance de precio, scores, valoraciones y metadatos posteriores UNSAFE para features; geografía/fecha/source/textos/identidad UNKNOWN cuando disponibilidad o calidad no está demostrada. Precio, mediana comunal o superficie de precios usados por A deben también ser fold-local para comparar justamente con C1/C2. Ninguna familia del consenso puede ver targets retenidos indirectamente a través del pool.
+
+Grave amenaza: no hay grouping físico validado, más precio textual posible en fingerprint. No se arregla silenciosamente. Próxima decisión necesaria: revisión/adjudicación de identidad exclusivamente offline y sin target, y confirmar qué puede reconstruirse con dirección/unidad o datos históricos. Por ahora sólo se sostiene **factibilidad numérica provisional**; no una evaluación sin leakage certificada. Grouped 5-fold tendría 127 grupos por test; 20% holdout 127/508, sujeto a identidad, rareza y snapshot ya explorado. `split_feasibility.md` contiene las simulaciones sin guardar asignaciones oficiales.
+
+## Verificación y límites
+
+7 tests metodológicos pasan (transitividad/puentes, independencia de claves de precio, namespace de fuente, distancia, conciliación de outputs, sensibilidad del fingerprint al precio textual e histogramas/SVG). Conteos y componentes concilian; antes/después coinciden en 857 hashes y status. Oracle no se accedió durante esta tarea; producto, datos persistentes, configuración, timers y servicios intactos. No se entrenaron motores, no se ejecutaron migraciones, no se hizo commit.
+
+Se cuantifica lo observable, no se inventa N físico ni confianza. Limitaciones restantes: histórico de propiedades y precios no exportado, unicidad de fingerprint puede ocultar publicaciones previamente colapsadas, as-of incompleto, precio pedido, deuda monetaria diferencial, variables faltantes, coordenadas sin verificación y snapshot preanalizado. El snapshot local anterior no se usa para inflar el universo.
+
+Metadata geográfica existente: nearby_metro está poblado en **84 candidatos**; geo_microzone_tokens tiene **0 valores no vacíos**; microzone_confidence está presente en todos pero vale 0 en **1.008**. El módulo microzones calcula confianza desde pistas textuales/geográficas, no mediana de precios. No se confunde ese score de geografía con un score de valoración. `geocode_score` aparece en 13 rows del inventario total activo, pero sus valores no fueron exportados y quedan UNKNOWN. No se asume soporte de microzona completo por presencia de claves vacías.

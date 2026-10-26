@@ -1,0 +1,146 @@
+"""Authorized orchestration only: deploy committed image, fail-closed rollback of gates 1-5a."""
+import subprocess,json,pathlib,os,time,shutil,hashlib,datetime
+ROOT=pathlib.Path('/home/ubuntu/apps/valoria')
+B=ROOT/'private/ingestion-deploy-20261015'
+SRC=ROOT/'private/ingestion-review-20261015/app'
+COMMIT='c55f4b65da8c03cb3a3fd6634f35ccd09f8f427a'
+IMAGE='valoria-ingestion-review:'+COMMIT[:12]
+API='valoria_oracle_beta-api-1'
+old=json.loads((B/'api-before-private.json').read_text())
+env=dict(os.environ,PORTAL_GEO_RELEASE_IMAGE=old['Config']['Image'])
+base=['docker','compose','--project-name','valoria_oracle_beta','--env-file',str(ROOT/'deploy/oracle.env')]
+for f in old['Config']['Labels']['com.docker.compose.project.config_files'].split(','):base+=['-f',f]
+def run(args,timeout=120,input=None,check=True):
+ r=subprocess.run(args,capture_output=True,text=True,timeout=timeout,input=input,env=env)
+ if check and r.returncode:raise RuntimeError('command_failed: '+args[0]+' exit='+str(r.returncode))
+ return r
+def private(name,value):
+ p=B/name;p.write_text(json.dumps(value,indent=2));p.chmod(0o600)
+def state():return json.loads(run(['docker','inspect',API]).stdout)[0]
+def healthy(image):
+ for _ in range(40):
+  s=state()
+  if s['Image']==image and s['State'].get('Health',{}).get('Status')=='healthy':return
+  time.sleep(2)
+ raise RuntimeError('API health deadline')
+current=state()
+assert current['Id']==old['Id'] and current['Image']==old['Image']
+backup=json.loads((B/'backup-proof.json').read_text());assert backup['restore_verified']
+assert hashlib.sha256((B/'postgres-before.dump').read_bytes()).hexdigest()==backup['backup_sha256']
+assert json.loads((B/'rollback-proof.json').read_text())['migration_upgrade_downgrade_upgrade']
+manifest=json.loads((SRC/'release-manifest.json').read_text());assert manifest['commit']==COMMIT
+candidate=json.loads(run(['docker','image','inspect',IMAGE]).stdout)[0]
+assert candidate['Config']['Labels']['org.opencontainers.image.revision']==COMMIT
+network=next(iter(current['NetworkSettings']['Networks']))
+runtime_env=B/'runtime-private.env'
+with runtime_env.open('w') as f:
+ for entry in current['Config']['Env']:
+  assert '\n' not in entry;f.write(entry+'\n')
+runtime_env.chmod(0o600)
+container=['docker','run','--rm','--network',network,'--memory=384m','--memory-swap=384m','--cpus=0.25','--pids-limit=96','--cap-drop=ALL','--security-opt=no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=32m','--env-file',str(runtime_env),'--entrypoint','python',IMAGE,'-B']
+before=json.loads(run(['docker','exec',API,'python','-B','-m','scripts.verify_canonical_live']).stdout)
+private('references-before-live.json',before)
+assert [round(c['estimated_uf'],2) for c in before['cases']]==[3300.23,3897.82]
+proof={'commit':COMMIT,'before':[{'comuna':c['comuna'],'value':c['estimated_uf']} for c in before['cases']], 'phase':'prepared'}
+print(json.dumps(proof),flush=True)
+hostnames=['run_portal_session.py','run_yapo_session.py','run_ingestion_uf_refresh.py','ingestion_launcher.py']
+saved={}
+paths=[]
+for name in hostnames:paths.append(ROOT/'scripts'/name)
+for unit in ['valoria-portal-discovery','valoria-yapo-discovery','valoria-uf-calendar']:
+ paths.append(pathlib.Path('/etc/systemd/system')/(unit+'.service.d/ingestion-release.conf'))
+for name in ['valoria-uf-calendar.service','valoria-uf-calendar.timer']:
+ paths.append(pathlib.Path('/etc/systemd/system')/name)
+for index,p in enumerate(paths):
+ saved[str(p)]={'existed':p.exists(),'copy':str(B/('file-before-'+str(index)))}
+ if p.exists():shutil.copyfile(p,saved[str(p)]['copy'])
+private('files-before-private.json',saved)
+timers=['valoria-portal-discovery.timer','valoria-yapo-discovery.timer']
+timer_states={t:run(['systemctl','is-active',t],check=False).stdout.strip() for t in timers}
+private('timers-before.json',timer_states)
+override=B/'merged-image.override.yml';override.write_text('services:\n  api:\n    image: '+IMAGE+'\n');override.chmod(0o600)
+new=base+['-f',str(override)]
+original=json.loads(run(base+['config','--format','json']).stdout)
+updated=json.loads(run(new+['config','--format','json']).stdout)
+expected=json.loads(json.dumps(original));expected['services']['api']['image']=IMAGE
+assert expected==updated
+def rollback():
+ run(['sudo','-n','systemctl','disable','--now','valoria-uf-calendar.timer'],check=False)
+ for t in timers:run(['sudo','-n','systemctl','stop',t],check=False)
+ run(container+['-m','alembic','downgrade','0022'],timeout=180)
+ run(base+['up','-d','--no-deps','--no-build','api'],timeout=180);healthy(old['Image'])
+ for path,record in saved.items():
+  if record['existed']:run(['sudo','-n','cp',record['copy'],path])
+  else:run(['sudo','-n','rm','-f','--',path],check=False)
+ run(['sudo','-n','systemctl','daemon-reload'])
+ for t in timers:
+  if timer_states[t]=='active':run(['sudo','-n','systemctl','start',t])
+ private('rollback-executed.json',{'restored_image':old['Image'],'revision':'0022','uf_timer':'disabled','pending_archived':True})
+ print(json.dumps({'rollback':'executed','image':old['Image']}),flush=True)
+try:
+ for t in timers:run(['sudo','-n','systemctl','stop',t])
+ for unit in ['valoria-portal-discovery.service','valoria-yapo-discovery.service']:
+  assert run(['systemctl','is-active',unit],check=False).stdout.strip() not in ('active','activating')
+ run(container+['-m','alembic','upgrade','0023'],timeout=180)
+ proof['phase']='migration_applied';private('deployment-state.json',proof)
+ run(new+['up','-d','--no-deps','--no-build','api'],timeout=180);healthy(candidate['Id'])
+ source=json.loads(run(['docker','exec',API,'python','-B','-c',"import json;from pathlib import Path;from services.release_guard import verify_release_tree;print(json.dumps(verify_release_tree(Path('/app'))))"]).stdout)
+ assert source['commit']==COMMIT
+ after=json.loads(run(['docker','exec',API,'python','-B','-m','scripts.verify_canonical_live']).stdout)
+ assert [c['estimated_uf'] for c in before['cases']]==[c['estimated_uf'] for c in after['cases']]
+ private('references-after-deploy-before-ingestion.json',after)
+ for name in hostnames:
+  shutil.copyfile(SRC/'scripts'/name,ROOT/'scripts'/name)
+  assert hashlib.sha256((ROOT/'scripts'/name).read_bytes()).hexdigest()==manifest['files']['scripts/'+name]
+ for filename in ['valoria-uf-calendar.service','valoria-uf-calendar.timer']:
+  run(['sudo','-n','cp',str(SRC/'deploy/ingestion-resilience'/filename),'/etc/systemd/system/'+filename])
+ for source_name,script in [('portal','run_portal_session.py'),('yapo','run_yapo_session.py')]:
+  unit='valoria-'+source_name+'-discovery'
+  config='[Unit]\nWants=valoria-uf-calendar.service\nAfter=valoria-uf-calendar.service\n[Service]\nExecStart=\nExecStart=/usr/bin/flock -n /run/valoria/'+source_name+'-discovery.lock /usr/bin/python3 -B '+str(ROOT/'scripts'/script)+'\nEnvironment=VALORIA_INGESTION_IMAGE='+IMAGE+'\n'
+  f=B/(unit+'-new.conf');f.write_text(config)
+  run(['sudo','-n','mkdir','-p','/etc/systemd/system/'+unit+'.service.d'])
+  run(['sudo','-n','cp',str(f),'/etc/systemd/system/'+unit+'.service.d/ingestion-release.conf'])
+ f=B/'uf-image.conf';f.write_text('[Service]\nEnvironment=VALORIA_INGESTION_IMAGE='+IMAGE+'\n')
+ run(['sudo','-n','mkdir','-p','/etc/systemd/system/valoria-uf-calendar.service.d'])
+ run(['sudo','-n','cp',str(f),'/etc/systemd/system/valoria-uf-calendar.service.d/ingestion-release.conf'])
+ run(['sudo','-n','systemctl','daemon-reload'])
+ run(['sudo','-n','systemctl','start','valoria-uf-calendar.service'],timeout=180)
+ run(['sudo','-n','systemctl','enable','--now','valoria-uf-calendar.timer'])
+ assert run(['systemctl','is-active','valoria-uf-calendar.timer']).stdout.strip()=='active'
+ verify="""import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  d=(await s.execute(text(\"SELECT date,value,source FROM ingestion_uf_calendar WHERE date=(CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::date\"))).mappings().one()
+  print(json.dumps(dict(d),default=str))
+asyncio.run(main())"""
+ calendar=json.loads(run(['docker','exec',API,'python','-B','-c',verify]).stdout)
+ proof.update(source_guard=source,calendar_today=calendar,uf_timer='active',same_data_reference_gate='passed',phase='pre_ingestion_passed')
+ private('deployment-state.json',proof);print(json.dumps(proof),flush=True)
+ for source_name in ['portal','yapo']:
+  result=run(['sudo','-n','systemctl','start','valoria-'+source_name+'-discovery.service'],timeout=1000,check=False)
+  if result.returncode:raise RuntimeError(source_name+' real job failed')
+  health=json.loads(run(['curl','-fsS','http://127.0.0.1:8000/health'],check=False).stdout or '{}') if False else json.loads(run(['docker','exec',API,'python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]).stdout)
+  item=health['sources']['portalinmobiliario' if source_name=='portal' else 'yapo']
+  counts=item['last_run']['counters'];assert item['last_run']['successful']
+  assert counts.get('inserted',0)+counts.get('updated',0)>0
+  proof[source_name]=item;private('deployment-state.json',proof);print(json.dumps({'real_source':source_name,'counters':counts}),flush=True)
+ for t in timers:
+  if timer_states[t]=='active':run(['sudo','-n','systemctl','start',t])
+ post=json.loads(run(['docker','exec',API,'python','-B','-m','scripts.verify_canonical_live']).stdout)
+ private('references-after-real-ingestion.json',post)
+ changes=[]
+ for a,b in zip(before['cases'],post['cases']):
+  percent=(b['estimated_uf']/a['estimated_uf']-1)*100
+  new_ids=sorted(set(b['debug']['comparable_ids'])-set(a['debug']['comparable_ids']))
+  changes.append({'comuna':a['comuna'],'before':a['estimated_uf'],'after':b['estimated_uf'],'change_pct':percent,'new_comparables':new_ids})
+ proof.update(post_ingestion_references=changes,phase='passed' if all(abs(c['change_pct'])<=5 for c in changes) else 'stop_reference_change_over_5pct',rollback='not_needed')
+ private('deployment-state.json',proof);print(json.dumps(proof),flush=True)
+except Exception as exc:
+ private('deployment-error-private.json',{'type':type(exc).__name__,'reason':str(exc)})
+ rollback()
+ print(json.dumps({'deployment':'failed_and_rolled_back','error_type':type(exc).__name__,'reason':str(exc)}),flush=True)
+ raise SystemExit(1)
+finally:
+ runtime_env.unlink(missing_ok=True)

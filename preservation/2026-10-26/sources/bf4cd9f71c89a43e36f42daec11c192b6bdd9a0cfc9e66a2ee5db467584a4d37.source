@@ -1,0 +1,96 @@
+from dataclasses import dataclass,asdict
+from collections import defaultdict,Counter
+import random,math
+from .data import InvalidExperiment,timepoint,digest
+from .isolation import dependency_components,index_ids,dependency_hash
+
+@dataclass(frozen=True)
+class Split:
+    train:tuple[str,...]
+    test:tuple[str,...]
+    stage:str='development_cv'
+    seed:int|None=None
+    snapshot_hash:str|None=None
+    dependency_hash:str|None=None
+    outer_binding:str|None=None
+
+@dataclass(frozen=True)
+class Plan:
+    development:tuple[str,...]
+    holdout:tuple[str,...]
+    folds:tuple[Split,...]
+    seed:int
+    snapshot_hash:str
+    dependency_hash:str
+
+def validate_split(ds,split,reserved_holdout=(),*,locked_config_hash=None,config_hash=None,spatial=False,outer=None):
+    ds.validate();idx=ds.indexed();a=set(split.train);b=set(split.test);reserved=set(reserved_holdout)
+    if split.stage not in ['development_cv','inner_tuning','spatial','temporal','final_holdout']:raise InvalidExperiment('Unknown fold stage')
+    if split.snapshot_hash is not None and split.snapshot_hash!=ds.hash():raise InvalidExperiment('Split snapshot changed; rebuild partition')
+    if split.dependency_hash is not None and split.dependency_hash!=dependency_hash(ds):raise InvalidExperiment('Split dependency policy changed; rebuild partition')
+    if len(a)!=len(split.train) or len(b)!=len(split.test) or len(reserved)!=len(reserved_holdout):raise InvalidExperiment('Duplicated split membership')
+    if not a or not b or a&b or (a|b|reserved)-idx.keys():raise InvalidExperiment('Invalid or overlapping partition/reservation')
+    components=dependency_components(ds)
+    ac={components[i] for i in a};bc={components[i] for i in b};rc={components[i] for i in reserved}
+    if ac&bc:raise InvalidExperiment('Group crosses train/test via declared group or transitive dependency')
+    if ac&rc:raise InvalidExperiment('Holdout dependency used for training or tuning')
+    if split.stage=='final_holdout':
+        if b!=reserved or not locked_config_hash or locked_config_hash!=config_hash:raise InvalidExperiment('Holdout sealed until configuration lock')
+    elif bc&rc:raise InvalidExperiment('Holdout dependency used for development/tuning')
+    if (a|b)-set(index_ids(ds)):raise InvalidExperiment('Non-index reobservation assigned as independent sample')
+    if split.stage=='inner_tuning':
+        if outer is None:raise InvalidExperiment('Inner fold requires validated outer context')
+        if split.outer_binding is not None and split.outer_binding!=digest(asdict(outer)):raise InvalidExperiment('Inner/outer binding mismatch')
+        validate_split(ds,outer,reserved_holdout)
+        if (a|b)!=set(outer.train):raise InvalidExperiment('Inner fold must partition exactly authorized outer training')
+        if (ac|bc)&{components[i] for i in outer.test}:raise InvalidExperiment('Outer-test dependency in inner tuning')
+    elif outer is not None:raise InvalidExperiment('Unexpected outer context outside inner tuning')
+    cutoff=min(timepoint(idx[i].prediction_at) for i in b)
+    for i in a:
+        r=idx[i]
+        if max(timepoint(t) for t in [r.available_at,r.price_available_at,*r.feature_available_at.values()])>cutoff:raise InvalidExperiment('Temporal training/price leakage')
+    if split.stage=='temporal' and max(timepoint(idx[i].observed_at) for i in a)>=min(timepoint(idx[i].observed_at) for i in b):raise InvalidExperiment('Temporal order violated')
+    if (spatial or split.stage=='spatial') and {idx[i].features['comuna'] for i in a}&{idx[i].features['comuna'] for i in b}:raise InvalidExperiment('Spatial stress partitions overlap')
+
+def validate_plan(ds,plan,*,seed=None):
+    ds.validate()
+    if plan.snapshot_hash!=ds.hash() or plan.dependency_hash!=dependency_hash(ds):raise InvalidExperiment('Snapshot/dependency changed; rebuild partition')
+    if seed is not None and plan.seed!=seed:raise InvalidExperiment('Plan/config seed mismatch')
+    dev=set(plan.development);hold=set(plan.holdout)
+    if len(dev)!=len(plan.development) or len(hold)!=len(plan.holdout) or dev&hold or dev|hold!=set(index_ids(ds)):raise InvalidExperiment('Plan index coverage/uniqueness mismatch')
+    covered=Counter()
+    for f in plan.folds:
+        if f.stage!='development_cv' or set(f.train)|set(f.test)!=dev:raise InvalidExperiment('Fold does not cover development universe')
+        validate_split(ds,f,plan.holdout);covered.update(f.test)
+    if set(covered)!=dev or any(n!=1 for n in covered.values()):raise InvalidExperiment('OOF predictions must assign each index observation exactly once')
+    return plan
+
+def make_plan(ds,seed=42,n_folds=5,holdout_fraction=.2):
+    ds.require_synthetic()
+    if not isinstance(seed,int) or isinstance(seed,bool) or not isinstance(n_folds,int) or isinstance(n_folds,bool) or not 0<holdout_fraction<1 or n_folds<2:raise InvalidExperiment('Invalid split policy')
+    comp=dependency_components(ds);groups=defaultdict(list)
+    for i in index_ids(ds):groups[comp[i]].append(i)
+    names=sorted(groups);random.Random(seed).shuffle(names)
+    nh=max(1,math.ceil(len(names)*holdout_fraction))
+    if len(names)-nh<n_folds:raise InvalidExperiment('Too few groups for declared folds')
+    hold=tuple(sorted(i for g in names[:nh] for i in groups[g]));dev=tuple(sorted(i for g in names[nh:] for i in groups[g]))
+    bins=[[] for _ in range(n_folds)]
+    for g in names[nh:]:bins[min(range(n_folds),key=lambda j:len(bins[j]))].extend(groups[g])
+    folds=tuple(Split(tuple(sorted(set(dev)-set(b))),tuple(sorted(b)),seed=seed,snapshot_hash=ds.hash(),dependency_hash=dependency_hash(ds)) for b in bins)
+    return validate_plan(ds,Plan(dev,hold,folds,seed,ds.hash(),dependency_hash(ds)),seed=seed)
+
+def inner_folds(ds,outer,seed=42,n_folds=3,reserved_holdout=()):
+    ds.require_synthetic();validate_split(ds,outer,reserved_holdout)
+    if outer.stage=='final_holdout':raise InvalidExperiment('Final holdout cannot be a tuning context')
+    if outer.seed is not None and seed!=outer.seed:raise InvalidExperiment('Outer/inner seed mismatch')
+    if not isinstance(seed,int) or isinstance(seed,bool) or not isinstance(n_folds,int) or n_folds<2:raise InvalidExperiment('Invalid inner seed/fold count')
+    comp=dependency_components(ds);groups=defaultdict(list)
+    for i in outer.train:groups[comp[i]].append(i)
+    names=sorted(groups);random.Random(seed).shuffle(names)
+    if len(names)<n_folds:raise InvalidExperiment('Too few inner groups')
+    bins=[[] for _ in range(n_folds)]
+    for j,g in enumerate(names):bins[j%n_folds].extend(groups[g])
+    result=tuple(Split(tuple(sorted(set(outer.train)-set(b))),tuple(sorted(b)),'inner_tuning',seed,ds.hash(),dependency_hash(ds),digest(asdict(outer))) for b in bins)
+    for f in result:validate_split(ds,f,reserved_holdout,outer=outer)
+    if Counter(i for f in result for i in f.test)!=Counter(outer.train):raise InvalidExperiment('Inner validation coverage mismatch')
+    return result

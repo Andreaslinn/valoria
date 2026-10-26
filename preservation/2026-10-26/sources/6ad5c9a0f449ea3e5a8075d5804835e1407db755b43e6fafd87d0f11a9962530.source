@@ -1,0 +1,138 @@
+"""Adapters consume authorized train-only batches; A is A_core, never A_production."""
+from dataclasses import dataclass,field,asdict
+from decimal import Decimal
+from pathlib import Path
+import math,sys
+import numpy as np
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OneHotEncoder,StandardScaler,SplineTransformer
+from sklearn.linear_model import Ridge
+from sklearn.ensemble import HistGradientBoostingRegressor
+from threadpoolctl import threadpool_limits
+from .data import InvalidExperiment,positive,timepoint,digest
+from .isolation import require_batch
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'frozen_a'))
+from core.entities.listing import Listing,Property
+from core.value_objects.price import Price
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine
+from domain.valuation.engines.contracts import EngineContext,EngineRequest
+from .canonical_io import listing_from_payload,target_from_payload,uf_reference
+
+@dataclass(frozen=True)
+class Prediction:
+    value_uf:float|None
+    status:str
+    reason:str|None=None
+    trace:dict=field(default_factory=dict)
+    row_id:str|None=None
+
+DEFAULTS={'C1':{'alpha':10.0},'C1-flex':{'alpha':10.0,'n_knots':4},
+          'C2':{'max_iter':100,'learning_rate':.05,'max_leaf_nodes':7,'max_depth':3,
+                'min_samples_leaf':20,'l2_regularization':10.0}}
+
+def matrix(rows,geo=False):
+    result=[]
+    for r in rows:
+        f=r.features
+        numeric=[f['log_area'],*[np.nan if f[k] is None else f[k] for k in ['bedrooms','bathrooms','parking']]]
+        # Fixed missing flags: no implicit zero->missing reinterpretation.
+        numeric += [int(f[k] is None) for k in ['bedrooms','bathrooms','parking']]
+        if geo:numeric += [np.nan if r.latitude is None else r.latitude,np.nan if r.longitude is None else r.longitude,int(r.latitude is None or r.longitude is None)]
+        result.append(numeric+[f['comuna'],f['source']])
+    return np.array(result,dtype=object)
+
+class LearnedEngine:
+    def __init__(self,name,*,seed=42,target='log_uf_total',geo=False,parameters=None):
+        if name not in DEFAULTS:raise InvalidExperiment('Unknown model family')
+        if target not in ['log_uf_total','log_uf_m2']:raise InvalidExperiment('Unknown target')
+        self.name=name;self.seed=seed;self.target=target;self.geo=geo
+        self.parameters=dict(DEFAULTS[name]);self.parameters.update(parameters or {})
+        self.version='avm01-global-v1';self.fitted=False
+
+    def fit(self,batch,*legacy):
+        from copy import deepcopy
+        self.batch=deepcopy(require_batch(batch,legacy))
+        if (self.seed,self.target,self.geo)!=(batch.config['seed'],batch.config['target'],batch.config['geo_ablation']):raise InvalidExperiment('Model seed/target/features differ from authorized configuration')
+        if self.name not in batch.config['engines']:raise InvalidExperiment('Unauthorized engine family')
+        expected=dict(DEFAULTS[self.name]);expected.update(batch.config.get('parameters',{}).get(self.name,{}))
+        if self.parameters!=expected:raise InvalidExperiment('Parameters differ from authorized fixed/tuning configuration')
+        rows=list(self.batch.rows);self.train_ids=tuple(r.row_id for r in rows)
+        n=10 if self.geo else 7
+        numeric=Pipeline([('impute',SimpleImputer(strategy='median',keep_empty_features=True)),('scale',StandardScaler())])
+        transformers=[]
+        if self.name=='C1-flex':
+            transformers.append(('area_spline',Pipeline([('spline',SplineTransformer(n_knots=self.parameters['n_knots'],degree=3,include_bias=False,extrapolation='linear')),('scale',StandardScaler())]),[0]))
+            nums=list(range(1,n))
+        else:nums=list(range(n))
+        transformers += [('numeric',numeric,nums),('categorical',OneHotEncoder(handle_unknown='ignore',sparse_output=False),[n,n+1])]
+        self.preprocess=ColumnTransformer(transformers,sparse_threshold=0)
+        self.model=HistGradientBoostingRegressor(**self.parameters,early_stopping=False,random_state=self.seed) if self.name=='C2' else Ridge(alpha=self.parameters['alpha'])
+        self.pipeline=Pipeline([('preprocess',self.preprocess),('model',self.model)])
+        y=np.array([math.log(r.price_uf)-(r.features['log_area'] if self.target=='log_uf_m2' else 0) for r in rows])
+        with threadpool_limits(limits=1):self.pipeline.fit(matrix(rows,self.geo),y)
+        self.fitted=True
+        self.fit_trace={'training_ids':list(self.train_ids),'snapshot':batch.snapshot_id,'snapshot_sha256':batch.snapshot_hash,
+                        'dependency_sha256':batch.dependency_hash,'config_sha256':digest(batch.config),
+                        'target':self.target,'geo_ablation':self.geo,'version':self.version,'parameters':self.parameters,
+                        'preprocessing_fit_scope':'training_only','internal_iid_early_stopping':False}
+        return self
+
+    def predict(self,target):
+        if not self.fitted:raise InvalidExperiment('Not fitted')
+        self.batch.validate_target(target)
+        with threadpool_limits(limits=1):log=float(self.pipeline.predict(matrix([target],self.geo))[0])
+        if self.target=='log_uf_m2':log+=target.features['log_area']
+        try:value=math.exp(log)
+        except OverflowError:value=None
+        return Prediction(value if positive(value) else None,'ok' if positive(value) else 'invalid_prediction',None if positive(value) else 'nonfinite_or_nonpositive',self.fit_trace,target.row_id)
+
+class FrozenA:
+    name='A';version='phase4a_canonical_outliers_v1'
+    def fit(self,batch,*legacy):
+        from copy import deepcopy
+        self.batch=deepcopy(require_batch(batch,legacy))
+        if 'A' not in batch.config['engines']:raise InvalidExperiment('Unauthorized A_core family')
+        root=(Path(__file__).resolve().parents[1]/'frozen_a').resolve()
+        for name,module in tuple(sys.modules.items()):
+            if name.split('.')[0] not in ['core','domain','config','services']:continue
+            path=getattr(module,'__file__',None)
+            if path and not Path(path).resolve().is_relative_to(root):raise InvalidExperiment('Foreign canonical/domain module; use isolated experimental process')
+        self.rows=list(self.batch.rows);self.snapshot=batch.snapshot_id;self.snapshot_hash=batch.snapshot_hash
+        self.engine=ComparablesCanonicalEngine(name='comparables_canonical_outliers',variant='outliers')
+        for r in self.rows:listing_from_payload(r.canonical_listing)
+        return self
+
+    def predict(self,target):
+        self.batch.validate_target(target)
+        cutoff=timepoint(target.prediction_at)
+        rate=uf_reference(self.batch.config,cutoff)
+        pool=[r for r in self.rows if max(timepoint(t) for t in [r.available_at,r.price_available_at,*r.feature_available_at.values()])<=cutoff]
+        listings=[];mapping={}
+        for r in pool:
+            listing=listing_from_payload(r.canonical_listing);listings.append(listing)
+            mapping[(listing.id,listing.fingerprint,listing.source,listing.external_id)]=r.row_id
+        p=target_from_payload(target.canonical_target)
+        # EngineComparable omits external_id. Observe original selected Listings,
+        # rather than invent IDs or infer lineage from their prices/scores.
+        selected=[];post_process=self.engine._post_process
+        def observe_selection(**kwargs):
+            selected.extend(listing for _,listing in kwargs['scored'])
+            return post_process(**kwargs)
+        self.engine._post_process=observe_selection
+        try:
+            result=self.engine.valuate(EngineRequest(evaluation_id=target.row_id,engine_name=self.engine.name,published_price_provided=False),
+                                        EngineContext(target=p,candidates=tuple(listings),uf_to_clp=rate,valuation_date=cutoff))
+        finally:self.engine._post_process=post_process
+        trace={'scope':'A_core; excludes A_production and Consensus','version':self.engine.version,'frozen_parameters':asdict(self.engine.config),'snapshot':self.snapshot,
+               'snapshot_sha256':self.snapshot_hash,'available_pool_ids':[r.row_id for r in pool],
+               'selected_ids':[mapping[(c.id,c.fingerprint,c.source,c.external_id)] for c in selected] if result.is_successful else [],
+               'dependency_sha256':self.batch.dependency_hash,'config_sha256':digest(self.batch.config),
+               'UF_reference':dict(self.batch.config['uf_reference']),
+               'diagnostics':result.to_dict()['diagnostics'],'warnings':list(result.warnings),'canonical_result':result.to_dict()}
+        value=float(result.estimated_price_uf) if result.estimated_price_uf is not None else None
+        return Prediction(value if result.is_successful and positive(value) else None,result.status,result.error_code,trace,target.row_id)
+
+def create_engine(name,config):
+    return FrozenA() if name=='A' else LearnedEngine(name,seed=config['seed'],target=config['target'],geo=config['geo_ablation'])

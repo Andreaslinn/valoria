@@ -1,0 +1,2 @@
+from pathlib import Path
+p=Path('frontend-v2/src/components/layout/app-shell.tsx');s=p.read_text(encoding='utf-8').replace('{data.searchStatus || "No hay coincidencias en tu cartera."}', '{searchError || (searchLoaded?"No hay coincidencias en tu cartera.":data.searchStatus||"Cargando búsqueda…")}');p.write_text(s,encoding='utf-8')

@@ -1,0 +1,12 @@
+from pathlib import Path
+import json,subprocess
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+data=json.loads(Path('work/canonical-release-runtime-inventory.json').read_text());paths=[x['path'] for x in data['differences'] if x['path'] not in ['services/valuation.py','domain/valuation/engines/consensus_orchestrator.py']]
+inner="import json,pathlib\nprint(json.dumps({p:pathlib.Path('/app',p).read_text() for p in "+repr(paths)+"}))"
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=30)\nassert r.returncode==0,r.stderr;print(r.stdout)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,encoding='utf-8',capture_output=True,timeout=50);r.check_returncode();sources=json.loads(r.stdout)
+root=Path('work/github-release')
+for p,s in sources.items():
+ q=root/p;q.parent.mkdir(parents=True,exist_ok=True);q.write_text(s,encoding='utf-8')
+Path('work/canonical-release-adopted-source-paths.json').write_text(json.dumps(list(sources),indent=2),encoding='utf-8')
+print('Preserved active operational source files in the candidate checkout:',len(sources))

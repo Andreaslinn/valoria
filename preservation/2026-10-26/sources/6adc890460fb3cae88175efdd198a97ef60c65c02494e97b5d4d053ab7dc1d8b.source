@@ -1,0 +1,615 @@
+"""Local-only cohort certification. No network, DB, models, predictions or saved folds."""
+import argparse
+import collections as C
+import csv
+import hashlib
+import importlib.util
+import itertools
+import json
+import math
+from pathlib import Path
+import re
+import zipfile
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+POLICY = json.loads((HERE / 'policy.json').read_text(encoding='utf-8'))
+IDENTITY = ROOT / 'research/tasar_identity_20261002/identity.py'
+spec = importlib.util.spec_from_file_location('cohort_existing_identity_parser', IDENTITY)
+identity = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(identity)
+
+
+def filehash(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
+                                     allow_nan=False, separators=(',', ':')).encode()).hexdigest()
+
+
+def read(path):
+    return json.loads(Path(path).read_text(encoding='utf-8'))
+
+
+def num(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        v = float(value)
+        return v if math.isfinite(v) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def positive(value):
+    return num(value) is not None and num(value) > 0
+
+
+def timestamp(value):
+    t = datetime.fromisoformat(value)
+    if t.tzinfo is None:
+        raise ValueError('Timezone required')
+    return t.astimezone(timezone.utc)
+
+
+def area(row):
+    # Preserve the built-area precedence used by A, with an explicit origin column.
+    for key in ['built_area_m2', 'm2', 'usable_area_m2']:
+        if row.get(key) is not None:
+            return num(row[key]), key
+    return None, 'missing'
+
+
+def target(row):
+    m = row.get('raw_metadata') or {}
+    currency = row.get('price_currency')
+    original = m.get('currency_original')
+    uf, clp = num(row.get('price_uf')), num(row.get('price_clp'))
+    evidence = dict(currency=currency, original_currency=original,
+                    stored_uf=uf, retained_parsed_uf=num(m.get('price_uf')),
+                    stored_clp=clp, parser=m.get('parser_source'),
+                    method=row.get('price_recovery_method'),
+                    rate=num(m.get('uf_rate_used')), rate_date=m.get('uf_rate_date'))
+    if currency not in ['UF', 'CLF', 'CLP']:
+        return 'T4', None, 'original_currency_ambiguous', evidence
+    if currency in ['UF', 'CLF'] and not positive(uf):
+        if positive(m.get('price_uf')):
+            return 'T3', None, 'stored_vs_metadata_native_amount_conflict', evidence
+        return 'T4', None, 'missing_or_invalid_native_uf', evidence
+    if currency == 'CLP' and not positive(clp):
+        return 'T4', None, 'missing_or_invalid_original_clp', evidence
+    conflict = original != currency
+    labels = ' '.join(str(x or '') for x in [row.get('price_uf_source'),
+             m.get('price_uf_source'), row.get('price_recovery_method'),
+             m.get('price_recovery_method'), m.get('price_conversion_source')]).lower()
+    uncertain = conflict or any(x in labels for x in ['recover', 'estimated', 'fallback', 'fixed', 'legacy'])
+    uncertain = uncertain or bool(m.get('price_change_ignored_reason'))
+    # raw.price_uf is a provenance label, not a claim that RAW bytes still exist.
+    # 'price_recovery_method' contains 'raw...' for valid native parsers; do not reject its key name.
+    parser = (row['source'] == 'yapo' and m.get('parser_source') in
+              ['yapo_search_payload', 'yapo_search_dom', 'yapo_detail_payload']) or (
+              row['source'] == 'portalinmobiliario' and bool(m.get('portal_card_first') or m.get('accepted_rm')))
+    method = row.get('price_recovery_method') in ['raw.price_uf', 'raw_metadata.price_uf']
+    if (currency in ['UF', 'CLF'] and not uncertain and parser and method
+            and row.get('price_uf_source') == 'scraped'
+            and num(m.get('price_uf')) == uf
+            and m.get('price_clp_provenance') == 'derived_from_uf_real_rate'):
+        return 'T1', uf, 'coherent_retained_native_parsed_signal_raw_not_archived', evidence
+    dated = False
+    try:
+        dated = m.get('uf_rate_date') == timestamp(row['scraped_at']).date().isoformat()
+    except (ValueError, TypeError, KeyError):
+        pass
+    if (currency == 'CLP' and not uncertain and m.get('price_clp_provenance') == 'published'
+            and positive(uf) and positive(m.get('uf_rate_used')) and dated
+            and m.get('uf_rate_source') == 'mindicador.cl' and not m.get('uf_rate_stale')
+            and m.get('price_conversion_method') == 'original_clp_divided_by_dated_uf'
+            and abs(uf - clp / num(m['uf_rate_used'])) <= .011):
+        return 'T2', uf, 'preserved_dated_conversion_consistent', evidence
+    return 'T3', None, 'conflicting_monetary_provenance' if uncertain else 'insufficient_origin_or_conversion_trace', evidence
+
+
+def physical_reasons(row):
+    reasons = []
+    a, _ = area(row)
+    if row.get('property_type') != 'apartment':
+        reasons.append('not_apartment')
+    if row.get('status') != 'active':
+        reasons.append('inactive')
+    if not row.get('source') or not row.get('external_id') or not identity.canonical_url(row.get('url')):
+        reasons.append('missing_publication_identity')
+    if not row.get('comuna'):
+        reasons.append('missing_comuna')
+    if a is None or not 10 <= a <= 1000:
+        reasons.append('invalid_area')
+    if not positive(row.get('bedrooms')) and (row.get('raw_metadata') or {}).get('explicit_studio') is not True:
+        reasons.append('bedrooms_unusable')
+    if not positive(row.get('bathrooms')):
+        reasons.append('bathrooms_unusable')
+    p = row.get('parking')
+    if p is not None and (num(p) is None or num(p) < 0):
+        reasons.append('parking_invalid')
+    return reasons
+
+
+def state_observations(snapshot, snapshot_hash):
+    cutoff = timestamp(snapshot['captured_at']).isoformat()
+    ids = [str(r['id']) for r in snapshot['listings']]
+    if len(ids) != len(set(ids)):
+        raise ValueError('Conflicting canonical listing IDs')
+    observations = []
+    for row in sorted(snapshot['listings'], key=lambda r: str(r['id'])):
+        for field in ['scraped_at', 'last_seen_at', 'created_at', 'updated_at']:
+            if row.get(field) and timestamp(row[field]) > timestamp(cutoff):
+                raise ValueError('State timestamp after snapshot capture')
+        observations.append(dict(observation_id='state:' + digest([snapshot_hash, str(row['id'])]),
+             listing_id=str(row['id']), source=row.get('source'), external_id=str(row.get('external_id') or ''),
+             observed_at=cutoff, available_at=cutoff, source_scraped_at=row.get('scraped_at'),
+             observation_kind='snapshot_state_capture_not_history', row=row))
+    return observations
+
+
+def select_index(observations):
+    pubs = C.defaultdict(list)
+    for o in observations:
+        if o['source'] and o['external_id']:
+            pubs[(o['source'], o['external_id'])].append(o)
+    return {min(v, key=lambda o: (timestamp(o['observed_at']), o['listing_id'], o['observation_id']))['observation_id']
+            for v in pubs.values()}
+
+
+def identity_projection(row):
+    """Allowlist before the reused parser: no labels, property IDs or fingerprints."""
+    m = row.get('raw_metadata') or {}
+    return dict(id=row['id'], source=row.get('source'), external_id=str(row.get('external_id') or ''),
+                url=row.get('url'), title=identity.sanitize(row.get('title')), comuna=row.get('comuna'),
+                property_type=row.get('property_type'), built_area_m2=row.get('built_area_m2'),
+                usable_area_m2=row.get('usable_area_m2'), m2=row.get('m2'), bedrooms=row.get('bedrooms'),
+                bathrooms=row.get('bathrooms'), parking=row.get('parking'),
+                stored_lat=row.get('lat'), stored_lon=row.get('lon'), geocode_precision=row.get('geocode_precision'),
+                raw_metadata={k: identity.sanitize(m[k]) for k in
+                    ['address', 'address_label', 'street_hint', 'location_text', 'description'] if m.get(k)})
+
+
+def image_keys(row):
+    m = row.get('raw_metadata') or {}
+    urls = [m.get('main_image_url')] + list(m.get('image_urls') or [])
+    keys = set()
+    for url in urls:
+        if not isinstance(url, str):
+            continue
+        p = urlsplit(url)
+        if p.scheme in ['http', 'https'] and p.netloc and p.path and not re.search(
+                r'placeholder|default|no[-_]?image|logo|blank|avatar', p.path, re.I):
+            keys.add(p.netloc.lower() + p.path)
+    return keys
+
+
+def signals(row):
+    f = identity.features(identity_projection(row))
+    f.pop('old_property_id', None)
+    f.pop('old_fingerprint', None)
+    f['trusted_geo'] = False
+    f['image_keys'] = image_keys(row)
+    return f
+
+
+def pair(a, b):
+    same_pub = bool(a['source'] == b['source'] and a['external_id'] and a['external_id'] == b['external_id'])
+    same_url = bool(a['canonical_url'] and a['canonical_url'] == b['canonical_url'])
+    full = bool(a['address_key'] and a['address_key'] == b['address_key'])
+    unit = bool(full and a['unit'] and a['unit'] == b['unit'])
+    structural_known = all(positive(f.get(k)) for f in [a, b] for k in ['bedrooms', 'bathrooms'])
+    tight = structural_known and identity.physical(a, b)
+    loose = structural_known and identity.physical(a, b, True)
+    why = identity.contradictions(a, b)
+    shared = len(a['title_tokens'] & b['title_tokens'])
+    union = len(a['title_tokens'] | b['title_tokens'])
+    jac = shared / union if union else 0
+    images = len(a['image_keys'] & b['image_keys'])
+    strong = unit and tight and not why
+    g1 = same_pub or same_url or a['id'] == b['id'] or strong
+    g2 = g1 or (not why and tight and shared >= 3 and jac >= .8 and (full or images >= 2))
+    g3 = g2 or (not why and loose and shared >= 3 and jac >= .6 and (full or images >= 1))
+    # A potential contamination sample may use generic structural resemblance as a BLOCK,
+    # never as an identity assertion or grouping edge.
+    candidate = g1 or g2 or g3 or (loose and shared >= 3 and jac >= .6)
+    d = identity.distance(a, b)
+    return dict(id_a=a['id'], id_b=b['id'], cross_source=a['source'] != b['source'], G1=bool(g1),
+                G2=bool(g2), G3=bool(g3), candidate=bool(candidate), same_address=full, same_unit=unit,
+                shared_images=images, title_jaccard=round(jac, 6), shared_tokens=shared,
+                tight_structure=tight, loose_structure=loose, distance_m=round(d, 2) if d is not None else None,
+                geo_unverified_jump=bool(d is not None and d > 500), contradiction='|'.join(why),
+                rule='deterministic' if same_pub or same_url else 'explicit_unit' if strong else
+                     'address_or_image_and_text_structure' if g2 or g3 else 'candidate_only_not_identity')
+
+
+def dependencies(rows):
+    fs = {r['id']: signals(r) for r in rows}
+    blocks = C.defaultdict(list)
+    # All rows remain in graph, including excluded bridge observations.
+    candidates = set()
+    for f in fs.values():
+        blocks[('territory_type', f['comuna'], f['property_type'])].append(f['id'])
+        if f['external_id']:
+            blocks[('publication', f['source'], f['external_id'])].append(f['id'])
+        if f['canonical_url']:
+            blocks[('url', f['canonical_url'])].append(f['id'])
+    for ids in blocks.values():
+        candidates.update(itertools.combinations(sorted(ids), 2))
+    pairs = []
+    for i, j in sorted(candidates):
+        p = pair(fs[i], fs[j])
+        if p['candidate']:
+            pairs.append(p)
+    groups = {g: identity.graph(fs, [(p['id_a'], p['id_b']) for p in pairs if p[g]]) for g in ['G1', 'G2', 'G3']}
+    return fs, pairs, groups
+
+
+def group_summary(groups, fs, eligible):
+    result = {}
+    for g, assignment in groups.items():
+        pools = C.defaultdict(list)
+        for i, root in assignment.items():
+            pools[root].append(i)
+        report = {}
+        for scope, ids in [('snapshot', set(fs)), ('eligible', set(eligible))]:
+            components = {root: [i for i in pool if i in ids] for root, pool in pools.items()}
+            components = {root: v for root, v in components.items() if v}
+            geo = contradictions = 0
+            # Inspect the complete component, not only surviving eligible members.
+            for root in components:
+                for i, j in itertools.combinations(pools[root], 2):
+                    contradictions += bool(identity.contradictions(fs[i], fs[j]))
+                    d = identity.distance(fs[i], fs[j])
+                    geo += d is not None and d > 500
+            report[scope] = dict(rows=len(ids), groups=len(components),
+                singletons=sum(len(v) == 1 for v in components.values()),
+                multiple_groups=sum(len(v) > 1 for v in components.values()),
+                cross_source_groups=sum(len({fs[i]['source'] for i in v}) > 1 for v in components.values()),
+                max_size=max(map(len, components.values()), default=0),
+                component_contradiction_pairs=contradictions, unverified_geo_jump_pairs=geo)
+        result[g] = report
+    for scope, ids in [('snapshot', set(fs)), ('eligible', set(eligible))]:
+        changed = {}
+        for left, right in [('G1', 'G2'), ('G2', 'G3'), ('G1', 'G3')]:
+            member_sets = []
+            for g in [left, right]:
+                pools = C.defaultdict(set)
+                for i, root in groups[g].items():
+                    pools[root].add(i)
+                member_sets.append({i: pools[groups[g][i]] for i in ids})
+            n = sum(member_sets[0][i] != member_sets[1][i] for i in ids)
+            changed[left + '_to_' + right] = dict(n=n, proportion=n / len(ids) if ids else None)
+        result['membership_changes_' + scope] = changed
+    return result
+
+
+def simulate(cohort, groups):
+    """Only aggregate support diagnostics; no labels consulted, folds not returned."""
+    result = []
+    rows = {int(r['listing_id']): r for r in cohort}
+    for policy, mapping in groups.items():
+        components = C.defaultdict(list)
+        for i in rows:
+            components[mapping[i]].append(i)
+        for k in [3, 4, 5]:
+            for seed in [20261009, 20261010, 20261011]:
+                fold = [[] for _ in range(k)]
+                ordered = sorted(components.items(), key=lambda item:
+                    (-len(item[1]), digest([seed, item[0]])))
+                for root, members in ordered:
+                    which = min(range(k), key=lambda f: (len(fold[f]), f))
+                    fold[which].extend(members)
+                stats = []
+                for f, test_ids in enumerate(fold):
+                    train_ids = set(rows) - set(test_ids)
+                    assert not {mapping[i] for i in test_ids} & {mapping[i] for i in train_ids}
+                    support = []
+                    for i in test_ids:
+                        r = rows[i]
+                        support.append(sum(rows[j]['comuna'] == r['comuna'] and
+                            .7 * r['area_canonical'] <= rows[j]['area_canonical'] <= 1.3 * r['area_canonical']
+                            for j in train_ids))
+                    test_comunas = {rows[i]['comuna'] for i in test_ids}
+                    train_comunas = {rows[i]['comuna'] for i in train_ids}
+                    stats.append(dict(fold_number=f, test_n=len(test_ids), train_n=len(train_ids),
+                         test_groups=len({mapping[i] for i in test_ids}),
+                         test_by_source=dict(C.Counter(rows[i]['source'] for i in test_ids)),
+                         test_by_comuna=dict(C.Counter(rows[i]['comuna'] for i in test_ids)),
+                         unseen_train_comunas=sorted(test_comunas - train_comunas),
+                         A_support_ge5_upper_bound_n=sum(n >= 5 for n in support),
+                         A_support_lt5_n=sum(n < 5 for n in support)))
+                result.append(dict(policy=policy, k=k, seed=seed, diagnostics=stats,
+                    total_n=len(rows), test_n_sum=sum(x['test_n'] for x in stats),
+                    upper_bound_n=sum(x['A_support_ge5_upper_bound_n'] for x in stats),
+                    official_assignment_saved=False, predictions=False))
+    return result
+
+
+def feature_summary(rows, scope):
+    result = []
+    for source in sorted({r['source'] for r in rows}):
+        pool = [r for r in rows if r['source'] == source]
+        for key in ['m2', 'built_area_m2', 'usable_area_m2', 'land_area_m2', 'bedrooms', 'bathrooms', 'parking', 'lat', 'lon']:
+            vals = [num(r.get(key)) for r in pool]
+            valid = sorted(v for v in vals if v is not None)
+            origins = C.Counter()
+            for r in pool:
+                m = r.get('raw_metadata') or {}
+                origin = m.get({'built_area_m2': 'built_area_parse_source', 'usable_area_m2': 'usable_area_parse_source',
+                               'land_area_m2': 'land_area_parse_source', 'm2': 'area_parse_source'}.get(key, ''))
+                if key in ['lat', 'lon']:
+                    origin = 'stored_source_pin_unverified' if r.get(key) is not None else None
+                origins[origin or 'field_origin_not_retained'] += 1
+            result.append(dict(scope=scope, source=source, feature=key, n=len(pool),
+                 present_n=sum(r.get(key) is not None for r in pool), numeric_n=len(valid),
+                 missing_n=sum(r.get(key) is None for r in pool),
+                 invalid_n=sum(r.get(key) is not None and num(r.get(key)) is None for r in pool),
+                 zero_n=sum(v == 0 for v in valid), negative_n=sum(v < 0 for v in valid),
+                 min=min(valid, default=None), max=max(valid, default=None),
+                 median=valid[len(valid)//2] if valid else None, origins=dict(origins),
+                 semantic='built/useful proxy; no silent interchangeable claim' if 'm2' in key else
+                    'zero absence ambiguous; no recoding' if key == 'parking' else
+                    'precision unverified' if key in ['lat', 'lon'] else 'stored parsed field; no imputation'))
+    return result
+
+
+def distributions(rows):
+    def bucket(value, edges):
+        n = num(value)
+        if n is None:
+            return 'missing'
+        return next((f'<{e}' for e in edges if n < e), f'>={edges[-1]}')
+    result = []
+    for scope, pool in rows.items():
+        extractors = dict(source=lambda r: r['source'], comuna=lambda r: r.get('comuna'),
+            area_band=lambda r: bucket(area(r)[0], [30, 50, 80, 120, 200]),
+            bedrooms=lambda r: r.get('bedrooms'), bathrooms=lambda r: r.get('bathrooms'),
+            parking=lambda r: r.get('parking'), price_uf_band=lambda r: bucket(r.get('price_uf'), [2000, 4000, 8000, 16000]),
+            source_scraped_month=lambda r: timestamp(r['scraped_at']).strftime('%Y-%m') if r.get('scraped_at') else 'unknown')
+        for key, fn in extractors.items():
+            counts = C.Counter(str(fn(r)) for r in pool)
+            for value, n in sorted(counts.items()):
+                result.append(dict(scope=scope, variable=key, category=value, n=n,
+                                   denominator=len(pool), share=n/len(pool) if pool else None))
+    return result
+
+
+def verify_harness():
+    p = ROOT / POLICY['harness']
+    cert = read(p / 'certification.json')
+    bad = [f for f, h in cert['code_sha256'].items() if filehash(p / f) != h]
+    if bad or cert['status'] != 'PASS' or cert['tests_passed'] != 89 or cert['tests_failed']:
+        raise ValueError('Harness certificate/code mismatch')
+    if filehash(p / 'test-output.txt') != cert['test_log_sha256']:
+        raise ValueError('Harness test log mismatch')
+    return dict(path=str(p), status=cert['status'], tests_passed=89,
+                checked_code_files=len(cert['code_sha256']), certificate_sha256=filehash(p/'certification.json'))
+
+
+def verify_parser_archive():
+    root = ROOT/'research/tasar_modern_ingestion_20261002'
+    comparison = read(root/'deployed_parser_comparison.json')
+    with zipfile.ZipFile(root/'source_snapshot.zip') as archive:
+        for path, evidence in comparison.items():
+            actual = hashlib.sha256(archive.read(path).replace(b'\r\n', b'\n')).hexdigest()
+            if not evidence['matches'] or actual != evidence['deployed']:
+                raise ValueError('Archived parser provenance hash mismatch')
+    return dict(files=len(comparison), hashes_verified=True,
+                limit='Prior archived deployed-code comparison; no live Oracle verification or per-row RAW replay')
+
+
+def csv_write(path, rows, fields=None):
+    if not rows and fields is None:
+        raise ValueError('Do not generate empty filler files')
+    fields = fields or list(rows[0])
+    with Path(path).open('x', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: json.dumps(v, sort_keys=True, ensure_ascii=False) if isinstance(v, (dict, list, set))
+                             else v for k, v in row.items()})
+
+
+def json_write(path, value):
+    with Path(path).open('x', encoding='utf-8') as f:
+        json.dump(value, f, indent=2, ensure_ascii=False, allow_nan=False)
+        f.write('\n')
+
+
+def build(out):
+    out = Path(out).resolve()
+    if HERE not in out.parents or out.exists():
+        raise ValueError('Use a NEW output directory under this sandbox')
+    harness = verify_harness()
+    parser_provenance = verify_parser_archive()
+    snapshot_path = ROOT / POLICY['snapshot']
+    snapshot_hash = filehash(snapshot_path)
+    if snapshot_hash != POLICY['snapshot_sha256']:
+        raise ValueError('Input snapshot changed')
+    refs = [snapshot_path, HERE/'policy.json', IDENTITY,
+            ROOT/'research/tasar_modern_ingestion_20261002/source_snapshot.zip',
+            ROOT/'research/tasar_modern_ingestion_20261002/deployed_parser_comparison.json',
+            ROOT/'research/tasar_modern_ingestion_20261002/modern_cohort_definition.md',
+            ROOT/'research/tasar_readiness_20261008T214645Z/inputs.json',
+            ROOT/'work/avm-01-20261008/evidence/current-readiness-aggregates.json',
+            ROOT/POLICY['harness']/'certification.json',
+            ROOT/'private-ingestion-production-20261004/avm-pre-migration.dump.dpapi',
+            ROOT/'private-ingestion-production-20261004/RESTORATION_MANIFEST.json',
+            ROOT/'private-ingestion-production-20261004/recovery_tools.py',
+            IDENTITY.parent/'extract_history.py']
+    hashes = {str(p.relative_to(ROOT)): filehash(p) for p in refs}
+    snapshot = read(snapshot_path)
+    canonical_ref = snapshot.get('provenance',{}).get('canonical_DTO_encrypted_path')
+    if canonical_ref:
+        hashes[canonical_ref] = filehash(ROOT/canonical_ref)
+        if hashes[canonical_ref] != snapshot['provenance']['canonical_DTO_ciphertext_sha256']:
+            raise ValueError('Canonical encrypted DTO changed')
+    observations = state_observations(snapshot, snapshot_hash)
+    selected = select_index(observations)
+    table, targets, cohort, eligible_rows = [], [], [], []
+    class_counts = C.Counter()
+    apt_counts = C.Counter()
+    reasons_count = C.Counter()
+    for o in observations:
+        r = o['row']
+        cls, price, reason, evidence = target(r)
+        class_counts[cls] += 1
+        if r['property_type'] == 'apartment':
+            apt_counts[cls] += 1
+        reasons = physical_reasons(r)
+        if cls not in ['T1', 'T2']:
+            reasons.append('target_' + cls)
+        if o['observation_id'] not in selected:
+            reasons.append('not_index')
+        reasons_count.update(reasons)
+        plain = {k: v for k, v in o.items() if k != 'row'}
+        table.append(dict(plain, selected_as_index=o['observation_id'] in selected,
+            eligibility_status='eligible' if not reasons else 'excluded', exclusion_reason='|'.join(reasons),
+            identity_policy_version=POLICY['identity_policy'], target_provenance_class=cls))
+        targets.append(dict(observation_id=o['observation_id'], listing_id=o['listing_id'], source=o['source'],
+             external_id=o['external_id'], target_provenance_class=cls, target_uf=price, reason=reason, **evidence))
+        if not reasons:
+            a, origin = area(r)
+            xy = num(r.get('lat')), num(r.get('lon'))
+            cohort.append(dict(plain, target_provenance_class=cls, price_uf=price, strict=cls == 'T1', expanded=True,
+               comuna=r['comuna'], property_type=r['property_type'], area_canonical=a, area_origin=origin,
+               area_semantics='built_proxy', log_area=math.log(a), m2=r.get('m2'), built_area_m2=r.get('built_area_m2'),
+               usable_area_m2=r.get('usable_area_m2'), total_area_m2=(r.get('raw_metadata') or {}).get('source_total_area_m2'),
+               bedrooms=r.get('bedrooms'), bathrooms=r.get('bathrooms'), parking=r.get('parking'),
+               parking_zero_ambiguous=r.get('parking') == 0, lat=xy[0], lon=xy[1],
+               geocode_precision=r.get('geocode_precision'), geo_precision_verified=False,
+               canonical_url=identity.canonical_url(r.get('url')), source_row_pointer=f"/listings/{snapshot['listings'].index(r)}"))
+            eligible_rows.append(r)
+    fs, pairs, groups = dependencies(snapshot['listings'])
+    for r in cohort:
+        for g in groups:
+            r[g] = str(groups[g][int(r['listing_id'])])
+    group_stats = group_summary(groups, fs, [r['id'] for r in eligible_rows])
+    simulations = simulate(cohort, groups)
+    # Price-blind sample. Include all linked candidates plus reproducibly sampled
+    # cross-source/within-source unresolved candidates; no monetary evidence exported.
+    linked = [p for p in pairs if p['G3']]
+    cross = [p for p in pairs if p['cross_source'] and not p['G3']]
+    within = [p for p in pairs if not p['cross_source'] and not p['G3']]
+    order = lambda p: digest([20261009, p['id_a'], p['id_b']])
+    sampled = sorted(linked, key=order)[:40] + sorted(cross, key=order)[:30] + sorted(within, key=order)[:20]
+    blind = []
+    for p in sampled:
+        rec = dict(p)
+        for side, key in [('a', 'id_a'), ('b', 'id_b')]:
+            f = fs[p[key]]
+            rec.update({side + '_' + k: f.get(k) for k in
+                ['source', 'external_id', 'comuna', 'area', 'bedrooms', 'bathrooms', 'parking',
+                 'address_key', 'unit', 'lat', 'lon', 'precision']})
+            rec[side + '_title_alpha_tokens'] = ' '.join(sorted(f['title_tokens']))
+            rec[side + '_description_alpha_tokens'] = ' '.join(sorted(f['description_tokens']))
+        rec['adjudication'] = 'UNREVIEWED'
+        blind.append(rec)
+    active = [r for r in snapshot['listings'] if r['status'] == 'active']
+    apt = [r for r in active if r['property_type'] == 'apartment']
+    area_ok = [r for r in apt if area(r)[0] is not None and 10 <= area(r)[0] <= 1000]
+    physical_ok = [r for r in area_ok if not physical_reasons(r)]
+    traceable = [r for r in physical_ok if target(r)[0] in ['T1', 'T2']]
+    modern_aggregate = read(ROOT/'work/avm-01-20261008/evidence/current-readiness-aggregates.json')
+    summary = dict(status='PARTIAL', indicator='AVM_COHORT_CONDITIONAL',
+        harness=harness, parser_provenance=parser_provenance, snapshot_captured_at=snapshot['captured_at'],
+        universe=dict(state_capture_rows=len(observations), production_history_row_level_available=0,
+            unique_publications=len(selected), canonical_listings=len(fs), physical_properties=None,
+            latest_history_aggregate_only=dict(at_utc=modern_aggregate['at_utc'], observations=modern_aggregate['listing_seen_scanned'],
+              publications=modern_aggregate['distinct_publications'], used_as_rows=False)),
+        funnel=dict(available_state_rows=len(observations), unique_publications=len(selected), active=len(active), apartments=len(apt),
+            valid_area=len(area_ok), usable_essential_attributes=len(physical_ok), traceable_target=len(traceable),
+            selectable_index_with_traceable_target=len(cohort), eligible=len(cohort),
+            G2_dependency_groups=group_stats['G2']['eligible']['groups'],
+            proposed_adjudication_pairs=len(blind)),
+        target_counts=dict(all_snapshot={k:class_counts[k] for k in ['T1','T2','T3','T4']},
+            all_apartments={k:apt_counts[k] for k in ['T1','T2','T3','T4']},
+            active_apartments={k:sum(target(r)[0]==k for r in apt) for k in ['T1','T2','T3','T4']},
+            strict=sum(r['strict'] for r in cohort), expanded=len(cohort),
+            interpretation='T1 retained parsed-native provenance, not independently replay-certified RAW or closed price'),
+        exclusion_counts_nonexclusive=dict(reasons_count), dependency=group_stats,
+        contamination_candidates=dict(all_pairs=len(pairs), cross_source=sum(p['cross_source'] for p in pairs),
+            cross_source_linked=sum(p['cross_source'] and p['G3'] for p in pairs),
+            eligible_touching_pairs=sum(p['id_a'] in {r['id'] for r in eligible_rows} or p['id_b'] in {r['id'] for r in eligible_rows} for p in pairs),
+            independence_certified=False),
+        feature_semantics=dict(built_equals_useful=sum(r.get('built_area_m2') is not None and r.get('built_area_m2') == r.get('usable_area_m2') for r in eligible_rows),
+            parking_zero=sum(r.get('parking') == 0 for r in eligible_rows),
+            numeric_coordinates=sum(num(r.get('lat')) is not None and num(r.get('lon')) is not None for r in eligible_rows),
+            verified_precise_coordinates=0, temporal_feature_changes='not reconstructible from this snapshot',
+            observations_raw_evidence='not retained per row', feature_preprocessing_fitted=False,
+            source_information_asymmetry='C1 explicitly learns source one-hot; A receives source metadata but has no learned source coefficient'),
+        harness_real_execution=dict(authorized=False, canonical_DTO_preserved_encrypted=bool(canonical_ref),
+             canonical_DTO_contract_checked=False,
+             do_not_fill_from_other_snapshot=True, dated_UF_run_context_certified=False,
+             note='Cohort candidate is NOT an execution authorization; encrypted canonical Listing fields preserve internal A fingerprint dedup. Contract/UF context checked separately.'),
+        readiness=dict(exploratory='CONDITIONAL: retrospective T1 pilot scientifically defensible after contract/UF-context checks and explicit residual-dependence limits; no real execution authorized',
+            confirmatory='NOT_READY: no confirmatory split/holdout, unknown physical dependencies, no independent prospective validation',
+            production='OUT_OF_SCOPE: no evidence authorizing Tasar changes'),
+        split_feasibility='Grouped K=3/4/5 simulated without price, no official assignments; A support is an upper bound before fingerprint dedup/outliers/geographic precision handling.',
+        alternative='Prefer purged prospective validation once row-level modern History is available; current state capture cannot support temporal CV.',
+        next_action='Approve only a bounded retrospective T1 A_core-vs-fixed-C1 pilot after explicit acceptance of parsed-only provenance and unquantified cross-source dependence; retain real-execution guard until that approval and UF-context check.',
+        safety=dict(oracle_access=False, production_changes=False, models_trained=False,
+             predictive_metrics=False, holdout_created_or_consumed=False, inputs_immutable=True))
+    out.mkdir(parents=True)
+    csv_write(out/'cohort_candidate.csv', cohort)
+    csv_write(out/'observation_index.csv', table)
+    csv_write(out/'target_classification.csv', targets)
+    csv_write(out/'dependency_scenarios.csv', [dict(listing_id=str(i), **{g: str(groups[g][i]) for g in groups}) for i in sorted(fs)])
+    if pairs:
+        csv_write(out/'dependency_pair_evidence.csv', pairs)
+    if blind:
+        csv_write(out/'blind_adjudication_sample.csv', blind)
+    json_write(out/'eligibility_coverage_summary.json', summary)
+    json_write(out/'split_feasibility.json', simulations)
+    json_write(out/'feature_quality.json', feature_summary(apt, 'apartments') + feature_summary(eligible_rows, 'strict_expanded'))
+    csv_write(out/'cohort_distributions.csv', distributions(dict(apartments=apt,
+        structurally_eligible=physical_ok, strict=[r for r in eligible_rows if target(r)[0]=='T1'], expanded=eligible_rows)))
+    json_write(out/'identity_signal_coverage.json', {s: dict(n=len(pool),
+        full_address=sum(bool(f['address_key']) for f in pool), unit=sum(bool(f['unit']) for f in pool),
+        distinctive_title=sum(len(f['title_tokens']) >= 3 for f in pool),
+        description=sum(f['description_present'] for f in pool),
+        image_origin_paths=sum(bool(f['image_keys']) for f in pool),
+        numeric_geo=sum(f['lat'] is not None for f in pool), verified_geo=0,
+        reused_numeric_pin_members=sum(n for n in C.Counter((f['lat'], f['lon']) for f in pool if f['lat'] is not None).values() if n > 1))
+        for s in sorted({f['source'] for f in fs.values()})
+        for pool in [[f for f in fs.values() if f['source']==s]]})
+    json_write(out/'available_local_sources.json',dict(
+        selected=dict(path=str(snapshot_path.relative_to(ROOT)),captured_at=snapshot['captured_at'],
+            source='2026-10-04 encrypted backup; listings-only decoding; no DB restore',row_level=True),
+        superseded_complete_snapshot=dict(path='research/tasar_modern_ingestion_20261002/private/oracle_current_snapshot.json',
+            captured_at='2026-10-02T18:50:49.934552+00:00',row_level=True,used_as_rows=False),
+        latest_history=dict(path='work/avm-01-20261008/evidence/current-readiness-aggregates.json',
+            captured_at=modern_aggregate['at_utc'],row_level=False,used_as_rows=False),
+        older_history=dict(path='research/tasar_identity_20261002/historical_identity_snapshot.json',
+            source='2026-09-25 pre-existing backup identity-only projection',used_as_rows=False),
+        fixtures=dict(path='research/tasar_modern_ingestion_20261002/private/fixture_replay_v2/observations.jsonl',
+            source='known fixture parser replays, not live observations',used_as_rows=False),
+        missing='No local row-level listing_observation_v2 production History export; backup schema0020 predates its migration. Modern aggregated counts cannot reconstruct features/targets.'))
+    after = {p: filehash(ROOT/p) for p in hashes}
+    if after != hashes:
+        raise ValueError('INPUT MUTATION')
+    outputs = {p.name: dict(sha256=filehash(p), bytes=p.stat().st_size) for p in sorted(out.iterdir())}
+    json_write(out/'manifest.json', dict(schema='cohort-candidate-manifest-v1',
+        snapshot_id=snapshot_hash, captured_at=snapshot['captured_at'], policy=POLICY,
+        input_sha256=hashes, input_hashes_unchanged=True,
+        code_sha256={p.name:filehash(p) for p in sorted(HERE.glob('*.py'))},
+        outputs=outputs, cohort_rows=len(cohort),
+        cohort_schema=list(cohort[0]) if cohort else [],
+        index_rows=len(table), index_kind='derived snapshot state captures; no synthetic historical events',
+        temporal_consistency='single snapshot, no fixture/aggregate/history/older-snapshot joins',
+        grouping_evidence_sha256=filehash(out/'dependency_pair_evidence.csv') if pairs else None))
+    return summary
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--out', required=True)
+    args = parser.parse_args()
+    result = build(args.out)
+    print(json.dumps({k:result[k] for k in ['status','indicator','funnel','target_counts']}, indent=2))

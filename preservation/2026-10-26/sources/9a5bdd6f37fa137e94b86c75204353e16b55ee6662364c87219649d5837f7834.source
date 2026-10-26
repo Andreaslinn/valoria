@@ -1,0 +1,43 @@
+"""Executed via stdin: read-only export, no remote files or bytecode."""
+import asyncio,json
+from collections import Counter
+from dataclasses import asdict
+from datetime import datetime
+from decimal import Decimal
+from sqlalchemy import text,select
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.models import ListingORM
+from infrastructure.db.mappers import listing_from_orm
+
+SAFE = {'description','card_text','detail_text','highlight','product_class_hint','title',
+    'address','address_label','street_hint','location_text','location','neighborhood','subcomuna',
+    'geo_signals','geo_microzone_tokens','nearby_metro','nearby_avenue','neighborhood_hint',
+    'intersection_hint','microzone_confidence','microzone_reason','geocode_precision',
+    'geocode_precision_reason','location_source','coordinates_source','geographic_microzone',
+    'microzone_geo','microzone','microzone_id','microzone_key','source_total_area_m2'}
+
+def encode(v):
+    if isinstance(v,datetime): return v.isoformat()
+    if isinstance(v,Decimal): return str(v)
+    raise TypeError(type(v).__name__)
+
+async def main():
+    async with get_session_factory()() as session:
+        await session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+        values=await session.execute(select(ListingORM).where(ListingORM.status=='active').order_by(ListingORM.id))
+        values=list(values.scalars().all())
+        rows=[]; keys=Counter()
+        for orm in values:
+            item=listing_from_orm(orm); row=asdict(item)
+            metadata=item.raw_metadata or {}; keys.update(metadata.keys())
+            row['raw_metadata']={k:v for k,v in metadata.items() if (k in SAFE or
+                k.startswith(('price','currency','uf_'))) and not any(s in k.lower() for s in ('token','password','secret','key'))}
+            row['stored_lat']=orm.lat; row['stored_lon']=orm.lon
+            row['stored_created_at']=orm.created_at.isoformat()
+            row['stored_updated_at']=orm.updated_at.isoformat()
+            rows.append(row)
+        schema=(await session.execute(text('SELECT version_num FROM alembic_version'))).scalar()
+    print(json.dumps({'captured_at':datetime.now().astimezone().isoformat(),'schema':schema,
+        'listings':rows,'metadata_key_counts':dict(keys)},default=encode))
+
+asyncio.run(main())

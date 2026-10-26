@@ -1,0 +1,868 @@
+"""Read-only PostgreSQL diagnosis; no scraper, settings, ORM or network imports.
+
+Usage and definitions: docs/published-fields-maturity.md. DATABASE_URL is read
+from the environment, never printed. Only SELECT statements are issued inside
+a bounded, repeatable-read, read-only transaction. Ordinary PostgreSQL SELECTs
+take AccessShare relation locks; no row/advisory/explicit locks are requested.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import itertools
+import json
+import math
+import os
+import re
+import sys
+import unicodedata
+from collections import Counter, defaultdict
+from datetime import UTC, datetime, timedelta
+
+COMMUNES = (
+    "vitacura",
+    "las_condes",
+    "providencia",
+    "nunoa",
+    "santiago",
+    "la_florida",
+    "estacion_central",
+    "san_miguel",
+    "lo_barnechea",
+    "la_reina",
+    "huechuraba",
+)
+SOURCES = ("portal", "yapo")
+TYPES = ("departamento", "casa")
+THRESHOLDS = {"located": 40, "explicit_area": 30, "bedrooms_bathrooms": 95}
+
+# Project only the required JSON fragments, not private descriptions/contact data.
+LISTINGS_SQL = """
+SELECT id,source,external_id,url,comuna,property_type,status,bedrooms,bathrooms,
+       land_area_m2,raw_metadata::jsonb->'published_fields' AS published_fields,
+       raw_metadata::jsonb->'published_detail_fields' AS published_detail_fields,
+       raw_metadata::jsonb->>'land_area_parse_source' AS land_area_parse_source
+FROM listings WHERE source IN ('portalinmobiliario','portal','yapo')
+AND property_type IN ('apartment','house','departamento','casa')
+"""
+OBSERVATIONS_SQL = """
+SELECT o.listing_id,o.source,o.external_id,o.observed_at,o.event_kind,
+ document::jsonb#>'{raw_state,raw_metadata,published_fields}' AS raw_fields,
+ document::jsonb#>'{parsed_state,raw_metadata,published_fields}' AS parsed_fields,
+ document::jsonb#>'{persisted_state,raw_metadata,published_fields}' AS persisted_fields,
+ document::jsonb#>'{parsed_state,raw_metadata,published_detail_fields}' AS detail_fields,
+ COALESCE(document::jsonb#>'{parsed_state,detail,raw_metadata,published_fields}',
+          document::jsonb#>'{parsed_state,detail,published_fields}') AS geography_fields,
+ document::jsonb#>'{parsed_state,bedrooms}' AS bedrooms,
+ document::jsonb#>'{parsed_state,bathrooms}' AS bathrooms
+FROM listing_observations o JOIN listings l ON l.id=o.listing_id
+WHERE o.source IN ('portalinmobiliario','portal','yapo')
+AND l.property_type IN ('apartment','house','departamento','casa')
+AND o.observed_at >= %s AND o.observed_at <= %s
+"""
+RUNS_SQL = """
+SELECT source,started_at,finished_at,successful,counters,errors
+FROM ingestion_runs WHERE source IN ('portalinmobiliario','portal','yapo')
+AND started_at >= %s AND started_at <= %s ORDER BY started_at
+"""
+OBSERVATION_RANGES_SQL = """
+SELECT o.listing_id,min(o.observed_at) AS history_oldest_observation,
+       max(o.observed_at) AS history_newest_observation
+FROM listing_observations o JOIN listings l ON l.id=o.listing_id
+WHERE o.source IN ('portalinmobiliario','portal','yapo')
+AND l.property_type IN ('apartment','house','departamento','casa')
+AND o.observed_at <= %s GROUP BY o.listing_id
+"""
+
+
+def normalize(value):
+    value = "".join(
+        c
+        for c in unicodedata.normalize("NFD", str(value or "").lower())
+        if unicodedata.category(c) != "Mn"
+    )
+    return re.sub(r"\s+", "_", value.strip())
+
+
+def source_name(value):
+    return "portal" if value == "portalinmobiliario" else value
+
+
+def type_name(value):
+    return {"apartment": "departamento", "house": "casa"}.get(value, value)
+
+
+def timestamp(value):
+    try:
+        result = (
+            value
+            if isinstance(value, datetime)
+            else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        )
+        return result.replace(tzinfo=UTC) if result.tzinfo is None else result.astimezone(UTC)
+    except (TypeError, ValueError):
+        return None
+
+
+def positive(value):
+    try:
+        return not isinstance(value, bool) and math.isfinite(float(value)) and float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def bound(fields, row):
+    """Refuse another unit's snapshot, including a stale canonical alias."""
+    if not isinstance(fields, dict) or fields.get("version") != 1:
+        return False
+
+    def digits(value):
+        return re.sub(r"\D", "", str(value or ""))
+
+    identity = digits(row.get("external_id"))
+    return bool(
+        identity
+        and identity == digits(fields.get("external_id"))
+        and source_name(fields.get("source")) == source_name(row["source"])
+    )
+
+
+def detail_snapshot(row):
+    for fields in (row.get("published_detail_fields"), row.get("published_fields")):
+        if (
+            bound(fields, row)
+            and fields.get("stage") == "detail"
+            and (
+                source_name(row["source"]) != "portal"
+                or fields.get("technical_table_observed") is True
+            )
+        ):
+            return fields
+    return {}
+
+
+def metrics(row):
+    fields = row.get("published_fields") or {}
+    fields = fields if bound(fields, row) else {}
+    provenance = fields.get("provenance") or {}
+    street = str(fields.get("street") or "").strip()
+    number = str(fields.get("address_number") or "").strip()
+    street_tokens = re.sub(r"[^a-z0-9]+", " ", normalize(street)).split()
+    placeholders = {
+        "dp",
+        "dpto",
+        "depto",
+        "departamento",
+        "n",
+        "no",
+        "nro",
+        "numero",
+        "calle",
+        "av",
+        "avenida",
+        "pasaje",
+        "camino",
+    }
+    invalid_street = not street_tokens or all(token in placeholders for token in street_tokens)
+    exact = bool(
+        not invalid_street
+        and re.fullmatch(r"[1-9]\d*[A-Za-z]?", number)
+        and fields.get("address_type") == "exact"
+        and provenance.get("address")
+    )
+    origin = str(fields.get("coordinates_origin") or "")
+    precision = str(fields.get("coordinates_precision") or "unknown")
+    raw_precision = fields.get("coordinates_precision_raw")
+    precision_dict = raw_precision if isinstance(raw_precision, dict) else {}
+    forbidden = ("centroid", "centroide", "geocod", "imput", "office", "oficina")
+    public_coordinates = False
+    try:
+        lat, lon = float(fields.get("latitude")), float(fields.get("longitude"))
+        public_coordinates = (
+            math.isfinite(lat)
+            and math.isfinite(lon)
+            and -90 <= lat <= 90
+            and -180 <= lon <= 180
+            and (lat, lon) != (0, 0)
+            and origin.startswith(("portal:", "portal.", "yapo:", "yapo."))
+            and not any(word in (origin + " " + precision).lower() for word in forbidden)
+            and precision.lower() not in ("comuna", "city", "municipality")
+            and not precision_dict.get("is_centroid")
+            and not precision_dict.get("isCentroid")
+        )
+    except (TypeError, ValueError):
+        pass
+
+    def explicit(key):
+        path = str(provenance.get(key) or "")
+        return (
+            positive(fields.get(key))
+            and bool(path)
+            and not any(word in path.lower() for word in ("fallback", "generic", "imput"))
+        )
+
+    useful, constructed = explicit("useful_area_m2"), explicit("constructed_area_m2")
+    # Yapo lotSize is called total_area_m2 in published_fields. Do NOT silently
+    # reinterpret it as land. Only an explicit native land label is accepted.
+    land_source = row.get("land_area_parse_source")
+    explicit_land_sources = {
+        "raw.land_area_m2",
+        "raw.terrain_m2",
+        "raw.terreno_m2",
+        "text.land_area_context",
+        "text.land_area_without_unit",
+    }
+    land = type_name(row["property_type"]) == "casa" and (
+        explicit("land_area_m2")
+        or (positive(row.get("land_area_m2")) and land_source in explicit_land_sources)
+    )
+    beds = positive(row.get("bedrooms"))
+    baths = positive(row.get("bathrooms"))
+    area = useful or constructed
+    return {
+        "published": bool(fields),
+        "published_stage_detail": fields.get("stage") == "detail",
+        "detail": bool(detail_snapshot(row)),
+        "street_number": exact,
+        "range_only": bool(not exact and fields.get("address_range") and not invalid_street),
+        "intersection_only": bool(
+            not exact
+            and fields.get("address_type") in ("intersection", "cross")
+            and not invalid_street
+        ),
+        "street_only": bool(
+            not exact
+            and not fields.get("address_range")
+            and fields.get("address_type") not in ("intersection", "cross")
+            and not invalid_street
+        ),
+        "coordinates_published": bool(public_coordinates),
+        "useful": useful,
+        "constructed": constructed,
+        "land": land,
+        "explicit_area": area,
+        "bedrooms": beds,
+        "bathrooms": baths,
+        "bedrooms_bathrooms": beds and baths,
+        "located": exact or bool(public_coordinates),
+        "crossable": beds and baths and (exact or bool(public_coordinates)) and area,
+        "apartment_number": bool(fields.get("apartment_number")),
+        "precision": precision if public_coordinates else None,
+    }
+
+
+def percentage(numerator, denominator):
+    return round(100 * numerator / denominator, 2) if denominator else None
+
+
+def failed_thresholds(summary):
+    # Display rounding must never promote 39.995% or 94.995% to a passing gate.
+    return [
+        key
+        for key, threshold in THRESHOLDS.items()
+        if not summary["active"] or summary["counts"][key] * 100 < threshold * summary["active"]
+    ]
+
+
+def summarize(rows):
+    active = [row for row in rows if row["status"] == "active"]
+    counts = Counter()
+    precision = Counter()
+    stages = Counter()
+    conflicts = Counter()
+    dates = []
+    for row in active:
+        fact = metrics(row)
+        counts.update({key: int(value) for key, value in fact.items() if key != "precision"})
+        if fact["precision"] is not None:
+            precision[fact["precision"]] += 1
+        for fields in (row.get("published_fields"), row.get("published_detail_fields")):
+            if bound(fields, row):
+                stamp = timestamp(fields.get("observed_at"))
+                if stamp:
+                    dates.append(stamp)
+        fields = row.get("published_fields") or {}
+        stages[str(fields.get("stage") or "none")] += 1
+        # Count listings with a flag, not all repeated copies of the flag.
+        snapshots = [f for f in (fields, row.get("published_detail_fields")) if bound(f, row)]
+        conflicts["area_conflicts"] += any(bool(f.get("area_conflicts")) for f in snapshots)
+        conflicts["year_conflicts"] += any(
+            f.get("construction_year_conflict") is True for f in snapshots
+        )
+        reasons = json.dumps([f.get("rejected") or {} for f in snapshots]).lower()
+        conflicts["invalid_coordinates"] += "invalid_coordinate_pair" in reasons
+        conflicts["broker_office"] += "broker_office" in reasons
+        conflicts["any_rejection"] += any(bool(f.get("rejected")) for f in snapshots)
+    names = (
+        "published",
+        "published_stage_detail",
+        "detail",
+        "street_number",
+        "range_only",
+        "intersection_only",
+        "street_only",
+        "coordinates_published",
+        "useful",
+        "constructed",
+        "land",
+        "explicit_area",
+        "bedrooms",
+        "bathrooms",
+        "bedrooms_bathrooms",
+        "located",
+        "crossable",
+        "apartment_number",
+    )
+    return {
+        "total": len(rows),
+        "active": len(active),
+        "counts": {k: counts[k] for k in names},
+        "percentages": {k: percentage(counts[k], len(active)) for k in names},
+        "stages": dict(stages),
+        "coordinates_by_declared_precision": {
+            k: {"count": v, "percent_of_active": percentage(v, len(active))}
+            for k, v in sorted(precision.items())
+        },
+        "oldest_observation": min(dates).isoformat() if dates else None,
+        "newest_observation": max(dates).isoformat() if dates else None,
+        "conflicts": dict(conflicts),
+        "detail_backlog": len(active) - counts["detail"],
+    }
+
+
+def build_report(rows, observations, runs, *, since, as_of, key_communes=COMMUNES, budget=5):
+    rows = [
+        dict(
+            r,
+            source=source_name(r["source"]),
+            comuna=normalize(r["comuna"]),
+            property_type=type_name(r["property_type"]),
+        )
+        for r in rows
+        if normalize(r["comuna"]) in COMMUNES
+        and source_name(r["source"]) in SOURCES
+        and type_name(r["property_type"]) in TYPES
+    ]
+    by_id = {r["id"]: r for r in rows}
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[(row["source"], row["property_type"], row["comuna"])].append(row)
+    # Unique acquisition time, not listing_seen time: merged cards can carry an
+    # unchanged old detail snapshot on every run. Count that snapshot just once.
+    captures = defaultdict(set)
+    for row in rows:
+        detail = detail_snapshot(row)
+        stamp = timestamp(detail.get("observed_at"))
+        if stamp and since <= stamp <= as_of:
+            captures[row["id"]].add(stamp)
+    history_coverage_ids = set()
+    history_flags = defaultdict(set)
+    history_dates = defaultdict(list)
+    for event in observations:
+        row = by_id.get(event["listing_id"])
+        if row is None:
+            continue
+        if row["status"] == "active":
+            for key in ("history_oldest_observation", "history_newest_observation"):
+                stamp = timestamp(event.get(key))
+                if stamp:
+                    history_dates[row["id"]].append(stamp)
+        for key in (
+            "raw_fields",
+            "parsed_fields",
+            "persisted_fields",
+            "detail_fields",
+            "geography_fields",
+        ):
+            fields = event.get(key)
+            if bound(fields, row):
+                if fields.get("area_conflicts"):
+                    history_flags[row["id"]].add("area_conflicts")
+                if fields.get("construction_year_conflict"):
+                    history_flags[row["id"]].add("year_conflicts")
+                reasons = json.dumps(fields.get("rejected") or {})
+                for reason, flag in [
+                    ("invalid_coordinate_pair", "invalid_coordinates"),
+                    ("broker_office", "broker_office"),
+                ]:
+                    if reason in reasons:
+                        history_flags[row["id"]].add(flag)
+            candidate = dict(row, published_fields=fields, published_detail_fields=None)
+            detail = detail_snapshot(candidate)
+            stamp = timestamp(detail.get("observed_at"))
+            if stamp and since <= stamp <= as_of:
+                captures[row["id"]].add(stamp)
+                history_coverage_ids.add(row["id"])
+    days = []
+    day = since.date()
+    while day <= as_of.date():
+        days.append(day)
+        day += timedelta(days=1)
+
+    def rhythm(cohort):
+        identities = {r["id"] for r in cohort}
+        active_ids = {r["id"] for r in cohort if r["status"] == "active"}
+        daily = []
+        for day in days:
+            observations_today = {
+                (i, t) for i in identities for t in captures[i] if t.date() == day
+            }
+            first_today = {i for i in active_ids if captures[i] and min(captures[i]).date() == day}
+            daily.append(
+                {
+                    "date": day.isoformat(),
+                    "partial": day == as_of.date(),
+                    "detail_observations": len(observations_today),
+                    "distinct_listings": len({i for i, _ in observations_today}),
+                    "first_details_active": len(first_today),
+                }
+            )
+        completed = [d for d in daily if not d["partial"]]
+        elapsed = max((as_of - since).total_seconds() / 86400, 0.00001)
+        first = sum(d["first_details_active"] for d in daily)
+        evidence = len(completed) >= 2 and all(d["first_details_active"] > 0 for d in completed)
+        return {
+            "daily": daily,
+            "historical_detail_ids": len(identities & history_coverage_ids),
+            "distinct_detail_snapshots": sum(len(captures[i]) for i in identities),
+            "first_details_per_day": round(first / elapsed, 4),
+            "trend": "growing"
+            if evidence
+            else "stalled"
+            if len(completed) >= 2 and any(d["first_details_active"] == 0 for d in completed)
+            else "insufficient_history",
+            "note": "Evidence lower bound: latest JSON cannot reconstruct overwritten details; history may omit detail writes.",
+        }
+
+    groups = []
+    for source, kind, commune in itertools.product(SOURCES, TYPES, COMMUNES):
+        cohort = grouped[(source, kind, commune)]
+        dates = [t for r in cohort for t in history_dates[r["id"]]]
+        groups.append(
+            dict(
+                source=source,
+                property_type=kind,
+                comuna=commune,
+                **summarize(cohort),
+                rhythm=rhythm(cohort),
+                history_oldest_observation=min(dates).isoformat() if dates else None,
+                history_newest_observation=max(dates).isoformat() if dates else None,
+                historical_conflicts_since={
+                    flag: sum(flag in history_flags[r["id"]] for r in cohort)
+                    for flag in (
+                        "area_conflicts",
+                        "year_conflicts",
+                        "invalid_coordinates",
+                        "broker_office",
+                    )
+                },
+            )
+        )
+    summaries = []
+    for source, kind in itertools.product(SOURCES, TYPES):
+        cohort = [
+            r
+            for r in rows
+            if r["source"] == source and r["property_type"] == kind and r["comuna"] in key_communes
+        ]
+        summary = summarize(cohort)
+        pace = rhythm(cohort)
+        source_runs = [r for r in runs if source_name(r["source"]) == source]
+        expired = [
+            r for r in source_runs if "PORTAL_SESSION_EXPIRED" in json.dumps(r.get("errors"))
+        ]
+        failed = [r for r in source_runs if r.get("successful") is False]
+        operational = {
+            key: sum((r.get("counters") or {}).get(key, 0) or 0 for r in source_runs)
+            for key in (
+                "published_detail_requested",
+                "published_detail_captured",
+                "published_detail_rejected",
+                "same_day_new_apartments",
+                "same_day_detail_requests",
+                "same_day_detail_captured",
+                "same_day_detail_rejected",
+                "same_day_deferred_deadline",
+                "http_302",
+                "http_403",
+                "http_429",
+            )
+        }
+        daily_ledger = []
+        for day in days:
+            matching = [
+                r
+                for r in source_runs
+                if timestamp(r.get("started_at")) and timestamp(r["started_at"]).date() == day
+            ]
+            daily_ledger.append(
+                {
+                    "date": day.isoformat(),
+                    "runs": len(matching),
+                    "successful_runs": sum(r.get("successful") is True for r in matching),
+                    "maintenance_or_combined_captured": sum(
+                        (r.get("counters") or {}).get("published_detail_captured", 0) or 0
+                        for r in matching
+                    ),
+                    "same_day_captured": sum(
+                        (r.get("counters") or {}).get("same_day_detail_captured", 0) or 0
+                        for r in matching
+                    ),
+                }
+            )
+        missing_communes = [
+            c
+            for c in key_communes
+            if not any(r["comuna"] == c and r["status"] == "active" for r in cohort)
+        ]
+        failures = failed_thresholds(summary)
+        checks = {
+            "static_thresholds_pass": not failures,
+            "daily_detail_growth": pace["trend"] == "growing",
+            "no_repeated_session_expiry": len(expired) < 2,
+            "latest_run_successful": bool(
+                source_runs and source_runs[-1].get("successful") is True
+            ),
+        }
+        verdict = (
+            "MADURO"
+            if summary["active"] and all(checks.values())
+            else "CASI"
+            if not failures and len(expired) < 2
+            else "NO"
+        )
+        projections = {}
+        for metric, threshold in THRESHOLDS.items():
+            deficit = max(
+                0, math.ceil(threshold * summary["active"] / 100) - summary["counts"][metric]
+            )
+            rate = pace["first_details_per_day"]
+            projections[metric] = {
+                "additional_active_listings_needed": deficit,
+                "optimistic_days_at_observed_detail_rate": math.ceil(deficit / rate)
+                if rate and deficit
+                else 0
+                if not deficit
+                else None,
+                "guaranteed_days": None,
+                "assumption": "Optimistic only: each new detail repairs this field on a different active listing; not established by history.",
+            }
+        source_backlog = sum(g["detail_backlog"] for g in groups if g["source"] == source)
+        suggestions = []
+        if missing_communes:
+            suggestions.append(
+                "Revisar cobertura existente de discovery en: "
+                + ", ".join(missing_communes)
+                + "; cero stock no demuestra ausencia de oferta."
+            )
+        if len(expired) >= 2:
+            suggestions.append(
+                "Renovar sesión de Portal mediante el flujo existente; no aumentar solicitudes."
+            )
+        if failures or pace["trend"] != "growing":
+            suggestions.append(
+                "Priorizar dentro del cupo existente fichas incompletas con dirección/áreas faltantes, rotar rechazos y conservar el enriquecimiento de altas; no aumentar el presupuesto."
+            )
+        if "bedrooms_bathrooms" in failures:
+            suggestions.append(
+                "Revisar ceros y campos publicados de dormitorios/baños; no sustituirlos por valores del edificio sin validar la unidad."
+            )
+        if not source_runs:
+            suggestions.append(
+                "No hay evidencia de ledger en el intervalo: ampliar lectura histórica antes de atribuirlo a sesión o presupuesto."
+            )
+        summaries.append(
+            dict(
+                source=source,
+                property_type=kind,
+                **summary,
+                rhythm=pace,
+                verdict=verdict,
+                checks=checks,
+                failed_thresholds=failures,
+                repeated_session_expiry_count=len(expired),
+                failed_run_count=len(failed),
+                source_operational_counters_since=operational,
+                source_daily_ledger=daily_ledger,
+                missing_active_communes=missing_communes,
+                projections=projections,
+                source_backlog_days_at_five_effective_details=math.ceil(source_backlog / budget),
+                minimal_free_changes_to_review=suggestions,
+            )
+        )
+    samples = {}
+    for source in SOURCES:
+        candidates = sorted(
+            (
+                r
+                for r in rows
+                if r["source"] == source and r["status"] == "active" and metrics(r)["crossable"]
+            ),
+            key=lambda r: (r["comuna"], str(r["external_id"])),
+        )
+        samples[source] = [export_row(r) for r in candidates[:10]]
+    overall = (
+        "NO"
+        if any(v["verdict"] == "NO" for v in summaries)
+        else "CASI"
+        if any(v["verdict"] == "CASI" for v in summaries)
+        else "MADURO"
+    )
+    return {
+        "schema_version": 1,
+        "overall_verdict": overall,
+        "as_of": as_of.isoformat(),
+        "since": since.isoformat(),
+        "key_communes": list(key_communes),
+        "thresholds": THRESHOLDS,
+        "groups": groups,
+        "source_type_verdicts": summaries,
+        "crossable_samples": samples,
+        "limitations": [
+            "All percentages use ACTIVE listings; total includes inactive. Zero denominator is null, never 100%.",
+            "Detail includes a bound retained published_detail_fields snapshot; published_stage_detail is the literal current stage.",
+            "Unknown/approximate native coordinate precision counts as published, never as a verified parcel or unit match.",
+            "Crossable is the requested screening heuristic, not proof of SII rol or building identity. Building bedrooms/bathrooms are not safe unit imputations.",
+            "Land requires explicit land_area_m2 provenance or whitelisted raw/text land parse source on houses. Yapo lotSize/total is not silently called land.",
+            "No inference of five-details throughput: observed rate is reported separately; five-effective-details estimate shares one source budget across types/communes.",
+            "Backlog/rate projections hold stock fixed, assume successful distinct repairs, exclude other communes/types, retries and new admissions; no guaranteed date.",
+            "Session evidence comes only from ledger errors; absence of a token does not prove the private stderr was empty.",
+            "Trend needs two completed UTC days with captures, not necessarily increasing daily volume. Today is partial.",
+            "Timestamps are UTC. Metrics never use generic m2, canonical lat/lon or zero rooms as source evidence.",
+            "This is a live current-stock snapshot, not time travel: --as-of bounds observation/ledger history but does not reconstruct an earlier listings table.",
+        ],
+    }
+
+
+EXPORT_COLUMNS = (
+    "id",
+    "source",
+    "external_id",
+    "url",
+    "comuna",
+    "property_type",
+    "status",
+    "bedrooms",
+    "bathrooms",
+    "bedrooms_bathrooms",
+    "detail",
+    "crossable",
+    "located",
+    "explicit_area",
+    "coordinates_published",
+    "street",
+    "address_number",
+    "address_range",
+    "address_type",
+    "address_raw",
+    "apartment_number",
+    "latitude",
+    "longitude",
+    "coordinates_origin",
+    "coordinates_precision",
+    "coordinates_precision_raw",
+    "useful_area_m2",
+    "constructed_area_m2",
+    "total_area_m2",
+    "land_area_m2",
+    "land_area_parse_source",
+    "floor",
+    "age_years",
+    "construction_year",
+    "construction_year_description",
+    "construction_year_conflict",
+    "area_conflicts",
+    "observed_at",
+    "published_fields",
+    "published_detail_fields",
+)
+
+
+def export_row(row):
+    facts = row.get("published_fields") or {}
+    facts = facts if bound(facts, row) else {}
+    values = {k: row.get(k) for k in EXPORT_COLUMNS}
+    values.update({k: facts.get(k) for k in EXPORT_COLUMNS if k not in row})
+    flags = metrics(row)
+    values.update(
+        {
+            key: flags[key]
+            for key in (
+                "detail",
+                "crossable",
+                "located",
+                "explicit_area",
+                "coordinates_published",
+                "bedrooms_bathrooms",
+            )
+        }
+    )
+    values.update(published_fields=facts, published_detail_fields=detail_snapshot(row))
+    if metrics(row)["land"] and values.get("land_area_m2") is None:
+        values["land_area_m2"] = row.get("land_area_m2")
+    return values
+
+
+def render_table(report):
+    lines = [
+        "Dictamen global: " + report["overall_verdict"],
+        "Porcentajes de activos. det=detalle retenido; etapa=detail literal; coord=publicada, no exactitud certificada.",
+        "fuente tipo comuna activos/total det% etapa% calleN% rango% cruce% calle% coord% util% const% suelo% dorm% bano% ambos% cruz%",
+    ]
+    for group in report["groups"]:
+        p = group["percentages"]
+        keys = (
+            "detail",
+            "published_stage_detail",
+            "street_number",
+            "range_only",
+            "intersection_only",
+            "street_only",
+            "coordinates_published",
+            "useful",
+            "constructed",
+            "land",
+            "bedrooms",
+            "bathrooms",
+            "bedrooms_bathrooms",
+            "crossable",
+        )
+
+        def percent(k, values=p):
+            return "-" if values[k] is None else f"{values[k]:.1f}"
+
+        lines.append(
+            f"{group['source']} {group['property_type']} {group['comuna']} "
+            f"{group['active']}/{group['total']} " + " ".join(percent(k) for k in keys)
+        )
+        lines.append(
+            f"  Observaciones {group['oldest_observation']} .. {group['newest_observation']}; "
+            f"precisión={json.dumps(group['coordinates_by_declared_precision'], ensure_ascii=False)}; "
+            f"conflictos={group['conflicts']}; históricos={group['historical_conflicts_since']}; backlog={group['detail_backlog']}"
+        )
+        lines.append(
+            f"  Ledger de observaciones (todos los eventos): {group['history_oldest_observation']} .. {group['history_newest_observation']}"
+        )
+        lines.append("  Ritmo UTC: " + json.dumps(group["rhythm"]["daily"], ensure_ascii=False))
+    for summary in report["source_type_verdicts"]:
+        lines.append(
+            f"{summary['source']} {summary['property_type']}: {summary['verdict']}; "
+            f"fallan={summary['failed_thresholds']}; tendencia={summary['rhythm']['trend']}; "
+            f"sesiones_expiradas={summary['repeated_session_expiry_count']}; "
+            f"proyección={json.dumps(summary['projections'], ensure_ascii=False)}"
+        )
+        lines.append(
+            "  Contadores de fuente: " + json.dumps(summary["source_operational_counters_since"])
+        )
+        lines.append(
+            "  Ledger diario (fuente completa; contadores pueden solaparse): "
+            + json.dumps(summary["source_daily_ledger"])
+        )
+        lines.extend("  " + s for s in summary["minimal_free_changes_to_review"])
+    for source, samples in report["crossable_samples"].items():
+        lines.append(f"Muestra {source}: {len(samples)}/10 disponibles")
+        lines.extend(
+            f"  {s['external_id']} {s['comuna']} {s['property_type']} {s['url']}" for s in samples
+        )
+    lines.extend(report["limitations"])
+    return "\n".join(lines)
+
+
+def fetch_snapshot(dsn, since, as_of):
+    import psycopg
+    from psycopg.rows import dict_row
+
+    # Ignore SQLAlchemy driver tags; never use application config (it can create
+    # engines, import workers, or expose connection parameters on errors).
+    dsn = re.sub(r"^postgres(?:ql)?\+(?:asyncpg|psycopg)://", "postgresql://", dsn)
+    if not dsn.startswith(("postgresql://", "postgres://")):
+        raise ValueError("PostgreSQL DATABASE_URL required")
+    with psycopg.connect(
+        dsn,
+        row_factory=dict_row,
+        connect_timeout=10,
+        options="-c default_transaction_read_only=on -c statement_timeout=60000 -c lock_timeout=1000 -c timezone=UTC",
+        application_name="valoria_published_maturity_readonly",
+    ) as conn:
+        conn.read_only = True
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT current_setting('transaction_read_only') AS read_only")
+            if cursor.fetchone()["read_only"] != "on":
+                raise RuntimeError("Read-only guard failed")
+            cursor.execute(LISTINGS_SQL)
+            rows = cursor.fetchall()
+            cursor.execute(OBSERVATIONS_SQL, (since, as_of))
+            observations = cursor.fetchall()
+            cursor.execute(RUNS_SQL, (since, as_of))
+            runs = cursor.fetchall()
+            cursor.execute(OBSERVATION_RANGES_SQL, (as_of,))
+            observations.extend(cursor.fetchall())
+        conn.rollback()
+    return rows, observations, runs
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--since", default="2026-10-16T00:00:00+00:00")
+    parser.add_argument("--as-of", default=None, help="UTC reporting cutoff; defaults to now")
+    parser.add_argument("--key-communes", default=",".join(COMMUNES))
+    parser.add_argument("--format", choices=("json", "table", "both"), default="both")
+    parser.add_argument(
+        "--export-csv", action="store_true", help="CSV to stdout instead of diagnosis; active only"
+    )
+    args = parser.parse_args(argv)
+    since, as_of = timestamp(args.since), timestamp(args.as_of) if args.as_of else datetime.now(UTC)
+    communes = tuple(normalize(v) for v in args.key_communes.split(","))
+    if (
+        not since
+        or not as_of
+        or since > as_of
+        or not communes
+        or not set(communes) <= set(COMMUNES)
+    ):
+        parser.error("Invalid interval or key communes")
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        parser.error("DATABASE_URL must be set in the environment (not on the command line)")
+    try:
+        rows, observations, runs = fetch_snapshot(dsn, since, as_of)
+    except Exception as exc:
+        # Do not stringify a driver exception: it may contain DSN/password/SQL.
+        print(
+            json.dumps(
+                {
+                    "error": type(exc).__name__,
+                    "message": "Read-only audit failed; verify schema, connection and timeout locally. No credentials logged.",
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 2
+    if args.export_csv:
+        writer = csv.DictWriter(sys.stdout, fieldnames=EXPORT_COLUMNS, lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            if normalize(row["comuna"]) not in COMMUNES or row["status"] != "active":
+                continue
+            result = export_row(row)
+            writer.writerow(
+                {
+                    k: json.dumps(v, ensure_ascii=False, default=str)
+                    if isinstance(v, (dict, list))
+                    else v
+                    for k, v in result.items()
+                }
+            )
+        return 0
+    report = build_report(rows, observations, runs, since=since, as_of=as_of, key_communes=communes)
+    if args.format in ("json", "both"):
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    if args.format in ("table", "both"):
+        print(render_table(report), file=sys.stderr if args.format == "both" else sys.stdout)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

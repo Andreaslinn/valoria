@@ -1,0 +1,74 @@
+"""Offline measurements and signed-reference security on native ARM64."""
+import os
+os.environ['DATABASE_URL']='sqlite+aiosqlite:///:memory:'
+os.environ['SYNC_DATABASE_URL']='sqlite:///:memory:'
+os.environ['JWT_SECRET_KEY']='native-validation-key-not-production-32'
+import json,time,statistics,tempfile,resource,sqlite3,hashlib,math
+from pathlib import Path
+from unittest.mock import patch
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from api.deps import _resolve_current_user
+from api.v1 import thumbnails as route
+from services import thumbnails
+from infrastructure.thumbnails.pipeline import Store,Context,work_one,bounded_process,JOB_TIMEOUT
+from infrastructure.thumbnails.security import Download,Rejected
+from infrastructure.thumbnails.normalize import normalize
+from validation.thumbnail_lab.test_pipeline import offline_child,crashed_child
+from types import SimpleNamespace
+
+def percent(values):return {'p50_ms':statistics.median(values),'p95_ms':sorted(values)[math.ceil(len(values)*.95)-1]}
+
+def main():
+ result={'architecture':os.uname().machine,'job_timeout_unchanged':JOB_TIMEOUT}
+ callbacks={}
+ for name,target in [('normalization',offline_child),('crash',crashed_child)]:
+  times=[];cpu=time.process_time();children=resource.getrusage(resource.RUSAGE_CHILDREN)
+  for _ in range(int(os.environ.get('NATIVE_CALLBACK_SAMPLES','20'))):
+   start=time.perf_counter()
+   try:
+    out=bounded_process([],timeout=5,target=target)
+    assert name=='normalization' and out.width==320
+   except Rejected as e:assert name=='crash' and str(e)=='worker_crash'
+   times.append((time.perf_counter()-start)*1000)
+  after=resource.getrusage(resource.RUSAGE_CHILDREN)
+  callbacks[name]={**percent(times),'samples':len(times),'max_ms':max(times),'cpu_seconds':time.process_time()-cpu+after.ru_utime+after.ru_stime-children.ru_utime-children.ru_stime,'peak_child_rss_bytes':after.ru_maxrss*1024}
+ result['callbacks']=callbacks
+ folder=Path('validation/thumbnail_lab/fixtures');manifest=json.loads((folder/'manifest.json').read_text());images=[]
+ for item in manifest:
+  body=(folder/item['file']).read_bytes();samples=[];cpu=time.process_time()
+  for _ in range(20):
+   start=time.perf_counter();thumb=normalize(body,item['mime']);samples.append((time.perf_counter()-start)*1000)
+  images.append({'source_bytes':len(body),'webp_bytes':len(thumb.data),**percent(samples),'cpu_seconds':time.process_time()-cpu,'metrics':thumb.metrics})
+ result['images']=images
+ with tempfile.TemporaryDirectory() as td:
+  store=Store(Path(td));route.get_store=lambda:store
+  payload={'listing_id':1,'source':'yapo','raw_metadata':{'main_image_url':manifest[0]['url']}}
+  store.request(payload,Context('detail',True,True,'7'))
+  work_one(store,lambda _:Download((folder/manifest[0]['file']).read_bytes(),manifest[0]['mime'],'offline',0))
+  ref=thumbnails.signed_reference(store.lookup(1));app=FastAPI();app.include_router(route.router,prefix='/api/v1')
+  app.dependency_overrides[_resolve_current_user]=lambda:SimpleNamespace(id=7)
+  with TestClient(app) as client:
+   response=client.get(ref.url);assert response.status_code==200
+   assert int(response.headers['content-length'])==ref.bytes
+   assert response.headers['content-type']=='image/webp'
+   assert response.headers['cache-control'].startswith('private,')
+   assert client.get(ref.url,headers={'If-None-Match':response.headers['etag']}).status_code==304
+   assert client.get(ref.url.replace('sig=','sig=0')).status_code==403
+   with patch('api.v1.thumbnails.time.time',return_value=time.time()+3601):assert client.get(ref.url).status_code==403
+   with patch('services.thumbnails.time.time',return_value=time.time()+3601):
+    renewed=client.get('/api/v1/thumbnails/'+ref.hash+'.webp/reference');assert renewed.status_code==200
+   with patch('api.v1.thumbnails.time.time',return_value=time.time()+3601):assert client.get(renewed.json()['url']).status_code==200
+   app.dependency_overrides[_resolve_current_user]=lambda:SimpleNamespace(id=8)
+   assert client.get('/api/v1/thumbnails/'+ref.hash+'.webp/reference').status_code==404
+   app.dependency_overrides.clear();assert client.get('/api/v1/thumbnails/'+ref.hash+'.webp/reference').status_code==401
+  result['signed_security']={'valid':200,'conditional':304,'tampered':403,'expired':403,'renewed_after_expiry':200,'other_owner':404,'unauthenticated':401,'secret_or_bearer_in_url':False,'content_length':ref.bytes}
+  with store.connection() as db:
+   assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+   assert db.execute('PRAGMA journal_mode').fetchone()[0]=='wal'
+   backup=sqlite3.connect(str(Path(td)/'backup.sqlite3'));db.backup(backup);assert backup.execute('PRAGMA integrity_check').fetchone()[0]=='ok';backup.close()
+  result['sqlite_backup_integrity']='ok';store.close()
+ result['peak_process_rss_bytes']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024
+ print(json.dumps(result))
+
+if __name__=='__main__':main()

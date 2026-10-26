@@ -1,0 +1,13 @@
+import json, pathlib, datetime, hashlib
+import httpx
+p=pathlib.Path(__file__).parent/'osm-vitacura.json'
+q='[out:json][timeout:60][maxsize:67108864];area["boundary"="administrative"]["name"="Vitacura"]->.a;nwr(area.a)["addr:housenumber"]["addr:street"];out center tags;'
+if not p.exists():
+    r=httpx.post('https://overpass-api.de/api/interpreter',data={'data':q},headers={'User-Agent':'Valoria-local-MVP/1.0 (single Vitacura geography extract)'},timeout=90)
+    r.raise_for_status()
+    data=r.json()
+    if data.get('remark'): raise RuntimeError(data['remark'])
+    if not data.get('elements'): raise RuntimeError('empty extract; not cached')
+    p.write_bytes(r.content)
+    p.with_suffix('.meta.json').write_text(json.dumps({'query':q,'url':str(r.url),'fetched_at':datetime.datetime.now(datetime.UTC).isoformat(),'sha256':hashlib.sha256(r.content).hexdigest(),'attribution':'© OpenStreetMap contributors, ODbL','policy':'https://dev.overpass-api.de/overpass-doc/en/preface/commons.html'},indent=2),encoding='utf8')
+print('OSM elements',len(json.loads(p.read_text())['elements']))

@@ -1,0 +1,20 @@
+import os,json,re,collections
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/geografia-existente-1261-6'
+roots=[Path('C:/Users/heiko/Documents'),Path('C:/Users/heiko/Downloads'),Path('C:/Users/heiko/Desktop')]
+skip={'node_modules','.git','.venv','venv','__pycache__','.next','.next-dev','site-packages','playwright_portal_profile','playwright_yapo_profile','User Data','Default','Cache','cache','Code Cache','GPUCache','GPUPersistentCache','.dropbox.cache','stresstest','output','bin','obj','Lib','Scripts','node'}
+gis={'.shp','.shx','.dbf','.prj','.gpkg','.geojson','.kml','.kmz','.gml','.mbtiles','.fgb','.pbf','.osm','.wkt','.wkb'}
+names=re.compile(r'hark|geocod|georef|coorden|manzana|cartograf|catastro|address|direcci|osm|poligon|sii',re.I)
+hits=[];count=0;errors=[]
+for root in roots:
+    for parent,dirs,files in os.walk(root,onerror=lambda e:errors.append(str(e))):
+        dirs[:]=[d for d in dirs if d not in skip and not d.startswith('playwright_')]
+        for name in files:
+            count+=1;p=Path(parent)/name;ext=p.suffix.lower()
+            if ext in gis or re.search('hark',str(p),re.I) or (names.search(name) and ext in {'.csv','.tsv','.json','.jsonl','.parquet','.feather','.xlsx','.zip','.7z','.sql','.sqlite','.db','.txt','.md','.py'}):
+                try:size=p.stat().st_size
+                except OSError:size=None
+                hits.append({'path':str(p),'bytes':size,'extension':ext,'kind':'spatial_dataset' if ext in gis else 'hark_named' if re.search('hark',str(p),re.I) else 'possible_related','is_code_or_report':ext in {'.py','.md'}})
+(OUT/'archivos-inventariados.json').write_text(json.dumps({'roots':[str(p) for p in roots],'excluded_directory_names':sorted(skip),'files_seen':count,'matches':hits,'errors':errors},ensure_ascii=False,indent=2),encoding='utf8')
+data=[h for h in hits if not h['is_code_or_report']]
+print(json.dumps({'files_seen':count,'matched':len(hits),'spatial_data':[h for h in data if h['kind']=='spatial_dataset'],'hark_named':[h for h in hits if h['kind']=='hark_named'],'related_data_count':len(data),'related_examples':data[:25],'errors':errors[:5]},ensure_ascii=False,indent=2))

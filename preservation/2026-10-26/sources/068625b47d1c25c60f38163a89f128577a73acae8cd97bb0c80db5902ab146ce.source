@@ -1,0 +1,117 @@
+"""Optional geographic selection over the unchanged SII K=10 estimator.
+
+No public services, prices from OSM, target sale prices, or fit on query data.
+"""
+from __future__ import annotations
+import json,math,sqlite3
+from dataclasses import dataclass,asdict
+from datetime import date
+from pathlib import Path
+import numpy as np
+from services.sii.closing_knn import ClosingKNN,K,weighted_quantile
+
+ALLOWED_QUALITY={'address_match','estimated','sii_role_point','legacy_corroborated',
+                 'legacy_block_consistent','approximate_block','corrected_anchor_interpolation'}
+
+
+@dataclass(frozen=True)
+class GeoParameters:
+    scale_m:float=600
+    radius_m:float=1500
+    blend:float=1.
+
+    def __post_init__(self):
+        if not all(math.isfinite(x) for x in (self.scale_m,self.radius_m,self.blend)) or not (
+            0<self.scale_m<=5000 and 0<self.radius_m<=5000 and 0<self.blend<=1):
+            raise ValueError('invalid_geographic_parameters')
+
+
+def load_geography(root):
+    """Read only points belonging to the exact current cadastral source IDs."""
+    root=Path(root)
+    with sqlite3.connect((root/'geography.sqlite').resolve().as_uri()+'?mode=ro',uri=True) as c:
+        c.row_factory=sqlite3.Row
+        c.execute('ATTACH DATABASE ? AS cat',((root/'address-index.sqlite').resolve().as_uri()+'?mode=ro',))
+        return {r['rol']:dict(r) for r in c.execute('''SELECT g.* FROM geo g
+            JOIN cat.role r ON r.rol=g.rol AND r.source=g.source_id WHERE r.comuna=15160''')}
+
+
+def usable(g):
+    return bool(g and g.get('quality') in ALLOWED_QUALITY and
+        all(math.isfinite(g.get(k,float('nan'))) for k in ['lat','lon','precision_m']) and
+        -33.45<g['lat']<-33.30 and -70.66<g['lon']<-70.40 and 0<g['precision_m']<=300)
+
+
+def historical_filter(rows,controls):
+    """Same feature guard for baseline/candidate, no reconstructed F2890 join."""
+    result=[]
+    for r in rows:
+        c=controls.get(r['rol'])
+        if (not c or c['undated_lines'] or not c['last_closed_year'] or
+            c['last_closed_year']>int(r['date'][:4]) or not r.get('year') or
+            r['year']>int(r['date'][:4]) or not r.get('fi')):continue
+        result.append(r)
+    return result
+
+
+class GeographicKNN(ClosingKNN):
+    def __init__(self,rows,geography,params=GeoParameters(),excluded_roles=frozenset()):
+        super().__init__(rows,excluded_roles)
+        self.geography=geography
+        self.params=params
+        self.positions={}
+        for key,group in self.groups.items():
+            gs=[geography.get(r['rol']) for r in group]
+            self.positions[key]=(np.array([usable(g) for g in gs]),
+                np.array([g['lat'] if usable(g) else 0. for g in gs]),
+                np.array([g['lon'] if usable(g) else 0. for g in gs]),
+                np.array([g['precision_m'] if usable(g) else 0. for g in gs]))
+
+    def estimate(self,target):
+        # The same safety holds when the model is used outside the fold runner.
+        # Filter before baseline fallback too, so unknown subject geography cannot
+        # accidentally expose a transfer registered after the valuation date.
+        if any(r.get('fi',r['date'])>=target['date'] for r in self.rows):
+            available=[r for r in self.rows if r.get('fi',r['date'])<target['date']]
+            return GeographicKNN(available,self.geography,self.params).estimate(target)
+        baseline=super().estimate(target)
+        fallback={**baseline,'model_used':'baseline','geographic_reason':'insufficient_reliable_nearby_sales'}
+        key=(target['comuna'],target['kind'])
+        sg=self.geography.get(target['rol'])
+        if baseline['status']!='ok' or not usable(sg) or key not in self.groups:
+            return {**fallback,'geographic_reason':'subject_geography_unavailable_or_low_quality'}
+        area,year,days,block,building,roles,raw_ids=self.arrays[key]
+        good,lats,lons,precision=self.positions[key]
+        day=date.fromisoformat(target['date']).toordinal()
+        ratio=area/target['area']
+        delta_lat=np.radians(lats-sg['lat']);delta_lon=np.radians(lons-sg['lon'])
+        h=np.sin(delta_lat/2)**2+math.cos(math.radians(sg['lat']))*np.cos(np.radians(lats))*np.sin(delta_lon/2)**2
+        meters=2*6371000*np.arcsin(np.sqrt(np.clip(h,0,1)))
+        valid=(ratio>=.5)&(ratio<=1.5)&(days<day)&(roles!=target['rol'])&good&(meters<=self.params.radius_m)
+        # FI is availability, not merely FE. A future registration is not known.
+        valid&=np.array([r.get('fi',r['date'])<target['date'] for r in self.groups[key]])
+        indices=np.flatnonzero(valid)
+        if len(indices)<K:return fallback
+        old_location=np.where(building==target['building'],1.,np.where(block==target['block'],.7,.2))
+        quality=self.params.scale_m/(self.params.scale_m+precision+sg['precision_m'])
+        metric=np.exp(-meters/self.params.scale_m)
+        location=old_location+self.params.blend*quality*(metric-old_location)
+        location=np.where(building==target['building'],1.,location)
+        area_similarity=np.maximum(0.,1.-np.abs(np.log(ratio))/math.log(1.5))
+        age=np.maximum(0.,1.-np.abs(year-target['year'])/20.)
+        recency=np.maximum(0.,1.-(day-days)/(365.25*2))
+        similarity=.3*area_similarity+.3*location+.3*age+.1*recency
+        indices=indices[np.lexsort((raw_ids[indices],-similarity[indices]))[:K]]
+        comps=[]
+        for i in indices:
+            r=self.groups[key][i];g=self.geography[r['rol']]
+            comps.append({'rol':r['rol'],'raw_id':r['raw_id'],'fecha':r['date'],'m2':r['area'],
+                'uf_m2':r['uf']/r['area'],'similarity':float(similarity[i]),'building':r['building'],
+                'distance_m':float(meters[i]),'geo_method':g['method'],'geo_quality':g['quality'],
+                'precision_m':g['precision_m'],'combined_uncertainty_m':g['precision_m']+sg['precision_m']})
+        values=[c['uf_m2'] for c in comps];weights=[c['similarity'] for c in comps]
+        low,mid,high=[weighted_quantile(values,weights,q) for q in (.25,.5,.75)]
+        return {'status':'ok','value_uf':mid*target['area'],'p25_uf':low*target['area'],
+            'p75_uf':high*target['area'],'uf_m2':mid,'comparables':comps,
+            'model_used':'geographic','geographic_reason':'reliable_nearby_sales',
+            'parameters':asdict(self.params),'nearby_eligible':int(valid.sum())}

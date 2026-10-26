@@ -1,0 +1,19 @@
+name: valoria-property-life-local
+services:
+  property-life-db:
+    image: postgres:16
+    ports:
+      - "127.0.0.1:55439:5432"
+    environment:
+      POSTGRES_USER: property_life
+      POSTGRES_PASSWORD: property_life_local_only
+      POSTGRES_DB: property_life_local
+    volumes:
+      - property-life-local-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U property_life -d property_life_local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  property-life-local-data:

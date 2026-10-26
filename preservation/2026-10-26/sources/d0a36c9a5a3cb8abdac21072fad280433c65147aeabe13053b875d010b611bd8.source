@@ -1,0 +1,26 @@
+import pathlib,subprocess
+s=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-redeploy-20261016')
+code='''import asyncio,json,re
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from bs4 import BeautifulSoup
+def find(value,identity):
+ if isinstance(value,dict):
+  if str(value.get('id'))==identity and 'square' in value:return value
+  for child in value.values():
+   if (found:=find(child,identity)):return found
+ if isinstance(value,list):
+  for child in value:
+   if (found:=find(child,identity)):return found
+async def main():
+ async with get_session_factory()() as session:
+  await session.execute(text('SET TRANSACTION READ ONLY'))
+  out={}
+  for identity in ['32982982','32747182']:
+   docs=(await session.execute(text("SELECT document FROM listing_observations WHERE source='yapo' AND external_id=:identity ORDER BY observed_at DESC LIMIT 5"),{'identity':identity})).scalars().all()
+   p=next((v for d in docs if (v:=find(d,identity))),{})
+   out[identity]={'description':BeautifulSoup(p.get('description') or '', 'lxml').get_text(' ',strip=True)[:1800],'principalImage':p.get('principalImage'),'images':p.get('images')}
+  print(json.dumps(out))
+asyncio.run(main())'''
+out=subprocess.check_output(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',code],text=True,timeout=90)
+(s/'case-descriptions-private.json').write_text(out);print(out)

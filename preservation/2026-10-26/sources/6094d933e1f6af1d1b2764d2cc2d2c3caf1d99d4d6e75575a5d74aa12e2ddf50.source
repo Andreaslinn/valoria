@@ -1,0 +1,49 @@
+import pathlib,subprocess,json
+code=r'''
+import asyncio,json,os,time,re
+from datetime import UTC,datetime
+from decimal import Decimal
+from bs4 import BeautifulSoup
+from scripts.portal_session import portal_client
+from scripts.portal_smoke import DEFAULT_HEADERS
+from infrastructure.scrapers.portalinmobiliario import _extract_nordic_initial_state,PortalInmobiliarioScraper
+from workers.portal_geo_enrichment import map_publication_points
+os.environ['PORTAL_SESSION_READ_ONLY']='1'
+async def main():
+ communes=('providencia','vitacura','la_florida','estacion_central','san_miguel','santiago')
+ comuna=communes[datetime.now(UTC).date().toordinal()%len(communes)]
+ base='https://www.portalinmobiliario.com/venta/departamento/'+comuna.replace('_','-')+'-metropolitana'
+ pages=[]
+ async with portal_client(headers=DEFAULT_HEADERS,follow_redirects=False,timeout=30) as client:
+  for url in [base,base+'/_DisplayType_M']:
+   if pages:await asyncio.sleep(3.1)
+   response=await client.get(url,follow_redirects=False)
+   if response.status_code in (302,403,429):
+    print(json.dumps({'blocked':response.status_code,'url':url}));return
+   response.raise_for_status()
+   pages.append({'url':url,'status':response.status_code,'html':response.text})
+ state=_extract_nordic_initial_state(BeautifulSoup(pages[0]['html'],'lxml')) or {}
+ cards=PortalInmobiliarioScraper.parse_listings_detailed(pages[0]['html'],uf_to_clp=Decimal('41168.03'))['items'][:30]
+ points=map_publication_points(pages[1]['html'])
+ facts=[]
+ for card in cards:
+  identity=re.sub(r'\D','',str(card['external_id']))
+  poly=next((r.get('polycard',{}) for r in state.get('results',[]) if re.sub(r'\D','',str(r.get('polycard',{}).get('metadata',{}).get('id','')))==identity),{})
+  texts=json.dumps(poly.get('components',[]),ensure_ascii=False).lower()
+  point=points.get(identity)
+  facts.append({'id':identity,'useful_label':bool(re.search(r'(?:útil|util)',texts)), 'total_label':bool(re.search(r'\btotal(?:es)?\b',texts)), 'map_point':bool(point and point['quality']['status'] not in {'MISSING','INVALID'}),'polycard':poly,'parsed_card':card})
+ assert len(cards)==30,len(cards)
+ counts={k:sum(r[k] for r in facts) for k in ['useful_label','total_label','map_point']}
+ print(json.dumps({'measurement':{'sample':30,'comuna':comuna,'requests':2,'detail_requests':0,'counts':counts,'percent':{k:round(100*v/30,2) for k,v in counts.items()},'map_points':len(points)},'pages':pages,'facts':facts},default=str))
+asyncio.run(main())
+'''
+remote='import subprocess;r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-"],input='+repr(code)+',text=True,capture_output=True,timeout=120);print(r.stdout);print(r.stderr if r.returncode else "");raise SystemExit(r.returncode)'
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -'],input=remote,text=True,encoding='utf8',capture_output=True,timeout=150)
+out=pathlib.Path('outputs/discovery-same-day');out.mkdir(exist_ok=True)
+if r.returncode:
+ (out/'measurement-private-error.log').write_text(r.stdout+r.stderr,encoding='utf8');raise SystemExit('Measurement blocked; private error retained')
+proof=json.loads(r.stdout)
+(out/'measurement-private.json').write_text(json.dumps(proof,ensure_ascii=False),encoding='utf8')
+(out/'measurement.json').write_text(json.dumps(proof.get('measurement',proof),indent=2),encoding='utf8')
+print(json.dumps(proof.get('measurement',proof)))
+

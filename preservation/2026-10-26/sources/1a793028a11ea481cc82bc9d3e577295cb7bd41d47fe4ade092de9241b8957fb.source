@@ -1,0 +1,29 @@
+import sys,json,time,statistics,os
+from pathlib import Path
+import httpx
+ROOT=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(ROOT/'work/valoria'))
+from services.sii.pure_valuation import sii_valuation
+from services.sii.geographic_opinion import _models,_bundle
+DATA=ROOT/'outputs/integrated/vitacura'
+os.environ['SII_GEOGRAPHY_DATA_DIR']=str(DATA)
+_models.cache_clear();_bundle.cache_clear()
+t=time.perf_counter();r=sii_valuation(rol='1261-6',data_dir=DATA)
+result={'process_first_inference_ms':round((time.perf_counter()-t)*1000,2),'http':{}}
+assert r['status']=='available' and r['sii_only']
+with httpx.Client(timeout=20) as c:
+    for case in [{'address':'Samotracia 2071'},{'rol':'1261-6'}]:
+        timings=[]
+        for _ in range(40):
+            t=time.perf_counter();response=c.post('http://127.0.0.1:8772/api/v1/tasar/sii-valuation',json=case)
+            response.raise_for_status();timings.append((time.perf_counter()-t)*1000);body=response.json()
+            assert body['status']=='available' and body['sii_only'] and body['model_used']=='baseline'
+            assert len(body['selected_comparables'])==10
+        result['http'][str(case)]={'n':40,'median_ms':round(statistics.median(timings),2),
+            'p95_ms':round(sorted(timings)[37],2),'maximum_ms':round(max(timings),2),
+            'value_uf':body['value_uf'],'model_used':body['model_used'],'location':body['subject_location']}
+    r=c.post('http://127.0.0.1:3113/backend/api/v1/tasar/sii-valuation',json={'rol':'1261-6'})
+    assert r.status_code==200 and r.json()['sii_only']
+    result['frontend_proxy']='passed'
+(ROOT/'outputs/integrated/latency.json').write_text(json.dumps(result,indent=2),encoding='utf8')
+print(json.dumps(result,indent=2))

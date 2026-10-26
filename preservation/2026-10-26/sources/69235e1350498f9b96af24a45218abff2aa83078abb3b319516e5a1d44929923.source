@@ -1,0 +1,123 @@
+"""Sandbox-only selection experiments. Native monetary/robust/surface primitives."""
+from common import *
+from dataclasses import replace
+from collections import Counter
+from decimal import Decimal
+from statistics import median
+import math
+from core.value_objects.score import Score
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine,_Diagnostics,_weighted_total
+from domain.valuation.comparables import candidate_discard_reason,score_and_rank
+from domain.valuation.scoring import _area_score,_distance_score,_discrete_score,_microzone_adjustment,similarity_score
+from domain.valuation.product_classification import classify_product
+from domain.valuation.robust_price_m2 import robust_filter_listings
+from domain.valuation.price_surface import build_price_surface_index,maybe_apply_surface_adjustment,clear_price_surface_cache
+from domain.geocoding.quality import normalized_precision_for
+from avm01.canonical_io import listing_from_payload,target_from_payload
+from avm01.isolation import require_batch
+W0=(.4,.25,.15,.1,.1)
+def cfg(name,**kw):return dict(name=name,selector='commune',k=20,minimum=5,weights=W0,surface='on',compat=False,independent=True,**kw)
+def override(c,name,**kw):return {**c,'name':name,**kw}
+BASE=cfg('A',independent=False) if False else dict(name='A',selector='commune',k=20,minimum=5,weights=W0,surface='on',compat=False,independent=False)
+def rankkey(s,l):return (-s,l.id is None,l.id if l.id is not None else 0,l.fingerprint or '',l.source,l.external_id or '',l.url or '')
+def finite(x):return x is not None and math.isfinite(float(x)) and float(x)>0
+class FoldModel:
+ def __init__(self,batch,rate):
+  self.batch=require_batch(batch);self.rate=Decimal(str(rate));self.engine=ComparablesCanonicalEngine(name='comparables_canonical_outliers',variant='outliers')
+  self.original=[listing_from_payload(r.canonical_listing) for r in batch.rows]
+  self.groups={l.id:batch.components[r.row_id] for r,l in zip(batch.rows,self.original)}
+  self.rowids={l.id:r.row_id for r,l in zip(batch.rows,self.original)}
+  self.canonical=[l for l,_ in self.engine._canonical_price_pool(self.original,self.rate,_Diagnostics())]
+  self.classes={f'id:{l.id}':classify_product(l) for l in self.canonical}
+  self.repeated=Counter((round(l.coordinates.lat,7),round(l.coordinates.lon,7)) for l in self.original if l.coordinates)
+  self.bundles={}
+ def precise(self,l):
+  return bool(l.coordinates and normalized_precision_for(l) in {'address','street'} and self.repeated[(round(l.coordinates.lat,7),round(l.coordinates.lon,7))]<5)
+ def bundle(self,inference):
+  # The only target input is certified Inference (no price); verify once on entry.
+  self.batch.validate_target(inference)
+  return Bundle(self,target_from_payload(inference.canonical_target),inference.row_id)
+class Bundle:
+ def __init__(self,model,t,rowid):
+  self.model=model;self.t=t;self.rowid=rowid;self.cache={};self.sc={};self.sub={};self.dist={}
+  self.comm=[];self.cross=[]
+  for l in model.canonical:
+   if candidate_discard_reason(t,l) is None:self.comm.append(l)
+   neutral=replace(t,comuna=l.comuna,geocode_precision='unknown')
+   if candidate_discard_reason(neutral,l) is None:self.cross.append(l)
+  for l in self.cross:
+   self.sc[l.id]=similarity_score(t,l).value
+   self.sub[l.id]=(_area_score(t,l),_distance_score(t,l),_discrete_score(t.bedrooms,l.bedrooms),_discrete_score(t.bathrooms,l.bathrooms),_discrete_score(t.parking,l.parking),_microzone_adjustment(t,l)[0])
+   self.dist[l.id]=t.coordinates.distance_km(l.coordinates) if t.coordinates and l.coordinates else None
+ def pool(self,c):
+  key=(c['selector'],c.get('radius'),c.get('scope'),c.get('retrieval'),c['compat'],c['minimum'],c['independent'])
+  if key in self.cache:return self.cache[key]
+  m=self.model;t=self.t;pool=self.comm;strategy='commune';radius=None;fallback=False
+  if c['selector']!='commune':
+   if not m.precise(t):fallback=True;strategy='fallback_missing_precise_geo'
+   else:
+    local=[l for l in self.cross if m.precise(l) and (c.get('scope','cross')=='cross' or l.comuna==t.comuna)]
+    if c['compat']:local=[l for l in local if abs(l.bedrooms-t.bedrooms)<=1 and abs(l.bathrooms-t.bathrooms)<=1 and abs(l.parking-t.parking)<=1]
+    local.sort(key=lambda l:(self.dist[l.id],l.id))
+    if c['selector']=='nearest':
+     pool=[l for l in local if self.dist[l.id]<=5][:c.get('retrieval',40)];radius=max([self.dist[l.id] for l in pool],default=None)
+    else:
+     radii=[c['radius']] if c['selector']=='radius' else [.5,1,2,3,5]
+     pool=[]
+     for r in radii:
+      pool=[l for l in local if self.dist[l.id]<=r];radius=r
+      support=len({m.groups[l.id] for l in pool})
+      if support>=c.get('retrieval',8):break
+    if len({m.groups[l.id] for l in pool})<c['minimum']:
+     pool=self.comm;fallback=True;strategy='fallback_insufficient_local'
+    else:strategy=c['selector']+('_compatible' if c['compat'] else '')
+  if c['independent']:
+   seen=set();unique=[]
+   for l in sorted(pool,key=lambda l:rankkey(self.sc[l.id],l)):
+    g=m.groups[l.id]
+    if g not in seen:seen.add(g);unique.append(l)
+   pool=unique
+  if len(pool)<c['minimum']:out=([],None,strategy,radius,fallback,'pre_robust_insufficient')
+  else:
+   robust=robust_filter_listings(target=t,listings=pool,product_classes=m.classes,min_comparables=c['minimum'])
+   kept=list(robust.kept)
+   surface=build_price_surface_index(kept).lookup(t)
+   out=(kept,surface,strategy,radius,fallback,'ok' if len(kept)>=c['minimum'] else 'post_robust_insufficient')
+  self.cache[key]=out;return out
+ def predict(self,c):
+  pool,surface,strategy,radius,fallback,status=self.pool(c)
+  out={'prediction':None,'pre':None,'status':status,'strategy':strategy,'radius':radius,'fallback':fallback,'used':0,'independent':0,'neff':None,'median_distance':None,'geo_share':None,'dispersion':None,'max_weight':None,'adjustment_weight':0.,'reference_price_m2':None,'selected_ids':[]}
+  if status!='ok':return out
+  scored=[]
+  for l in pool:
+   if tuple(c['weights'])==W0:s=self.sc[l.id]
+   else:
+    v=self.sub[l.id];w=c['weights'];s=max(0.,min(1.,w[0]*v[0]+w[1]*v[1]+w[2]*v[2]+w[3]*v[3]+w[4]*v[4]+v[5]))
+   scored.append((Score.clamped(s),l))
+  scored.sort(key=lambda p:rankkey(p[0].value,p[1]))
+  k=c['k']
+  if k=='density':
+   n1=len({self.model.groups[l.id] for l in pool if self.dist[l.id] is not None and self.dist[l.id]<=1})
+   k=5 if n1<10 else 10 if n1<20 else 20
+  scored=scored[:k]
+  if len(scored)<c['minimum']:out['status']='selected_insufficient';return out
+  weight=sum(s.value for s,l in scored)
+  if weight<=0:out['status']='zero_weight';return out
+  raw=_weighted_total(self.t,scored)
+  base=int(raw.quantize(Decimal(1),rounding='ROUND_HALF_UP'))
+  if c['surface']=='frozen':surface=self.pool(BASE)[1]
+  adjustment=maybe_apply_surface_adjustment(base,surface,self.t)
+  lam=adjustment.adjustment_weight
+  final=adjustment.adjusted_estimate
+  if c['surface']=='off':final=base;lam=0.
+  if c['surface']=='half':final=round(base+.5*(final-base),2);lam*=.5
+  final=round(final)
+  values=[float(l.price.clp)/float(l.built_area_m2 or l.usable_area_m2 or l.m2) for s,l in scored]
+  import numpy as np
+  ds=[self.dist[l.id] for s,l in scored if self.dist[l.id] is not None]
+  out.update(prediction=round(float(Decimal(final)/self.model.rate),2),pre=round(float(Decimal(base)/self.model.rate),2),status='ok',
+   used=len(scored),independent=len({self.model.groups[l.id] for s,l in scored}),neff=weight**2/sum(s.value**2 for s,l in scored),
+   median_distance=median(ds) if ds else None,geo_share=len(ds)/len(scored),dispersion=float((np.percentile(values,75)-np.percentile(values,25))/median(values)*100),
+   max_weight=max(s.value for s,l in scored)/weight,adjustment_weight=lam,reference_price_m2=surface.surface_price_m2 if surface else None,
+   selected_ids=[self.model.rowids[l.id] for s,l in scored])
+  return out

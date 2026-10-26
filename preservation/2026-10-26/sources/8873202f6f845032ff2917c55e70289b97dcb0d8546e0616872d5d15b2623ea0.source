@@ -1,0 +1,13 @@
+import pathlib,json
+root=pathlib.Path('/home/ubuntu/apps/valoria/private/ingestion-deploy-20261015')
+before=json.loads((root/'references-before-live.json').read_text())
+reference=json.loads(pathlib.Path('/home/ubuntu/apps/valoria/private/ingestion-review-20261015/app/deploy/canonical-release/reference-cases.json').read_text())
+out=[]
+for now,old in zip(before['cases'],reference['cases']):
+ old_rows={r['listing_id']:r for r in old['comparable_calculation']}
+ new_rows={r['listing_id']:r for r in now['debug']['comparable_calculation']}
+ common=set(old_rows)&set(new_rows)
+ changed=[i for i in sorted(common) if old_rows[i]['price_uf_used']!=new_rows[i]['price_uf_used'] or old_rows[i]['area_m2_used']!=new_rows[i]['area_m2_used']]
+ out.append({'comuna':now['comuna'],'reference_uf_rate':reference['uf'],'current_uf_rate':now['uf_rate'],'old_estimate':old['canonical_uf'],'pre_deploy_estimate':now['estimated_uf'],'new_ids_since_reference':sorted(set(new_rows)-set(old_rows)),'removed_ids_since_reference':sorted(set(old_rows)-set(new_rows)),'same_ids_with_changed_price_or_area':changed})
+(root/'reference-delta-proof.json').write_text(json.dumps(out,indent=2));(root/'reference-delta-proof.json').chmod(0o600)
+print(json.dumps(out))

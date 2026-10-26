@@ -1,0 +1,90 @@
+# Método explícito y preregistro
+
+## Tres relaciones diferentes
+
+Publication: mismo source+external_id no vacío o URL canónica equivalente. URLs: host lowercase sin www, HTTPS, path unquoted con barras normalizadas y sin slash final, fragment descartado, tracking utm_/gclid/fbclid/msclkid eliminado, parámetros restantes ordenados y conservados. Se preserva un parámetro id semántico. Nunca se unen fuentes distintas por external_id sin host/source.
+
+Property high-confidence: mismo street+number+unit explícitos, tipo/comuna y estructura compatibles, sin contradicción. Coordenadas/texto solos no generan alta confianza física. Same publication puede ser una dependencia incluso con atributos inconsistentes; no se convierte por eso en high physical.
+
+CV: G1 reúne publicación determinística y high physical. G2 y G3 añaden aristas de riesgo conservador interpretables. Todas las relaciones usan componentes conexas; el grafo high nunca hereda aristas conservadoras. `property_id` y fingerprint antiguos se usan exclusivamente como auditoría/blocking de comparación, no para aceptación. Todas las aristas aceptables están además cubiertas por bloques propios de publicación, dirección o geografía; no dependen de esos IDs antiguos para ser descubiertas.
+
+## Sanitización y números
+
+NFKC, eliminación de spans `$...`, M$, CLP, UF/CLF prefijo o sufijo —incluidos UF2500 y UF:2500—, cantidades con millones/pesos y cues inequívocos precio/valor/desde. Separadores decimales/millares reconocidos; no se elimina globalmente todo número antes de extraer campos explícitos de identidad. Se eliminan email y patrones de teléfono/contacto. No se usan descripciones para matching, aunque se inventaría su cobertura.
+
+Texto de matching: Unicode sin acentos, lowercase, av/avda → avenida, depto/dpto → departamento, puntuación y espacios normalizados; tokens alfabéticos ≥3 fuera de una stoplist explícita. **No se usan tokens numéricos de título**, TF-IDF, embeddings ni labels. Similaridad Jaccard no es una probabilidad calibrada.
+
+Dirección: solo se extrae street+number con prefijo calle/avenida/pasaje/camino. Unidad exige cue de departamento/unidad con número; se evita interpretar 2D+1B, dormitorios, baños o m² como unidad. N°/Nº se normaliza a numero. Primero address/address_label/street_hint; luego location_text con dirección explícita; luego título sanitizado con road+number explícitos. Números de unidad inequívocos N° en título también se conservan como señal de contradicción. No hay fuzzy global ni coincidencia automática de edificios.
+
+## Escenarios fijados
+
+| Escenario | Unión adicional a publicación |
+| --- | --- |
+| G1 strict | dirección+número+unidad iguales, estructura compatible, sin contradicción |
+| G2 conservative | G1; o dirección+número iguales **o** coords address-grade ≤25 m, **más** estructura tight, ≥3 tokens distintivos compartidos y Jaccard ≥0,8, sin contradicción |
+| G3 very conservative | G2; o dirección+número iguales **o** coords address-grade ≤50 m, **más** estructura loose, ≥3 tokens distintivos compartidos y Jaccard ≥0,6, sin contradicción |
+
+Tight: área diferencia ≤max(1 m²,2% del menor). Loose: ≤max(2 m²,5%). Dormitorios/baños positivos conocidos son obligatorios y deben coincidir; parking positivo en ambos no puede diferir. Cero no aporta acuerdo fuerte. Comuna y tipo coinciden. Nunca basta comuna+estructura sola.
+
+Geografía positiva: coordenadas válidas, etiqueta address/exact, <5 repeticiones en los 4.908 activos, no a >100 km del punto descriptivo Santiago (−33,45;−70,65). Hay 330 candidatos con esa condición. **No es precisión de 25 m certificada por proveedor.** 25/50 m representan proximidad de edificio, y por eso requieren también estructura/texto y no otorgan alta confianza física. El radio de 1 km es solo blocking; no regla de unión.
+
+Contraindicaciones: comuna/tipo distintos, dirección explícita street+number incompatible, unidades explícitas distintas con el mismo full address o mismo street+coordenadas trusted ≤50 m, coordenadas trusted >500 m, área diferente >max(10 m²,20%), atributos positivos conocidos distintos. Faltantes o coordenadas pobres son desconocidos, no evidencia de acuerdo. Contradicted puede reflejar error de geocoding/parsing, no necesariamente probar dos propiedades diferentes.
+
+## Corrección transparente del parser
+
+El primer pase exploratorio incluía el par 5341/5342 bajo G3 por coords iguales, estructura cercana y texto idéntico. La inspección mostró **unidad explícita distinta en sus títulos**. Se corrigió la propagación de N° y se auditó el caso. `methodology_amendment_01.json` conserva ese motivo. No se ajustó radio, Jaccard, tolerancia de superficie ni regla para producir un N deseado. El par final se rechaza y aparece en la muestra F. No se oculta una excepción ni se modifica dato original.
+
+## Blocking eficiente
+
+| stage | unique_pairs_stage | cumulative_pairs |
+| --- | --- | --- |
+| stable_source_external | 0 | 0 |
+| canonical_url | 0 | 0 |
+| old_property_id_audit_only | 2597 | 2597 |
+| old_fingerprint_audit_only | 0 | 2597 |
+| normalized_address_audit_only | 343 | 2928 |
+| explicit_street_number | 1 | 2929 |
+| exact_distinctive_title_audit_only | 195 | 3111 |
+| existing_image_hash_audit_only | 0 | 3111 |
+| old_structural_pair_proxy | 3143 | 3896 |
+| geo_within1000m | 1636 | 5438 |
+
+
+Se evaluaron **5438 pares** únicos, 0.783% de los 694.431 posibles. Bloques no equivalen a match. El proxy estructural viejo usa atributos exactos y m2/área ±1; no replica orden de inserción ni los anchors de PropertyORM. Distancias Haversine en metros; sliding window de latitud antes del cálculo exacto. El inventario de imagen usa solo hashes de identificadores existentes: cero encontrados; no se descarga imagen ni se obtiene hash de contenido.
+
+## Distancias y sensibilidad
+
+`distance_distributions.csv` separa property_id actual, fingerprint antiguo, proxy estructural, bloque geográfico y nuevos aceptados. `distance_threshold_sensitivity.csv` describe 10/25/50/100/250/500/1.000 m, con denominador medido. El bloque geográfico está truncado por diseño a 1 km; su distribución no representa todas las parejas de la ciudad. Los umbrales no se calibran mediante N de grupos ni resultados de valoración.
+
+G1 sin grupos múltiples no tiene P95/max de distancias definidas. G2/G3 tienen una sola pareja con distancia 0 m: no demuestra coordenadas exactas ni identidad. Los ámbitos de comparación y sus denominadores siempre se informan.
+
+## Transitividad, contradicciones y muestras
+
+`transitive_bridge_audit.csv` muestra un singleton pair unido por una arista conservadora en G2 y el mismo componente en G3. No hay cadenas reales >2 ni grupos ≥5. Los tests sí demuestran transitividad separada y casos en los que una arista conservadora no debe ampliar el grafo high.
+
+Todas las parejas internas de cada componente se revisan para contradicción, incluso sin arista directa. No se reparan silenciosamente ni se borran componentes conflictivos. El dataset real final tiene cero grupos nuevos con contradicción, pero no implica recall suficiente para prevenir leakage.
+
+Muestras seleccionadas por SHA-256 del par y seed 20261002, sin precio:
+
+| sample | eligible_pairs | sampled_pairs |
+| --- | --- | --- |
+| A_high | 0 | 0 |
+| B_conservative_only | 1 | 1 |
+| C_old_match_weak_rejected | 3391 | 20 |
+| D_new_risk_old_not_grouped | 0 | 0 |
+| F_explicit_unit_conflict_close_geo_text | 1 | 1 |
+
+
+A no tiene pares high; B solo un par; D no tiene pares aceptados que el property_id viejo separase. Se entrega lo existente, sin fabricar veinte. C entrega veinte pares del viejo grouping/proxy no admitidos. F conserva el caso de unidades diferentes. E: cero componentes ≥5, así que no existe muestra. Títulos sin números monetarios ni bare numbers visibles, direcciones parcialmente redactadas, no descripciones/contactos/precios.
+
+La tabla manual entrega clases opacas de equivalencia para unidades explícitas y el indicador de igualdad cuando existen en ambos lados; se puede observar que son distintas sin revelar sus números completos. Las clases son señales físicas, nunca categorías de precio. Los 11 unit IDs extraídos no están acompañados por una dirección street+number en ningún candidato: la unidad sola no da alta confianza.
+
+## Histórico y límites
+
+Backup: 5.306 listings, 3.833 properties, 12.583 relaciones de price_history. Para los IDs actuales hay 1.556 relaciones y 703 IDs con alguna; la continuidad de ID **no prueba continuidad de publicación física**. Hay 16 cambios de source/external_id para mismo ID interno entre backup y snapshot. No se convierten en alias de alta confianza: el pipeline antiguo pudo sobrescribir una publicación tras coincidencia de fingerprint débil.
+
+847 publicaciones actuales se vinculan al backup por source/external_id o URL canónica; 840 al estado dev local actual. Ni el backup ni esos vínculos locales suministran unidad+dirección física suficientes o hashes de imágenes existentes. Properties del backup no tienen unit/address y fueron creadas por el mismo matcher débil: no sirven como ground truth.
+
+El snapshot principal conserva un inventario agregado que cuenta main_image_url en 981 filas **de todos los tipos**, pero no conserva sus valores ni permite calcular cobertura entre candidatos. No se declara que Oracle carezca de imágenes; **no se accedió a Oracle**. El log local de ingesta resume cantidades de corrida, sin mapa de versiones de identidad. No existe un ledger demostrado de previous external IDs/URLs que restituya publicaciones colapsadas. No se scrapean URLs ni se geocodifica.
+
+De igual manera, el inventario original cuenta una clave seller en 3.606 filas de todos los tipos, pero no preserva esos valores ni demuestra un broker/listing ID estable por candidato. No se usa nombre/contacto de publicador como identidad de inmueble. El schema contextual no tiene columna explícita de unidad/dirección de PropertyORM ni un identificador de broker cross-source. La cobertura UNKNOWN de metadata no exportada no se convierte en ausencia demostrada del sistema completo.

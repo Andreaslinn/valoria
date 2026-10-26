@@ -1,0 +1,19 @@
+"""Check every registered weight vector against the actual A implementation."""
+from support import *
+from a1 import WEIGHTS
+from config.constants import SCORE_WEIGHTS
+import pytest
+@pytest.fixture(scope='module')
+def batch():
+ c=verify();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],20261009)
+ return LabelCustody(ds,()).issue(ds,plan.folds[0],config(c,20261009,['A']),())
+@pytest.mark.parametrize('weights',WEIGHTS)
+def test_native_functions_clipping_selection_and_surface(weights,batch,monkeypatch):
+ for key,value in zip(['m2','distance','bedrooms','bathrooms','parking'],weights):monkeypatch.setitem(SCORE_WEIGHTS,key,value)
+ rate=batch.config['uf_reference']['value'];model=YapoModel(batch,rate);native=FrozenA().fit(batch)
+ native.rows=[r for r in native.rows if r.features['source']=='yapo']
+ targets=[t for t in batch.targets if t.features['source']=='yapo'][:2]
+ for t in targets:
+  trace=model.bundle(t).predict(override(BASE,'A1',weights=weights));clear_price_surface_cache();expected=native.predict(t)
+  assert trace['prediction']==expected.value_uf
+  assert sorted(trace['selected_ids'])==sorted(expected.trace['selected_ids'])

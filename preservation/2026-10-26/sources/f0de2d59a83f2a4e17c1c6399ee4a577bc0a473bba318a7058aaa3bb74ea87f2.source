@@ -1,0 +1,45 @@
+"""Operational-input ablation. Training geography retained; target-only mask."""
+from lab import *
+sys.path[:0]=[str(RUNTIME),str(RUNTIME/'frozen_a')]
+from dataclasses import replace
+from avm01.data import Dataset
+from avm01.isolation import LabelCustody,dependency_hash
+from avm01.splits import Split
+from avm01.engines import FrozenA
+from domain.valuation.price_surface import clear_price_surface_cache
+from analyze import metrics,interval
+NAMES=['A','OriginalA','Flex','R0']
+def derive(ds,split):
+ records=[]
+ for r in ds.records:
+  if r.row_id in set(split.test):
+   t={**r.canonical_target,'id':None,'coordinates':None,'geocode_precision':'unknown','raw_metadata':{}}
+   r=replace(r,latitude=None,longitude=None,canonical_listing={},canonical_target=t)
+  records.append(r)
+ result=replace(ds,records=tuple(records),snapshot_id=ds.snapshot_id+'-manual-test-inputs')
+ s=replace(split,snapshot_hash=result.hash(),dependency_hash=dependency_hash(result));result.validate();return result,s
+def prepare():
+ p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];c=verify();hashes={}
+ for seed in [20261009,20261010]:
+  for k,s in enumerate(p.create_plan(ds,cohort,maps['G3'],seed).folds):hashes[f'{seed}-{k}']=derive(ds,s)[0].hash()
+ v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':hashes,'allowed_engines':NAMES,'uf_reference':c['uf_reference'],'hypothesis':'A_core in existing benchmark receives target geography and sanitized location text that local manual Tasar contract does not accept; isolate target-only contract with untouched train candidates and original G3 partitions. Reuse Flex/R0 predictions because matrix unchanged. No claim to full Consensus or productive pool parity.','code_sha256':sha(__file__)}
+ assert not (HERE/'manual_protocol.json').exists();write(HERE/'manual_protocol.json',v);(HERE/'manual_protocol.sha256').write_text(sha(HERE/'manual_protocol.json'))
+ path=RUNTIME/'avm01/pilot_authorization.py';path.write_text(path.read_text().replace("'kernel_protocol']","'kernel_protocol','manual_protocol']"))
+ seal=read(HERE/'temporal_code_seal.json');seal['runtime/avm01/pilot_authorization.py']=sha(path);write(HERE/'temporal_code_seal.json',seal)
+ print(json.dumps({'registered_manual_splits':len(hashes)}))
+def run(seed):
+ c=read(HERE/'manual_protocol.json');p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],seed);old={r['row_id']:r for r in decrypt(HERE/f'iteration1-{seed}.json.dpapi')};out=HERE/f'manual-{seed}.json.dpapi';assert not out.exists();rows=[]
+ for k,split in enumerate(plan.folds):
+  derived,s=derive(ds,split);assert derived.hash()==c['dataset_sha256'][f'{seed}-{k}'];custody=LabelCustody(derived,());config={'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'manual_protocol.json')};batch=custody.issue(derived,s,config,());native=FrozenA().fit(batch);vals={n:{} for n in NAMES};traces={}
+  for j,t in enumerate(batch.targets):
+   clear_price_surface_cache();a=native.predict(t);vals['A'][t.row_id]=a.value_uf;vals['OriginalA'][t.row_id]=old[t.row_id]['predictions']['A']
+   for n in ['Flex','R0']:vals[n][t.row_id]=old[t.row_id]['predictions'][n]
+   assert set(a.trace['selected_ids'])<=set(s.train)
+   traces[t.row_id]={'used':len(a.trace['selected_ids']),'selected_ids':a.trace['selected_ids']}
+  custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test)
+  for t in batch.targets:rows.append({'row_id':t.row_id,'group':batch.components[t.row_id],'fold':k,'source':t.features['source'],'comuna':t.features['comuna'],'geo_original':old[t.row_id]['geo'],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES},'trace':traces[t.row_id]})
+  print(json.dumps({'manual_seed':seed,'fold':k,'done':len(s.test)}),flush=True)
+ encrypt(out,rows);summary={}
+ for label,subset in [('all',rows),('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('Yapo',[r for r in rows if r['source']=='yapo'])]:summary[label]={'full':{n:metrics(subset,n) for n in NAMES},'paired':{n:interval(subset,'A',n) for n in NAMES if n!='A'}}
+ write(HERE/f'manual-{seed}-summary.json',summary);print(json.dumps({'seed':seed,'full':summary['all']['full'],'Yapo':summary['Yapo']['full']}))
+if __name__=='__main__':prepare() if sys.argv[1]=='prepare' else run(int(sys.argv[1]))

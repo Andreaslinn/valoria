@@ -1,0 +1,39 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+inner='''import asyncio,json,httpx
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+from infrastructure.external.uf_client import UFClient
+from services.valuation import ValuationService,ValuationInput
+from services.listing_url_lookup import find_existing_listing_by_url,listing_to_form_data
+from services.listing_analysis import analyze_listing_lookup
+from services.portfolio_snapshots import _valuation_input_for_listing
+from services.portfolio_snapshots import _valuation_input
+from infrastructure.db.models import ListingORM
+from core.normalization.publication_identity import same_publication
+async def main():
+ async with get_session_factory()() as s, httpx.AsyncClient() as http:
+  repo=SqlAlchemyListingRepository(s)
+  target=await repo.find_by_id(1130)
+  assert _valuation_input(await s.get(ListingORM,1130))[0].target_listing_id==1130
+  uf=UFClient(api_url='https://mindicador.cl/api/uf',http_client=http,redis=None,session_factory=get_session_factory())
+  service=ValuationService(listing_repo=repo,uf_service=uf)
+  data=listing_to_form_data(target)
+  input=ValuationInput(target_listing_id=1130,comuna=target.comuna,property_type=target.property_type,m2=target.m2,built_area_m2=target.built_area_m2,usable_area_m2=target.usable_area_m2,dormitorios=target.bedrooms,banos=target.bathrooms,estacionamientos=target.parking)
+  result=await service.valuate_property(input,valuation_strategy='consensus_v1')
+  ids=[x.listing_id for x in result.comparables]
+  assert 1130 not in ids
+  for lid in ids:assert not same_publication(target,await repo.find_by_id(lid))
+  historical=await repo.find_by_id(298);assert historical.status=='removed'
+  hist=await analyze_listing_lookup(listing_to_form_data(historical),valuation_service=service);assert hist.listing['status']=='removed'
+  portal=await repo.find_by_id(3633)
+  found=await find_existing_listing_by_url(s,'https://www.portalinmobiliario.com/'+portal.external_id+'-changed-slug?utm_source=gate')
+  assert found.id==3633
+  analyzed=await analyze_listing_lookup(listing_to_form_data(found),valuation_service=service)
+  print(json.dumps({'actual1130_excluded':True,'comparable_count':len(ids),'estimate_uf':result.estimated_price_uf,'298_status':hist.listing['status'],'portal3633_resolved':found.id,'portal_analysis_estimate':analyzed.valuation.get('estimated_value_uf')},default=str))
+asyncio.run(main())
+'''
+inner=inner.replace('from services.portfolio_snapshots import _valuation_input_for_listing\n','')
+remote="import subprocess\nargs=['docker','run','--rm','--network','container:valoria-remediation-restore-check','--memory','512m','--cpus','1','-i','-e','DATABASE_URL=postgresql+asyncpg://restore_test@127.0.0.1:5432/restore_check','-e','SYNC_DATABASE_URL=postgresql+psycopg://restore_test@127.0.0.1:5432/restore_check','-e','JWT_SECRET_KEY=isolated-restored-database-check-key','--entrypoint','python','valoria-remediation:candidate-20261012-v3','-B','-'];r=subprocess.run(args,input="+repr(inner)+",capture_output=True,text=True,timeout=55);print(r.stdout);print(r.stderr[-3500:] if r.returncode else '');raise SystemExit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=70);Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\candidate-restored-data-gate.txt').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr if r.returncode else '')

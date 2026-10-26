@@ -1,0 +1,25 @@
+import json
+from domain.ingestion.raw_safety import sanitize
+
+def test_recursive_credentials_and_signed_urls_removed():
+    bad='SYNTHETIC_SECRET_DO_NOT_STORE'
+    result=sanitize({'access_token':bad,'headers':{'Authorization':bad},'nested':{'session_id':bad},
+        'images':['https://x.test/a?X-Amz-Signature='+bad+'&width=100'],
+        'html':'<div data-token="'+bad+'"><script>'+bad+'</script><img src="https://x.test/a?token='[REDACTED]'">text</div>',
+        'json_ld':json.dumps({'token':bad,'name':'public broker'}),
+        'description':'mail fixture@example.test o +56 9 1234 5678',
+        'price':120000000,'id':123,'square':50})
+    text=json.dumps(result)
+    assert bad not in text and 'fixture@example.test' not in text and '+56 9 1234 5678' not in text
+    assert result['price']==120000000 and result['id']==123 and result['square']==50
+    assert result['images']==['https://x.test/a?width=100']
+
+def test_sanitization_idempotent_and_public_identity_retained():
+    r={'seller':{'id':123,'name':'Public brokerage'},'description':'UF 3000, 50 m²',
+       'image':'https://x.test/p.jpg','raw':'<div class="card">50 m²</div>'}
+    assert sanitize(sanitize(r))==sanitize(r)
+    assert sanitize(r)['seller']==r['seller']
+
+def test_embedded_bearer_and_url_credentials():
+    s=sanitize('Bearer abc123 test https://[USER]:[PASSWORD]@x.test/a?session_id=abc123#secret')
+    assert 'abc123' not in s and 'user:pass' not in s and '#secret' not in s

@@ -1,0 +1,4 @@
+from pathlib import Path
+p=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\reconcile_overlay.py');s=p.read_text(encoding='utf-8');s=s.replace("'valuation','v2_contract'","'valuation','v2_contract','portfolio_snapshots'")
+s=s.replace("'alembic/versions/0021_alert_reads.py'","'alembic/versions/0021_listing_observations.py','alembic/versions/0022_alert_reads.py'")
+p.write_text(s,encoding='utf-8')

@@ -1,0 +1,39 @@
+import zipfile,json,io,hashlib,re,gc
+from pathlib import Path
+import pyarrow.parquet as pq
+import pyarrow.compute as pc
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/geografia-existente-1261-6'
+def save(n,o):(OUT/n).write_text(json.dumps(o,ensure_ascii=False,indent=2,default=str),encoding='utf8')
+roles=json.loads((OUT/'SII-inventario.json').read_text(encoding='utf8'))['roles']
+keys={(int(r['rol'].split('-')[0]),int(r['rol'].split('-')[1]),int(r['rol'].split('-')[2])) for r in roles}|{(15160,1261,9)}
+archives=['valoria_alertas_obra_mvp.zip','valoria_entorno_mvp_v2.zip','valoria_entorno_mvp_v2.1.zip','Valoria_Cerro_Blanco_2120_Datos_y_MVP_revision.zip']
+inventory=[];texts=[]
+for aname in archives:
+    path=Path('C:/Users/heiko/Downloads')/aname
+    with zipfile.ZipFile(path) as z:
+        for name in z.namelist():
+            if name.endswith(('.py','.md','.json')) and ('data/cache/' in name or name.endswith(('build.py','build2.py','build_data.py','locate.py','data/provenance.json','geo.py','util.py','METODOLOGIA.md','ESQUEMA.md'))):
+                raw=z.read(name);dest=OUT/'artefactos-texto'/aname[:-4]/name;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(raw)
+                texts.append({'archive':str(path),'member':name,'sha256':hashlib.sha256(raw).hexdigest()})
+            if not name.endswith('.parquet') or not any(t in name for t in ['predios','manzana','mz_centroides','mz_stats']):continue
+            raw=z.read(name);pf=pq.ParquetFile(io.BytesIO(raw));names=pf.schema_arrow.names
+            rec={'archive':str(path),'member':name,'sha256':hashlib.sha256(raw).hexdigest(),'row_count':pf.metadata.num_rows,'columns':names,'schema':str(pf.schema_arrow),'metadata':{str(k):str(v)[:2000] for k,v in (pf.schema_arrow.metadata or {}).items()}}
+            selected=[n for n in names if n in {'c','mz','pr','lat','lon','geo','geo_method','n_geo','st','num','dir','rol','comuna','manzana','predio','lat_i','lon_i','method','precision','precision_m','geo_confidence','coord_source','geometry','source','distance_m'}]
+            t=pf.read(columns=selected)
+            if all(k in names for k in ('c','mz')):
+                mask=pc.and_(pc.equal(t['c'],15160),pc.is_in(t['mz'],value_set=__import__('pyarrow').array(sorted({b for c,b,p in keys}))))
+                matches=t.filter(mask)
+                if 'pr' in names:
+                    allrows=matches.to_pylist();rec['target_and_selected_rows']=[r for r in allrows if (r['c'],r['mz'],r['pr']) in keys]
+                    rec['block_1261_rows']= [r for r in allrows if r['mz']==1261]
+                    if 'lat' in names:
+                        rec['geo_nonnull_count']=int(pc.sum(pc.cast(pc.is_valid(t['lat']),'int64')).as_py() or 0)
+                        rec['vitacura_geo_count']=t.filter(pc.and_(pc.equal(t['c'],15160),pc.is_valid(t['lat']))).num_rows
+                        rec['vitacura_rows']=t.filter(pc.equal(t['c'],15160)).num_rows
+                        if 'geo' in names:rec['geo_method_counts']=pc.value_counts(t['geo']).to_pylist()
+                else:rec['selected_blocks']=matches.to_pylist()
+            inventory.append(rec)
+            print(aname,name,'rows',rec['row_count'],'cols',','.join(names),'target_rows',len(rec.get('target_and_selected_rows',rec.get('selected_blocks',[]))),flush=True)
+            del raw,pf,t;gc.collect()
+save('ZIP-datos-geograficos.json',inventory);save('ZIP-textos-procedencia.json',texts)
+print('Inventory written')

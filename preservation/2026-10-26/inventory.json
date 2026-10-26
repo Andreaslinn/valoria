@@ -1,0 +1,1089 @@
+{
+  "prior_reconstruction_date": "2026-10-25",
+  "prior_sources": [
+    {
+      "id": "base-local",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\valoria-reconciled",
+      "git": true,
+      "head": "5288dded72df3608d495eb9b2bedb3e1839996dc|2026-09-29T23:10:08+02:00|Fix Yapo DOM price grouping and log safe rejection diagnostics",
+      "branch": "feat/valoria-v2-resumen",
+      "ref": "working tree versus baseline HEAD",
+      "refs": [
+        "refs/heads/codex/oracle-beta-runtime|32f23a66f73fe01bd89d005afd1503c6ae684b6e|2026-07-23T12:03:25Z",
+        "refs/heads/feat/valoria-v2-resumen|5288dded72df3608d495eb9b2bedb3e1839996dc|2026-09-29T23:10:08+02:00",
+        "refs/heads/reconcile/production-baseline-20260925|738536943ebd55d050582eb9c867750c487f6450|2026-09-26T18:32:08+02:00"
+      ]
+    },
+    {
+      "id": "s002",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\research\\portal_geo_am_v0_20261010\\integration",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s003",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\research\\product_contracts_20261011\\deployed_runtime",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s005",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-preservation-20261002\\baseline-repo",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s006",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-preservation-20261002\\repo",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s007",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\reconciliation\\oracle-before",
+      "git": true,
+      "head": "52c4b001a4444d6bde88db2551a39717c71bf866|2026-10-04T16:24:26+02:00|Exact tracked Oracle snapshot 37bb918c3908594cf0cd6fc320e409dbb4a39f90",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|52c4b001a4444d6bde88db2551a39717c71bf866|2026-10-04T16:24:26+02:00"
+      ]
+    },
+    {
+      "id": "s008",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\reconciliation\\oracle-integration",
+      "git": true,
+      "head": "3d1edc626e7e5ca83aea0b457d855070ac39bbbc|2026-10-04T16:24:29+02:00|Exact tracked Oracle snapshot 37bb918c3908594cf0cd6fc320e409dbb4a39f90",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|3d1edc626e7e5ca83aea0b457d855070ac39bbbc|2026-10-04T16:24:29+02:00"
+      ]
+    },
+    {
+      "id": "s009",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-1",
+      "git": true,
+      "head": "d93a35d20bb14df78add01add3f78f9a76746ab3|2026-10-04T17:10:13+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|d93a35d20bb14df78add01add3f78f9a76746ab3|2026-10-04T17:10:13+02:00"
+      ]
+    },
+    {
+      "id": "s010",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-2",
+      "git": true,
+      "head": "a51965265a141a41c4c8a4dd3b9ba271b1908fd8|2026-10-04T17:11:42+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|a51965265a141a41c4c8a4dd3b9ba271b1908fd8|2026-10-04T17:11:42+02:00"
+      ]
+    },
+    {
+      "id": "s011",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-3",
+      "git": true,
+      "head": "82c120fd78a501a654c8d0ed6076f4ed25cc8c87|2026-10-04T17:13:23+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|82c120fd78a501a654c8d0ed6076f4ed25cc8c87|2026-10-04T17:13:23+02:00"
+      ]
+    },
+    {
+      "id": "s012",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-4",
+      "git": true,
+      "head": "f0bfa48f1bfee3b0892abd1b4a5d55b538b80305|2026-10-04T17:14:26+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|f0bfa48f1bfee3b0892abd1b4a5d55b538b80305|2026-10-04T17:14:26+02:00"
+      ]
+    },
+    {
+      "id": "s013",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\baseline-reconciled",
+      "git": true,
+      "head": "928109126648d3be7c136976b884850c196018df|2026-10-04T17:09:56+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|928109126648d3be7c136976b884850c196018df|2026-10-04T17:09:56+02:00"
+      ]
+    },
+    {
+      "id": "s014",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\baseline-reconciled-2",
+      "git": true,
+      "head": "f89121abf1c44a382d8d7b1a230c73c700b16a14|2026-10-04T17:11:25+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|f89121abf1c44a382d8d7b1a230c73c700b16a14|2026-10-04T17:11:25+02:00"
+      ]
+    },
+    {
+      "id": "s015",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\baseline-reconciled-3",
+      "git": true,
+      "head": "089d87dc91698ad2885caabc4658827f1f20d3de|2026-10-04T17:13:08+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|089d87dc91698ad2885caabc4658827f1f20d3de|2026-10-04T17:13:08+02:00"
+      ]
+    },
+    {
+      "id": "s016",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\baseline-reconciled-4",
+      "git": true,
+      "head": "15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00"
+      ]
+    },
+    {
+      "id": "s017",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\final-applied",
+      "git": true,
+      "head": "15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/HEAD|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00"
+      ]
+    },
+    {
+      "id": "s018",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-1",
+      "git": true,
+      "head": "48b0db6003a0fa2c62eb9de6f60e61babf68ba77|2026-10-04T17:10:08+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|48b0db6003a0fa2c62eb9de6f60e61babf68ba77|2026-10-04T17:10:08+02:00"
+      ]
+    },
+    {
+      "id": "s019",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-2",
+      "git": true,
+      "head": "1bb0b9d013af634fb091d1e86ac251879d0fbc5d|2026-10-04T17:11:36+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|1bb0b9d013af634fb091d1e86ac251879d0fbc5d|2026-10-04T17:11:36+02:00"
+      ]
+    },
+    {
+      "id": "s020",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-3",
+      "git": true,
+      "head": "ee9890a98f25fe98977c28c246d1ada167a43888|2026-10-04T17:13:18+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|ee9890a98f25fe98977c28c246d1ada167a43888|2026-10-04T17:13:18+02:00"
+      ]
+    },
+    {
+      "id": "s021",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-4",
+      "git": true,
+      "head": "768fa6e6add75b35e9a60b38cd09c4fea666c9d6|2026-10-04T17:14:22+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|768fa6e6add75b35e9a60b38cd09c4fea666c9d6|2026-10-04T17:14:22+02:00"
+      ]
+    },
+    {
+      "id": "s022",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\rollout\\production-applied-2",
+      "git": true,
+      "head": "15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/HEAD|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00"
+      ]
+    },
+    {
+      "id": "s023",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\rollout\\production-generation-2",
+      "git": true,
+      "head": "15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/HEAD|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00"
+      ]
+    },
+    {
+      "id": "s024",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-staging-20261003\\repo",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s025",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\portal-geography-operational-20261011\\representative-context",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s027",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\worktrees\\portal-geography-baseline",
+      "git": true,
+      "head": "5adc2564b1dcc68433c014f06058646c1b17d02b|2026-10-11T17:56:32+02:00|Record archived deployed ingestion and thumbnail source baseline",
+      "branch": "",
+      "refs": [
+        "refs/heads/baseline/deployed-source-20261008|5adc2564b1dcc68433c014f06058646c1b17d02b|2026-10-11T17:56:32+02:00",
+        "refs/heads/feat/portal-geography-pipeline|0ceeb1e3941f5b5b81049a50568edc6c6f917087|2026-10-11T21:07:45+02:00",
+        "refs/heads/fix/portal-access-diagnostics-20261011|1a6adf0e7b31f1b72e1fa0a3889de915c54bce0e|2026-10-11T22:43:25+02:00",
+        "refs/heads/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/HEAD|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00"
+      ]
+    },
+    {
+      "id": "s028",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\worktrees\\portal-geography-pipeline",
+      "git": true,
+      "head": "1a6adf0e7b31f1b72e1fa0a3889de915c54bce0e|2026-10-11T22:43:25+02:00|Preserve safe Portal access diagnostics and reject only visible challenges",
+      "branch": "fix/portal-access-diagnostics-20261011",
+      "refs": [
+        "refs/heads/baseline/deployed-source-20261008|5adc2564b1dcc68433c014f06058646c1b17d02b|2026-10-11T17:56:32+02:00",
+        "refs/heads/feat/portal-geography-pipeline|0ceeb1e3941f5b5b81049a50568edc6c6f917087|2026-10-11T21:07:45+02:00",
+        "refs/heads/fix/portal-access-diagnostics-20261011|1a6adf0e7b31f1b72e1fa0a3889de915c54bce0e|2026-10-11T22:43:25+02:00",
+        "refs/heads/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/HEAD|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00",
+        "refs/remotes/origin/master|15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00"
+      ]
+    },
+    {
+      "id": "s029",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\packaging-verification",
+      "git": true,
+      "head": "a8533752adcc6c5d527c337a3ec5071f6bc1196c|2026-10-05T12:24:34+02:00|Local preserved baseline; no production connection",
+      "branch": "",
+      "refs": [
+        "refs/heads/sandbox/thumbnail-pipeline|8354367878d09e859685618c52eb4bfaf0093fff|2026-10-05T13:08:42+02:00",
+        "refs/remotes/origin/HEAD|8354367878d09e859685618c52eb4bfaf0093fff|2026-10-05T13:08:42+02:00",
+        "refs/remotes/origin/master|a8533752adcc6c5d527c337a3ec5071f6bc1196c|2026-10-05T12:24:34+02:00",
+        "refs/remotes/origin/sandbox/thumbnail-pipeline|8354367878d09e859685618c52eb4bfaf0093fff|2026-10-05T13:08:42+02:00"
+      ]
+    },
+    {
+      "id": "s030",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\shared-thumbnails",
+      "git": true,
+      "head": "fc5998b7b787060ae40a99c031432d3e890c8104|2026-10-08T03:15:44+02:00|Reuse thumbnail infrastructure in shared API and frontend-v2",
+      "branch": "master",
+      "refs": [
+        "refs/heads/master|fc5998b7b787060ae40a99c031432d3e890c8104|2026-10-08T03:15:44+02:00"
+      ]
+    },
+    {
+      "id": "s031",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\shared-thumbnails-baseline",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s032",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\thumbnail-close\\candidate",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s033",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\thumbnail-close\\production-baseline",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s034",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\thumbnail-sandbox",
+      "git": true,
+      "head": "8354367878d09e859685618c52eb4bfaf0093fff|2026-10-05T13:08:42+02:00|Selective thumbnails: isolated worker, bounded fetching, offline benchmarks and real UI fixture integration",
+      "branch": "sandbox/thumbnail-pipeline",
+      "refs": [
+        "refs/heads/master|a8533752adcc6c5d527c337a3ec5071f6bc1196c|2026-10-05T12:24:34+02:00",
+        "refs/heads/sandbox/thumbnail-pipeline|8354367878d09e859685618c52eb4bfaf0093fff|2026-10-05T13:08:42+02:00"
+      ]
+    },
+    {
+      "id": "s035",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "git": true,
+      "head": "b8846ea0f757819bfd77986dd9b24dff51da885c|2026-10-17T16:45:13+02:00|Add read-only published fields maturity audit with PostgreSQL fixture validation",
+      "branch": "diag/published-fields-maturity-20261017",
+      "refs": [
+        "refs/heads/diag/published-fields-maturity-20261017|b8846ea0f757819bfd77986dd9b24dff51da885c|2026-10-17T16:45:13+02:00",
+        "refs/heads/feat/valoria-v2-resumen|5288dded72df3608d495eb9b2bedb3e1839996dc|2026-09-29T23:10:08+02:00",
+        "refs/heads/fix/discovery-deduplicated-admissions|0eb2aaa412e34c3b56c5c6e103544ce828122d6a|2026-10-16T17:10:39+02:00",
+        "refs/heads/fix/discovery-same-day-published-fields|f8109193877593d72e6b4589f9d57fc8dde2a077|2026-10-16T12:48:27+02:00",
+        "refs/heads/fix/oracle-uf-resilient-ingestion-20261015|e5f4a0077f8471e0f9ebabba6de1a858af6875cd|2026-10-15T14:22:40+02:00",
+        "refs/heads/fix/portal-location-coverage-2a|4d71abbc03ae1bc46416e2df10ca7534c122145f|2026-10-15T16:05:09+02:00",
+        "refs/heads/fix/source-published-property-fields|603f842fd931ba1ee2ca215168eb6a1c48921fb6|2026-10-16T01:44:17+02:00",
+        "refs/heads/fix/yapo-distinct-provider-property-reference|35933e67e9ccd17a818def7a8e47319bbde203a2|2026-10-16T17:30:37+02:00",
+        "refs/remotes/origin/HEAD|5288dded72df3608d495eb9b2bedb3e1839996dc|2026-09-29T23:10:08+02:00",
+        "refs/remotes/origin/codex/oracle-beta-runtime|32f23a66f73fe01bd89d005afd1503c6ae684b6e|2026-07-23T12:03:25Z",
+        "refs/remotes/origin/feat/valoria-v2-resumen|5288dded72df3608d495eb9b2bedb3e1839996dc|2026-09-29T23:10:08+02:00",
+        "refs/remotes/origin/fix/discovery-deduplicated-admissions|0eb2aaa412e34c3b56c5c6e103544ce828122d6a|2026-10-16T17:10:39+02:00",
+        "refs/remotes/origin/fix/discovery-same-day-published-fields|f8109193877593d72e6b4589f9d57fc8dde2a077|2026-10-16T12:48:27+02:00",
+        "refs/remotes/origin/fix/oracle-uf-resilient-ingestion-20261015|e5f4a0077f8471e0f9ebabba6de1a858af6875cd|2026-10-15T14:22:40+02:00",
+        "refs/remotes/origin/fix/portal-location-coverage-2a|4d71abbc03ae1bc46416e2df10ca7534c122145f|2026-10-15T16:05:09+02:00",
+        "refs/remotes/origin/fix/source-published-property-fields|603f842fd931ba1ee2ca215168eb6a1c48921fb6|2026-10-16T01:44:17+02:00",
+        "refs/remotes/origin/fix/yapo-distinct-provider-property-reference|35933e67e9ccd17a818def7a8e47319bbde203a2|2026-10-16T17:30:37+02:00",
+        "refs/remotes/origin/reconcile/production-baseline-20260925|738536943ebd55d050582eb9c867750c487f6450|2026-09-26T18:32:08+02:00",
+        "refs/remotes/origin/release/canonical-only-reproducible-20261013|29eaa0b3f3543c57e1e596eda2fb64e527d3f65a|2026-10-16T17:32:46+02:00"
+      ]
+    },
+    {
+      "id": "s036",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\github-legacy-entrypoints",
+      "git": true,
+      "head": "a2a9045cadbfc90ebd9694f6f5f6ea6f61c86b62|2026-10-12T21:06:26+02:00|Route legacy homepage and login to the V2 public entry points",
+      "branch": "release/valoria-legacy-entrypoints-20261012",
+      "refs": [
+        "refs/heads/codex/cloud-beta-preparation|7222e516eb86420ccf20d2b2b221b07ac2154f0f|2026-07-23T12:26:28+02:00",
+        "refs/heads/diag/valuation-production-trace-20261013|ecf973e46289ac42c2dc79e6c6e98598bce40972|2026-10-13T18:36:06+02:00",
+        "refs/heads/fix/canonical-price-basis-20261013|93c52a558b01e81e16d0558f57188217e994ac7c|2026-10-13T17:59:18+02:00",
+        "refs/heads/release/canonical-only-reproducible-20261013|3e6782a16d92b6f2284e96b47b429bf8cb6c27c3|2026-10-13T21:13:13+02:00",
+        "refs/heads/release/radar-tasar-engine-20261013|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+        "refs/heads/release/valoria-legacy-entrypoints-20261012|a2a9045cadbfc90ebd9694f6f5f6ea6f61c86b62|2026-10-12T21:06:26+02:00",
+        "refs/heads/release/valoria-v2-20261012|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+        "refs/heads/release/valoria-v2-entrypoints-20261012|cd071596d51b8245569e515ed85493fca76fa80e|2026-10-13T00:04:41+02:00",
+        "refs/remotes/origin/HEAD|7222e516eb86420ccf20d2b2b221b07ac2154f0f|2026-07-23T12:26:28+02:00",
+        "refs/remotes/origin/codex/cloud-beta-preparation|7222e516eb86420ccf20d2b2b221b07ac2154f0f|2026-07-23T12:26:28+02:00",
+        "refs/remotes/origin/codex/oracle-beta-runtime|ccacde8b499de0a2a60ffa39563172f6b9b8cf3d|2026-07-16T11:50:51+02:00",
+        "refs/remotes/origin/diag/valuation-production-trace-20261013|ecf973e46289ac42c2dc79e6c6e98598bce40972|2026-10-13T18:36:06+02:00",
+        "refs/remotes/origin/fix/canonical-price-basis-20261013|93c52a558b01e81e16d0558f57188217e994ac7c|2026-10-13T17:59:18+02:00",
+        "refs/remotes/origin/release/canonical-only-reproducible-20261013|3e6782a16d92b6f2284e96b47b429bf8cb6c27c3|2026-10-13T21:13:13+02:00",
+        "refs/remotes/origin/release/radar-tasar-engine-20261013|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+        "refs/remotes/origin/release/valoria-legacy-entrypoints-20261012|a2a9045cadbfc90ebd9694f6f5f6ea6f61c86b62|2026-10-12T21:06:26+02:00",
+        "refs/remotes/origin/release/valoria-v2-20261012|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+        "refs/remotes/origin/release/valoria-v2-entrypoints-20261012|cd071596d51b8245569e515ed85493fca76fa80e|2026-10-13T00:04:41+02:00"
+      ]
+    },
+    {
+      "id": "s037",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\github-release",
+      "git": true,
+      "head": "3e6782a16d92b6f2284e96b47b429bf8cb6c27c3|2026-10-13T21:13:13+02:00|Prepare complete Git-backed canonical-only API release with source and sample guards",
+      "branch": "release/canonical-only-reproducible-20261013",
+      "refs": [
+        "refs/heads/codex/cloud-beta-preparation|7222e516eb86420ccf20d2b2b221b07ac2154f0f|2026-07-23T12:26:28+02:00",
+        "refs/heads/diag/valuation-production-trace-20261013|ecf973e46289ac42c2dc79e6c6e98598bce40972|2026-10-13T18:36:06+02:00",
+        "refs/heads/fix/canonical-price-basis-20261013|93c52a558b01e81e16d0558f57188217e994ac7c|2026-10-13T17:59:18+02:00",
+        "refs/heads/release/canonical-only-reproducible-20261013|3e6782a16d92b6f2284e96b47b429bf8cb6c27c3|2026-10-13T21:13:13+02:00",
+        "refs/heads/release/radar-tasar-engine-20261013|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+        "refs/heads/release/valoria-legacy-entrypoints-20261012|a2a9045cadbfc90ebd9694f6f5f6ea6f61c86b62|2026-10-12T21:06:26+02:00",
+        "refs/heads/release/valoria-v2-20261012|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+        "refs/heads/release/valoria-v2-entrypoints-20261012|cd071596d51b8245569e515ed85493fca76fa80e|2026-10-13T00:04:41+02:00",
+        "refs/remotes/origin/HEAD|7222e516eb86420ccf20d2b2b221b07ac2154f0f|2026-07-23T12:26:28+02:00",
+        "refs/remotes/origin/codex/cloud-beta-preparation|7222e516eb86420ccf20d2b2b221b07ac2154f0f|2026-07-23T12:26:28+02:00",
+        "refs/remotes/origin/codex/oracle-beta-runtime|ccacde8b499de0a2a60ffa39563172f6b9b8cf3d|2026-07-16T11:50:51+02:00",
+        "refs/remotes/origin/diag/valuation-production-trace-20261013|ecf973e46289ac42c2dc79e6c6e98598bce40972|2026-10-13T18:36:06+02:00",
+        "refs/remotes/origin/fix/canonical-price-basis-20261013|93c52a558b01e81e16d0558f57188217e994ac7c|2026-10-13T17:59:18+02:00",
+        "refs/remotes/origin/release/canonical-only-reproducible-20261013|3e6782a16d92b6f2284e96b47b429bf8cb6c27c3|2026-10-13T21:13:13+02:00",
+        "refs/remotes/origin/release/radar-tasar-engine-20261013|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+        "refs/remotes/origin/release/valoria-legacy-entrypoints-20261012|a2a9045cadbfc90ebd9694f6f5f6ea6f61c86b62|2026-10-12T21:06:26+02:00",
+        "refs/remotes/origin/release/valoria-v2-20261012|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+        "refs/remotes/origin/release/valoria-v2-entrypoints-20261012|cd071596d51b8245569e515ed85493fca76fa80e|2026-10-13T00:04:41+02:00"
+      ]
+    },
+    {
+      "id": "s038",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\oracle-overlay-before",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s039",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\radar-engine-candidate",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s040",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\release-overlay-v2\\overlay",
+      "git": false,
+      "head": "c4fa6b53510bdf716fc76607ddc38bd03da2c07e|2026-10-12T14:12:17+02:00|Snapshot reviewed Valoria API remediation overlay",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s041",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\release-overlay-v3\\overlay",
+      "git": false,
+      "head": "41773aafbc2b731fbc5d4de5049697806c01ff96|2026-10-12T14:18:28+02:00|Snapshot reviewed Valoria API remediation overlay",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s042",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\release-overlay-v4\\overlay",
+      "git": false,
+      "head": "ba31bf3c8d2e05541c67813d0ab7abfce67b5cee|2026-10-12T19:14:38+02:00|Snapshot reviewed Valoria API remediation overlay",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s043",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\release-overlay-v5\\overlay",
+      "git": false,
+      "head": "b49c07df08a15df430a51d78f2bbfa3b7c1e2a1c|2026-10-12T19:24:39+02:00|Snapshot reviewed Valoria API remediation overlay",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s044",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\release-overlay-v6\\overlay",
+      "git": false,
+      "head": "e6672398e5ca205962d370cc17f9361c70fe6c90|2026-10-12T19:55:12+02:00|Snapshot reviewed Valoria API remediation overlay",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s045",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\release-overlay\\overlay",
+      "git": false,
+      "head": "9d6da653af28d0ff661ec26e476a77dac46eeb7f|2026-10-12T14:03:41+02:00|Snapshot reviewed Valoria API remediation overlay",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s046",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-17\\files-pasted-by-the-user-codex\\work\\valoria",
+      "git": true,
+      "head": "3acdb04e69b220cf79f8ff586591271e3d2b9206|2026-10-19T17:55:24+02:00|Audit SII linkage prerequisites and stop on insufficient source coverage",
+      "branch": "feature/sii-linkage-phase2a-20261019",
+      "refs": [
+        "refs/heads/feature/sii-ingest-20261017|09a5862e14e3f34ea3010aca7e4098a0c8a60a7b|2026-10-19T17:31:41+02:00",
+        "refs/heads/feature/sii-linkage-phase2a-20261019|3acdb04e69b220cf79f8ff586591271e3d2b9206|2026-10-19T17:55:24+02:00",
+        "refs/heads/release/canonical-only-reproducible-20261013|29eaa0b3f3543c57e1e596eda2fb64e527d3f65a|2026-10-16T17:32:46+02:00",
+        "refs/remotes/origin/release/canonical-only-reproducible-20261013|24b56dc6fe626d19834bcd6707a9b77d1d3d44c7|2026-10-19T17:42:53+02:00",
+        "refs/remotes/origin/research/sii-cross-reference|0d3db6243e97ed035412c54cb6ced6654b3e60b3|2026-10-17T16:51:19+02:00"
+      ]
+    },
+    {
+      "id": "s047",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-19\\segunda-capa-sii-tasar-desde-la\\work\\valoria",
+      "git": true,
+      "head": "c71b234906b973c79486fa966882f2f59893a090|2026-10-20T12:09:24+02:00|Support exact SII role search and role-based second opinion",
+      "branch": "feature/sii-closing-layer-20261019",
+      "refs": [
+        "refs/heads/feature/sii-closing-layer-20261019|c71b234906b973c79486fa966882f2f59893a090|2026-10-20T12:09:24+02:00",
+        "refs/heads/feature/sii-linkage-phase2a-20261019|3acdb04e69b220cf79f8ff586591271e3d2b9206|2026-10-19T17:55:24+02:00",
+        "refs/remotes/origin/HEAD|3acdb04e69b220cf79f8ff586591271e3d2b9206|2026-10-19T17:55:24+02:00",
+        "refs/remotes/origin/feature/sii-closing-layer-20261019|c71b234906b973c79486fa966882f2f59893a090|2026-10-20T12:09:24+02:00",
+        "refs/remotes/origin/feature/sii-ingest-20261017|09a5862e14e3f34ea3010aca7e4098a0c8a60a7b|2026-10-19T17:31:41+02:00",
+        "refs/remotes/origin/feature/sii-linkage-phase2a-20261019|3acdb04e69b220cf79f8ff586591271e3d2b9206|2026-10-19T17:55:24+02:00",
+        "refs/remotes/origin/release/canonical-only-reproducible-20261013|24b56dc6fe626d19834bcd6707a9b77d1d3d44c7|2026-10-19T17:42:53+02:00"
+      ]
+    },
+    {
+      "id": "s048",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-25\\contin-a-el-proyecto-valoria-desde\\work\\valoria",
+      "git": false,
+      "head": "",
+      "branch": "",
+      "refs": []
+    },
+    {
+      "id": "s068",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-16\\uf-error-reintentar-x20\\outputs\\valoria",
+      "git": true,
+      "head": "9d55347e33dd12069edd51630aca15a88d14a295|2026-10-17T13:09:16+02:00|Document Windows socket access blocker after authorized rename attempts",
+      "branch": "feature/property-life",
+      "refs": [
+        "refs/heads/feature/property-life|9d55347e33dd12069edd51630aca15a88d14a295|2026-10-17T13:09:16+02:00"
+      ]
+    },
+    {
+      "id": "git-3d1edc626e7e",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\reconciliation\\oracle-integration",
+      "head": "3d1edc626e7e5ca83aea0b457d855070ac39bbbc",
+      "ref": "refs/heads/master"
+    },
+    {
+      "id": "git-a51965265a14",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-2",
+      "head": "a51965265a141a41c4c8a4dd3b9ba271b1908fd8",
+      "ref": "refs/heads/master"
+    },
+    {
+      "id": "git-82c120fd78a5",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-3",
+      "head": "82c120fd78a501a654c8d0ed6076f4ed25cc8c87",
+      "ref": "refs/heads/master"
+    },
+    {
+      "id": "git-f0bfa48f1bfe",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-4",
+      "head": "f0bfa48f1bfee3b0892abd1b4a5d55b538b80305",
+      "ref": "refs/heads/master"
+    },
+    {
+      "id": "git-48b0db6003a0",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-1",
+      "head": "48b0db6003a0fa2c62eb9de6f60e61babf68ba77",
+      "ref": "refs/heads/master"
+    },
+    {
+      "id": "git-1bb0b9d013af",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-2",
+      "head": "1bb0b9d013af634fb091d1e86ac251879d0fbc5d",
+      "ref": "refs/heads/master"
+    },
+    {
+      "id": "git-ee9890a98f25",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-3",
+      "head": "ee9890a98f25fe98977c28c246d1ada167a43888",
+      "ref": "refs/heads/master"
+    },
+    {
+      "id": "git-768fa6e6add7",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-4",
+      "head": "768fa6e6add75b35e9a60b38cd09c4fea666c9d6",
+      "ref": "refs/heads/master"
+    },
+    {
+      "id": "git-0ceeb1e3941f",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\worktrees\\portal-geography-baseline",
+      "head": "0ceeb1e3941f5b5b81049a50568edc6c6f917087",
+      "ref": "refs/heads/feat/portal-geography-pipeline | refs/heads/feat/portal-geography-pipeline"
+    },
+    {
+      "id": "git-a8533752adcc",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\packaging-verification",
+      "head": "a8533752adcc6c5d527c337a3ec5071f6bc1196c",
+      "ref": "refs/remotes/origin/master | refs/heads/master"
+    },
+    {
+      "id": "git-0eb2aaa412e3",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "head": "0eb2aaa412e34c3b56c5c6e103544ce828122d6a",
+      "ref": "refs/heads/fix/discovery-deduplicated-admissions | refs/remotes/origin/fix/discovery-deduplicated-admissions"
+    },
+    {
+      "id": "git-f81091938775",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "head": "f8109193877593d72e6b4589f9d57fc8dde2a077",
+      "ref": "refs/heads/fix/discovery-same-day-published-fields | refs/remotes/origin/fix/discovery-same-day-published-fields"
+    },
+    {
+      "id": "git-e5f4a0077f84",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "head": "e5f4a0077f8471e0f9ebabba6de1a858af6875cd",
+      "ref": "refs/heads/fix/oracle-uf-resilient-ingestion-20261015 | refs/remotes/origin/fix/oracle-uf-resilient-ingestion-20261015"
+    },
+    {
+      "id": "git-4d71abbc03ae",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "head": "4d71abbc03ae1bc46416e2df10ca7534c122145f",
+      "ref": "refs/heads/fix/portal-location-coverage-2a | refs/remotes/origin/fix/portal-location-coverage-2a"
+    },
+    {
+      "id": "git-603f842fd931",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "head": "603f842fd931ba1ee2ca215168eb6a1c48921fb6",
+      "ref": "refs/heads/fix/source-published-property-fields | refs/remotes/origin/fix/source-published-property-fields"
+    },
+    {
+      "id": "git-35933e67e9cc",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "head": "35933e67e9ccd17a818def7a8e47319bbde203a2",
+      "ref": "refs/heads/fix/yapo-distinct-provider-property-reference | refs/remotes/origin/fix/yapo-distinct-provider-property-reference"
+    },
+    {
+      "id": "git-29eaa0b3f354",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "head": "29eaa0b3f3543c57e1e596eda2fb64e527d3f65a",
+      "ref": "refs/remotes/origin/release/canonical-only-reproducible-20261013 | refs/heads/release/canonical-only-reproducible-20261013"
+    },
+    {
+      "id": "git-ecf973e46289",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\github-legacy-entrypoints",
+      "head": "ecf973e46289ac42c2dc79e6c6e98598bce40972",
+      "ref": "refs/heads/diag/valuation-production-trace-20261013 | refs/remotes/origin/diag/valuation-production-trace-20261013 | refs/heads/diag/valuation-production-trace-20261013 | refs/remotes/origin/diag/valuation-production-trace-20261013"
+    },
+    {
+      "id": "git-93c52a558b01",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\github-legacy-entrypoints",
+      "head": "93c52a558b01e81e16d0558f57188217e994ac7c",
+      "ref": "refs/heads/fix/canonical-price-basis-20261013 | refs/remotes/origin/fix/canonical-price-basis-20261013 | refs/heads/fix/canonical-price-basis-20261013 | refs/remotes/origin/fix/canonical-price-basis-20261013"
+    },
+    {
+      "id": "git-c889f4d65ce1",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\github-legacy-entrypoints",
+      "head": "c889f4d65ce1fc7a145b72491a470bda728465c9",
+      "ref": "refs/heads/release/radar-tasar-engine-20261013 | refs/heads/release/valoria-v2-20261012 | refs/remotes/origin/release/radar-tasar-engine-20261013 | refs/remotes/origin/release/valoria-v2-20261012 | refs/heads/release/radar-tasar-engine-20261013 | refs/heads/release/valoria-v2-20261012 | refs/remotes/origin/release/radar-tasar-engine-20261013 | refs/remotes/origin/release/valoria-v2-20261012"
+    },
+    {
+      "id": "git-cd071596d51b",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\github-legacy-entrypoints",
+      "head": "cd071596d51b8245569e515ed85493fca76fa80e",
+      "ref": "refs/heads/release/valoria-v2-entrypoints-20261012 | refs/remotes/origin/release/valoria-v2-entrypoints-20261012 | refs/heads/release/valoria-v2-entrypoints-20261012 | refs/remotes/origin/release/valoria-v2-entrypoints-20261012"
+    },
+    {
+      "id": "git-09a5862e14e3",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-17\\files-pasted-by-the-user-codex\\work\\valoria",
+      "head": "09a5862e14e3f34ea3010aca7e4098a0c8a60a7b",
+      "ref": "refs/heads/feature/sii-ingest-20261017 | refs/remotes/origin/feature/sii-ingest-20261017"
+    },
+    {
+      "id": "git-3acdb04e69b2",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-17\\files-pasted-by-the-user-codex\\work\\valoria",
+      "head": "3acdb04e69b220cf79f8ff586591271e3d2b9206",
+      "ref": "refs/heads/feature/sii-linkage-phase2a-20261019 | refs/heads/feature/sii-linkage-phase2a-20261019 | refs/remotes/origin/feature/sii-linkage-phase2a-20261019"
+    },
+    {
+      "id": "git-24b56dc6fe62",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-17\\files-pasted-by-the-user-codex\\work\\valoria",
+      "head": "24b56dc6fe626d19834bcd6707a9b77d1d3d44c7",
+      "ref": "refs/remotes/origin/release/canonical-only-reproducible-20261013 | refs/remotes/origin/release/canonical-only-reproducible-20261013"
+    },
+    {
+      "id": "git-0d3db6243e97",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-17\\files-pasted-by-the-user-codex\\work\\valoria",
+      "head": "0d3db6243e97ed035412c54cb6ced6654b3e60b3",
+      "ref": "refs/remotes/origin/research/sii-cross-reference"
+    },
+    {
+      "id": "research-aux",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\research",
+      "head": "uncommitted experiments dated in folder names 2026-10"
+    },
+    {
+      "id": "latest-aux",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-25\\contin-a-el-proyecto-valoria-desde",
+      "head": "filesystem 2026-10-25"
+    },
+    {
+      "id": "aux-01",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero",
+      "head": "filesystem; date and content hash per file"
+    },
+    {
+      "id": "aux-02",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in",
+      "head": "filesystem; date and content hash per file"
+    },
+    {
+      "id": "aux-03",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria",
+      "head": "filesystem; date and content hash per file"
+    },
+    {
+      "id": "aux-04",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-16\\uf-error-reintentar-x20",
+      "head": "filesystem; date and content hash per file"
+    },
+    {
+      "id": "aux-05",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-17\\files-pasted-by-the-user-codex",
+      "head": "filesystem; date and content hash per file"
+    },
+    {
+      "id": "aux-06",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-19\\segunda-capa-sii-tasar-desde-la",
+      "head": "filesystem; date and content hash per file"
+    },
+    {
+      "id": "aux-07",
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-25\\contin-a-el-proyecto-valoria-desde",
+      "head": "filesystem; date and content hash per file"
+    }
+  ],
+  "current_codex_repositories": [
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\private-preservation-20260925\\local-complete",
+      "head": "08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6|2026-07-17T20:43:28+02:00|Add Portal Inmobiliario HTTP ingestion",
+      "branch": "codex/phase5c-apply-land-area-backfill",
+      "pending_status_entries": 235,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\private-preservation-20260925\\oracle-extracted\\valoria",
+      "head": "32f23a66f73fe01bd89d005afd1503c6ae684b6e|2026-07-23T12:03:25Z|Implement_Portal_card-first_discovery",
+      "branch": "codex/oracle-beta-runtime",
+      "pending_status_entries": 8,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\valoria-reconciled",
+      "head": "5288dded72df3608d495eb9b2bedb3e1839996dc|2026-09-29T23:10:08+02:00|Fix Yapo DOM price grouping and log safe rejection diagnostics",
+      "branch": "feat/valoria-v2-resumen",
+      "pending_status_entries": 137,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\reconciliation\\oracle-before",
+      "head": "52c4b001a4444d6bde88db2551a39717c71bf866|2026-10-04T16:24:26+02:00|Exact tracked Oracle snapshot 37bb918c3908594cf0cd6fc320e409dbb4a39f90",
+      "branch": "master",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\reconciliation\\oracle-integration",
+      "head": "3d1edc626e7e5ca83aea0b457d855070ac39bbbc|2026-10-04T16:24:29+02:00|Exact tracked Oracle snapshot 37bb918c3908594cf0cd6fc320e409dbb4a39f90",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-1",
+      "head": "d93a35d20bb14df78add01add3f78f9a76746ab3|2026-10-04T17:10:13+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-2",
+      "head": "a51965265a141a41c4c8a4dd3b9ba271b1908fd8|2026-10-04T17:11:42+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-3",
+      "head": "82c120fd78a501a654c8d0ed6076f4ed25cc8c87|2026-10-04T17:13:23+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\applied-4",
+      "head": "f0bfa48f1bfee3b0892abd1b4a5d55b538b80305|2026-10-04T17:14:26+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\baseline-reconciled",
+      "head": "928109126648d3be7c136976b884850c196018df|2026-10-04T17:09:56+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\baseline-reconciled-2",
+      "head": "f89121abf1c44a382d8d7b1a230c73c700b16a14|2026-10-04T17:11:25+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\baseline-reconciled-3",
+      "head": "089d87dc91698ad2885caabc4658827f1f20d3de|2026-10-04T17:13:08+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\baseline-reconciled-4",
+      "head": "15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\final-applied",
+      "head": "15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-1",
+      "head": "48b0db6003a0fa2c62eb9de6f60e61babf68ba77|2026-10-04T17:10:08+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-2",
+      "head": "1bb0b9d013af634fb091d1e86ac251879d0fbc5d|2026-10-04T17:11:36+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-3",
+      "head": "ee9890a98f25fe98977c28c246d1ada167a43888|2026-10-04T17:13:18+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\repack\\generation-4",
+      "head": "768fa6e6add75b35e9a60b38cd09c4fea666c9d6|2026-10-04T17:14:22+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\rollout\\production-applied-2",
+      "head": "15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\work\\ingestion-production-20261004\\rollout\\production-generation-2",
+      "head": "15fd7dc2bc0bc219d7b9df4f45574a553bb306c4|2026-10-04T17:14:12+02:00|Restore exact baseline test 00064072dccf2240017e3a3bdc59c2caf0c3e4ba21cfa4ecb79a5c6107820bec",
+      "branch": "master",
+      "pending_status_entries": 21,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\worktrees\\portal-geography-baseline",
+      "head": "5adc2564b1dcc68433c014f06058646c1b17d02b|2026-10-11T17:56:32+02:00|Record archived deployed ingestion and thumbnail source baseline",
+      "branch": "",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-09-05\\vamos-a-ped\\worktrees\\portal-geography-pipeline",
+      "head": "1a6adf0e7b31f1b72e1fa0a3889de915c54bce0e|2026-10-11T22:43:25+02:00|Preserve safe Portal access diagnostics and reject only visible challenges",
+      "branch": "fix/portal-access-diagnostics-20261011",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\packaging-verification",
+      "head": "a8533752adcc6c5d527c337a3ec5071f6bc1196c|2026-10-05T12:24:34+02:00|Local preserved baseline; no production connection",
+      "branch": "",
+      "pending_status_entries": 100,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\shared-thumbnails",
+      "head": "fc5998b7b787060ae40a99c031432d3e890c8104|2026-10-08T03:15:44+02:00|Reuse thumbnail infrastructure in shared API and frontend-v2",
+      "branch": "master",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-05\\files-pasted-by-the-user-quiero\\work\\thumbnail-sandbox",
+      "head": "8354367878d09e859685618c52eb4bfaf0093fff|2026-10-05T13:08:42+02:00|Selective thumbnails: isolated worker, bounded fetching, offline benchmarks and real UI fixture integration",
+      "branch": "sandbox/thumbnail-pipeline",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-11\\in\\work\\oracle-ingestion-resilience",
+      "head": "b8846ea0f757819bfd77986dd9b24dff51da885c|2026-10-17T16:45:13+02:00|Add read-only published fields maturity audit with PostgreSQL fixture validation",
+      "branch": "diag/published-fields-maturity-20261017",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\github-legacy-entrypoints",
+      "head": "a2a9045cadbfc90ebd9694f6f5f6ea6f61c86b62|2026-10-12T21:06:26+02:00|Route legacy homepage and login to the V2 public entry points",
+      "branch": "release/valoria-legacy-entrypoints-20261012",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\github-release",
+      "head": "3e6782a16d92b6f2284e96b47b429bf8cb6c27c3|2026-10-13T21:13:13+02:00|Prepare complete Git-backed canonical-only API release with source and sample guards",
+      "branch": "release/canonical-only-reproducible-20261013",
+      "pending_status_entries": 0,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-17\\files-pasted-by-the-user-codex\\work\\valoria",
+      "head": "3acdb04e69b220cf79f8ff586591271e3d2b9206|2026-10-19T17:55:24+02:00|Audit SII linkage prerequisites and stop on insufficient source coverage",
+      "branch": "feature/sii-linkage-phase2a-20261019",
+      "pending_status_entries": 6,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\2026-10-19\\segunda-capa-sii-tasar-desde-la\\work\\valoria",
+      "head": "c71b234906b973c79486fa966882f2f59893a090|2026-10-20T12:09:24+02:00|Support exact SII role search and role-based second opinion",
+      "branch": "feature/sii-closing-layer-20261019",
+      "pending_status_entries": 3,
+      "read_error": ""
+    },
+    {
+      "path": "C:\\Users\\heiko\\Documents\\Codex\\portal-http-deploy-tmp",
+      "head": "567c1d35a8d9c6f0822a6c9a82f738901f6ffad3|2026-07-17T20:54:31+02:00|Add Portal Inmobiliario HTTP ingestion",
+      "branch": "codex/portal-http-deploy",
+      "pending_status_entries": 0,
+      "read_error": ""
+    }
+  ],
+  "current_original_worktrees": [
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2",
+      "head": "08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6",
+      "branch": "codex/phase5c-apply-land-area-backfill",
+      "pending_status_entries": 235,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-cloud-beta",
+      "head": "065a041c84af0f47cc3fb81c67a4b66fc69efabd",
+      "branch": "codex/oracle-beta-runtime",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-cloud-beta\nHEAD 065a041c84af0f47cc3fb81c67a4b66fc69efabd\nbranch refs/heads/codex/oracle-beta-runtime"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-cursor",
+      "head": "237ce1b227498ed8cf6e622a150f049bb1831be5",
+      "branch": "cursor/frontend-work",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-cursor\nHEAD 237ce1b227498ed8cf6e622a150f049bb1831be5\nbranch refs/heads/cursor/frontend-work"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-dashboard-runtime-fixes",
+      "head": "ccacde8b499de0a2a60ffa39563172f6b9b8cf3d",
+      "branch": "codex/oracle-runtime-dashboard-recent-activity",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-dashboard-v2",
+      "head": "dfe73dfa795f76cb724ee55362ac1d39e694ce82",
+      "branch": "codex/dashboard-v2",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-local-baseline",
+      "head": "0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d",
+      "branch": "codex/local-baseline",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-local-baseline-v2",
+      "head": "cde15a434f523ae1847412c526162b939ce74390",
+      "branch": "codex/local-baseline-v2",
+      "pending_status_entries": 4,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-netlify-promote-d07b415",
+      "head": "01364d9a2f065269ddcd4c8e9db3927e77a44236",
+      "branch": "",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-oracle-adapt",
+      "head": "ac73e0b3fadb39880beee59bec83753427b9f706",
+      "branch": "codex/oracle-beta-runtime",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-oracle-adapt\nHEAD ac73e0b3fadb39880beee59bec83753427b9f706\nbranch refs/heads/codex/oracle-beta-runtime"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-patrimonio-mvp",
+      "head": "040f7b30962a377844ba76dc014a228eb71b2a6c",
+      "branch": "codex/patrimonio-mvp",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-portal-rescue",
+      "head": "aa996cf41872ab9e5d2d1b746e17c71a40543932",
+      "branch": "rescue/portal-http",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-tasar-v2",
+      "head": "f029a51436cf838bbf774ff14d7ad89a5022c64d",
+      "branch": "codex/tasar-v2",
+      "pending_status_entries": 4,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-wt-discovery-scheduler",
+      "head": "35d041afbd5c00f14849145899ed33987c42397b",
+      "branch": "codex/discovery-scheduler",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-wt-oracle-dashboard",
+      "head": "0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7",
+      "branch": "codex/oracle-dashboard-api",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-wt-oracle-patrimony",
+      "head": "52e181f5fb3b8bb528164136affb3b8c52c4d3d2",
+      "branch": "codex/oracle-patrimony-release",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-wt-oracle-radar",
+      "head": "eaa9eff748a9520cb0f96159122b9738d0c52767",
+      "branch": "codex/oracle-radar-fix",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-wt-patrimonio",
+      "head": "3f01933c8d65712900c566746e79c794ee032d26",
+      "branch": "codex/patrimonio-ui",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    },
+    {
+      "path": "C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2-wt-release-ui",
+      "head": "7222e516eb86420ccf20d2b2b221b07ac2154f0f",
+      "branch": "codex/release-tasar-patrimonio-radar",
+      "pending_status_entries": 0,
+      "worktrees": "worktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2\nHEAD 08fab1b41a4993596ecb161ffca5cc2f9c3f6cd6\nbranch refs/heads/codex/phase5c-apply-land-area-backfill\n\nworktree C:/Users/heiko/Documents/Codex/portal-http-deploy-tmp\nHEAD 567c1d35a8d9c6f0822a6c9a82f738901f6ffad3\nbranch refs/heads/codex/portal-http-deploy\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-runtime-fixes\nHEAD ccacde8b499de0a2a60ffa39563172f6b9b8cf3d\nbranch refs/heads/codex/oracle-runtime-dashboard-recent-activity\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-dashboard-v2\nHEAD dfe73dfa795f76cb724ee55362ac1d39e694ce82\nbranch refs/heads/codex/dashboard-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline\nHEAD 0a1a45d75b11f3c8ff6ecc0b8aadf040b237c26d\nbranch refs/heads/codex/local-baseline\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-local-baseline-v2\nHEAD cde15a434f523ae1847412c526162b939ce74390\nbranch refs/heads/codex/local-baseline-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-netlify-promote-d07b415\nHEAD 01364d9a2f065269ddcd4c8e9db3927e77a44236\ndetached\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-patrimonio-mvp\nHEAD 040f7b30962a377844ba76dc014a228eb71b2a6c\nbranch refs/heads/codex/patrimonio-mvp\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-portal-rescue\nHEAD aa996cf41872ab9e5d2d1b746e17c71a40543932\nbranch refs/heads/rescue/portal-http\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-tasar-v2\nHEAD f029a51436cf838bbf774ff14d7ad89a5022c64d\nbranch refs/heads/codex/tasar-v2\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-discovery-scheduler\nHEAD 35d041afbd5c00f14849145899ed33987c42397b\nbranch refs/heads/codex/discovery-scheduler\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-dashboard\nHEAD 0939c47ed1cdd65848d3efc0529c2f4e0d4ca7b7\nbranch refs/heads/codex/oracle-dashboard-api\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-patrimony\nHEAD 52e181f5fb3b8bb528164136affb3b8c52c4d3d2\nbranch refs/heads/codex/oracle-patrimony-release\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-oracle-radar\nHEAD eaa9eff748a9520cb0f96159122b9738d0c52767\nbranch refs/heads/codex/oracle-radar-fix\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-patrimonio\nHEAD 3f01933c8d65712900c566746e79c794ee032d26\nbranch refs/heads/codex/patrimonio-ui\n\nworktree C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2-wt-release-ui\nHEAD 7222e516eb86420ccf20d2b2b221b07ac2154f0f\nbranch refs/heads/codex/release-tasar-patrimonio-radar"
+    }
+  ],
+  "remote_refs_at_audit": [
+    "refs/remotes/origin/HEAD|7222e516eb86420ccf20d2b2b221b07ac2154f0f|2026-07-23T12:26:28+02:00",
+    "refs/remotes/origin/codex/cloud-beta-preparation|7222e516eb86420ccf20d2b2b221b07ac2154f0f|2026-07-23T12:26:28+02:00",
+    "refs/remotes/origin/codex/oracle-beta-runtime|ccacde8b499de0a2a60ffa39563172f6b9b8cf3d|2026-07-16T11:50:51+02:00",
+    "refs/remotes/origin/diag/valuation-production-trace-20261013|ecf973e46289ac42c2dc79e6c6e98598bce40972|2026-10-13T18:36:06+02:00",
+    "refs/remotes/origin/feature/sii-closing-layer-20261019|c71b234906b973c79486fa966882f2f59893a090|2026-10-20T12:09:24+02:00",
+    "refs/remotes/origin/feature/sii-ingest-20261017|09a5862e14e3f34ea3010aca7e4098a0c8a60a7b|2026-10-19T17:31:41+02:00",
+    "refs/remotes/origin/feature/sii-linkage-phase2a-20261019|3acdb04e69b220cf79f8ff586591271e3d2b9206|2026-10-19T17:55:24+02:00",
+    "refs/remotes/origin/fix/canonical-price-basis-20261013|93c52a558b01e81e16d0558f57188217e994ac7c|2026-10-13T17:59:18+02:00",
+    "refs/remotes/origin/fix/discovery-deduplicated-admissions|0eb2aaa412e34c3b56c5c6e103544ce828122d6a|2026-10-16T17:10:39+02:00",
+    "refs/remotes/origin/fix/discovery-same-day-published-fields|f8109193877593d72e6b4589f9d57fc8dde2a077|2026-10-16T12:48:27+02:00",
+    "refs/remotes/origin/fix/oracle-uf-resilient-ingestion-20261015|e5f4a0077f8471e0f9ebabba6de1a858af6875cd|2026-10-15T14:22:40+02:00",
+    "refs/remotes/origin/fix/portal-location-coverage-2a|4d71abbc03ae1bc46416e2df10ca7534c122145f|2026-10-15T16:05:09+02:00",
+    "refs/remotes/origin/fix/source-published-property-fields|603f842fd931ba1ee2ca215168eb6a1c48921fb6|2026-10-16T01:44:17+02:00",
+    "refs/remotes/origin/fix/yapo-distinct-provider-property-reference|35933e67e9ccd17a818def7a8e47319bbde203a2|2026-10-16T17:30:37+02:00",
+    "refs/remotes/origin/release/canonical-only-reproducible-20261013|24b56dc6fe626d19834bcd6707a9b77d1d3d44c7|2026-10-19T17:42:53+02:00",
+    "refs/remotes/origin/release/radar-tasar-engine-20261013|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+    "refs/remotes/origin/release/valoria-legacy-entrypoints-20261012|a2a9045cadbfc90ebd9694f6f5f6ea6f61c86b62|2026-10-12T21:06:26+02:00",
+    "refs/remotes/origin/release/valoria-v2-20261012|c889f4d65ce1fc7a145b72491a470bda728465c9|2026-10-13T09:25:27+02:00",
+    "refs/remotes/origin/release/valoria-v2-entrypoints-20261012|cd071596d51b8245569e515ed85493fca76fa80e|2026-10-13T00:04:41+02:00",
+    "refs/remotes/origin/research/sii-cross-reference|0d3db6243e97ed035412c54cb6ced6654b3e60b3|2026-10-17T16:51:19+02:00"
+  ],
+  "unresolved_conflicts": "Variant source copies retained without merging. No independent history was merged."
+}

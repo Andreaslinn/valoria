@@ -1,0 +1,70 @@
+from pathlib import Path
+import shutil,subprocess
+r=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+o=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\outputs')
+p=r/'docs/audits/valoria-v2-remediation.md'
+s=p.read_text(encoding='utf-8')
+s+='''
+### Final corrected regression result
+
+Full `python -m pytest tests/unit tests/integration -q -p no:cacheprovider --tb=short`: **1,928 passed,4 failed**,9 deprecation warnings,87.37seconds. Four failures are the two Nominatim expectations and the two refresh/alert-chain failures described above. ZIP size failure did not repeat and is intermittent. Fingerprint failures are corrected. Focused final58 passed and frontend7 passed. Do not sum overlapping test groups as unique coverage.
+
+The #20 thumbnail-related local gap recorded earlier in this ledger is superseded by #14; the local actual OpenAPI gate still needs explicit execution in addition to synthetic schema tests. Oracle remains incompatible. No deployment or production mutation took place.
+'''
+p.write_text(s,encoding='utf-8');shutil.copy2(p,o/p.name)
+shutil.copy2(o.parent/'work/regression-corrected.log',o/'regression-corrected.log')
+status=subprocess.run(['git','status','--short'],cwd=r,text=True,capture_output=True).stdout
+stat=subprocess.run(['git','diff','--stat'],cwd=r,text=True,capture_output=True).stdout
+(o/'working-tree-inventory.txt').write_text('WARNING: includes pre-existing uncommitted work; this is not a task-exclusive patch. No commits created. Baseline HEAD5288dde.\n\n'+status+'\n'+stat,encoding='utf-8')
+(o/'executive-summary.md').write_text('''# Valoria V2 remediation — implementation and validation checkpoint
+
+The effort is **not fully accepted or deployed**. All21 findings have an explicit classification. Local code corrections were made across identity, analyzer, lifecycle, period, warnings, reports, saved status, search, alerts, thumbnails and navigation. Oracle remains on its original image.
+
+## Corrected locally
+
+- #1: reliable publication identity exclusion before all valuation strategies and Radar, with duplicate/source isolation tests.
+- #2: indexed Portal source/external-ID lookup, canonical slug/tracking and withdrawn listing support; running Portal analyzer still lacks support.
+- #3/#6: complete Chilean calendar periods shared by market activity measures; preserved nullable last-observed dates.
+- #4: Radar estimate matches its baseline discount, with explicit distinction from Tasar consensus/surface methods.
+- #5: withdrawn/historical status survives analyzer/lookup and is presented explicitly.
+- #7: shared warning definitions across V2/report/Radar, including cautious unknown-code fallback.
+- #8: normalized saved-portfolio title/commune search, no per-keystroke request.
+- #10/#11: separate analysis/risk report availability and corrected V2 destination wording.
+- #14: reuse Oracle signed derived-thumbnail mechanism; lazy loading and no-image/failure fallback.
+- #15: per-user idempotent read acknowledgements and retained alert history; additive migration pending PostgreSQL rehearsal.
+- #17: real office coverage investigated: zero active offices; minimum sample retained and limitation shown.
+- #18: confirmed title/category contradiction for6842; conservative valuation/Radar guard; production row unchanged.
+- #19/#20: architecture/limitations guide and reusable GET-only deployment gate.
+
+## Implemented but acceptance remains incomplete
+
+- #9: report comparison values, warnings and comparable identities/links retained in a supplemental evidence section. Older primary report wording needs consistency review and visual export verification.
+- #12: main Radar action carries one-time editable analyzer URL. Secondary anchor behavior and browser history/refresh need review.
+- #13: saved status loads from authenticated endpoint and save waits for it. Delayed-response/account changes and real-account desktop behavior are unverified.
+- #21: shared session reset handles same-tab token changes, cross-tab token storage events and expiry without clearing a newer token. Actual desktop scenarios are blocked.
+- #16: full patrimonial asset/preferences/strategy UI deferred pending product scope; existing backend capabilities documented honestly.
+
+## Verification
+
+- Full backend regression: **1,928 passed,4 failed**,9 warnings. The four remaining failures cover two Av/Avenida geocoding expectations, refresh-to-alerts chain with zero evaluated listings and a real refresh fixture rejected for price_clp0. These adjacent paths were not altered to conceal failures. Their pre-remediation baseline is not conclusively established.
+- Initial ZIP embedded-size mismatch did not reproduce on the second full run; recorded as intermittent.
+- Final focused backend follow-up:58 passed, including corrected deployment fingerprint, Radar services, warnings and report evidence.
+- Frontend behavioral regressions:7 passed, including session invalidation, Radar arithmetic, historical state, warning taxonomy, search, thumbnail validation and one-time prefill.
+- Production Next15.5.19 build/typecheck passed; no frontend publication.
+- Actual Oracle GET-only served contract: capability endpoint404 and six failing checks. Target identity, observation timestamps, ListingOut thumbnail and capability/fingerprint support are missing. Runtime Portal detector also rejects Portal.
+- Desktop tool stopped because it could not establish Chrome current URL confidently for policy enforcement. No browser-control workaround was attempted. Visual/cross-screen acceptance is NOT VERIFIED.
+
+## Changed files and commits
+
+Principal changes span `services/valuation.py`, `listing_url_lookup.py`, `listing_analysis.py`, `market_dashboard_overview.py`, `radar.py`, `reports.py`, `v2_contract.py`; API listing/valuation/Radar/watchlist/alerts/patrimony/health serializers; publication/type guards and warning definitions; alert repository/models/migration0021; V2 feature hooks/components/types/auth/client/search/thumbnails; focused tests and docs. See working-tree inventory for complete current paths. It includes pre-existing overlapping work and must not be treated as a task-exclusive patch.
+
+No commits were created because the checkout already contained overlapping uncommitted V2/Portal/spatial changes. HEAD remains5288dde. Existing production thumbnail modules were recovered unchanged to preserve the actual contract; they are not a newly invented pipeline.
+
+## Oracle deployment state and next actions
+
+**NOT DEPLOYED.** Current API image remains `valoria-portal-geo:0ceeb1e-20261011`. No production users, listings, history, scraper sessions/schedules, workers or paid services were modified.
+
+Do not deploy the older full local checkout. Reconcile an API-only overlay on the exact current runtime image, resolve remaining report/link/race acceptance and four regression failures, rehearse migration0021 on isolated PostgreSQL, validate a fresh backup/restore and image rollback, inspect resource headroom and scraper health, complete safe desktop scenarios, then deploy only when those gates pass. Verify real1130 self-exclusion,298 lifecycle, Portal known/new/historical cases, period reconciliation, thumbnail behavior and account isolation on the resulting served API.
+
+Detailed finding-by-finding evidence and limitations are in `valoria-v2-remediation.md`. This is a persisted continuation checkpoint, not a claim that work continues outside this active session.
+''',encoding='utf-8')

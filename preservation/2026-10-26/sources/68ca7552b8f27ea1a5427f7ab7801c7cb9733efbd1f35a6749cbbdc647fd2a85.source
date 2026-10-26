@@ -1,0 +1,7 @@
+import pathlib,subprocess
+root=pathlib.Path(__file__).resolve().parent/'patch'
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+for name in ['scripts/portal_card_first.py','workers/portal_geo_enrichment.py']:
+ r=subprocess.run(ssh+['docker exec valoria_oracle_beta-api-1 cat /app/'+name],capture_output=True,check=True)
+ p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(r.stdout)
+print('Exact deployed scraper sources saved for isolated patch')

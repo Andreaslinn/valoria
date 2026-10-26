@@ -1,0 +1,52 @@
+import json,hashlib,zipfile,difflib,xml.etree.ElementTree as ET
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent.parent;OUT=ROOT/'outputs/house-rules'
+PREVIOUS=ROOT/'outputs/micromarkets/Valoria_micromercados.zip'
+def sha(path):
+    h=hashlib.sha256()
+    with Path(path).open('rb') as f:
+        for x in iter(lambda:f.read(1024*1024),b''):h.update(x)
+    return h.hexdigest()
+extra=['services/sii/house_rules.py','services/sii/house_opinion.py','scripts/validate_house_rules.py',
+    'tests/unit/test_house_rules.py','tests/unit/test_house_rules_integration.py',
+    'frontend-v2/src/features/valuation/house-rules-candidate.tsx']
+changed=['services/sii/closing_opinion.py','api/sii_closing_contract.py',
+    'frontend-v2/src/features/valuation/sii-geographic-estimate.tsx']
+helpers=['export_house_rules.py','analyze_house_rules.py','benchmark_house_rules.py','complete_house_uf.py','package_house_rules.py']
+patch=[]
+with zipfile.ZipFile(PREVIOUS) as old:
+    for file in extra+changed:
+        name='work/valoria/'+file;before=old.read(name).decode() if name in old.namelist() else ''
+        after=(ROOT/name).read_text(encoding='utf8')
+        patch.extend(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile='a/'+file if before else '/dev/null',tofile='b/'+file))
+    assert sha(ROOT/'work/valoria/services/sii/closing_knn.py')==hashlib.sha256(old.read('work/valoria/services/sii/closing_knn.py')).hexdigest()
+(OUT/'changes.patch').write_text(''.join(patch),encoding='utf8')
+tests=ET.parse(OUT/'final-tests.xml').getroot().find('testsuite')
+evaluation=json.loads((OUT/'evaluation.json').read_text())
+manifest={'version':'vitacura-house-hard-rules-v1.1','previous_package_sha':sha(PREVIOUS),
+    'source':{f:sha(ROOT/'work/valoria'/f) for f in extra+changed},'input_hashes':evaluation['hashes'],
+    'files':{p.relative_to(OUT).as_posix():sha(p) for p in OUT.rglob('*') if p.is_file() and p.suffix!='.zip' and p.name not in ['manifest.json','package-sha256.json']},
+    'tests':{k:tests.attrib[k] for k in ['tests','failures','errors','skipped']},'typescript':'tsc --noEmit passed',
+    'promotion':evaluation['promotion'],'department_model':'baseline','published_house_model':'baseline',
+    'baseline_code_unchanged':True,'database_export_read_only':True,'f2890_rejoin':False,
+    'georeferencing_rebuild':False,'portal_yapo_data_used':False,'production_access':False,'deployment':False,
+    'network':'Three official SII annual UF tables2010-2012 only; no valuation-query network calls.',
+    'scope':'Vitacura houses only','limitations':evaluation['limitations']}
+(OUT/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf8')
+archive=OUT/'Valoria_Casas_R1_R11.zip'
+with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+    names=set()
+    with zipfile.ZipFile(PREVIOUS) as old:
+        for name in old.namelist():
+            if name.endswith('/'):continue
+            path=ROOT/name
+            if name.startswith('work/') and path.is_file():z.write(path,name)
+            else:z.writestr(name,old.read(name))
+            names.add(name)
+    for relative in ['work/valoria/'+p for p in extra]+['work/'+p for p in helpers]:
+        if relative not in names:z.write(ROOT/relative,relative)
+    for path in OUT.rglob('*'):
+        if path.is_file() and path.suffix!='.zip' and path.name!='package-sha256.json':z.write(path,path.relative_to(ROOT).as_posix())
+with zipfile.ZipFile(archive) as z:assert z.testzip() is None
+proof={'file':archive.name,'bytes':archive.stat().st_size,'sha256':sha(archive)}
+(OUT/'package-sha256.json').write_text(json.dumps(proof,indent=2),encoding='utf8');print(json.dumps(proof))

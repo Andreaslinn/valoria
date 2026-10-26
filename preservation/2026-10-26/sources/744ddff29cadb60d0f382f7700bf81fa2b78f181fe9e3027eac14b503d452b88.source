@@ -1,0 +1,6 @@
+import subprocess,json,pathlib
+p=pathlib.Path('/home/ubuntu/apps/valoria/scripts/run_portal_discovery_service.sh')
+print(p.read_text())
+for args in [['docker','exec','valoria_oracle_beta-api-1','pwd'],['docker','exec','valoria_oracle_beta-api-1','python','-c','import importlib.util; print(importlib.util.find_spec("playwright"))']]:
+ r=subprocess.run(args,capture_output=True,text=True);print(r.stdout,r.stderr)
+print(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1','--format','{{json .Mounts}}'],text=True))

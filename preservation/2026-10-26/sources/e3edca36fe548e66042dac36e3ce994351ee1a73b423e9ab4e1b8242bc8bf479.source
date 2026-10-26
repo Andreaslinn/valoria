@@ -1,0 +1,82 @@
+from pathlib import Path
+import json,re,shutil,hashlib,ast
+ROOT=Path(__file__).resolve().parents[1];W=ROOT/'work';O=ROOT/'outputs'
+R=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+E=R/'tests/e2e';E.mkdir(exist_ok=True)
+for src,dst in [('candidate_e2e.py','v2_browser_core.py'),('candidate_e2e_extra.py','v2_browser_recovery.py'),('candidate_e2e_final.py','v2_browser_sessions.py')]:
+ s=(W/src).read_text(encoding='utf-8-sig')
+ s=s.replace('import json,re,httpx,traceback','import os,json,re,httpx,traceback').replace('import json,re,httpx\n','import os,json,re,httpx\n')
+ s=s.replace("Path(r'C:\\Users\\heiko\\Documents\\Codex\\2026-10-12\\files-pasted-by-the-user-valoria\\work\\e2e')","Path(os.getenv('VALORIA_E2E_OUTPUT',str(Path(__file__).parent/'artifacts')))")
+ s=s.replace("ROOT=Path(__file__).parent/'e2e'","ROOT=Path(os.getenv('VALORIA_E2E_OUTPUT',str(Path(__file__).parent/'artifacts')))")
+ s=s.replace("BASE='http://127.0.0.1:3003';API='http://127.0.0.1:8013'","BASE=os.getenv('VALORIA_E2E_BASE_URL','http://127.0.0.1:3003');API=os.getenv('VALORIA_E2E_API_URL','http://127.0.0.1:8013')")
+ guard="\nfrom urllib.parse import urlparse\nassert all(urlparse(u).hostname in {'127.0.0.1','localhost'} for u in [BASE,API]), 'Synthetic browser tests require isolated loopback services'\nROOT.mkdir(parents=True,exist_ok=True)\n"
+ if dst!='v2_browser_sessions.py':
+  marker='results=[]' if dst=='v2_browser_core.py' else "login=httpx.post"
+  idx=s.index(marker);s=s[:idx]+guard+s[idx:]
+ ast.parse(s);(E/dst).write_text(s,encoding='utf-8')
+(E/'README.md').write_text('''# Controlled V2 browser acceptance
+
+These scripts are opt-in acceptance runs, separate from pytest discovery. They use Python Playwright with its installed Chromium, httpx and python-jose. Set VALORIA_E2E_BASE_URL and VALORIA_E2E_API_URL explicitly (defaults: loopback3003/8013), and optionally VALORIA_E2E_OUTPUT. Both services must be loopback and backed by a dedicated synthetic database. Never point them at a tunnel to production.
+
+Run v2_browser_core.py, v2_browser_recovery.py, then v2_browser_sessions.py. Each exits nonzero for a failed scenario and saves results, screenshots and a trace. Browser core expects a fresh unread alert for synthetic user1; reset only that dedicated fixture between runs. Sessions temporarily removes a synthetic saved listing then restores it and checks user isolation. Recovery injects HTTP failures only for named error scenarios; ordinary flows use the actual API/database.
+
+Fixture schema: migrate a fresh PostgreSQL database through0022. Seed candidate-a@example.test(admin), candidate-b@example.test(beta_user), candidate-empty@example.test(beta_user), password CandidateOnly123!, IDs1/2/3; listings1130/1131(canonical duplicate),298(removed, last_seen2026-06-05T16:23:39Z),3633(Portal MLC-4082793840),10000..10013 comparables. Users1/2 save1130/298/3633 and share unread price-drop alert1. Supply a clearly marked synthetic UF snapshot, a ready derived thumbnail for1130, and disabled scheduler/workers/on-demand refresh. The exact executed seed and environment are retained in the acceptance evidence folder. This is isolated test data, not a production seed command.
+
+16 executed scenarios cover real authentication, alert acknowledgements/reload/user isolation, withdrawn/saved contracts, actual downloaded report, derived thumbnails, one-time Radar prefill, navigation, same/other-tab session clearing, saved-status failure/recovery,403/429/500/503 presentation, empty account, deletion/cancel, marker selection, and a correctly signed expired session. Invalid-token and signed-expiry checks are separate.
+''',encoding='utf-8')
+statuses={
+1:('Fixed; local + candidate verified; Oracle pending','Actual restored1130 produced20 comparables, estimate3516.06UF; target and canonical equivalents excluded. Portfolio input carries target ID.'),
+2:('Fixed indexed lookup; new live acquisition BLOCKED; Oracle pending','Actual restored3633 resolves changed Portal slug and analyzes at2724.31UF. Offline new/withdrawn/challenge parser tests pass. Bounded new live URL hit upstream403/candidate502; successful new live acquisition remains unverified.'),
+3:('Fixed; local + real candidate API verified; Oracle pending','Nonzero7/30/90-day fixtures:1 new,1 removed,1 price-drop event; KPI equals daily sum and exposed commune totals. Chile calendar/DST boundaries retained.'),
+4:('Fixed; local + candidate API verified; Oracle pending','Radar estimate and discount share screening method; detailed Tasar may differ by documented valuation method.7 frontend tests and actual HTTP outputs retained.'),
+5:('Fixed; local + candidate browser/restored data verified; Oracle pending','Actual restored298 remains removed; synthetic298 displays historical lifecycle in analyzer/portfolio/downloaded report.'),
+6:('Fixed; local + candidate API/browser verified; Oracle pending','last_seen_at is serialized; historical report prominently preserves observation date. No availability claim.'),
+7:('Fixed; local + candidate report verified; Oracle pending','Shared warning definitions explain fallback and unknown codes; downloaded report retains warnings.'),
+8:('Fixed; local verified; browser breadth partial; Oracle pending','Normalized accent/title/commune/whitespace search regression passes. Exhaustive global search permutations not browser-tested.'),
+9:('Fixed; local + actual downloaded report verified; Oracle pending','Manual comparison prices/source/external IDs/comparable evidence retained. Historical report visually inspected.'),
+10:('Fixed; local + downloaded report verified; Oracle pending','Report captions honor provided comparison prices; historical banner distinguishes stored observations.'),
+11:('Fixed; local + candidate browser navigation verified; Oracle pending','Native V2 paths verified through actual navigation.'),
+12:('Fixed; local + candidate browser verified; Oracle pending','Secondary Radar analyzer link prefills URL once; reload consumes selection; error prevents navigation.'),
+13:('Fixed; local + candidate browser verified; Oracle pending','Initial saved status works; injected500 keeps save disabled; focus recovers through actual endpoint. Abort signal propagated.'),
+14:('Fixed; local + actual candidate thumbnail rendered; Oracle pending','Existing derived thumbnail contract/cache reused; actual signed image loads with positive natural width. Production thumbnail service/volume preserved.'),
+15:('Fixed; local + PostgreSQL/browser verified; Oracle pending','Read acknowledgement persists through reload and stays per-user.0022 migration rehearsed; production0021 history/triggers preserved.'),
+16:('DEFERRED product decision','Full patrimonial management UI was not invented. Existing routes remain documented.'),
+17:('Investigation complete; coverage absent','No real office coverage found in inspected production data; no office-support acceptance claim.'),
+18:('Contradiction confirmed; true type UNCONFIRMED','6842 title/category conflict guarded conservatively; production classification unchanged; source/manual confirmation still required.'),
+19:('Documentation updated locally','Architecture, warnings, deployment/migration notes, compatibility matrix and acceptance evidence updated.'),
+20:('Candidate contract PASS; deployed Oracle BLOCKED','Actual candidate OpenAPI/capability gate has zero failures; actual deployed API still has six failures/capability404. Candidate not activated.'),
+21:('16 controlled browser scenarios PASS; production desktop acceptance pending','Playwright deterministic navigation, DOM/network assertions, screenshots/traces executed. Map interaction passes; independent geographic truth and every possible race/latency permutation not claimed.')}
+ledger=R/'docs/audits/valoria-v2-remediation.md'
+s=ledger.read_text(encoding='utf-8')
+banner='''\n> **Authoritative continuation acceptance — 2026-10-12:** backend1935 passed/0 failed; frontend7 passed and final production build passed;16 controlled Playwright scenarios passed. Candidate image built and tested, never activated. Release verdict BLOCKED: required successful new live Portal acquisition remains unavailable (upstream403/candidate502). Deployed Oracle still fails six contract checks. The current acceptance lines below and appended checkpoint supersede earlier provisional classifications, migration0021 alert references, and desktop-blocked statements. No production app restart, migration or user-data test writes occurred.\n'''
+s=s.replace('# Valoria V2 remediation ledger','# Valoria V2 remediation ledger\n'+banner,1)
+for n,(status,evidence) in statuses.items():
+ pattern=rf'(### #{n} — [^\n]+\n)'
+ s=re.sub(pattern,lambda m:m[1]+f'\n- **Current continuation acceptance:** {status}. {evidence}\n',s,count=1)
+checkpoint='''
+## Final continuation checkpoint — release intentionally withheld
+
+- Four original failures resolved with demonstrable fixture/expectation corrections; full final suite1935 passed,9 deprecation warnings,290.27s. No skips or production guards weakened. Earlier intermittent ZIP manifest failure did not recur.
+- Six Oracle failures classified A/C (candidate implemented, older deployed runtime); thumbnail response shape also required preserving the typed production lookup schema (B). New live Portal success is separately F, not proof of successful acquisition from a capability flag.
+- Final immutable API overlay commit41773aafbc2b731fbc5d4de5049697806c01ff96; image valoria-remediation:candidate-20261012-v3, sha256:a3148c4ca46139f34f28d75a910c7c5e9ed51af86ac23ce56cdf131d0dc096a5; fingerprint0d7873228253e3d1ecd4e05c7c22540e72bcc5682e60d544799cd53215a40ebe. Earlier candidate images are superseded and must not deploy.
+- Production unchanged: valoria-portal-geo:0ceeb1e-20261011, sha256:3342a667c071319097e6c6aed23bfd03ec231f6bf44cd17434d6a0de13187f15. Host checkout06723a90d792221a2deecf22d635c221940dea6f is not asserted as exact image source commit. Original local mixed checkout remains HEAD5288dde, uncommitted; overlay snapshot is separate provenance.
+- Protected backup restored;7030 listings/5240 observations/7 users preserved through isolated0021->0022 rehearsal. UPDATE/DELETE/TRUNCATE history guards enforced. Old application can query restored upgraded schema. Rollback tag points to exact production digest; no destructive downgrade required. Production migration remains0021.
+- Final production health healthy; Yapo and Portal discovery latest services Result=success/ExecMainStatus0. Persistent volume identities and production start times unchanged. Backups and candidate image preparation are the only remote operational changes; no scraper/session/timer edits.
+- Next required action: successful permitted new Portal URL acquisition against the actual candidate, without bypassing upstream controls or changing acquisition sessions; repeat candidate gate. Then refresh backup/runtime/configuration/resource/worker prerequisites and activate only final API overlay using all five existing compose files plus a reviewed image-only override; apply0022 only, restart API only, verify served digest/fingerprint and six contract checks, and perform safe actual1130/298/Portal validation. Frontend deployment target/packaging must be reconciled separately before claiming deployed V2 browser acceptance. No release override was written or activated.
+- Continuation code changes include fixture clocks/price selector/normalized expectations, actual OpenAPI test, historical/manual report preservation, saved-state disabled guard/abort propagation, secondary prefill, production0021/observation ORM preservation,0022 and migration-chain regression, portfolio target propagation in overlay, expanded fingerprint, and reusable16-scenario browser scripts. Evidence lives in the final acceptance folder alongside this ledger.
+'''
+s+=checkpoint;ledger.write_text(s,encoding='utf-8');shutil.copy2(ledger,O/'valoria-v2-remediation.md');shutil.copy2(R/'docs/valoria-v2-architecture.md',O/'valoria-v2-architecture.md')
+table='| # | Finding | Current acceptance | Evidence / limit |\n|---|---|---|---|\n'
+titles={int(n):t for n,t in re.findall(r'### #(\d+) — ([^\n]+)',s)}
+for n in range(1,22):table+=f'| {n} | {titles[n]} | {statuses[n][0]} | {statuses[n][1]} |\n'
+(O/'findings-acceptance-matrix.md').write_text(table,encoding='utf-8')
+evidence=O/'acceptance-evidence';evidence.mkdir(exist_ok=True)
+files=['acceptance-final-backend.log','acceptance-final-build.log','continuation-four-baseline.log','phase1-focused.log','oracle-contract-gate.txt','candidate-image-gate.txt','candidate-restored-data-gate.txt','candidate-api-evidence.json','candidate-temporal-evidence.json','new-live-portal.json','oracle-backup-restore-evidence.json','oracle-migration-rollback-rehearsal.json','oracle-final-state.json','candidate-e2e.log','candidate-e2e-extra.log','candidate-e2e-final.log','seed_candidate.py','temporal_candidate.py','overlay-paths.json','oracle-overlay-review.diff']
+for name in files:shutil.copy2(W/name,evidence/name)
+shutil.copytree(W/'e2e',evidence/'e2e',dirs_exist_ok=True)
+shutil.copy2(W/'release-overlay-v3/manifest.json',evidence/'candidate-image-manifest.json')
+for name in ['v2_browser_core.py','v2_browser_recovery.py','v2_browser_sessions.py','README.md']:shutil.copy2(E/name,evidence/name)
+# Old failure screenshots remain as investigation history, not final failures; final JSON is authoritative.
+manifest={str(p.relative_to(evidence)):hashlib.sha256(p.read_bytes()).hexdigest() for p in evidence.rglob('*') if p.is_file()}
+(O/'acceptance-evidence-sha256.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+print('Persisted21 finding statuses, reusable browser suites, final evidence and ledger.')

@@ -1,0 +1,35 @@
+"""Validate outputs, input hashes, source parity and original-state integrity."""
+import subprocess,sys,json,csv
+from common import H,BASE,REPO,save,read,sha,inventory,research_inventory,table
+def run():
+    before=read(H/'integrity_before.json');after=dict(product=inventory(),prior_research=research_inventory())
+    assert before==after
+    assert read(H/'oracle_runtime_before.json')==read(H/'oracle_runtime_after.json')
+    assert all(r['matches'] for r in read(H/'deployed_parser_comparison.json').values())
+    assert read(H/'acquisition_access.json')['requests'][0]['status']==403
+    result=read(H/'results.json');assert result['modern_apt_usable']==892;assert result['identity']['groupings_built'] is False
+    assert result['identity']['metrics'].get('strong_links',0)==0
+    tests=subprocess.run([sys.executable,'-B','-m','unittest','discover','-s',str(H),'-p','test_ingestion.py','-v'],capture_output=True,text=True)
+    (H/'tests_final.txt').write_text(tests.stdout+tests.stderr,encoding='utf-8');assert tests.returncode==0
+    selected=['signal_coverage.csv','parser_loss_map.csv','modern_cohort_membership.csv','cohort_distribution.csv','cohort_boundary_sensitivity.csv','identity_pair_evidence.csv','identity_cannot_links.csv','identity_results.json','acquisition_rounds.csv','results.json']
+    hashes={p:sha((H/p).read_bytes()) for p in selected}
+    p=subprocess.run([sys.executable,'-B',str(H/'analyze.py')],capture_output=True,text=True);assert p.returncode==0,p.stderr
+    assert hashes=={p:sha((H/p).read_bytes()) for p in selected},'Offline outputs not deterministic'
+    save('integrity_after.json',after)
+    save('verification.json',dict(tests_passed=16,proposed_patch_items_tested=20,offline_outputs_byte_identical=True,original_checkout_identical=True,original_files_hashed=len(after['product']['hashes']),original_git_status_entries=len(after['product']['status'].splitlines()),original_commit=after['product']['commit'],previous_research_unchanged=True,deployed_parser_files_match=9,oracle_operational_probe_unchanged=True,oracle_commands='docker ps; systemctl is-enabled/is-active; hashes of code; SELECT in READ ONLY with ROLLBACK',production_write_actions=[],migrations=[],model_runs=[],effective_live_requests=1,live_response=403,new_live_observations=0,portal_requests=0,source_input_hashes=read(H/'input_provenance.json'),git_status_unchanged=after['product']['status']))
+    md='''# Integridad y accesos
+Todo el trabajo persistente nuevo está dentro de research/tasar_modern_ingestion_20261002. Lista completa y SHA256: output_manifest.csv. No se modificó ningún archivo original de producto ni de las dos investigaciones anteriores. HEAD 5288dded72df3608d495eb9b2bedb3e1839996dc; 857 hashes y 60 entradas de git status preexistentes iguales antes/después.
+
+Local: consulta SELECT a contenedor dev PostgreSQL en READ ONLY/ROLLBACK. Oracle: docker ps, lectura de 9 hashes de código dentro del API, is-enabled/is-active de timers, y SELECT de listings activos en READ ONLY/ROLLBACK. Ningún comando de escritura/restauración/migración/deploy/restart/timer/configuración. Hashes del código Oracle = local normalizando LF; sondas antes/después idénticas; Yapo enabled/active, Portal disabled/inactive. Esto demuestra igualdad de lo inspeccionado y ausencia de acciones nuestras de modificación; no pretende demostrar inmovilidad de toda la BD bajo procesos productivos concurrentes.
+
+Yapo: un intento sin HTTP por restricción de conexión y una solicitud efectiva 403; parada inmediata, sin evasión. Portal: cero solicitudes. Imágenes: cero descargas. Ningún secreto/configuración de conexión fue impreso; variables POSTGRES_USER/DB se resuelven dentro de los contenedores. Los snapshots de listings con metadata pública/textos/ubicación se conservan en private/, no en los informes.
+
+16 pruebas finales OK; igualdad de la salida original del parser y de la propuesta sobre 20 cards reales; 10 outputs de análisis regenerados byte por byte iguales. Un test inicial de append-only encontró una restricción ACL del Temp de Windows; se movió el test al sandbox y pasó. Un fallo inicial de instrumentación (clave de resultado high) fue corregido antes de resultados finales. No se modificaron reglas para aumentar matches.
+
+No se entrenaron A/C1/C1-flex/C2/Consensus ni se calcularon métricas predictivas. No se ejecutaron normalización microzonas/H3/residual correction; solo se inventariaron campos históricos. No se reconstruyeron precios legacy, no hubo cambios productivos de identidad ni migraciones. Patch aislado pendiente de aprobación.
+'''
+    (H/'integrity_report.md').write_text(md,encoding='utf-8')
+    files=[p for p in H.rglob('*') if p.is_file() and p.name!='output_manifest.csv']
+    table('output_manifest.csv',[dict(path=str(p.relative_to(H)).replace('\\','/'),bytes=p.stat().st_size,sha256=sha(p.read_bytes()),classification='private' if 'private' in p.relative_to(H).parts else 'research_output') for p in sorted(files)])
+    print('Verified:',len(files),'files + manifest; 16 tests; 857 originals intact; Oracle read-only operational probe unchanged')
+if __name__=='__main__':run()

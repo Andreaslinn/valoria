@@ -1,0 +1,17 @@
+BEGIN TRANSACTION READ ONLY;
+SELECT json_build_object('listings', coalesce(json_agg(json_build_object(
+ 'id',id,'source',source,'external_id',external_id,'url',url,'title',title,
+ 'property_id',property_id,'comuna',comuna,'property_type',property_type,
+ 'm2',m2,'built_area_m2',built_area_m2,'usable_area_m2',usable_area_m2,
+ 'bedrooms',bedrooms,'bathrooms',bathrooms,'parking',parking,'lat',lat,'lon',lon,
+ 'created_at',created_at,'scraped_at',scraped_at,'geocode_precision',geocode_precision,
+ 'raw_metadata',json_build_object(
+  'address',raw_metadata->>'address','address_label',raw_metadata->>'address_label',
+  'street_hint',raw_metadata->>'street_hint','location_text',raw_metadata->>'location_text',
+  'normalized_address',raw_metadata->>'normalized_address','street_number',raw_metadata->>'street_number',
+  'unit',raw_metadata->>'unit','unit_number',raw_metadata->>'unit_number',
+  'building_name',raw_metadata->>'building_name','project_name',raw_metadata->>'project_name',
+  'coordinates_source',raw_metadata->>'coordinates_source','location_source',raw_metadata->>'location_source'),
+ 'existing_image_identifier_hash',md5(raw_metadata->>'main_image_url')
+)), '[]'::json)) FROM listings WHERE status='active';
+ROLLBACK;

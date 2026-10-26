@@ -1,0 +1,9 @@
+import { ApiError } from "@/lib/api/client";
+
+export function ufUnavailableMessage(error: unknown): string | null {
+  if (!(error instanceof ApiError) || error.status !== 503) return null;
+  const payload = error.payload;
+  if (!payload || typeof payload !== "object" || !("detail" in payload)) return null;
+  if (payload.detail !== "UF real no disponible") return null;
+  return "La UF no está disponible o no está vigente. No podemos completar este cálculo. Intenta nuevamente más tarde.";
+}

@@ -1,0 +1,36 @@
+// Read contracts: domain/portfolio/contracts.py and api/v1/{market,patrimony,auth}.py.
+export type Capability = { status: string; available: boolean; reason?: string | null };
+export type PortfolioItem = {
+  listing_id: number; watchlist_item_id: number; title: string; comuna: string;
+  property_type: string; m2: number | null; bedrooms: number; bathrooms: number;
+  published_price_uf: number | null; published_price_clp: number | null;
+  price_basis: string; url: string | null; listing_status: string;
+  avm: Capability & { estimated_value_uf: number | null; confidence: string | null; snapshot_created_at: string | null };
+  delta: Capability & { delta_pct: number | null; delta_uf: number | null };
+};
+export type PortfolioSummary = {
+  user_id: number; tracked_properties: number; unread_alert_count: number; items: PortfolioItem[];
+  history: Capability & { points: { snapshot_date: string; snapshot_at: string; average_estimated_value_uf: number; coverage_count: number; unavailable_count: number }[] };
+  average_avm_variation: Capability & { variation_pct: number | null; observation_window_days: number | null };
+  upside: Capability & { total_upside_uf: number | null; average_delta_pct: number | null };
+};
+export type SessionUser = { id: number; email: string; role: string; is_active: boolean };
+export type MarketOverview = {
+  status: string; cutoff_at: string; methodology: string;
+  scope: { period_days: number; property_type: string | null };
+  communes: { comuna: string; active_listings: number; new_listings: number; listings_with_price_drop: number; median_price_m2_uf: number | null; confidence: string }[];
+};
+export type PriceTrend = {
+  status: string; change_pct: number | null; source: string; warnings: string[]; reasons: string[];
+  points: { month: string; median_price_m2_uf: number; sample_count: number }[];
+};
+export type PatrimonyAlert = {
+  id: number; title: string; message: string; alert_type: string; severity: string;
+  property_name: string | null; created_at: string; read_at: string | null; dismissed_at: string | null;
+};
+
+export type MarketFlow = MarketOverview & {
+  daily_pulse: { date: string; new_listings: number; removed_or_inactive: number; price_drop_events: number }[];
+  overview: { new_listings: number; removed_or_inactive: number; listings_with_price_drop: number; price_drop_events: number };
+  coverage: { active_listings: number };
+};

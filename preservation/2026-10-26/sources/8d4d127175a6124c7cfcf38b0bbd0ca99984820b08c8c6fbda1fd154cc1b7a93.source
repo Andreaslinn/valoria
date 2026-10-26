@@ -1,0 +1,55 @@
+"""Price response, uncertainty and label leakage checks on controlled markets."""
+import copy
+import pytest
+from services.sii.micromarket import MicromarketKNN,precise
+from services.sii.closing_knn import ClosingKNN
+
+def market():
+    rows=[];geo={};land={}
+    for i in range(80):
+        rol=f'15160-{i+100}-1';west=i<40
+        rows.append(dict(rol=rol,raw_id=i,comuna=15160,block=i+100,kind='casa',date='2024-05-01',fi='2024-06-01',
+            area=180+i%5*10,year=1970+i%10,building=str(i),uf=(20000 if west else 40000)*(180+i%5*10)/200))
+        geo[rol]=dict(lat=-33.39+(i%8)*.0001,lon=-70.61 if west else -70.57,precision_m=25,quality='address_match',method='osm_direct')
+        land[rol]=600+i%5*20
+    target=dict(rol='15160-999-1',raw_id=999,comuna=15160,block=999,kind='casa',date='2025-01-01',area=200,year=1975,building='target')
+    geo[target['rol']]=dict(geo[rows[0]['rol']]);land[target['rol']]=640
+    return rows,geo,land,target
+
+def test_geography_changes_price_between_micromarkets_baseline_does_not():
+    rows,geo,land,t=market();baseline=ClosingKNN(rows).estimate(t)['value_uf']
+    low=MicromarketKNN(rows,geo,land).estimate(t)
+    geo[t['rol']]['lon']=-70.57
+    high=MicromarketKNN(rows,geo,land).estimate(t)
+    assert low['model_used']==high['model_used']=='micromarket'
+    assert high['value_uf']>1.8*low['value_uf']
+    assert ClosingKNN(rows).estimate(t)['value_uf']==baseline
+    assert len({c['rol'] for c in high['comparables']})==len(high['comparables'])
+    assert all(c['distance_m']+50<=1000 for c in high['comparables'])
+
+@pytest.mark.parametrize('quality,method,precision',[('approximate_block','block_median',50),('address_match','commune_centroid',25),('estimated','osm_interpolated',150),('quarantined','osm_direct',25)])
+def test_uncertain_or_centroid_not_accepted(quality,method,precision):
+    rows,geo,land,t=market();geo[t['rol']].update(quality=quality,method=method,precision_m=precision)
+    assert not precise(geo[t['rol']])
+    p=MicromarketKNN(rows,geo,land).estimate(t)
+    assert p['model_used']=='baseline' and p['geographic_reason']=='subject_location_uncertain'
+
+def test_target_price_and_future_registration_never_enter_adjustment():
+    rows,geo,land,t=market();expected=MicromarketKNN(rows,geo,land).estimate(t)
+    self_sale={**t,'date':'2024-02-01','fi':'2024-03-01','uf':1e9}
+    future={**rows[0],'rol':'15160-future','raw_id':998,'fi':'2026-01-01','uf':1e9}
+    actual=MicromarketKNN(rows+[self_sale,future],geo,land).estimate({**t,'uf':1})
+    assert actual['value_uf']==expected['value_uf']
+    assert actual['adjustment_coefficients']==expected['adjustment_coefficients']
+    assert all(c['rol']!=t['rol'] for c in actual['comparables'])
+
+def test_missing_land_is_explicit_and_departments_are_separate():
+    rows,geo,land,t=market();land.pop(t['rol'])
+    assert MicromarketKNN(rows,geo,land).estimate(t)['geographic_reason']=='missing_sii_land'
+    assert MicromarketKNN(rows,geo,land).estimate({**t,'kind':'depto'})['status']=='unavailable'
+
+def test_fewer_than_five_precise_local_roles_falls_back():
+    rows,geo,land,t=market()
+    for r in rows[4:]:geo[r['rol']]['quality']='approximate_block'
+    p=MicromarketKNN(rows,geo,land).estimate(t)
+    assert p['model_used']=='baseline' and p['local_count']==4

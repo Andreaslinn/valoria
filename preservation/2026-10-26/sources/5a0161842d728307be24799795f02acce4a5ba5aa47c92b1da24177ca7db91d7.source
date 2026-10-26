@@ -1,0 +1,26 @@
+import sys,json,sqlite3
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+from services.sii.closing_opinion import build_opinion,SLUGS
+from services.sii.closing_address import parse_address
+db=sqlite3.connect(ROOT/'closing-validation-final/address-index.sqlite')
+db.row_factory=sqlite3.Row
+data=str(ROOT/'closing-validation-final')
+cases={}
+for row in db.execute("SELECT * FROM role WHERE comuna=15105 AND kind='depto' AND year>0 AND area BETWEEN 40 AND 100 ORDER BY rol LIMIT 5000"):
+    address=f"{row['street']} {row['number']}"+(f" DP {row['unit']}" if row['unit'] else '')+(f" TORRE {row['tower']}" if row['tower'] else '')
+    p=build_opinion(address=address,comuna='nunoa',property_type='apartment',area=row['area'],data_dir=data)
+    key={'Confianza alta':'alta','Referencial':'referencial'}.get(p.get('confidence_label'))
+    if key and key not in cases:
+        cases[key]={'address':address,'comuna':'nunoa','m2':row['area'],'property_type':'apartment','opinion':p}
+    if len(cases)==2:break
+cases['sin-datos']={'address':'CALLE SIN COINCIDENCIA 999999','comuna':'nunoa','m2':60,'property_type':'apartment'}
+for row in db.execute("SELECT street,number FROM role WHERE comuna=15105 AND number IS NOT NULL GROUP BY street,number HAVING COUNT(DISTINCT block)>1 LIMIT 10"):
+    address=f"{row['street']} {row['number']}"
+    p=build_opinion(address=address,comuna='nunoa',property_type='apartment',area=60,data_dir=data)
+    if p['status']=='ambiguous':
+        cases['ambigua']={'address':address,'comuna':'nunoa','m2':60,'property_type':'apartment','opinion':p}
+        break
+(ROOT/'sii-tasar-cases-local.json').write_text(json.dumps(cases,ensure_ascii=False,indent=2),encoding='utf8')
+print({k:v.get('opinion',{}).get('confidence_label',v.get('opinion',{}).get('status','unavailable')) for k,v in cases.items()})

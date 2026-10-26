@@ -1,0 +1,38 @@
+"""LOCAL ONLY: exact HTTP body comparison on all 1,142 matched real cases."""
+import sys,os,json,asyncio,subprocess
+from pathlib import Path
+from types import ModuleType
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+from tasar_demo import app,service
+from api.v1 import valuations
+from tests.unit.test_sii_tasar import client,RELEASE
+from api import deps
+module=ModuleType('sii_release_real_cases')
+sys.modules[module.__name__]=module
+exec(compile(subprocess.check_output(['git','show',RELEASE+':api/v1/valuations.py'],cwd=ROOT/'valoria',encoding='utf8'),'release/valuations.py','exec'),module.__dict__)
+rows=json.loads((ROOT/'closing-confidence-20261019/baseline-verified/comparison-records-local.json').read_text(encoding='utf8'))
+if isinstance(rows,dict):rows=rows['records']
+rows=[r for r in rows if r.get('canonical_value_uf') and r.get('sii_value_uf')]
+from scripts.compare_sii_canonical import SLUG
+async def main():
+    counts={}
+    async with client(module.router) as old, client(valuations.router) as current:
+        old._transport.app.dependency_overrides[deps.get_valuation_service]=lambda:service
+        current._transport.app.dependency_overrides[deps.get_valuation_service]=lambda:service
+        for flag,with_address in [('false',True),('true',False)]:
+            os.environ['sii_closing_layer']=flag
+            equal=0
+            for r in rows:
+                payload={'comuna':SLUG[r['comuna']],'property_type':'apartment' if r['kind']=='depto' else 'house','m2':r['area']}
+                if with_address:payload['address']='CALLE PRUEBA 100 DP 101'
+                before=await old.post('/api/v1/valuations',json=payload)
+                after=await current.post('/api/v1/valuations',json=payload)
+                assert before.status_code==after.status_code==200
+                assert before.content==after.content,'Different release bytes'
+                equal+=1
+            counts['flag_off_address_present' if with_address else 'flag_on_no_address']=equal
+    result={'release_commit':RELEASE,'matched_cases':len(rows),'byte_equal':counts,'canonical_snapshot':'local verified 2026-10-19','rows_published':False}
+    (ROOT/'sii-tasar-release-byte-summary.json').write_text(json.dumps(result,indent=2),encoding='utf8')
+    print(json.dumps(result))
+asyncio.run(main())

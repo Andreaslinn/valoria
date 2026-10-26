@@ -1,0 +1,51 @@
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent/'valoria'))
+from psycopg.rows import dict_row
+from services.sii.jobs import connect
+from services.sii.settings import Settings
+
+codes=[15160,15108,15105,15103,15128,13101,16106,14157]
+with connect(Settings.load()) as conn:
+    conn.row_factory=dict_row
+    with conn.transaction():
+        conn.execute('SET TRANSACTION READ ONLY')
+        conn.execute("SET LOCAL work_mem='64MB'")
+        conn.execute('SET LOCAL max_parallel_workers_per_gather=0')
+        conn.execute('SET LOCAL enable_nestloop=off')
+        group_sql="""
+          SELECT comuna,manzana,fe,fi,count(*) AS n,
+           count(*) FILTER(WHERE monto_uf>0) AS priced,count(DISTINCT monto_uf) AS amounts
+          FROM sii.transferencia WHERE fi>=DATE '2024-01-01'
+           AND NOT ('duplicado_rol_fecha'=ANY(motivos_exclusion))
+          GROUP BY comuna,manzana,fe,fi"""
+        deltas=conn.execute("WITH audit_groups AS ("+group_sql+"""), candidates AS (
+          SELECT t.*,NOT(g.n>1 AND g.n=g.priced AND g.amounts=1) AS allowed_reference
+          FROM sii.transferencia t JOIN audit_groups g
+          ON (t.comuna,t.manzana,t.fi)=(g.comuna,g.manzana,g.fi)
+           AND t.fe IS NOT DISTINCT FROM g.fe
+          WHERE t.comuna=ANY(%s) AND t.fi>=DATE '2024-01-01')
+          SELECT comuna,count(*) FILTER(WHERE cierre_comparable) AS baseline,
+           count(*) FILTER(WHERE motivos_exclusion=ARRAY['monto_repetido_en_grupo'] AND allowed_reference) AS added_if_reference_repeat,
+           count(*) FILTER(WHERE cierre_comparable AND uf_m2_h>300) AS removed_if_reference_ceiling,
+           (array_agg(rol ORDER BY raw_id) FILTER(WHERE motivos_exclusion=ARRAY['monto_repetido_en_grupo'] AND allowed_reference))[1:5] AS repeated_examples
+          FROM candidates WHERE tipo='depto' GROUP BY comuna ORDER BY comuna""",(codes,)).fetchall()
+        missing=conn.execute("""SELECT t.comuna,count(*) AS no_join,
+           (array_agg(t.rol ORDER BY t.raw_id))[1:5] AS examples
+          FROM sii.transferencia t WHERE fi>=DATE '2024-01-01'
+           AND predio_source_file_id IS NULL AND NOT ('duplicado_rol_fecha'=ANY(motivos_exclusion))
+          GROUP BY t.comuna ORDER BY t.comuna""").fetchall()
+        blocks=conn.execute("""SELECT manzana,count(*) AS no_join,
+          (array_agg(rol ORDER BY raw_id))[1:5] AS examples
+          FROM sii.transferencia WHERE comuna=14158 AND fi>=DATE '2024-01-01'
+           AND predio_source_file_id IS NULL AND NOT ('duplicado_rol_fecha'=ANY(motivos_exclusion))
+          GROUP BY manzana ORDER BY count(*) DESC LIMIT 5""").fetchall()
+        aliases=conn.execute("""SELECT p.comuna,count(*) AS roles_with_alias_not_dp,
+         (array_agg(p.rol ORDER BY p.rol))[1:5] AS examples FROM sii.predio p
+         WHERE p.destino='H' AND p.tipo<>'depto'
+         AND p.direccion_raw ~* '(^|[^A-Z0-9])(DEPTO|DPTO|DEP)([^A-Z0-9]|$)'
+         GROUP BY p.comuna ORDER BY p.comuna""").fetchall()
+result={'reference_rule_deltas':deltas,'unmatched_roles':missing,'huechuraba_unmatched_blocks':blocks,'alias_roles':aliases}
+(Path(__file__).parent/'metrics-diagnosis.json').write_text(json.dumps(result,default=str,ensure_ascii=False,indent=2),encoding='utf8')
+print(json.dumps(result,default=str,ensure_ascii=False))

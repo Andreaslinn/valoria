@@ -1,0 +1,25 @@
+import subprocess,json
+from pathlib import Path
+SSH=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+code='''import asyncio,json,hashlib,httpx,inspect
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from api.v1.valuations import ValuationRequest
+from services.listing_url_lookup import detect_source
+from services.valuation import ValuationService
+async def main():
+ async with httpx.AsyncClient() as client:
+  r=await client.get("http://127.0.0.1:8000/openapi.json")
+  schema=r.json()
+ print(json.dumps({"schema_sha256":hashlib.sha256(json.dumps(schema,sort_keys=True).encode()).hexdigest(),"api_info":schema.get("info"),"target_listing_id":"target_listing_id" in ValuationRequest.model_fields,"portal_detected":detect_source("https://www.portalinmobiliario.com/MLC-123-depto"),"valuation_source_sha256":hashlib.sha256(inspect.getsource(ValuationService).encode()).hexdigest(),"paths":sorted(schema["paths"])}))
+ async with get_session_factory()() as s:
+  await s.execute(text("SET TRANSACTION READ ONLY"))
+  rows=(await s.execute(text("SELECT id,source,external_id,url,status,comuna,property_type,last_seen_at FROM listings WHERE id IN (1130,298,6842) OR (source='portalinmobiliario' AND status='active') ORDER BY id LIMIT 6"))).mappings().all()
+  print(json.dumps({"listings":[dict(r) for r in rows]},default=str))
+asyncio.run(main())
+'''
+remote="import subprocess,sys\np=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(code)+",text=True,capture_output=True,timeout=60)\nprint(p.stdout)\nprint(p.stderr[-1200:] if p.returncode else '')\nsys.exit(p.returncode)"
+r=subprocess.run(SSH+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=85)
+Path('work/oracle-baseline.txt').write_text(r.stdout,encoding='utf-8')
+print(r.stdout)
+print(r.stderr[-500:] if r.returncode else '')

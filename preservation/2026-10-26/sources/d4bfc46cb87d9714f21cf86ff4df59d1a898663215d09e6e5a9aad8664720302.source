@@ -1,0 +1,10 @@
+import type { RadarOpportunity } from "@/types/radar";
+import type { WatchlistItem } from "@/types/watchlist";
+import { safeExternalUrl } from "@/lib/navigation";
+export type RadarItem = { id: number; title: string; commune: string; price: number | null; estimate: number | null; discount: number | null; area: number | null; beds: number | null; baths: number | null; lat: number | null; lon: number | null; confidence: string; comparables: number | null; seen: string | null; url: string | null; evidence: string; photo?: string };
+export function opportunity(item: RadarOpportunity): RadarItem | null {
+  if (item.listing_id == null) return null;
+  return { id: item.listing_id, title: item.title, commune: item.comuna, price: item.price_uf, estimate: item.estimated_value_uf ?? item.estimated_price_uf, discount: item.discount_pct, area: item.usable_area_m2 ?? item.m2, beds: item.bedrooms ?? null, baths: item.bathrooms ?? null, lat: item.lat ?? null, lon: item.lon ?? null, confidence: item.confidence, comparables: item.comparables_used, seen: item.last_seen_at ?? null, url: safeExternalUrl(item.url), evidence: [item.radar_verdict_message, ...item.warnings, ...item.confidence_risk_flags].filter(Boolean).join("\n") };
+}
+export function savedProperty(item: WatchlistItem): RadarItem { return { id: item.listing_id, title: item.title, commune: item.comuna, price: item.price_uf_display ?? item.price_uf, estimate: null, discount: null, area: item.m2, beds: item.dormitorios, baths: item.banos, lat: null, lon: null, confidence: "", comparables: null, seen: item.last_seen_at ?? null, url: safeExternalUrl(item.url), evidence: "Propiedad guardada. No hay una valoración de Radar disponible en esta búsqueda." }; }
+export const located = (item: RadarItem) => item.lat != null && item.lon != null && Number.isFinite(item.lat) && Number.isFinite(item.lon) && Math.abs(item.lat) <= 90 && Math.abs(item.lon) <= 180;

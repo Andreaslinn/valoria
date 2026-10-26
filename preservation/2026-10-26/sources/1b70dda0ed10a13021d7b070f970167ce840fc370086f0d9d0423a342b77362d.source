@@ -1,0 +1,46 @@
+import subprocess,json,pathlib,datetime,shutil,re,collections
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-final-redeploy-20261016');start=json.loads((B/'cycles-start.json').read_text())['started_at']
+def run(args):return subprocess.check_output(args,text=True,timeout=90)
+code='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  rows=(await s.execute(text("SELECT source,external_id,comuna,property_type,url,raw_metadata FROM listings WHERE source IN ('yapo','portalinmobiliario')"))).mappings().all()
+  runs=(await s.execute(text("SELECT DISTINCT ON(source) source,id,started_at,finished_at,successful,counters,errors FROM ingestion_runs WHERE source IN ('yapo','portalinmobiliario') ORDER BY source,id DESC"))).mappings().all()
+  print(json.dumps({'listings':[dict(r) for r in rows],'runs':[dict(r) for r in runs]},default=str))
+asyncio.run(main())'''
+data=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',code]));before={tuple(v) for v in json.loads((B/'stock-before-cycles.json').read_text())['identities']}
+communes={'santiago','nunoa','providencia','las_condes','vitacura','la_florida','san_miguel','estacion_central'}
+proof={'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'started_at':start,'disk_free_bytes':shutil.disk_usage(B).free,'sources':{}}
+for source,unit,folder in [('portalinmobiliario','portal','portal-session'),('yapo','yapo','yapo-runtime')]:
+ status=subprocess.run(['systemctl','show','valoria-'+unit+'-discovery.service','--property=ActiveState,Result,ExecMainStatus'],capture_output=True,text=True).stdout
+ ledger=next((r for r in data['runs'] if r['source']==source),None)
+ new=[r for r in data['listings'] if r['source']==source and (r['source'],r['external_id']) not in before and r['property_type']=='apartment' and r['comuna'] in communes and not (r['raw_metadata'] or {}).get('published_fields',{}).get('source_is_project')]
+ def complete(row):
+  meta=row['raw_metadata'] or {}
+  facts=meta.get('published_detail_fields') or meta.get('published_fields') or {}
+  identity=lambda value: ''.join(c for c in str(value) if c.isdigit())
+  return (facts.get('stage')=='detail' and facts.get('version')==1
+   and facts.get('source')==row['source']
+   and identity(facts.get('external_id'))==identity(row['external_id'])
+   and (row['source']!='portalinmobiliario' or facts.get('technical_table_observed') is True))
+ captured=[r for r in new if complete(r)]
+ lastfile=B.parent/folder/'last_run.json';last=json.loads(lastfile.read_text()) if lastfile.exists() else {}
+ stderrname=last.get('stderr_log');errors=B.parent/'ingestion-errors'/stderrname if stderrname else None
+ logs=errors.read_text(errors='replace') if errors and errors.exists() else ''
+ counters=ledger['counters'] if ledger else {}
+ launcher=last.get('counts') or {}
+ overlap=set(counters)&set(launcher)
+ coherent=bool(ledger and overlap and all(counters[k]==launcher[k] for k in overlap))
+ item={'service':status,'ledger':ledger,'new_apartments':len(new),'with_detail':len(captured),'capture_percent':100*len(captured)/len(new) if new else None,'missing_detail':[{'id':r['external_id'],'comuna':r['comuna'],'url':r['url']} for r in new if r not in captured],'launcher_at':last.get('at'),'launcher_exit_code':last.get('exit_code'),'launcher_counts':launcher,'ledger_launcher_coherent':coherent,'stderr_file':stderrname,'stderr_bytes':errors.stat().st_size if errors and errors.exists() else None,'http_statuses_logged':dict(collections.Counter(re.findall(r'HTTP/\S+\s+(\d{3})',logs))),'blocked_status_lines':len(re.findall(r'HTTP/\S+\s+(?:302|403|429)\b',logs)),'forbidden_alarm_detected':any(v in logs for v in ['PORTAL_SESSION_EXPIRED','PORTAL_ACCESS_BLOCKED','YapoBlockedError'])}
+ proof['sources'][source]=item
+proof['health']=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]))
+proof['pocuro_current_rows']=[{'external_id':r['external_id'],
+    'reference':(r['raw_metadata'] or {}).get('source_property_reference'),
+    'stage':(r['raw_metadata'] or {}).get('published_fields',{}).get('stage'),
+    'detail_stage':(r['raw_metadata'] or {}).get('published_detail_fields',{}).get('stage')}
+    for r in data['listings'] if r['source']=='yapo' and r['external_id'] in ['32982982','32747182']]
+p=B/'cycles-current.json';p.write_text(json.dumps(proof,indent=2));p.chmod(0o600)
+print(json.dumps(proof))

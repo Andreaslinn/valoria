@@ -1,0 +1,46 @@
+import sqlite3,json,re,csv,hashlib,collections
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/geografia-existente-1261-6'
+paths=[Path('C:/Users/heiko/Documents/AVM/tasador.db'),Path('C:/Users/heiko/Documents/AVM/tasador_demo.db'),Path('C:/Users/heiko/Documents/tasador_simple/tasador.db'),Path('C:/Users/heiko/Documents/tasador_simple/beta/tasador.db'),Path('C:/Users/heiko/Downloads/AVM v3/Andy/AVM/tasador.db'),Path('C:/Users/heiko/Downloads/AVM v3/Andy/AVM/beta/tasador.db')]
+result=[]
+def quote(s):return '"'+s.replace('"','""')+'"'
+for p in paths:
+    if not p.is_file():continue
+    record={'path':str(p),'bytes':p.stat().st_size,'tables':[]}
+    try:
+        with sqlite3.connect(p.resolve().as_uri()+'?mode=ro',uri=True) as c:
+            c.row_factory=sqlite3.Row
+            tables=c.execute("SELECT name,sql FROM sqlite_master WHERE type='table'").fetchall()
+            for t in tables:
+                if t['name'].startswith('sqlite_'):continue
+                cols=[dict(r) for r in c.execute('PRAGMA table_info('+quote(t['name'])+')')]
+                names={r['name'] for r in cols}
+                spatial=[n for n in names if re.search('lat|lon|coord|geo|manzana|rol|direccion|address|precision',n,re.I)]
+                tr={'table':t['name'],'schema':t['sql'],'columns':cols,'spatial_columns':spatial}
+                if spatial:
+                    tr['count']=c.execute('SELECT count(*) FROM '+quote(t['name'])).fetchone()[0]
+                    if 'lat' in names and 'lon' in names:
+                        tr['coordinate_rows']=c.execute('SELECT count(*) FROM '+quote(t['name'])+' WHERE lat IS NOT NULL AND lon IS NOT NULL').fetchone()[0]
+                        tr['frequent_coordinates']=[dict(r) for r in c.execute('SELECT lat,lon,count(*) AS n FROM '+quote(t['name'])+' WHERE lat IS NOT NULL AND lon IS NOT NULL GROUP BY lat,lon ORDER BY n DESC LIMIT 8')]
+                    texts=[n for n in names if re.search('titulo|title|direccion|address|calle|street|rol',n,re.I)]
+                    clauses=[];params=[]
+                    for n in texts:
+                        for pattern in ('%TROMB%','%DENEGR%','%1261-6%'):
+                            clauses.append('UPPER(CAST('+quote(n)+' AS TEXT)) LIKE ?');params.append(pattern)
+                    if clauses:
+                        safe=[n for n in names if n in {'id','property_id','lat','lon','comuna','geocode_precision','source','fuente','external_id','source_listing_id','property_fingerprint'} or re.search('titulo|title|direccion|address|calle|street|rol|manzana|precision',n,re.I)]
+                        tr['target_street_matches']=[dict(r) for r in c.execute('SELECT '+','.join(quote(n) for n in sorted(safe))+' FROM '+quote(t['name'])+' WHERE '+' OR '.join(clauses),params)]
+                record['tables'].append(tr)
+    except sqlite3.Error as e:record['error']=str(e)
+    result.append(record)
+(OUT/'SQLite-antiguos.json').write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf8')
+csvpaths=[Path('C:/Users/heiko/Documents/Codex/2026-10-11/in/outputs/published-fields/addresses-baseline-full.csv'),Path('C:/Users/heiko/Documents/Codex/2026-10-17/files-pasted-by-the-user-codex/work/valoria/deploy/published-fields/validation/addresses-affected-before-after.csv')]
+csvresults=[]
+for p in csvpaths:
+    if not p.exists():continue
+    with p.open(encoding='utf-8-sig',newline='') as f:
+        reader=csv.DictReader(f);rows=list(reader)
+    matched=[r for r in rows if re.search('TROMB|DENEGR|1261-6',json.dumps(r),re.I)]
+    csvresults.append({'path':str(p),'columns':reader.fieldnames,'count':len(rows),'matches':matched})
+(OUT/'CSV-direcciones-antiguos.json').write_text(json.dumps(csvresults,indent=2,ensure_ascii=False),encoding='utf8')
+print(json.dumps({'sqlite':[{'path':r['path'],'tables':[{'table':t['table'],'spatial_columns':t['spatial_columns'],'count':t.get('count'),'coordinate_rows':t.get('coordinate_rows'),'target_street_matches':t.get('target_street_matches',[])} for t in r['tables']]} for r in result],'address_csv':csvresults},ensure_ascii=False,indent=2))

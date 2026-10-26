@@ -1,0 +1,50 @@
+from pathlib import Path
+p=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled\docs\audits\valoria-v2-remediation.md')
+s=p.read_text(encoding='utf-8')
+entries={
+2:'''Status / final classification: LOCALLY_VERIFIED; NOT DEPLOYED.
+Initial behavior: Oracle source detector rejects Portal. Local Portal parser support was pre-existing uncommitted work; URL DB lookup required exact URL equality.
+Reproduction/root cause: read-only running-source inspection returns None for Portal; active Portal rows exist. Locally slug/tracking changes miss known rows.
+Affected files/contracts: services/listing_url_lookup.py; core/normalization/publication_identity.py; tests/unit/test_listing_url_portal.py.
+Correction: indexed (source, external_id) lookup before exact URL; preserves historical rows and source isolation. Reuses pre-existing bounded Portal parser; scraper sessions untouched.
+Tests: 51 lookup/analyzer tests passed, including three added canonical lookup/source isolation cases; 27 Portal/analysis tests passed after lifecycle additions.
+Oracle compatibility: FAILED baseline; running detector rejects Portal. New live URL behavior after patch NOT TESTED. Deployment pending all gates.
+Limitations: source challenge/unavailable new URLs still return parse failure; no browser or paid service added. Actual deployed analyzer remains uncorrected.
+''',
+20:'''Status / final classification: IMPLEMENTED; detects incompatibility, deployment not verified.
+Initial behavior/root cause: no reusable V2 deployment gate; healthy API can ignore V2 fields.
+Affected files: services/v2_contract.py; scripts/check_v2_contract.py; api/v1/health.py; tests/unit/test_v2_contract.py.
+Correction: GET-only schema/capability gate covering target ID, valuation schema, temporal/lifecycle/thumbnail fields, saved status endpoint, Portal support. Stable code and OpenAPI hashes, optional intended-code comparison. New read-only /health/capabilities endpoint.
+Tests: 20 passed, individual critical fields removed to prove failure. Frontend TypeScript check passed.
+Oracle status: confirmed incompatible baseline (target ID and Portal). Public gate execution and post-deploy behavior pending. Thumbnail capability still missing locally until #14; gate intentionally fails.
+Limitations: schema capability is necessary but does not prove endpoint behavior; separate synthetic integration tests and runtime behavior checks still required.
+''',
+5:'''Status / final classification: LOCALLY_VERIFIED; NOT DEPLOYED.
+Initial behavior: listing 298 stored removed with historical last_seen_at, but URL lookup/analysis discarded lifecycle.
+Root cause: listing_to_form_data and analysis listing payload omitted status. UI showed generic known-listing label.
+Correction/files: services/listing_url_lookup.py; services/listing_analysis.py; api/v1/listings.py; frontend-v2/src/types/listing.ts; listing-url/view-model.ts and workspace.tsx. Preserve status and observation date, propagate refreshed lifecycle, show Retirada / Histórica and save historical reference wording. No history mutation.
+Tests: historical Portal lookup tests verify removed state/date; historical analysis test preserves estimate and lifecycle; 27 Portal/analysis tests passed; prior lifecycle/endpoint group 37 passed; TypeScript passed.
+Oracle compatibility: baseline fixture 298 confirmed removed, timestamp 2026-06-05T16:23:39.110704Z. Corrected deployed responses/browser NOT TESTED.
+Limitations: freshness can change state after analysis; refreshed lifecycle is propagated. Historical pricing remains analytical, not confirmation of availability.
+''',
+6:'''Status / final classification: LOCALLY_VERIFIED; NOT DEPLOYED.
+Initial behavior/root cause: Watchlist serializer returned last_seen_at=None unless request performed freshness refresh; listing response omitted the field. Radar local service already serialized observed date correctly.
+Correction/files: api/v1/watchlist.py reads stored timestamp and refresh status on normal list reads; api/v1/listings.py adds last_seen_at. Never uses current clock to manufacture observation.
+Tests: new tests/unit/test_temporal_serialization.py verifies stored date and null semantics for listing/watchlist including removed status; 41 temporal/Radar/watchlist tests passed.
+Oracle compatibility: representative database values confirmed; corrected serialization not deployed. No migrations/resources added.
+Limitations: ingestion's existing scraped_at fallback remains unchanged; nullable serializer preserves None when provided by source entity.
+''',
+3:'''Status / final classification: LOCALLY_VERIFIED; NOT DEPLOYED.
+Initial behavior/root cause: KPI used rolling 30 days, chart used 29 days plus current UTC day, frontend selected 30 complete UTC dates from 90-day response, geographic breakdown came from a different rolling response. Rebajas mixed event and distinct-listing counts.
+Correction/files: services/market_dashboard_overview.py defines shared [start,end) complete calendar dates America/Santiago; UTC storage boundaries and timezone metadata exposed. All activity/chart/commune aggregation shares boundaries. Daily buckets use Chile dates and DST-aware civil-day arithmetic. Commune price_drop_events exposed. frontend summary market-view-model/types/market-today uses supplied period_end and event counts, excludes mismatched period endpoints.
+Tests: two new boundary/DST/reconciliation tests; 23 market tests passed; frontend TypeScript passed.
+Oracle compatibility: changed contract not deployed. Original 713/767 live count not revalidated after patch.
+Limitations: current inventory stock/market-balance metrics retain their documented independent semantics; activity period is complete days, data cutoff is actual read time. Geography shows top five rather than claiming full total.
+'''}
+import re
+for n,body in entries.items():
+ pattern=rf'(### #{n} — [^\n]+\n\n).*?(?=\n### #|\Z)'
+ s=re.sub(pattern,lambda m:m.group(1)+''.join('- '+line+'\n' for line in body.strip().splitlines())+'\n',s,flags=re.S)
+s=s.replace('### #4 — Radar versus Tasar valuation [P2]\n\n- Status / final classification: PENDING','### #4 — Radar versus Tasar valuation [P2]\n\n- Status / final classification: INVESTIGATING')
+s+='\n## Continuation checkpoint\n\nActive #4. #1 extended to Radar detector/enrichment using same publication keys; 84 exclusion/Radar tests passed. Check deployments only after backup/rollback/schema/resource/scraper gates. No deployment or commit performed. Current ledger is ongoing, not final closure.\n'
+p.write_text(s,encoding='utf-8')

@@ -1,0 +1,2 @@
+# Keep content-addressed backup bytes identical on every checkout platform.
+*.source -text

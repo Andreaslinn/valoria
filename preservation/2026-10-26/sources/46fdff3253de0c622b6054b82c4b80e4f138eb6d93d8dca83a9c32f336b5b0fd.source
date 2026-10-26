@@ -1,0 +1,39 @@
+from lab import *
+from text_models import *
+from avm01.isolation import LabelCustody,dependency_hash
+from avm01.splits import inner_folds,Split
+from analyze import metrics,interval
+GRID=[{'alpha':a,'weight':w} for a in [1.,10.,100.] for w in [1.,3.]]
+NAMES=['A','Text','TextHybrid']
+def config(c,seed,names=NAMES):return {'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':names,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'text_protocol.json')}
+def choose(ds,outer,c,seed):
+ custody=LabelCustody(ds,());errs=[defaultdict(list) for _ in GRID]
+ for s in inner_folds(ds,outer,seed=seed):
+  names=[f'TextGrid{j}' for j in range(len(GRID))];batch=custody.issue(ds,s,config(c,seed,names),(),outer=outer);ts=list(batch.targets);pred=[TextModel(batch,**g).predict_log(ts) for g in GRID]
+  iv={n:{t.row_id:math.exp(float(pred[j][k])) for k,t in enumerate(ts)} for j,n in enumerate(names)};custody.record_predictions(batch,iv);truth=custody.complete(iv,s.test)
+  for j,lv in enumerate(pred):
+   for t,v in zip(ts,lv):errs[j][t.features['source']].append(abs(float(v)-math.log(truth[t.row_id])))
+ scores=[sum(w*np.mean(e[source]) for source,w in [('portalinmobiliario',.6),('yapo',.4)] if e[source]) for e in errs]
+ return min(range(len(GRID)),key=lambda j:(scores[j],-GRID[j]['alpha'],j)),scores
+def predict(batch,g,old):
+ from temporal_run import supported
+ vals={n:{} for n in NAMES};ts=list(batch.targets);lv=TextModel(batch,**GRID[g]).predict_log(ts)
+ for t,v in zip(ts,lv):
+  a=old[t.row_id];val=math.exp(float(v));vals['A'][t.row_id]=a;vals['Text'][t.row_id]=val;vals['TextHybrid'][t.row_id]=a if a is not None else val if supported(t,list(batch.rows)) else None
+ return vals
+def evaluate(rows):
+ return {label:{'n':len(subset),'full':{n:metrics(subset,n) for n in NAMES},'paired':{n:interval(subset,'A',n) for n in NAMES if n!='A'}} for label,subset in [('all',rows),('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('Yapo',[r for r in rows if r['source']=='yapo']),('A_abstentions',[r for r in rows if r['predictions']['A'] is None])]}
+def run(seed):
+ c=read(HERE/'text_protocol.json');p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],seed);old={r['row_id']:r['predictions']['A']['prediction'] for r in prior(seed)};out=HERE/f'text-{seed}.json.dpapi';assert not out.exists();custody=LabelCustody(ds,());rows=[];tuning=[]
+ for k,s in enumerate(plan.folds):
+  print(json.dumps({'text_seed':seed,'fold':k}),flush=True);g,scores=choose(ds,s,c,seed);batch=custody.issue(ds,s,config(c,seed),());vals=predict(batch,g,old);custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test);tuning.append({'fold':k,'chosen':GRID[g],'scores':scores})
+  for t in batch.targets:rows.append({'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'comuna':t.features['comuna'],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}})
+ encrypt(out,rows);summary=evaluate(rows);summary['tuning']=tuning;write(HERE/f'text-{seed}-summary.json',summary);print(json.dumps(summary['all']['full']))
+def temporal():
+ from temporal_prepare import temporal_data
+ c=read(HERE/'text_protocol.json');ds,train,test,_=temporal_data();seed=20261009;s=Split(train,test,'temporal',seed,ds.hash(),dependency_hash(ds));g,scores=choose(ds,s,c,seed);custody=LabelCustody(ds,());batch=custody.issue(ds,s,config(c,seed),());old={r['row_id']:r['predictions']['A'] for r in decrypt(HERE/'temporal_predictions.json.dpapi')};vals=predict(batch,g,old);custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test)
+ rows=[{'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'comuna':t.features['comuna'],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}} for t in batch.targets];out=HERE/'text-temporal.json.dpapi';assert not out.exists();encrypt(out,rows);summary=evaluate(rows);summary['tuning']={'chosen':GRID[g],'scores':scores};write(HERE/'text-temporal-summary.json',summary);print(json.dumps(summary['all']['full']))
+def prepare():
+ c=verify();t=read(HERE/'temporal_protocol.json');v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':{**c['dataset_sha256'],**t['dataset_sha256']},'allowed_engines':NAMES+[f'TextGrid{j}' for j in range(len(GRID))],'uf_reference':c['uf_reference'],'grid':GRID,'selection':'Inner grouped3 source-balanced MAElog .6Portal .4Yapo, no outer tuning','hypothesis':'Numeric attributes omit source-known local/physical descriptions. Alphabetic price-free TFIDF tests recoverable text information, not a new scraper or embeddings. URL/Radar inference applicability only, manual input contract lacks text.','temporal_status':'Already consumed by prior experiments; this further evaluation is exploratory, not independent model confirmation','code_sha256':{n:sha(HERE/n) for n in ['text_models.py','text_run.py']}}
+ assert not (HERE/'text_protocol.json').exists();write(HERE/'text_protocol.json',v);(HERE/'text_protocol.sha256').write_text(sha(HERE/'text_protocol.json'));path=RUNTIME/'avm01/pilot_authorization.py';path.write_text(path.read_text().replace("'manual_protocol']","'manual_protocol','text_protocol']"));seal=read(HERE/'temporal_code_seal.json');seal['runtime/avm01/pilot_authorization.py']=sha(path);write(HERE/'temporal_code_seal.json',seal);print(json.dumps({'registered_text_grid':len(GRID)}))
+if __name__=='__main__':prepare() if sys.argv[1]=='prepare' else temporal() if sys.argv[1]=='temporal' else run(int(sys.argv[1]))

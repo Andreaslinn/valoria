@@ -1,0 +1,25 @@
+# Revisión estática de contratos del harness
+
+| Contrato | Evidencia | Evaluación |
+|---|---|---|
+| mismos targets A/C | misma lista test y truth en run_split/compare | garantizado sintéticamente; falta projection real certificada |
+| pool de A solo train | FrozenA.fit(train_ids), filtro available_at/price_available_at | garantizado en entrada validada |
+| grupos test fuera de índices | validate_split cruces + ningún repositorio remoto en A | conocido en sintético; ignorado si grouping omite vínculo real |
+| preprocessing fold-local | Pipeline.fit únicamente train_ids | garantizado en runner validado |
+| agregados de precios locales | canonical engine recibe exclusivamente candidates train | garantizado sintéticamente; no conectar índices globales en real adapter |
+| tuning aislado | nested_tune valida outer y inner | funciona en ruta principal; inner_folds directo no valida outer |
+| holdout preservado | reserva por row_id y config hash | falta reserva por lineage/grupo aun si row_id relacionado no está enumerado; no custody de labels |
+| predicciones y procedencia | trace train/pool/snapshot + engine/version | real metadata/UF/coords todavía reconstruidos sintéticamente |
+| cobertura común | per_engine/common/pairs + abstenciones explícitas | cubierto; no comparar éxito con elegibles distintos |
+| reproducibilidad | seeds/pins/hashes, tests 45 AVM-01 | reproducibilidad sintética, no aprobación real |
+
+Defectos concretos a proponer, sin modificar AVM-01:
+
+1. FrozenA usa tasa toy 41040.82, title synthetic y fingerprint=grupo; no preserva RAW precio, conversión, coordenadas ni señales originales. Corregir solo en un adapter real aprobado con roundtrip, nunca quitar require_synthetic para reutilizarlo tal cual.
+2. Reserva holdout: validar dependencias contra todo el conjunto reservado, no solo membresías row_id. Un relacionado puede entrar en train/tuning si su fila reservada no participa en ese split. Hash match no demuestra custodia.
+3. `inner_folds` público: validar outer y global reserve en la frontera, además de la validación externa actual.
+4. Fit directo recibe cualquier subconjunto sintético y no puede conocer el fold/cutoff. Mantener ejecución real cerrada y exigir contexto de partición validado antes de habilitarla.
+5. Enforce observation índice/projection de elegibilidad y timestamps por campo antes del real run. La presencia de float positivo no certifica label.
+6. El guard de área 10–1000 existe en la definición moderna y DTO; no demuestra semántica útil. El corte segmental de 30 grupos y grids son decisiones provisionales, no umbrales de potencia ni de READY.
+
+No se cambió A, Consensus, Tasar ni el harness anterior. Se añaden tests aislados para reproducir límites de la reserva y del inner entrypoint; los fallos quedan documentados, no convertidos en aprobaciones.

@@ -1,0 +1,63 @@
+"use client";
+import {useEffect,useState} from "react";
+import {apiClient} from "@/lib/api/client";
+import "./sii-geographic.css";
+import {HouseRulesCandidate,type HouseCandidate} from "./house-rules-candidate";
+
+type Metrics={mdape_pct:number|null;mape_pct:number|null;mean_bias_pct:number|null;coverage_pct:number;n:number};
+type Comparable={label:string;raw_id:string;fecha:string;m2:number;uf:number;distance_m:number|null;geo_method:string|null;geo_quality:string;precision_m:number|null};
+type TraceComparable={raw_id:string;uf:number;m2:number;land_area_m2:number|null;fecha:string;weight_share:number;distance_bounds_m:[number,number]|null;adjusted_value_uf:number|null};
+type Result={status:string;message?:string;value_uf?:number;p25_uf?:number;p75_uf?:number;model_used?:string;baseline_value_uf?:number;geographic_candidate_value_uf?:number;subject_address?:string;geography_notice?:string;selected_comparables?:Comparable[];subject_location?:{method:string;quality:string;precision_m:number};validation?:{baseline_metrics:Metrics;candidate_metrics:Metrics};valuation_trace?:{land_area_m2:number|null;comparables:TraceComparable[]};micromarket_candidate?:{value_uf?:number;reason:string;eligible_local_count:number;comparable_count:number;notice:string;comparables?:TraceComparable[]};house_rules_candidate?:HouseCandidate;};
+const uf=(v:number|undefined)=>v==null?"—":`${Math.round(v).toLocaleString("es-CL")} UF`;
+const pct=(v:number|null|undefined)=>v==null?"—":`${v.toFixed(1)}%`;
+const methods:Record<string,string>={sii_published_point:"Punto publicado por SII",osm_direct:"Dirección OSM coincidente",osm_interpolated:"Interpolación de calle",mixed_anchor_interpolated:"Interpolación con ancla corregida",block_median:"Referencia de manzana"};
+export type SiiQuery={enabled:boolean;address:string;rol?:string;comuna:string;refreshKey?:number};
+export function SiiGeographicEstimate({enabled,address,rol,comuna,refreshKey=0}:SiiQuery){
+  const key=JSON.stringify([address,rol,comuna,refreshKey]);
+  const [state,setState]=useState<{key:string;data:Result|null;loading:boolean}>({key:"",data:null,loading:false});
+  useEffect(()=>{
+    if(!enabled||comuna!=="vitacura"||!(address.trim()||rol?.trim()))return;
+    let active=true;
+    const timer=setTimeout(()=>{
+      setState({key,data:null,loading:true});
+      void apiClient.post<Result>("/api/v1/tasar/sii-valuation",{address,rol,comuna})
+        .then(data=>{if(active)setState({key,data,loading:false});})
+        .catch(()=>{if(active)setState({key,data:{status:"unavailable",message:"No pudimos calcular la tasación SII local."},loading:false});});
+    },600);
+    return()=>{active=false;clearTimeout(timer);};
+  },[enabled,key,address,rol,comuna,refreshKey]);
+  if(!enabled||comuna!=="vitacura"||state.key!==key)return null;
+  const d=state.data;
+  return <section className="sii-geo-estimate" aria-label="Tasación SII geográfica">
+    <header><span className="sii-geo-eyebrow">COMPRAVENTAS Y ATRIBUTOS · SII</span><h3>Tasación SII</h3></header>
+    {state.loading?<p role="status">Calculando con compraventas SII…</p>:d?.status==="available"?<>
+      <p>{d.subject_address}</p><p className="sii-geo-value">{uf(d.value_uf)}</p>
+      {d.micromarket_candidate?.value_uf&&<p>Experimento local: {uf(d.micromarket_candidate.value_uf)} · sin promover.</p>}
+      <p>Rango de comparables: {uf(d.p25_uf)} — {uf(d.p75_uf)}</p>
+      {d.house_rules_candidate&&<HouseRulesCandidate result={d.house_rules_candidate}/>}
+      <p>{d.model_used==="house_rules"?"Modelo de casas R1–R11 activo.":d.house_rules_candidate?"El candidato de casas no cumple los criterios de sesgo y cobertura. El precio publicado sigue siendo el baseline.":d.model_used==="geographic"?"Modelo geográfico validado en la evaluación temporal local.":d.valuation_trace?"Baseline conservado: distancia y terreno no modifican el precio publicado.":"Se conserva el modelo anterior: la geografía no demostró una mejora suficiente o no hay ubicaciones fiables."}</p>
+      <p>Ubicación: {d.subject_location?methods[d.subject_location.method]??d.subject_location.method:"Sin ubicación métrica fiable"}{d.subject_location?` · incertidumbre estimada ${Math.round(d.subject_location.precision_m)} m`:""}.</p>
+      {d.valuation_trace&&<details><summary>Cómo se calcula el precio publicado</summary>
+        <p>Mediana ponderada de UF/m² de 10 ventas SII, multiplicada por los m² cerrados del inmueble. Pesos: superficie 30%, edificio/manzana/comuna 30%, antigüedad 30% y fecha 10%. La distancia en metros y el terreno no modifican este precio.</p>
+        <p>Terreno SII: {d.valuation_trace.land_area_m2??"desconocido"} m². Las referencias de manzana no se consideran puntos prediales precisos en el experimento.</p>
+        <ol>{d.valuation_trace.comparables.map(c=><li key={c.raw_id}>{c.fecha} · {uf(c.uf)} · peso {(100*c.weight_share).toFixed(1)}% · terreno {c.land_area_m2??"desconocido"} m² · {c.distance_bounds_m?`distancia estimada ${Math.round(c.distance_bounds_m[0])}–${Math.round(c.distance_bounds_m[1])} m`:"sin distancia predial fiable"}</li>)}</ol>
+      </details>}
+      {d.micromarket_candidate&&<details><summary>Experimento de micromercado: {uf(d.micromarket_candidate.value_uf)}</summary>
+        <p>{d.micromarket_candidate.notice??"Experimento no disponible; se conserva el baseline."}</p>
+        <p>{d.micromarket_candidate.value_uf?`${d.micromarket_candidate.comparable_count} ventas seleccionadas de ${d.micromarket_candidate.eligible_local_count} locales elegibles, con ajuste de atributos SII.`:`Sin soporte local suficiente (${d.micromarket_candidate.reason}).`}</p>
+        <ol>{d.micromarket_candidate.comparables?.map(c=><li key={c.raw_id}>{c.fecha} · venta {uf(c.uf)} → ajustada {uf(c.adjusted_value_uf??undefined)} · peso {(100*c.weight_share).toFixed(1)}%{c.distance_bounds_m?` · ${Math.round(c.distance_bounds_m[0])}–${Math.round(c.distance_bounds_m[1])} m`:""}</li>)}</ol>
+      </details>}
+      {!d.house_rules_candidate&&<details><summary>Comparación y validación</summary>
+        <p>Baseline: {uf(d.baseline_value_uf)} · candidato geográfico: {uf(d.geographic_candidate_value_uf)}.</p>
+        {d.validation&&<table><caption>Evaluación anterior v2 · ventas 2026 del mismo tipo</caption><thead><tr><th>Métrica</th><th>Baseline</th><th>Geográfico v2</th></tr></thead><tbody>
+          <tr><th>MdAPE</th><td>{pct(d.validation.baseline_metrics.mdape_pct)}</td><td>{pct(d.validation.candidate_metrics.mdape_pct)}</td></tr>
+          <tr><th>MAPE</th><td>{pct(d.validation.baseline_metrics.mape_pct)}</td><td>{pct(d.validation.candidate_metrics.mape_pct)}</td></tr>
+          <tr><th>Sesgo medio</th><td>{pct(d.validation.baseline_metrics.mean_bias_pct)}</td><td>{pct(d.validation.candidate_metrics.mean_bias_pct)}</td></tr>
+          <tr><th>Cobertura</th><td>{pct(d.validation.baseline_metrics.coverage_pct)}</td><td>{pct(d.validation.candidate_metrics.coverage_pct)}</td></tr>
+        </tbody></table>}
+      </details>}
+      <details><summary>Ver los {d.selected_comparables?.length??0} comparables SII seleccionados</summary><ol>{d.selected_comparables?.map(c=><li key={c.raw_id}><strong>{c.fecha} · {uf(c.uf)}</strong><br/>{c.m2} m² · {c.distance_m==null?"Distancia no fiable":`${Math.round(c.distance_m)} m`}{c.geo_method?` · ${methods[c.geo_method]??c.geo_method}`:""}</li>)}</ol></details>
+      <small>{d.geography_notice} El rango P25–P75 no es un intervalo de confianza. La evaluación utiliza el catastro actual con controles por año de construcción. © OpenStreetMap contributors, ODbL.</small>
+    </>:<><p role="status">{d?.message??"No hay datos SII suficientes para esta consulta."}</p>{d?.house_rules_candidate&&<HouseRulesCandidate result={d.house_rules_candidate}/>}</>}
+  </section>;
+}

@@ -1,0 +1,34 @@
+# Harness AVM corregido — sandbox exclusivamente
+
+A = **A_core** (`comparables_canonical_outliers`, variante `outliers`), incluyendo su ajuste de superficie fold-local. **A_production/Tasar/Consensus queda fuera**. Se conserva el código canónico congelado byte a byte, no se reimplementan sus fórmulas. C1/C1-flex/C2 mantienen sus especificaciones y defaults anteriores.
+
+## Reproducir
+
+Python 3.13.4; se reutiliza el virtualenv aislado existente. Pins en `requirements-experiment.txt` y `requirements-runtime.txt`. No instalar ni modificar el runtime productivo.
+
+```powershell
+Set-Location -LiteralPath 'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\research\avm_harness_20261009T064239Z'
+& 'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\work\avm-01-20261008\.venv-repro\Scripts\python.exe' -B -m unittest discover -s tests -v *> test-output.txt
+& 'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\work\avm-01-20261008\.venv-repro\Scripts\python.exe' -B verify.py
+```
+
+`verify.py` comprueba integridad y ejecuta dos procesos sintéticos independientes; conserva solo un certificado compacto. No lee datasets reales, no crea splits oficiales, no ejecuta Oracle ni genera un holdout definitivo. La reserva usada en fixtures es artificial.
+
+## Contrato mínimo
+
+- `Record`: row/publication/listing/observation IDs, grupo declarado, timestamps, features core y target canónico UF. `canonical_listing` conserva íntegramente el DTO observado: IDs, fingerprint original, Price CLP, UF/moneda/provenance, metadata, fechas, superficies, coordenadas. `canonical_target` es una proyección **sin label** del Property: estructura/geografía y metadata física permitida; no copia el RAW monetario del objetivo.
+- La proyección textual del target debe llegar neutralizada; el validador rechaza patrones monetarios conocidos y keys no permitidas. Se reutiliza sin modificar el sanitizer anterior. Es obligatorio certificar posteriormente la semántica de features y disponibilidad; el harness no demuestra que una feature suministrada externamente carezca de toda codificación indirecta del target.
+- `Dataset.index_policy`: `first_observation_v1` / `last_observation_v1`, declarada también en config. Una observación por publicación/source, desempate temporal/ID determinista y ajeno al precio. Son políticas de fixtures; ninguna se aprueba aquí como regla de la cohorte real.
+- Agrupación externa: `grouping_policy`, hash de evidencia, `group_id`, `dependency_links` explícitos y aliases. El cierre incluye grupo declarado, publicación, listing, observation, URL canónica e identidad respaldada suministrada. Usa todas las observations para transitividad, aunque solo las índice se asignen a folds. **No usa property_id, fingerprint ni precio para agrupar**; fingerprint se conserva únicamente para la deduplicación original interna de A_core.
+- `validate_split` es la frontera común. `validate_plan` exige cobertura OOF exactamente una vez, seed y binding del snapshot/política. `inner_folds` valida outer antes de construir; cada inner particiona exclusivamente outer-train y necesita ese contexto incluso en entrada directa. Reservar un ID protege su componente completo. Relaciones/snapshot nuevos requieren reconstrucción explícita.
+- `LabelCustody.issue` entrega un `FitBatch` firmado en memoria: solo train labels y objetivos sin label. Todos los `.fit(Dataset, ids)` anteriores quedan prohibidos. Los adapters solo aceptan ese batch; datos/config/objetivos alterados se rechazan. El control de labels lo conserva el evaluador y solo los entrega para métricas tras recibir predicciones completas y alineadas. Inner-validation y outer-test están separados; holdout final nunca se abre en este alcance.
+- A_core recibe solo el pool autorizado y un contexto UF explícito (`value`, `effective_date`, `available_at`, `source`). No inventa UF, moneda, precios, metadata ni fingerprints; tampoco consulta repositorios o servicios. Sus filtros, score, pesos, robustez, superficie y abstención permanecen canónicos.
+- Los cuatro estimadores comparten IDs/folds/target. Se conserva cobertura total, soporte común y comparación pareada; abstenciones/errores numéricos quedan `None`, sin imputaciones de predicción. Violaciones del contrato de aislamiento son errores fatales, nunca warnings ni errores de modelo ocultos.
+
+## Límites de la certificación
+
+Garantía relativa a la política de dependencia y features suministradas; no certifica identidad física, trazabilidad monetaria real, representatividad ni precisión predictiva. Los modelos no reciben Dataset/vault/labels retenidos, pero Python en el mismo proceso no es una caja de seguridad contra plugins hostiles que usen reflexión o lean archivos por su cuenta: controlador y adaptadores deben ser código confiable. No hay plugins entrenables arbitrarios en el experimento aprobado.
+
+La equivalencia se prueba contra llamadas directas al mismo código canónico real congelado con fixtures independientes. Los módulos canónicos cargados coinciden con el principal tras normalizar saltos de línea salvo config de scraping/settings sin efecto en esas llamadas; las constantes de valoración coinciden. No se acredita el runtime Oracle ni A_production.
+
+El contrato puede recibir/validar una cohorte certificada; **el fitting real sigue bloqueado**, igual que la ejecución de holdout final. Faltan certificación y aprobación de cohorte/índice/grupos antes de habilitar cualquier ejecución real. Todos los cambios permanecen aquí; el AVM-01 original y los repositorios anteriores se conservan.

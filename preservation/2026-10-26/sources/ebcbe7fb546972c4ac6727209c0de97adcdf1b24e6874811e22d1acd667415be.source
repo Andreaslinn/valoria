@@ -1,0 +1,28 @@
+import subprocess,pathlib,json,hashlib,stat
+ROOT=pathlib.Path('/home/ubuntu/apps/valoria')
+B=ROOT/'private/ingestion-deploy-20261015'
+def run(args):
+ r=subprocess.run(args,capture_output=True,text=True,timeout=40)
+ if r.returncode:raise RuntimeError('Final verification command failed')
+ return r.stdout
+deploy=json.loads((B/'deployment-state.json').read_text());assert deploy['phase']=='passed'
+api=json.loads(run(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+guard=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',"import json;from pathlib import Path;from services.release_guard import verify_release_tree;print(json.dumps(verify_release_tree(Path('/app'))))"]).strip())
+assert guard['commit']==deploy['commit'] and guard['source_tree_match']
+health=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]))
+assert set(health['sources'])=={'portalinmobiliario','yapo'} and health['status']=='ok'
+for source in health['sources'].values():
+ c=source['last_run']['counters'];assert source['last_run']['successful'] and c.get('inserted',0)+c.get('updated',0)>0
+timers={u:{'active':run(['systemctl','is-active',u]).strip(),'enabled':run(['systemctl','is-enabled',u]).strip()} for u in ['valoria-uf-calendar.timer','valoria-portal-discovery.timer','valoria-yapo-discovery.timer']}
+manifest=json.loads((ROOT/'private/ingestion-review-20261015/app/release-manifest.json').read_text())
+host={}
+for name in ['run_portal_session.py','run_yapo_session.py','ingestion_launcher.py','run_ingestion_uf_refresh.py']:
+ host[name]=hashlib.sha256((ROOT/'scripts'/name).read_bytes()).hexdigest()==manifest['files']['scripts/'+name]
+assert all(host.values())
+logs=[]
+for p in sorted((ROOT/'private/ingestion-errors').glob('*.stderr.log')):
+ logs.append({'filename':p.name,'mode':oct(stat.S_IMODE(p.stat().st_mode)),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
+assert logs and all(p['mode']=='0o600' for p in logs)
+proof={'commit':deploy['commit'],'production_image':api['Image'],'source_guard':guard,'host_launchers_match':host,'health':health,'timers':timers,'stderr_private_files':logs,'deployment':deploy,'rollback_executed':(B/'rollback-executed.json').exists(),'backup':json.loads((B/'backup-proof.json').read_text()),'rollback_rehearsal':json.loads((B/'rollback-proof.json').read_text()),'historical_delta':json.loads((B/'reference-delta-proof.json').read_text())}
+(B/'final-proof.json').write_text(json.dumps(proof,indent=2));(B/'final-proof.json').chmod(0o600)
+print(json.dumps(proof))

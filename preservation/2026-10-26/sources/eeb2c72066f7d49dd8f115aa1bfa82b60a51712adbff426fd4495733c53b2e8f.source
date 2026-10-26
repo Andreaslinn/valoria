@@ -1,0 +1,21 @@
+from pathlib import Path
+import shutil,json,hashlib
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1]
+OLD=ROOT/'research/tasar_local_optimization_20261010T182745Z'
+SOURCE=Path('C:/Users/heiko/Documents/Codex/2026-10-05/files-pasted-by-the-user-quiero/work/thumbnail-close/production-baseline')
+assert not (HERE/'runtime').exists(),'Refuse overwrite'
+shutil.copytree(OLD/'runtime',HERE/'runtime',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+shutil.copy2(OLD/'common.py',HERE/'common.py')
+shutil.copy2(OLD/'experimental.py',HERE/'experimental.py')
+manifest={}
+for package in ('api','config','core','domain','infrastructure','scripts','services','workers'):
+ for p in (SOURCE/package).rglob('*.py'):
+  q=HERE/'integration'/p.relative_to(SOURCE);q.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(p,q)
+  manifest[str(p)]=hashlib.sha256(p.read_bytes()).hexdigest()
+fixtures=ROOT/'valoria-reconciled/tests/fixtures'
+for p in fixtures.glob('portal*.html'):
+ q=HERE/'fixtures'/p.name;q.parent.mkdir(exist_ok=True);shutil.copy2(p,q)
+ manifest[str(p)]=hashlib.sha256(p.read_bytes()).hexdigest()
+(HERE/'source_manifest.json').write_text(json.dumps(manifest,indent=2))
+(HERE/'.gitignore').write_text('*\n')
+print(json.dumps({'copied_source_files':len(manifest),'baseline':'frozen A unchanged','sandbox':str(HERE)}))

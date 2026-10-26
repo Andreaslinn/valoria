@@ -1,0 +1,177 @@
+# Thumbnails compartidos y frontend-v2
+
+**RESULTADO: BLOQUEADO para cierre estricto.** La integración está implementada y
+validada en una copia aislada del backend y frontend-v2 actuales. La suite del
+baseline tiene cuatro fallos ajenos a imágenes que se reproducen sin este cambio.
+No se modificaron esos módulos para obtener un resultado verde. No desplegado.
+
+## Flujo final
+
+Referencia existente (`raw_metadata.main_image_url`, evidencia
+`parsed_signals.image_urls`, `og:image`) → resolver compartido → SQLite/queue →
+worker selectivo reutilizado → descarga segura y normalización WebP → filesystem
+por hash → contrato nullable en API común → componente `PropertyPhoto` en v2.
+
+`security.py`, `normalize.py` y `metrics.py` son copias byte por byte de los módulos
+validados. `pipeline.py` conserva descarga, normalización, supervisor, leases,
+retries, cuotas, hash, escritura atómica y cleanup; adapta la operación de request
+a un lote y sustituye el prefijo experimental por la ruta común. No hay un segundo
+pipeline productivo. El servidor offline en `validation/` es exclusivamente tooling.
+
+## Contrato y endpoints
+
+`ThumbnailRef` Python/Pydantic y el tipo común de v2 contienen `url`, `width`,
+`height`, `bytes`, `hash`. La propiedad es siempre nullable.
+
+- GET `/api/v1/watchlist`: `thumbnail` por elemento; reutiliza listings ya cargados.
+- GET `/api/v1/radar/opportunities`: `thumbnail` por oportunidad; un SELECT de
+  listings para el lote seleccionado, sin alterar el cálculo ni la selección.
+- POST `/api/v1/listings/lookup-url`: `listing_data.thumbnail`; contrato Pydantic
+  explícito con campos adicionales preservados. Lookup de una publicación nueva
+  sin ID persistido devuelve `null`: no se inventan identidades ni se escribe el
+  listing para obtener una imagen.
+- GET `/api/v1/thumbnails/{hash}.webp`: serving compartido, sin ruta sandbox.
+
+La resolución no descarga ni decodifica en el request. Un miss registra el trabajo
+y devuelve `null`. Un fallo de cache, source lookup o imagen conserva la publicación.
+Para 20 elementos se usa una lectura de metadata de cache y una transacción.
+Las escrituras de membership son por elemento dentro de esa transacción; no hay
+una consulta de origen ni una descarga por elemento (N+1).
+
+## Serving y autorización
+
+Se eligió **B: URL firmada temporal**. La autenticación existente es Bearer y v2
+ya tiene transporte same-origin `/backend` mediante rewrite Next. Un `<img>` no
+envía Authorization. El backend autentica la selección y emite una capacidad
+limitada a un hash y una expiración de una hora. La firma HMAC-SHA256 usa la clave
+JWT existente con separación de dominio `thumbnail-v1`; no contiene un JWT ni
+un token de sesión. No se crea otra sesión ni se cambia auth global.
+
+El asset valida filename, firma, expiración y hash de bytes. Soporta ETag/304,
+`nosniff` y cache privada limitada a 300 segundos y a la expiración. El componente
+solo admite la ruta firmada esperada y usa `referrerPolicy=no-referrer`. La URL
+permite a quien la posee acceder durante su vigencia; no da acceso a otros hashes
+ni revela IDs, usuarios o paths del filesystem. No se ofrecen índices de assets.
+En v2 se reutiliza el rewrite existente: no se añade un proxy específico de imágenes.
+
+## Storage y operación
+
+SQLite WAL + assets por hash en `THUMBNAIL_STORAGE_ROOT`. En los cuatro archivos
+Compose, API y worker comparten `thumbnails_data:/app/thumbnail-data`. El volumen
+queda fuera de la imagen y sobrevive a reemplazos normales de contenedores.
+No se usa Postgres para thumbnails ni se modifica el modelo del listing.
+
+El worker es `python -m workers.thumbnails`, separado del scheduler de ingesta.
+Consume solamente trabajos encolados por las respuestas autenticadas. Mantiene
+las políticas existentes: máximo tres fuentes por publicación, WebP q60/ancho320,
+leases, retries, cuota 2GiB y limpieza periódica. No recorre History ni el universo
+de listings. Las URLs aparecen después de generar la imagen; una respuesta fría
+permanece en fallback hasta la siguiente consulta normal de la superficie.
+
+La configuración dev ahora construye la imagen API con la dependencia Pillow
+validada. `Dockerfile.reconciled` también instala esa versión; sus componentes
+restantes se preservan. La imagen de prueba ARM64 se construyó sobre el runtime
+preservado, sin ejecutar el stack Oracle.
+
+## Superficies y fallback
+
+- Radar: `opportunity()` conserva la referencia y `Photo` delega al componente común.
+- Guardadas: `savedProperty()` conserva la referencia y usa el mismo `Photo`.
+- Cartera: thumbnail en filas y detalle seleccionado; sin datos de imagen en AVM
+  ni en el contrato agregado de valoración.
+- Ficha: `listing_data.thumbnail` en la ficha de consulta por URL.
+
+Un componente y lenguaje de fallback en v2 para null, URL inválida, 404, red y
+decode failure. Reserva dimensiones, usa `object-fit:cover`, lazy loading y async
+decoding. El error no deja imagen rota ni spinner; al cambiar URL se reinicia el
+estado. No se rediseñó Radar ni se modificó el frontend legacy.
+
+## Mediciones
+
+Windows x64, Pillow12.3, SQLite local; 100 repeticiones por superficie, 20 listings.
+Estas cifras no incluyen latencia de PostgreSQL remoto ni representan CPU ARM nativa.
+
+| Medida | Resultado |
+|---|---:|
+| Cinco WebP reales, mediana | 11.468 bytes |
+| Rango de esa muestra | 3.256–18.706 bytes |
+| Lote frío de 20 | 10,66ms; referencias null, sin descarga síncrona |
+| Radar caliente, mediana / p95 | 4,25 / 6,08ms |
+| Watchlist caliente, mediana / p95 | 2,39 / 3,72ms |
+| Consultas de origen por lote Radar / watchlist | 1 / 0 |
+| Consultas de cache por lote | 1 |
+| Descargas en 200 lotes calientes | 0 |
+| Assets tras 20 listings y cinco contenidos | 5 |
+| Incremento JSON para 20 referencias | 6.232 bytes; 311,6 por listing |
+
+En la primera carga de Cartera hubo cinco slots (cuatro filas y detalle), un
+listing sin imagen y **tres requests de imagen**. El detalle comparte URL con su
+fila. No hay requests para los fallbacks. El navegador completo y sus solicitudes
+están registrados en `validation/v2-browser-results.json`. Se preservan los
+benchmarks originales como evidencia previa, sin ampliar la muestra ni fingir
+mediciones de red/CPU productivas.
+
+## Validación
+
+- 58/58 pruebas reutilizadas del pipeline pasan en Windows nativo con Pillow12.3.
+- 11 pruebas de contrato/API pasan, incluidas las nuevas pruebas compartidas y
+  las pruebas existentes del endpoint lookup adaptadas al nuevo campo nullable.
+- 17 comprobaciones Edge/v2 pasan sobre routers API reales y SQLite de fixtures;
+  fotografías reales previamente capturadas, sin scraping ni red externa.
+- TypeScript `tsc --noEmit` pasa.
+- Dos contenedores ARM64 aislados comparten un volumen nuevo: fill, reopen y
+  serving firmado 200/304/403 pasan. No se tocó ningún volumen existente.
+- En ARM64 **emulado**, 56/58 pruebas pasan con los plazos originales de prueba:
+  los dos callbacks que permiten cinco segundos vencen ese plazo. Una prueba
+  adicional con el límite productivo **sin modificar** de 20 segundos pasa:
+  normalización spawn18,857s y detección de crash15,822s. Esto no valida rendimiento
+  en hardware ARM nativo y no debe usarse para ampliar límites del pipeline.
+- Scope: 166 archivos protegidos conservan el contenido del baseline normalizado
+  según Git; ver `validation/scope-verification.json`.
+
+La suite completa con Redis sin configurar registra **1.853 pasadas y cinco
+fallos**. Cuatro son fallos funcionales previos. El quinto es un test del CLI de
+refresh que asume una URL Redis no vacía; se reproduce también en el baseline con
+ese mismo entorno y pasa al usar su configuración sin Redis. El test de defaults
+pasa por separado sin cambiar sus flags. No se modifica configuración productiva.
+
+La regresión final y la reproducción sobre baseline están en
+`validation/backend-regression-final.log`, `validation/baseline-failures.log` y
+`validation/baseline-same-env.log`.
+Los cuatro fallos previos son:
+
+1. `test_alerts_e2e_chain.py::test_refresh_to_alerts_api_chain_for_saved_listing`.
+2. `test_refresh_scraper.py::test_refresh_does_not_duplicate_existing_listing_with_real_pipeline`.
+3. `test_nominatim_client.py::test_address_metadata_wins`.
+4. `test_nominatim_client.py::test_address_fallback_selection`.
+
+No se cambiaron History/KEEP_HISTORY_ON, identidad/dedup de listings, scrapers,
+Portal, frecuencia, scoring/thresholds de Radar, reglas de Cartera, AVM o Consensus.
+
+## Archivos principales
+
+- `infrastructure/thumbnails/{pipeline,security,normalize,metrics}.py`.
+- `services/thumbnails.py`, `workers/thumbnails.py`, `api/v1/thumbnails.py`.
+- `api/main.py`, `api/v1/{watchlist,radar,listings}.py`.
+- `frontend-v2/src/types/{thumbnail,watchlist,radar,listing}.ts`.
+- `frontend-v2/src/components/ui/property-photo.{tsx,css}`.
+- `frontend-v2/src/features/radar/{model,radar,fixture}.{ts,tsx}` según archivo.
+- `frontend-v2/src/features/portfolio/workspace.tsx`.
+- `frontend-v2/src/features/listing-url/workspace.tsx`.
+- Los cuatro Compose, `pyproject.toml`, `Dockerfile.reconciled` y tests de contrato.
+
+## Quick wins y backlog
+
+Quick wins realizados: batch con fuentes ya cargadas en watchlist, validación del
+archivo deduplicada por asset dentro del lote, fallback común, reset por URL,
+reuse del rewrite v2, ETag/304 y persistencia sin migración de dominio.
+
+Backlog máximo:
+
+1. Resolver los cuatro fallos previos en sus módulos correspondientes, fuera de este loop.
+2. Confirmar supervisor y consumo de recursos sobre ARM nativo antes de certificar ese runtime.
+3. Aplicar/revisar el parche y desplegar bajo el flujo autorizado del proyecto; no se hizo desde este sandbox.
+
+El código fuente de trabajo, patch y evidencia permiten revisar la integración
+sin sobrescribir el checkout compartido con cambios de otros chats. El bloqueador
+de cierre se declara explícitamente; no se marca ÉXITO con una regresión no verde.

@@ -1,0 +1,9 @@
+from pathlib import Path
+r=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+p=r/'frontend-v2/src/features/listing-url/workspace.tsx';s=p.read_text(encoding='utf-8').replace('disabled={!validId||!!m.busy||m.saved}','disabled={!validId||!!m.busy||m.saved||!m.savedReady}');p.write_text(s,encoding='utf-8')
+p=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\candidate_e2e.py');s=p.read_text(encoding='utf-8').replace("re.compile('Guardada')","re.compile('guardada',re.I)").replace(".get_by_role('link',name=label,exact=True)",".locator('a[href=\"'+path+'\"]')")
+s=s.replace("test('05-radar-real-http-thumbnail',radar)","""test('05-radar-real-http-thumbnail',radar)
+ def prefill():
+  page.get_by_role('button',name='Analizar propiedad',exact=True).last.click();page.get_by_role('link',name='Abrir Analizar URL en Valoria V2',exact=True).click();page.wait_for_url(BASE+'/analizar-url');expect(page.get_by_label('URL de la publicación',exact=True)).to_have_value('https://www.yapo.cl/departamento/31261710');page.reload(wait_until='networkidle');expect(page.get_by_label('URL de la publicación',exact=True)).to_have_value('')
+ test('08-radar-secondary-link-prefill-consumed-once',prefill)""")
+p.write_text(s,encoding='utf-8')

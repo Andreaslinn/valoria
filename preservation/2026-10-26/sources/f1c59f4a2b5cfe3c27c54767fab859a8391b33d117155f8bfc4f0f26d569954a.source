@@ -1,0 +1,100 @@
+"""Experimental SII comparable adjustment. Never replaces the frozen baseline.
+
+Coefficients are fit only to the supplied historical training pool. Geography
+provides selection, never price/attributes. Block/commune centers are not points.
+"""
+from __future__ import annotations
+import math,sqlite3
+from collections import Counter
+from datetime import date
+from pathlib import Path
+import numpy as np
+from services.sii.closing_knn import ClosingKNN,weighted_quantile
+from services.sii.geographic_knn import usable
+
+POINT_QUALITIES={'address_match','estimated','sii_role_point','corrected_anchor_interpolation','legacy_corroborated'}
+
+def precise(g):
+    return bool(usable(g) and g['quality'] in POINT_QUALITIES and g['precision_m']<=100
+                and 'block' not in g.get('method','').lower() and 'centroid' not in g.get('method','').lower())
+
+def load_land(root):
+    with sqlite3.connect((Path(root)/'address-details.sqlite').resolve().as_uri()+'?mode=ro',uri=True) as c:
+        return {r[0]:r[1] for r in c.execute('SELECT rol,land_area_m2 FROM facts WHERE source_id=9') if r[1] and r[1]>0}
+
+def features(row,land):
+    return np.array([math.log(row['area']),math.log(land[row['rol']]) if row['kind']=='casa' else 0.,
+        (row['year']-1980)/50.,(date.fromisoformat(row['date']).toordinal()-date(2024,1,1).toordinal())/365.25])
+
+class MicromarketKNN(ClosingKNN):
+    def __init__(self,rows,geography,land,radius_m=1000,spatial=True):
+        super().__init__(rows)
+        self.geo,self.land,self.radius,self.spatial=geography,land,radius_m,spatial
+        self.fits={}
+        for key,group in self.groups.items():
+            fitrows=[r for r in group if r['kind']!='casa' or r['rol'] in land]
+            # Equal aggregate influence per role, regardless of repeat transfers.
+            counts=Counter(r['rol'] for r in fitrows)
+            if len(counts)<30:continue
+            X=np.array([features(r,land) for r in fitrows]);y=np.log([r['uf'] for r in fitrows])
+            w=np.array([1/counts[r['rol']] for r in fitrows]);center=np.average(X,axis=0,weights=w)
+            ym=np.average(y,weights=w);xc=X-center
+            prior=np.array([1.,.3 if key[1]=='casa' else 0.,0.,0.])
+            beta=np.linalg.solve((xc*w[:,None]).T@xc+5*np.eye(4),(xc*w[:,None]).T@(y-ym)+5*prior)
+            beta=np.clip(beta,[0,0,-.5,-.3],[1.5,1.5,.5,.3])
+            self.fits[key]=beta
+
+    def estimate(self,target):
+        # Refitting here prevents target-role labels from entering adjustment
+        # coefficients, even when callers forgot to group the split by role.
+        safe=[r for r in self.rows if r['rol']!=target['rol'] and r['date']<target['date'] and r.get('fi',r['date'])<target['date']]
+        if len(safe)!=len(self.rows):
+            return MicromarketKNN(safe,self.geo,self.land,self.radius,self.spatial).estimate(target)
+        baseline=super().estimate(target)
+        fallback={**baseline,'model_used':'baseline','geographic_reason':'insufficient_precise_local_comparables','local_count':0}
+        key=(target['comuna'],target['kind']);sg=self.geo.get(target['rol'])
+        if baseline['status']!='ok' or key not in self.fits:return fallback
+        if target['kind']=='casa' and target['rol'] not in self.land:
+            return {**fallback,'geographic_reason':'missing_sii_land'}
+        if self.spatial and not precise(sg):
+            return {**fallback,'geographic_reason':'subject_location_uncertain'}
+        tx=features(target,self.land);beta=self.fits[key];candidates=[]
+        seen=set()
+        # Keep the latest available transfer of each other role.
+        group=sorted(self.groups[key],key=lambda r:(r['date'],r['raw_id']),reverse=True)
+        for r in group:
+            if r['rol'] in seen:continue
+            seen.add(r['rol'])
+            if not .5<=r['area']/target['area']<=1.5:continue
+            if r['kind']=='casa' and r['rol'] not in self.land:continue
+            rx=features(r,self.land);g=self.geo.get(r['rol']);meters=None
+            if self.spatial:
+                if not precise(g):continue
+                lat1,lat2=map(math.radians,[sg['lat'],g['lat']]);dl=math.radians(g['lon']-sg['lon'])
+                h=math.sin((lat2-lat1)/2)**2+math.cos(lat1)*math.cos(lat2)*math.sin(dl/2)**2
+                meters=2*6371000*math.asin(math.sqrt(min(1,h)))
+                # Entire uncertainty envelope must fit the declared neighborhood.
+                if meters+sg['precision_m']+g['precision_m']>self.radius:continue
+                if r['kind']=='casa' and not .4<=self.land[r['rol']]/self.land[target['rol']]<=2.5:continue
+                weight=math.exp(-meters/(self.radius/2)-abs(rx[0]-tx[0])/.5-abs(rx[1]-tx[1])/.7
+                    -abs(rx[2]-tx[2])/0.8-abs(rx[3]-tx[3])/3)
+                weight*=100/(100+g['precision_m']+sg['precision_m'])
+            else:
+                # Attribute-only ablation: identical ranking to baseline.
+                ids={str(c['raw_id']):c['similarity'] for c in baseline['comparables']}
+                if str(r['raw_id']) not in ids:continue
+                weight=ids[str(r['raw_id'])]
+            adjustment=float(np.exp(np.clip((tx-rx)@beta,-math.log(2),math.log(2))))
+            candidates.append({'rol':r['rol'],'raw_id':r['raw_id'],'fecha':r['date'],'m2':r['area'],
+                'uf_m2':r['uf']/r['area'],'similarity':weight,'building':r['building'],
+                'distance_m':meters,'land_area_m2':self.land.get(r['rol']),
+                'adjusted_value_uf':r['uf']*adjustment,'adjustment_factor':adjustment})
+        count=len(candidates)
+        if count<5:return {**fallback,'local_count':count}
+        candidates=sorted(candidates,key=lambda c:(-c['similarity'],c['raw_id']))[:15]
+        vals=[c['adjusted_value_uf'] for c in candidates];weights=[c['similarity'] for c in candidates]
+        lo,mid,hi=[weighted_quantile(vals,weights,q) for q in (.25,.5,.75)]
+        return {'status':'ok','value_uf':mid,'p25_uf':lo,'p75_uf':hi,'uf_m2':mid/target['area'],
+            'comparables':candidates,'model_used':'micromarket' if self.spatial else 'attributes',
+            'geographic_reason':'precise_local_adjusted_sales' if self.spatial else 'attributes_only',
+            'local_count':count,'adjustment_coefficients':beta.tolist()}

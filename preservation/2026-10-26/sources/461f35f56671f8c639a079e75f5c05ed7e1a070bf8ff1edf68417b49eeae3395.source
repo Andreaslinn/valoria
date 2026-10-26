@@ -1,0 +1,58 @@
+"""Run after importing both communes into the dedicated local PostgreSQL."""
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+from sqlalchemy import func, select
+
+from infrastructure.db import property_life as db
+from services.property_life import audit, life
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("PROPERTY_LIFE_TEST_REAL_PG") != "true",
+    reason="Requires real sources imported into dedicated local PostgreSQL",
+)
+GOLDEN = Path(__file__).parent / "reference/golden"
+
+
+@pytest.mark.parametrize("comuna", ["Vitacura", "Las Condes"])
+def test_postgres_audit(comuna):
+    expected = json.loads((GOLDEN / "auditoria.json").read_text(encoding="utf-8"))[comuna]
+    assert audit(comuna, today="2026-10-16") == expected
+
+
+@pytest.mark.parametrize("case", ["samotracia_2071", "los_lagares_7282", "brasilia_750_dp123"])
+def test_postgres_report(case):
+    expected = json.loads((GOLDEN / f"{case}.json").read_text(encoding="utf-8"))
+    actual = life(expected["direccion"], expected["comuna"], today="2026-10-16")
+    assert actual["propiedad"] == expected["propiedad"]
+    assert actual["confianza_conteo"] == expected["confianza_conteo"]
+    assert actual["estimacion"]["n"] == expected["estimacion"]["n"]
+    for field in ["uf_bajo", "uf_med", "uf_alto"]:
+        assert actual["estimacion"][field] == pytest.approx(expected["estimacion"][field], rel=0.01)
+    assert [r["confianza"] for r in actual["historial"]] == [
+        r["confianza"] for r in expected["historial"]
+    ]
+
+
+def test_every_f2890_row_is_retained():
+    eng = db.engine()
+    try:
+        with eng.connect() as conn:
+            sources = conn.execute(
+                select(db.source_file.c.id, db.source_file.c.row_count).where(
+                    db.source_file.c.kind == "f2890"
+                )
+            ).all()
+            assert sources, "No F2890 imports found"
+            for source_id, expected_count in sources:
+                actual = conn.execute(
+                    select(func.count())
+                    .select_from(db.transfer_raw)
+                    .where(db.transfer_raw.c.source_file_id == source_id)
+                ).scalar_one()
+                assert actual == expected_count
+    finally:
+        eng.dispose()

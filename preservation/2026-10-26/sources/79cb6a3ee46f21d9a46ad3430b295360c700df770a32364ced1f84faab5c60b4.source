@@ -1,0 +1,55 @@
+"""Use Git's existing GitHub credential helper in memory; never log/store tokens."""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import httpx
+
+repo = Path(__file__).parent / "valoria"
+os.environ["GIT_TERMINAL_PROMPT"] = "0"
+os.environ["GCM_INTERACTIVE"] = "never"
+result = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=github.com\n\n",
+                        text=True, capture_output=True, cwd=repo, timeout=20)
+if result.returncode:
+    raise SystemExit("No noninteractive GitHub credential available; credential output suppressed")
+credential = dict(line.split("=",1) for line in result.stdout.splitlines() if "=" in line)
+token = credential.get("password")
+if not token:
+    raise SystemExit("GitHub credential unavailable")
+headers = {"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
+           "X-GitHub-Api-Version": "2022-11-28"}
+with httpx.Client(headers=headers, timeout=30, follow_redirects=False) as client:
+    if sys.argv[1] == "check":
+        response = client.get("https://api.github.com/repos/Andreaslinn/valoria")
+        if response.status_code != 200:
+            raise SystemExit(f"GitHub metadata access failed: HTTP {response.status_code}")
+        data = response.json()
+        print(json.dumps({"repo": data["full_name"], "permissions": data.get("permissions",{})}))
+    elif sys.argv[1] == "create":
+        body = (Path(__file__).parent / "pr-body.md").read_text(encoding="utf8")
+        response = client.post("https://api.github.com/repos/Andreaslinn/valoria/pulls", json={
+            "title": "SII fase 1: ingesta local F2890 y catastro con trazabilidad",
+            "head": "feature/sii-ingest-20261017", "base": "release/canonical-only-reproducible-20261013",
+            "body": body, "draft": True})
+        if response.status_code != 201:
+            raise SystemExit(f"PR creation failed: HTTP {response.status_code}")
+        data = response.json()
+        print(json.dumps({"url": data["html_url"], "number": data["number"], "draft": data["draft"]}))
+    elif sys.argv[1] == "inspect":
+        response=client.get("https://api.github.com/repos/Andreaslinn/valoria/pulls/9")
+        if response.status_code != 200:
+            raise SystemExit(f"PR metadata failed: HTTP {response.status_code}")
+        data=response.json()
+        print(json.dumps({"url":data["html_url"],"state":data["state"],"draft":data["draft"],"merged":data["merged"],
+            "head":data["head"]["sha"],"base":data["base"]["ref"]}))
+    elif sys.argv[1] == "update":
+        body = (Path(__file__).parent / "pr-body.md").read_text(encoding="utf8")
+        response = client.patch("https://api.github.com/repos/Andreaslinn/valoria/pulls/9",json={
+            "title":"SII fase 1: ingesta local y validación de F2890 y catastro 2S-2026", "body":body})
+        if response.status_code != 200:
+            raise SystemExit(f"PR update failed: HTTP {response.status_code}")
+        data=response.json()
+        print(json.dumps({"url":data["html_url"],"number":data["number"],"draft":data["draft"],
+            "head":data["head"]["sha"],"base":data["base"]["ref"]}))

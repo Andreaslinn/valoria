@@ -1,0 +1,4 @@
+from pathlib import Path
+p=Path('frontend-v2/src/features/radar/radar.tsx')
+s=p.read_text(encoding='utf-8').replace('<span>Estimación Valoria</span>','<span>Referencia Radar · comparables</span>').replace('Comparación de valores · no representa un intervalo de confianza','Referencia para priorizar publicaciones. Tasar puede aplicar consenso y ajustes; revisa el método y la fecha de los datos.')
+p.write_text(s,encoding='utf-8')

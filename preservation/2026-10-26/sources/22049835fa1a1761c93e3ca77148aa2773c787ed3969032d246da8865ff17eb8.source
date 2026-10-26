@@ -1,0 +1,102 @@
+"""Isolated autonomous AVM research. No network, productive imports or holdout."""
+from pathlib import Path
+import sys,json,hashlib,importlib.util,math,csv,shutil
+from datetime import datetime,timezone
+from collections import Counter,defaultdict
+ROOT=Path(__file__).resolve().parents[2]; HERE=Path(__file__).resolve().parent
+PRIOR=ROOT/'research/portal_geo_am_followup_20261010'
+RUNTIME=HERE/'runtime'
+def module(name,path):
+ s=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(s);sys.modules[name]=m;s.loader.exec_module(m);return m
+def read(p):return json.loads(Path(p).read_text(encoding='utf-8'))
+def write(p,x):Path(p).write_text(json.dumps(x,ensure_ascii=False,indent=2,allow_nan=False,default=str)+'\n',encoding='utf-8')
+def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+def digest(x):return hashlib.sha256(json.dumps(x,sort_keys=True,default=str).encode()).hexdigest()
+def crypto():return module('discovery_crypto',ROOT/'private-ingestion-production-20261004/recovery_tools.py')
+def decrypt(p):return json.loads(crypto().unprotect(Path(p).read_bytes()))
+def encrypt(p,x):
+ raw=json.dumps(x,sort_keys=True,allow_nan=False,default=str).encode();Path(p).write_bytes(crypto().protect(raw));return hashlib.sha256(raw).hexdigest()
+def load():
+ sys.path[:0]=[str(RUNTIME),str(RUNTIME/'frozen_a')]
+ p=module('discovery_pilot',ROOT/'research/tasar_pilot_A_vs_C1_20261010T130800Z/pilot.py');p.RUNTIME=RUNTIME
+ return p,p.load_datasets()
+def setup():
+ HERE.mkdir(exist_ok=True);(HERE/'.gitignore').write_text('*\n',encoding='ascii')
+ if not RUNTIME.exists():shutil.copytree(PRIOR/'runtime',RUNTIME,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+ p,(datasets,cohort,maps,ident)=load()
+ c=read(PRIOR/'protocol.json'); inputs=dict(c['immutable_inputs'])
+ for folder in ['portal_geo_am_v0_20261010','portal_geo_am_followup_20261010','tasar_pilot_A_vs_C1_20261010T130800Z']:
+  for f in (ROOT/'research'/folder).rglob('*'):
+   if f.is_file() and '__pycache__' not in f.parts and f.suffix!='.pyc':inputs[str(f)]=sha(f)
+ for f,h in inputs.items():assert sha(f)==h,f
+ policy={'version':'valuation-discovery-1','registered_at':datetime.now(timezone.utc).isoformat(),
+  'dataset_sha256':{k:ds.hash() for k,ds in datasets.items()},'allowed_engines':['A','R0','Rsource','Flex','Trees','Adjusted','AdjustedPre','LocalResidual','Hybrid'],
+  'uf_reference':c['uf_reference'],'immutable_inputs':inputs,'seeds':[20261009,20261010,20261011],
+  'objective':'source-balanced MAE-log inner-only; MdAPE, tails, coverage, bias reported unchanged; no outer ranking as confirmation',
+  'status':'exploratory reused cohort; no confirmatory holdout read; no productive changes',
+  'iteration1':{'R0':'Ridge alpha10 without source','Rsource':'Ridge alpha10 with source, C1 parity',
+   'Flex':'area cubic spline knots4; numeric beds/baths/parking; commune; Ridge alpha10 no source',
+   'Trees':'HistGB depth3 leaves7 minleaf20 iter100 lr.05 L2=10 no source',
+   'Adjusted':'same selected A comps, no source Ridge physical adjustment relative to unit area elasticity, same frozen multiplicative A surface adjustment; correction clipped +/-log1.25',
+   'AdjustedPre':'same physical adjustment, without A surface correction',
+   'LocalResidual':'Flex baseline + local cross-fitted residual median; 2km same structural +/-30% and <=1 layout difference, >=5 independent groups, shrink Neff/(Neff+20); no raw target price',
+   'selection':'no tuning iteration1; fixed prior hyperparameters; compare all, diagnose before iteration2'},
+  'decision':'require stable substantive paired benefit, no concealed coverage tradeoff, source/segment robustness; prospective test before product',
+  'holdout':'none loaded or created; prior confirmatory artifacts untouched'}
+ write(HERE/'protocol.json',policy);(HERE/'protocol.sha256').write_text(sha(HERE/'protocol.json'))
+ # Same signed custody, isolated authorization extended by this explicit user mandate.
+ code=(PRIOR/'runtime/avm01/pilot_authorization.py').read_text();(RUNTIME/'avm01/pilot_authorization.py').write_text(code,encoding='utf-8')
+ write(HERE/'setup.json',{'datasets':{k:len(ds.records) for k,ds in datasets.items()},'original_hashes':len(inputs),'protocol_sha256':sha(HERE/'protocol.json')})
+ print(json.dumps(read(HERE/'setup.json')))
+def verify():
+ c=read(HERE/'protocol.json');assert sha(HERE/'protocol.json')==(HERE/'protocol.sha256').read_text()
+ for p,h in c['immutable_inputs'].items():assert sha(p)==h,p
+ return c
+def prior(seed):
+ tag='primary-v2' if seed==20261009 else 'second-seed-v2'
+ return decrypt(ROOT/'research/portal_geo_am_v0_20261010'/(tag+'.json.dpapi'))
+def audit():
+ import numpy as np
+ c=verify();p,(datasets,cohort,maps,ident)=load();ds=datasets['G3'];idx=ds.indexed()
+ from avm01.isolation import dependency_components
+ from avm01.metrics import metrics
+ from avm01.splits import validate_plan
+ from domain.valuation.scoring import _distance_impact
+ from avm01.canonical_io import target_from_payload
+ baseline=prior(20261009); byid={r['row_id']:r for r in baseline}
+ out={'n':len(idx),'unique_availability':len({r.available_at for r in idx.values()}),'unique_prediction_times':len({r.prediction_at for r in idx.values()}),'sources':{},'split_checks':[],'metric_checks':{},'operational_gap':{}}
+ for seed in c['seeds']:
+  plan=p.create_plan(ds,cohort,maps['G3'],seed);validate_plan(ds,plan)
+  components=dependency_components(ds)
+  checks=[]
+  for k,s in enumerate(plan.folds):
+   assert not {components[i] for i in s.train}&{components[i] for i in s.test}
+   z={r['row_id']:r for r in (prior(seed) if seed!=20261011 else [])}
+   checks.append({'fold':k,'train':len(s.train),'test':len(s.test),'overlap':0,
+    'lineage_subset_ok':all(set(z[i]['predictions']['A']['selected_ids'])<=set(s.train) and set(z[i]['predictions']['A']['surface_pool_ids'])<=set(s.train) for i in s.test) if z else None})
+  out['split_checks'].append({'seed':seed,'folds':checks})
+ y={i:r.price_uf for i,r in idx.items()};pred={i:byid[i]['predictions']['A']['prediction'] for i in idx}
+ m=metrics(y,pred);good=[i for i in y if pred[i] is not None];a=100*np.abs(np.array([pred[i]/y[i]-1 for i in good]))
+ for name,expected in [('MdAPE',np.median(a)),('MAPE',np.mean(a)),('P90',np.percentile(a,90)),('P95',np.percentile(a,95))]:
+  out['metric_checks'][name]={'frozen':m[name],'independent_numpy':float(expected),'equal_1e12':math.isclose(m[name],float(expected),rel_tol=1e-12),'delta':m[name]-float(expected)}
+ for source in ['portalinmobiliario','yapo']:
+  rows=[r for r in idx.values() if r.features['source']==source];areas=[math.exp(r.features['log_area']) for r in rows]
+  out['sources'][source]={'n':len(rows),'area_percentiles':np.percentile(areas,[10,50,90]).tolist(),
+   'parking_zero':sum(r.features['parking']==0 for r in rows),'coords':sum(r.latitude is not None for r in rows),
+   'coords_impact_positive':sum(_distance_impact(target_from_payload(r.canonical_target))>0 for r in rows),
+   'comunas':dict(Counter(r.features['comuna'] for r in rows)),
+   'area_built_equals_usable':sum(r.canonical_target.get('built_area_m2')==r.canonical_target.get('usable_area_m2') for r in rows)}
+ out['operational_gap']={'eligible_targets':791,'active_apartments_snapshot':2396,'entire_snapshot':6283,'training_pool_restricted_to_target_eligible':True,
+  'availability':'all available_at stamped at snapshot cutoff; does not reconstruct historical market or forward generalization',
+  'target':'retained parsed UF-native offers, not transaction values; no independently replayed raw truth',
+  'pool':'fold training only from 791 targets; not all production-eligible historical/current candidates',
+  'sources':'source is provided to C1 but not a manual Tasar property attribute',
+  'identity':'G3 price-blind dependencies reviewed automatically, not certified physical independence'}
+ # Snapshot cohort selection bias, compare only nonmonetary aggregate features.
+ b=module('discovery_cohort',ROOT/'research/tasar_cohort_20261009T154414Z/build.py')
+ raw=read(ROOT/b.POLICY['snapshot']) if hasattr(b,'POLICY') else read(ROOT/'research/tasar_cohort_20261009T154414Z/inputs/backup_listings_projection_v2.json')
+ pop=[r for r in raw['listings'] if r.get('status')=='active' and r.get('property_type')=='apartment']
+ out['population']={source:{'n':len(z:=[r for r in pop if r.get('source')==source]),'eligible_n':out['sources'][source]['n'],
+  'area_median':float(np.median([b.area(r)[0] for r in z if b.area(r)[0]])),'comunas':dict(Counter(r.get('comuna') for r in z))} for source in out['sources']}
+ write(HERE/'benchmark_audit.json',out);print(json.dumps({k:v for k,v in out.items() if k not in ['sources','population']},ensure_ascii=False))
+if __name__=='__main__':globals()[sys.argv[1]]()

@@ -1,0 +1,95 @@
+import json
+import os
+import subprocess
+from pathlib import Path
+
+import httpx
+
+base=Path(__file__).resolve().parent
+repo=base/'valoria'
+branch='feature/sii-closing-layer-20261019'
+release='release/canonical-only-reproducible-20261013'
+assert subprocess.check_output(['git','branch','--show-current'],cwd=repo,text=True).strip()==branch
+assert not subprocess.check_output(['git','status','--porcelain'],cwd=repo,text=True).strip()
+sha=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip()
+parent=subprocess.check_output(['git','rev-parse','HEAD^'],cwd=repo,text=True).strip()
+assert parent=='7265b3a6900ab7487bbd6d57ad7a6f976f319f70'
+assert not subprocess.check_output(['git','diff',parent,'--name-only','--','services/sii/closing_knn.py','services/valuation.py','api/v1/valuations.py','config/valuation_flags.py','frontend','frontend-v2'],cwd=repo,text=True).strip()
+d=json.loads((repo/'reports/sii/closing_confidence_20261019/summary.json').read_text(encoding='utf8'))
+assert not d['goal_met'] and d['communes_passing']==0 and '126 passed' in d['tests']
+assert d['comparison']['full_input_synthetic_shadow_checks_passed']==64
+baseline='| Comuna | Pares / 150 | Canónico MdAPE % | Canónico P95 % | SII MdAPE % | SII P95 % |\n|---|---:|---:|---:|---:|---:|\n'
+for r in d['comparison']['by_commune']:
+    c,s=r['canonical_paired'],r['sii_paired']
+    baseline+=f"| {r['name']} | {r['paired_n']} | {c['mdape_pct']:.2f} | {c['p95_ape_pct']:.2f} | {s['mdape_pct']:.2f} | {s['p95_ape_pct']:.2f} |\n"
+coverage='| Comuna | Admitidos / total | Cobertura % | MdAPE zona % | P95 zona % |\n|---|---:|---:|---:|---:|\n'
+for r in d['holdout']['by_commune']:
+    m=r['trusted']
+    coverage+=f"| {r['name']} | {m['n']}/{r['total']} | {r['coverage_pct']:.2f} | {m['mdape_pct']:.2f} | {m['p95_ape_pct']:.2f} |\n"
+link=f'https://github.com/Andreaslinn/valoria/blob/{sha}'
+body=f'''Compara el motor canónico actual con el kNN SII sobre cierres emparejados y añade abstención offline mediante una regla aprendida **solo en 2025H2**. La regla reduce MdAPE dentro de su zona a ≤10% en las ocho comunas, pero **ninguna llega a cobertura 50%**: la meta de al menos seis comunas no se cumple. No se amplió la regla con los resultados 2026.
+
+Continúa el mismo PR en borrador, sobre la release `release/canonical-only-reproducible-20261013` (`24b56dc`, con PR #9). **Sin integración en Tasar, merge ni deploy; `sii_closing_layer` apagado.** Pesos, K, escalas y código original del kNN permanecen idénticos. Endpoints, servicio canónico y ambas interfaces sin cambios.
+
+### Línea base: casos idénticos
+
+1.200 cierres muestreados, 150 por comuna, estratificación proporcional por edad y semilla fija. Métricas sobre **los mismos 1.142 casos** donde ambos motores tasan; se reportan todas las abstenciones (canónico 1.166/1.200; SII 1.176/1.200).
+
+{baseline}
+
+Canónico real `comparables_canonical_outliers`, misma versión/código monetario que producción, mismos m² cerrados, comuna y tipo. El año se conserva en metadata, pero **el motor canónico actual lo ignora**; no se cambió ese comportamiento ni se inventaron atributos SII faltantes. Snapshot de 3.895 avisos activos del 19/10, SELECTs acotados en `REPEATABLE READ READ ONLY`, con rollback y UF oficial ya persistida del mismo día. La proyección conserva clase de producto y señales/precios y supera **64 coincidencias monetarias exactas** frente a entradas completas mediante áreas sintéticas.
+
+**Límite de interpretación:** stock de ofertas vigente en octubre frente a cierres anteriores, no stock histórico a la fecha de cada venta. Se comparan datos de oferta y cierre; la diferencia no aísla únicamente el algoritmo.
+
+### Regla congelada en validación, sin usar 2026 para elegirla
+
+13.544 cierres 2025H2; pool hasta 30/06/2025, excluyendo todos los roles de validación y sus ventas anteriores. El comando `fit` rechaza filas 2026. Segmentación predefinida:
+
+- Ubicación de los 10 vecinos: ≥5 mismo edificio; si no, ≥5 misma manzana (incluye edificio); si no, comuna.
+- Edad: 0–9, 10–19, 20–39 y 40+.
+- Dispersión `(P75-P25)/mediana`: ≤10%, (10%,20%], (20%,35%], >35%.
+
+**Confiable si la celda tiene n≥30 y MdAPE de validación ≤10%; fuera, abstención sin valor puntual.** Diez celdas admitidas; la tabla completa, el soporte y sus P95 están en el informe y en la regla. No hay búsqueda posterior de umbrales ni reglas por comuna. Dentro de la zona, valor, rango y comparables quedan idénticos al kNN.
+
+Regla congelada SHA-256 `{d['rule_sha256']}`; comprobada antes/después del holdout, junto al hash del kNN. El protocolo contiene la hora de registro y los hashes de las entradas de entrenamiento. Las señales estructurales siguen usando el catastro disponible 2026H2: no se reconstruyó su versión histórica de 2025.
+
+### Aplicación congelada al holdout 2026
+
+Todos los 13.135 cierres; pool 2024–2025 sin ningún rol presente en 2026. Cobertura incluye todos los casos y abstenciones en el denominador. MdAPE/P95 usan solo la zona admitida.
+
+{coverage}
+
+**4.085/13.135 admitidos; 0/8 comunas con cobertura≥50% y MdAPE≤10%.** No se modificó la regla al ver este resultado. El P95 permanece elevado en varias comunas aunque su mediana cumpla; «confiable» no garantiza error individual ≤10%.
+
+### Validación y evidencia
+
+**126 pruebas unitarias/regresión pasadas**, Ruff y diff check correctos. Incluye cortes temporales, soporte mínimo, límites de edad/IQR, independencia del precio real al aplicar confianza, abstención sin valor, hash portable CRLF/LF y regresiones de los caminos canónicos/SII. No se ejecutó la suite completa.
+
+[Informe agregado con ambas tablas, conteos de ubicación 0–10, tramos de edad, dispersión y todas las celdas de validación]({link}/reports/sii/closing_confidence_20261019/report.md) · [Protocolo/reproducción]({link}/docs/sii_closing_confidence.md) · [Regla congelada]({link}/reports/sii/closing_confidence_20261019/frozen-rule.json).
+
+**Solo código y agregados en GitHub.** Los cierres, roles, muestras, entradas canónicas y comparables individuales permanecen en la entrega local del solicitante; sus salidas están ignoradas por Git. No se ejecutaron escrituras en producción, nuevos jobs, scrapers, migraciones ni despliegues.
+'''
+(base/'confidence-pr-body.md').write_text(body,encoding='utf8')
+os.environ['GIT_TERMINAL_PROMPT']='0';os.environ['GCM_INTERACTIVE']='never'
+r=subprocess.run(['git','credential','fill'],input='protocol=https\nhost=github.com\n\n',text=True,capture_output=True,cwd=repo,timeout=20)
+if r.returncode:raise SystemExit('GitHub credential unavailable; sensitive output suppressed')
+credentials=dict(x.split('=',1) for x in r.stdout.splitlines() if '=' in x)
+token=credentials.get('password')
+if not token:raise SystemExit('GitHub credential unavailable')
+headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+url='https://api.github.com/repos/Andreaslinn/valoria/pulls/11'
+with httpx.Client(headers=headers,timeout=30,follow_redirects=False) as c:
+    response=c.get(url);response.raise_for_status();pr=response.json()
+    assert pr['state']=='open' and pr['draft'] and not pr['merged_at']
+    assert pr['head']['ref']==branch and pr['base']['ref']==release
+    assert pr['head']['sha'] in {parent,sha},'Concurrent PR change; review before pushing'
+    subprocess.run(['git','push','origin',branch],cwd=repo,check=True,timeout=90)
+    response=c.patch(url,json={'title':'SII: contraste canónico y confianza 2025H2; cobertura insuficiente','body':body})
+    response.raise_for_status();pr=response.json()
+    assert pr['draft'] and not pr['merged_at'] and pr['state']=='open'
+    response=c.get(url);response.raise_for_status();pr=response.json()
+    assert pr['head']['sha']==sha
+    result={'url':pr['html_url'],'draft':pr['draft'],'merged':bool(pr['merged_at']),
+            'sha':pr['head']['sha'],'base':pr['base']['ref'],'goal_met':d['goal_met']}
+    (base/'confidence-pr-updated.json').write_text(json.dumps(result,indent=2),encoding='utf8')
+    print(json.dumps(result))

@@ -1,0 +1,65 @@
+# Valoria V2 architecture and operating boundaries
+
+Validated locally on 2026-10-12. This document describes the repository, not a claim that its working tree is deployed. See `audits/valoria-v2-remediation.md` for evidence and remaining gates.
+
+## Application and routes
+
+`frontend-v2` is Next.js 15 / React 19 / TypeScript. `/`, `/resumen`, and `/app` render Resumen. `/radar`, `/tasar`, `/analizar-url`, `/portfolio`, and `/alerts` are native V2 routes. Components use the common AppShell and typed API adapters. V1 remains in `frontend`; the two apps are separate builds.
+
+The browser calls same-origin `/backend/api/v1/...`. Next rewrites `/backend` to the origin configured by `NEXT_PUBLIC_API_BASE_URL`. Default upstream is `http://localhost:8000`; development listens on `127.0.0.1:3002`. `NEXT_PUBLIC_LEGACY_BASE_URL` controls remaining legacy destinations. Neither public variable is a place for credentials. Bearer authentication is forwarded without disabling backend access checks. Local access tokens must never be committed or logged.
+
+FastAPI lives in `api`, use cases in `services`, valuation and ingestion rules in `domain`, entities and ports in `core`, database and acquisition adapters in `infrastructure`. PostgreSQL holds listing history and user records. Redis provides existing caching/rate limiting. No new paid dependencies or always-on browsers are required by these fixes.
+
+## Meaning of the data
+
+Target listing IDs flow through URL lookup, analyzer, Tasar prefill, valuation request, and portfolio valuation input. Target publications and reliable duplicates are excluded before estimation. Database property grouping and similar titles are not publication identity.
+
+Radar ranks with its comparables baseline. The displayed screening estimate and its discount must use the same baseline. Tasar and URL analysis call the valuation facade with `consensus_v1`, which can use surface adjustments, challenger safeguards, and model consensus. These methods are explicitly distinguished; values are not forcibly equalized. Listing observation dates are not estimate generation dates.
+
+Market activity uses complete Chilean calendar days in `America/Santiago`, with UTC timestamps for storage and explicit inclusive start / exclusive end. Daily charts, activity KPIs, and commune activity share these boundaries. Current inventory and the broader market-balance methodology are separate metrics. Rebaja events and distinct discounted listings must not be conflated.
+
+Known removed/inactive publications retain historical analysis, lifecycle status and observation dates. Unknown availability is not active availability. Saving a historical reference does not make the property available. Nullable observations remain unknown; serializers do not manufacture a current timestamp.
+
+`core/assessment/warning_definitions.json` supplies V2 and report explanations. Unknown codes remain visible as cautions. Reports preserve entered comparison prices separately from estimates and retain available comparable identities/links. The HTML analysis report is available with an estimate; the separate expanded risk report remains in development. PDF export is not released.
+
+## Thumbnails and alerts
+
+Oracle's actual image contract is a nullable `thumbnail` object with `url`, `width`, `height`, `bytes`, and `hash`. URLs are signed capability references to derived WebP assets, consumed through the same-origin proxy. V2 does not download full-resolution originals or add an image pipeline. Existing `services/thumbnails.py` and `infrastructure/thumbnails` were recovered unchanged from the running Oracle container to preserve the existing cache, worker and access mechanism.
+
+Alert history is requested explicitly with `include_read=true`. Patrimony optionally includes dismissed alerts. Default API behavior remains unread-only. Migration `0022` adds a small `alert_reads` table keyed by user and alert, so new acknowledgements do not affect another user who saves the same listing. Existing shared `alerts.is_read` values remain legacy history; their original user attribution cannot be reconstructed. Roll back the application while preserving the additive table; automatic downgrade deliberately refuses to delete acknowledgements.
+
+## Product scope and coverage
+
+V2 provides saved-publication monitoring and existing patrimonial alert review. Backend `/patrimony` APIs include property create/list/read/update, strategies create/list/read/update/delete, developments, intelligence and alerts. A complete property CRUD/preferences/strategy UI has no established V2 flow here. Building it is deferred pending product requirements. No property delete endpoint was found in the inspected router. Do not imply that saved-publication deletion deletes a physical patrimonial asset.
+
+Oracle had zero active office listings at the read-only inspection on 2026-10-12. The engine can value offices when enough eligible comparables exist; isolated tests exercise five, four and zero. This does not establish real-market office coverage. Keep minimum sample safeguards.
+
+Listing 6842 has a house-for-sale title but apartment canonical type and source category `departamentos`. The contradiction is confirmed, but the true property type is not. Conservative guards prevent automatic valuation from silently trusting the conflicting type; no production row is reclassified from a title alone.
+
+## Tests and deployment
+
+Run from repository root:
+
+```text
+python -m pytest tests/unit/test_target_listing_exclusion.py tests/unit/test_valuation_service.py -q
+python -m pytest tests/unit/test_listing_url_portal.py tests/unit/test_listing_analysis.py -q
+python -m pytest tests/unit/test_market_period_boundaries.py tests/unit/test_market_intelligence.py -q
+python -m pytest tests/integration/test_alerts_api.py tests/integration/test_watchlist_api.py -q
+node tests/frontend/remediation.test.cjs
+node frontend-v2/node_modules/typescript/bin/tsc --noEmit --project frontend-v2/tsconfig.json
+npm run build --prefix frontend-v2
+python -m scripts.check_v2_contract --base-url <verified-api-origin> --expected-code-fingerprint <intended-hash>
+```
+
+Python fixtures use isolated in-memory SQLite. Test rate-limit counters use a per-test store with real thresholds; tests must not contact shared Redis or change production limits. Synthetic fixtures never belong in real accounts. Development visual fixtures are guarded by development mode and must not be represented as live data.
+
+The compatibility CLI performs only GETs. Schema/capability checks establish necessary support, not successful endpoint behavior. URL lookup/analyze endpoints can refresh listing state and must not be labelled read-only production smoke tests. Verify authenticated behavior separately without fabricating user data.
+
+Oracle baseline API image: `valoria-portal-geo:0ceeb1e-20261011`. The baseline lacks target-ID and Portal analyzer support. V2 was locally built, not publicly published. Before production changes, inspect current image/services, volumes/backups, tested rollback, migration compatibility, resources and scraper health. Preserve the actual current image as the build base; do not replace newer scraper/geography or thumbnail work with an older full local checkout. Deploy only the API service if compatible; keep workers, timers, Caddy, Redis and sessions intact. A green local build does not establish Oracle verification.
+
+
+## Final Portal acquisition and API release — 2026-10-12
+
+The lookup analyzer uses infrastructure.scrapers.portal_acquisition.portal_lookup_client, delegates validation to scripts.portal_session.load_session (same existing scheduler loader), checks the reauthentication circuit, and uses production request headers. API mounts private/portal-session at/portal-session read-only with PORTAL_SESSION_FILE=/portal-session/session.json. The existing scheduled host runner owns atomic cookie updates. No anonymous fallback, retries, cookie persistence, challenge solving or worker changes are introduced. Source-validated bounded redirects retain SSRF protections; structured errors distinguish unavailable404,session/access/rate503,timeout504 andtransport/server502.
+
+Radar publication/type facts are snapshotted per detection run and comparables grouped once; no cross-request cache. Additive alert_reads revision0022 preserves production0021 observation schema and append-only guards. Final v6 is now deployed; exact image/fingerprint/rollback and verification are recorded in the final acceptance report. API only was recreated; V2 frontend build/browser validation is controlled and public frontend publication remains pending. The previous blocked deployment paragraph is historical baseline.

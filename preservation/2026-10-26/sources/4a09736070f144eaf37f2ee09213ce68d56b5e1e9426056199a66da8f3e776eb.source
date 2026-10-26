@@ -1,0 +1,23 @@
+from pathlib import Path
+import subprocess
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''import pathlib,subprocess,json,hashlib
+back=pathlib.Path('/home/ubuntu/backups/radar-tasar-engine-20261013');assert not back.exists();back.mkdir(mode=0o700)
+def run(args,**kw):
+ r=subprocess.run(args,capture_output=True,timeout=100,**kw);assert r.returncode==0,'Private backup command failed';return r.stdout
+api=json.loads(run(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+assert api['Image']=='sha256:70447ccad59a69df70c52a1ee90cac8f3f92d98dff818c48c02abf24fec3297d'
+dump=run(['docker','exec','valoria_oracle_beta-postgres-1','sh','-c','exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc']);assert dump.startswith(b'PGDMP')
+catalog=run(['docker','exec','-i','valoria_oracle_beta-postgres-1','pg_restore','--list'],input=dump);assert b'TABLE DATA public listings' in catalog
+for name,data in [('database.dump',dump),('restore-list.txt',catalog),('api-before-private.json',json.dumps(api).encode())]:
+ p=back/name;p.write_bytes(data);p.chmod(0o600)
+for index,name in enumerate(api['Config']['Labels']['com.docker.compose.project.config_files'].split(',')):
+ p=back/('compose-'+str(index)+'.yml');p.write_bytes(pathlib.Path(name).read_bytes());p.chmod(0o600)
+session=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session/session.json')
+others={n:json.loads(run(['docker','inspect',n]))[0] for n in ['valoria_oracle_beta-postgres-1','valoria_oracle_beta-redis-1','valoria_oracle_beta-thumbnails-1','valoria_oracle_beta-caddy-1']}
+state={'other_container_ids':{n:x['Id'] for n,x in others.items()},'other_started_at':{n:x['State']['StartedAt'] for n,x in others.items()},'portal_session_sha256':hashlib.sha256(session.read_bytes()).hexdigest()}
+p=back/'preservation-state-private.json';p.write_text(json.dumps(state));p.chmod(0o600)
+out={'backup':str(back),'old_api_image':api['Image'],'database_dump_bytes':len(dump),'database_dump_sha256':hashlib.sha256(dump).hexdigest(),'catalog_verified':True,'schema_change':'none','private_configuration_preserved':True}
+p=back/'manifest.json';p.write_text(json.dumps(out,indent=2));p.chmod(0o600);print(json.dumps(out,indent=2))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=135);print(r.stdout);r.check_returncode();Path(__file__).with_name('radar-release-backup.json').write_text(r.stdout,encoding='utf-8')

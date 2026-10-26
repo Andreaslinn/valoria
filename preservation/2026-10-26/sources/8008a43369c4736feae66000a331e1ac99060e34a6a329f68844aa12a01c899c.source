@@ -1,0 +1,61 @@
+"""Paired contract evaluation. No search over reused outer labels."""
+from contracts import *
+from models import *
+from text_models import TextModel
+from am import FoldModel,BASE,cfg,clear_price_surface_cache
+from avm01.isolation import LabelCustody
+from avm01.engines import FrozenA
+import subprocess,time
+
+class Physical:
+ def __init__(self,batch):
+  self.batch=batch
+  prep=ColumnTransformer([('numeric',Pipeline([('impute',SimpleImputer(strategy='median',keep_empty_features=True)),('scale',StandardScaler())]),list(range(7))),('commune',OneHotEncoder(handle_unknown='ignore'),[7])],sparse_threshold=1.)
+  self.pipeline=Pipeline([('preprocess',prep),('ridge',Ridge(alpha=1.,solver='lsqr',tol=1e-8,max_iter=5000))])
+  with threadpool_limits(limits=1):self.pipeline.fit(matrix(batch.rows),np.log([r.price_uf for r in batch.rows]))
+ def predict_log(self,ts):
+  for t in ts:self.batch.validate_target(t)
+  with threadpool_limits(limits=1):return self.pipeline.predict(matrix(ts))
+
+def worker(batch,mode,traces,blend,ref):
+ # Payload contains training prices, never target prices/current listing payloads.
+ rows=sorted(batch.rows,key=lambda r:int(r.canonical_listing['id']))
+ payload={'mode':mode,'uf_reference':ref,'pool':[r.canonical_listing for r in rows],'targets':[{'row_id':t.row_id,'canonical_target':t.canonical_target,'am':traces[t.row_id]['prediction'],'blend':blend[t.row_id]} for t in batch.targets]}
+ p=subprocess.run([sys.executable,'-B',str(HERE/'product_worker.py')],input=json.dumps(payload).encode(),capture_output=True,timeout=600)
+ if p.returncode:raise RuntimeError('Offline service worker failed: '+p.stderr.decode(errors='replace')[-2000:])
+ return json.loads(p.stdout)
+
+def run(which):
+ c=verify()
+ for rel,h in read(HERE/'code_seal.json').items():assert sha(HERE/rel)==h,rel
+ ds,splits=cases(which);out=HERE/f'contracts-{which}.json.dpapi';assert not out.exists(),'No result overwrite'
+ records=[];started=time.monotonic()
+ for fold,split in enumerate(splits):
+  for mode in MODES:
+   print(json.dumps({'case':which,'fold':fold,'mode':mode,'phase':'predict'}),flush=True)
+   dd,ss=derive(ds,split,mode);assert dd.hash()==c['dataset_sha256'][f'{which}-{fold}-{mode}']
+   custody=LabelCustody(dd,());config={'seed':split.seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'protocol.json')}
+   batch=custody.issue(dd,ss,config,());ts=list(batch.targets)
+   learned=TextModel(batch,alpha=1.,weight=1.) if mode=='enriched' else Physical(batch)
+   logs=learned.predict_log(ts);model=FoldModel(batch,c['uf_reference']['value']);native=FrozenA().fit(batch)
+   vals={n:{} for n in NAMES};atr={};mtr={};cross={}
+   for t,log in zip(ts,logs):
+    b=model.bundle(t);a=b.predict(BASE);m=b.predict(cfg('AM',selector='adaptive',scope='commune',compat=True,min_neff=4.5,retrieval=8));mc=b.predict(cfg('AMcross',selector='adaptive',compat=True,min_neff=4.5,retrieval=8))
+    clear_price_surface_cache();nativeA=native.predict(t)
+    assert a['prediction']==nativeA.value_uf,'Frozen A parity'
+    for tr in [a,m,mc]:
+     assert (set(tr['selected_ids'])|set(tr['surface_pool_ids']))<=set(split.train)
+     assert not {batch.components[i] for i in tr['selected_ids']} & {batch.components[t.row_id]}
+    atr[t.row_id]=a;mtr[t.row_id]=m;cross[t.row_id]=mc
+    v=math.exp(float(log));vals['A'][t.row_id]=a['prediction'];vals['AM'][t.row_id]=m['prediction'];vals['AMcross'][t.row_id]=mc['prediction'];vals['Learned'][t.row_id]=v;vals['Blend'][t.row_id]=math.sqrt(v*a['prediction']) if a['prediction'] is not None else None
+   end=worker(batch,mode,mtr,vals['Blend'],c['uf_reference'])
+   for t in ts:
+    for n in ['Final','FinalAM','FinalBlend','DeployedA']:vals[n][t.row_id]=end[t.row_id][n]
+   custody.record_predictions(batch,vals);truth=custody.complete(vals,ss.test)
+   for t in ts:records.append({'row_id':t.row_id,'group':batch.components[t.row_id],'fold':fold,'mode':mode,'source':t.features['source'],'comuna':t.features['comuna'],'geo_original':ds.indexed()[t.row_id].latitude is not None,'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES},'A_trace':atr[t.row_id],'AM_trace':mtr[t.row_id],'cross_trace':cross[t.row_id],'final_trace':end[t.row_id]['trace']})
+   # Checkpoint each completed mode in encrypted form; no target values printed.
+   encrypt(HERE/f'checkpoint-{which}-{fold}-{mode}.json.dpapi',records[-len(ts):])
+   print(json.dumps({'case':which,'fold':fold,'mode':mode,'done':len(ts),'consensus_used':sum(end[t.row_id]['trace'].get('consensus_used',False) for t in ts)}),flush=True)
+ encrypt(out,records);write(HERE/f'run-{which}.json',{'records':len(records),'elapsed_s':time.monotonic()-started,'ciphertext_sha256':sha(out),'protocol_sha256':sha(HERE/'protocol.json')})
+ print(json.dumps({'complete':which,'records':len(records)}))
+if __name__=='__main__':run(sys.argv[1])

@@ -1,0 +1,14 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+inner='''from pathlib import Path
+import os,json
+paths=[]
+for root in ['scripts','infrastructure','services']:
+ for p in Path('/app',root).rglob('*.py'):
+  if 'portal' in p.name.lower() or 'session' in p.name.lower():paths.append(str(p.relative_to('/app')))
+print(json.dumps({'runtime_uid':os.getuid(),'runtime_gid':os.getgid(),'source_paths':paths,'portal_env_presence':{k:bool(v) for k,v in os.environ.items() if 'PORTAL' in k or 'SESSION' in k or 'COOKIE' in k}},indent=2))
+'''
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=30)\nprint(r.stdout);print(r.stderr if r.returncode else '')"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=45)
+Path(__file__).with_name('portal-runtime-inventory.json').write_text(r.stdout,encoding='utf-8');print(r.stdout)

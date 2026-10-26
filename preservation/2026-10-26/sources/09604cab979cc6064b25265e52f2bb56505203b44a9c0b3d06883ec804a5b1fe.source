@@ -1,0 +1,33 @@
+"""Read-only projection of existing joined transfers + existing SII facts/NL.
+No ingestion, F2890×catastro join, update, or geographical recomputation.
+"""
+import sys,json,hashlib
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(ROOT/'work/valoria'))
+from scripts.validate_sii_closing import connect
+OUT=ROOT/'outputs/house-rules';OUT.mkdir(exist_ok=True,parents=True)
+with connect('postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55432/valoria_sii_local') as c:
+    c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    assert c.execute('SHOW transaction_read_only').fetchone()['transaction_read_only']=='on'
+    sources=c.execute('SELECT id,tipo,hash,semestre FROM sii.source_file WHERE id IN (9,20) OR tipo=\'F2890\' ORDER BY id').fetchall()
+    facts=c.execute("""SELECT rol,manzana AS block,tipo AS kind,m2_terreno::float8 AS land,
+        avaluo::float8 AS appraisal,direccion_raw AS address,anio_min AS year,calle,numero,
+        m2_cerrado::float8 AS baseline_area FROM sii.predio WHERE source_file_id=9 AND tipo='casa' ORDER BY rol""").fetchall()
+    lines=c.execute("""SELECT '15160-'||manzana||'-'||predio AS rol,n_linea,material,destino,anio AS year,m2::float8 AS area,abierta
+        FROM sii.linea_construccion WHERE source_file_id=20 ORDER BY manzana,predio,n_linea""").fetchall()
+    # All already-linked property kinds, so block transactions are detected before
+    # selecting houses. Monetary source amounts preserve equality without floats.
+    transfers=c.execute("""SELECT raw_id,rol,manzana AS block,tipo AS kind,fecha::text AS date,fe::text,fi::text,
+        monto_uf::float8 AS uf,monto_clp::text AS clp,uf_usada::float8 AS uf_rate,uf_fecha::text,
+        predio_source_file_id,cierre_comparable AS old_valid,motivos_exclusion AS old_reasons
+        FROM sii.transferencia WHERE comuna=15160 ORDER BY raw_id""").fetchall()
+    calendar=c.execute('SELECT date::text,value::float8 AS value FROM public.ingestion_uf_calendar ORDER BY date').fetchall()
+    c.rollback()
+payload={'read_only':True,'sources':sources,'facts':facts,'lines':lines,'transfers':transfers,'calendar':calendar,
+    'origin':'Existing sii.transferencia, already linked to catastro; independent facts/NL projections. No database mutation or rebuilt join.',
+    'limitations':['Current2026-2 SII facts, not historical snapshots; NL years approximate historical stock.','UF calendar begins2013; pre2013 CLP-only missing conversion remains explicitly excluded.']}
+path=OUT/'existing-sii.json'
+if path.exists():raise ValueError('Do not overwrite exported existing snapshot')
+path.write_text(json.dumps(payload,separators=(',',':'),default=str),encoding='utf8')
+print(json.dumps({'facts':len(facts),'lines':len(lines),'transfers':len(transfers),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}))

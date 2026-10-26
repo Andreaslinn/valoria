@@ -1,0 +1,92 @@
+# Arquitectura experimental
+
+Recomendación final: **THUMBNAIL_PIPELINE_READY** — listo para revisión de integración;
+sin despliegue ni conexión al trial.
+
+## Selección y responsabilidad
+
+La capa de presentación selecciona listings autorizados de una página/superficie.
+`should_have_thumbnail(listing, Context)` exige surface portfolio/radar/watchlist/detail,
+visible, authorized, owner y listing_id/source válidos. Rechaza historical/comparable/discarded.
+`attach_visible` enriquece los datos y mantiene el listing usable si storage falla.
+No existe hook en ingestión, History, comparables ni scraping. Ningún barrido de inventario.
+
+`request → metadata/cache o placeholder → queue → worker → bounded fetch → decode/orient
+→ fresh RGB/strip metadata → aspect resize sin upscale → WebP → SHA256 → atomic asset → ref`.
+
+## Implementación y datos
+
+`thumbnail_lab` es independiente: Python/Pillow, SQLite WAL sidecar y filesystem.
+Una fila en thumbnails por listing_id con source verificada: status, asset_key,
+content_hash, source_hash, format, width/height/bytes, created_at/refreshed_at/last_seen,
+failure, version y metrics. No binarios en DB; no columnas o migraciones PostgreSQL.
+Jobs tienen referencias HTTPS unsigned validadas, due, attempt, lease_until/token.
+Memberships mantienen owner/surface/last_seen. La fuente original solo se conserva
+como hash en el asset metadata; los jobs eliminan sus URLs al terminar.
+
+La conexión sidecar se reutiliza bajo lock; fetching/decoding nunca mantienen el lock.
+WAL NORMAL conserva integridad frente a crash de proceso; un apagón puede perder
+recientes escrituras de caché. En ese caso se regeneran al volver a ver el listing;
+los huérfanos tienen GC. No es almacenamiento de evidencia duradera.
+
+La claim transaccional y el token CAS impiden publicar el resultado de un worker
+con lease vencida. Persistencia con fsync/rename antes del commit del ref.
+Assets idénticos se comparten por SHA256 del WebP. No similitud ni identidad visual.
+La dedupe es de almacenamiento: diferentes listings pueden requerir fetch separado
+para comprobar el contenido. Un mismo listing bueno nunca se vuelve a descargar
+al cambiar la URL fuente.
+
+## Formato elegido y loop
+
+WebP 320px de ancho máximo, q60, method4. Se conserva aspect ratio y no se amplía.
+Los cinco originales incluyen interiores, exterior vertical y edificios con banner.
+Inspección visual del contact sheet: q60 mantiene paredes, ventanas, fachadas y
+volúmenes legibles; el texto pequeño del anuncio no es criterio de legibilidad.
+Las dos imágenes Portal son promociones representativas del edificio, no fotos
+necesariamente de una unidad. La política de primera referencia no garantiza una
+fachada ni clasifica semánticamente fotos.
+
+| Formato | Calidad | Ancho | Mediana B | p95 B | Encode ms | SSIM aprox. |
+|---|---:|---:|---:|---:|---:|---:|
+| WEBP | 55 | 320 | 10896 | 16671.6 | 13.36 | 0.9610 |
+| WEBP | 60 | 320 | 11468 | 17941.2 | 13.28 | 0.9645 |
+| WEBP | 65 | 320 | 11970 | 19149.6 | 13.66 | 0.9675 |
+| WEBP | 60 | 360 | 13572 | 21506.0 | 16.23 | 0.9645 |
+| JPEG | 60 | 320 | 12839 | 19604.4 | 1.34 | 0.9597 |
+| JPEG | 70 | 320 | 14960 | 23424.4 | 1.35 | 0.9683 |
+| AVIF | 45 | 320 | 6644 | 10566.8 | 53.15 | 0.9484 |
+| AVIF | 55 | 320 | 8901 | 15284.2 | 59.94 | 0.9672 |
+
+
+q55 ahorra poco y pierde detalle; q65 mejora marginalmente y pesa más. 360px no
+aporta una mejora suficiente en el slot real de 112px. JPEG es más rápido, pero
+el coste WebP queda fuera del request. AVIF q55 ahorra ~22% en mediana y cuesta
+~4,5x en encode; no merece cambiar la salida. AVIF de entrada es necesario:
+las tres URLs Yapo f_auto entregaron image/avif. No se instaló un codec separado.
+
+## Almacenamiento recomendado
+
+Filesystem persistente dedicado sobre el disco existente, con sidecar SQLite y
+2 GiB de cuota de payload activo. El límite no mide bloques de filesystem,
+metadata, WAL o backups; la proyección reserva esos gastos por separado.
+50.000 imágenes caben holgadamente según tamaños medidos y el margen histórico
+local disponible. El worker parte con concurrencia 1, recuperable y acotado.
+No se crean buckets, volúmenes ni servicios. Coste incremental previsto: 0 en
+el escenario de disco existente, sujeto a la validación de capacidad en integración.
+
+## Portabilidad
+
+CPython 3.13 slim del baseline es compatible con el wheel manylinux ARM64 de
+Pillow 12.3.0. Se descargó e inspeccionó su SHA256, ELF EM_AARCH64 y las bibliotecas
+incluidas libwebp/libavif/libjpeg; ver arm64-inspection.json. Es evidencia de
+compatibilidad de packaging, NO ejecución ni benchmark Ampere. No se pudo usar
+el daemon Docker local desde este entorno; el smoke ARM64 permanece como check
+de aceptación al integrar, sin tocar Oracle durante esta tarea.
+[Wheel publicado por Pillow](https://pypi.org/project/pillow/12.3.0/).
+
+## Alcance de aceptación
+
+58 tests offline, TypeScript y 11 checks de navegador verdes. Las cifras p95 son
+de una muestra de 5, no de todo Valoria. Cobertura de fuentes en el inventario y
+latencia ARM64 no fueron observadas. La arquitectura está preparada para revisión,
+no para desplegar sin verificar autorización del serving y montaje persistente.

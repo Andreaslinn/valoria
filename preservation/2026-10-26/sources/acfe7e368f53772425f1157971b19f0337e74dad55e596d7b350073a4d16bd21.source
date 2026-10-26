@@ -1,0 +1,46 @@
+# Cohorte candidata — AVM_COHORT_CONDITIONAL
+
+Artefacto vigente: `runs/candidate-certified/`. Los otros candidatos son iteraciones inmutables, supersedidas; no deben usarse como dataset del piloto.
+
+**Fuente única:** backup cifrado local del 2026-10-04, snapshot iniciado 16:09:18.253767 UTC, schema0020. Se decodificó exclusivamente `listings` mediante `pg_restore --data-only --table=listings --file=-`, sin conexión a DB ni restauración. No Oracle. La proyección mínima está en `inputs/backup_listings_projection_v2.json`; los DTO originales completos se conservaron cifrados con DPAPI CurrentUser en `inputs/canonical_listings.json.dpapi`. Requieren el mismo perfil Windows para descifrarse.
+
+El snapshot completo del 2 de octubre quedó supersedido. Los agregados de History del 8 de octubre (1.639 observaciones, 989 publicaciones) **no** se transformaron en filas. No existe aquí un export individual del History productivo. Fixtures/replays y antiguos price_history no se mezclaron con la cohorte.
+
+## Contrato y conteos
+
+6.283 estados / 6.283 publicaciones / 6.283 listings canónicos; 5.103 activos → 2.396 departamentos → 2.395 con área válida → 2.365 con esenciales utilizables → 791 elegibles. Unidades físicas: desconocidas.
+
+Targets de departamentos activos: T1=796, T2=0, T3=478, T4=1.122. Cinco T1 no cumplen requisitos físicos. Estricta=ampliada=791: Yapo385 / Portal406, 18 comunas. T1 exige señal UF original parseada coherente, método y procedencia, sin recuperaciones/contradicciones; **no** certifica RAW original ni precio de cierre. Los objetivos CLP sin conversión preservada y fechada quedan fuera, sin reparación.
+
+Cada `observation_id=state:<hash>` identifica una captura derivada del estado del backup; no es un ID de History. `observed_at=available_at=captured_at`; `source_scraped_at` queda separado y no representa disponibilidad histórica de todos los campos fusionados. Una publicación aporta como máximo un índice, por fecha y desempate de listing_id, nunca por precio/completitud. Solo permite experimento transversal retrospectivo; no temporal/prospectivo.
+
+G1/G2/G3 se computan antes de filtrar, conservando posibles puentes excluidos, sin property_id/fingerprint/precio. Se reutilizó el parser de señales y umbrales auditados, no el matcher productivo. Las tres políticas producen 791 singletons elegibles, cero enlaces cross-source y cero cambios de asignación: **ausencia de señal, no independencia certificada ni sensibilidad demostrada**. Hay 112 pares candidatos entre departamentos del snapshot, 13 cross-source; 49 tocan la cohorte. La muestra ciega incluye esos 49 + 10 controles; 28 tienen ambos miembros elegibles, uno cross-source. Está UNREVIEWED. No se verificó identidad física humana.
+
+Los 791 tienen built=usable: proxy/fallback, no útil declarada independiente. Parking=0 en593; no prueba ausencia. Coordenadas numéricas en289; ninguna precisión certificada. Portal se concentra en Estación Central/Santiago/Macul/Ñuñoa; otras comunas son exclusivamente Yapo. Cohorte T1 selectiva: 791/2.396 departamentos activos, con periodos de origen julio–octubre; la población completa incluye mayo/junio. C1 aprende fuente; A recibe metadata de fuente pero no aprende su coeficiente. Interpretar esta diferencia de información explícitamente. No imputación ni winsorización.
+
+## Piloto posible, con límites
+
+| K | Test por fold | Casos con soporte potencial A ≥5, según semilla |
+|---|---|---|
+| 3 | 263–264 | 711–716 /791 |
+| 4 | 197–198 | 723–724 /791 |
+| 5 | 158–159 | 724–732 /791 |
+
+Asignaciones transitorias, agrupadas y ajenas a precios; solo agregados conservados. Soporte operacional usa el filtro estructural/geográfico **original** y fingerprints originales de A exclusivamente para su dedup interna. Es cota superior antes de orden de dedup, scoring/outliers y superficie; no cobertura predictiva ni benchmark. K3 es ejecutable, no mejor estadísticamente demostrado. Comunas de un solo caso quedan sin soporte territorial en training. No excluir esos fallos de la cobertura total; comparar errores solo en soporte común cuando se autorice el piloto.
+
+Contrato Record/Dataset/Listing/Property comprobado para791; bloqueo real intacto. Contexto UF fechado archivado: 2026-10-04, valor41089.96, 171 registros concordantes de metadata operativa; no respuesta RAW del proveedor independientemente certificada. No entrenamiento ni tasación ejecutados.
+
+Exploratorio: CONDICIONAL; confirmatorio: NO LISTO; producción: fuera de alcance. Primer paso recomendado: adjudicar a ciegas los28 pares íntegramente en cohorte. Si quedan desconocidos, un piloto limitado puede describir esa incertidumbre, pero no afirmar superioridad general ni independencia; necesita autorización específica. La confirmación posterior preferible es prospectiva con purga de dependencias y History individual, que hoy no está exportado aquí.
+
+## Reproducir, sin modelos
+
+Desde la raíz del workspace:
+
+```powershell
+python -B research/tasar_cohort_20261009T154414Z/build.py --out research/tasar_cohort_20261009T154414Z/runs/NUEVO_NOMBRE
+python -B -m unittest discover -s research/tasar_cohort_20261009T154414Z -p test_cohort.py -v
+```
+
+Se niega sobrescritura y comprueba hashes de inputs,127 archivos del harness corregido y9 parsers/módulos archivados. El certificado previo conserva89 tests; esta tarea añade53, todos aprobados. `manifest.json` contiene entradas, políticas, schema, hashes, exclusiones y copia del código. `verification.json` registra la reproducción entre procesos y tests. No ejecutar el extractor sobre destinos existentes; los inputs congelados bastan para reproducir.
+
+No archivos originales alterados, servicios reiniciados, DB restauradas/migradas, scraping, modelos, métricas predictivas, folds oficiales ni holdout. Datos y DTO cifrados quedan fuera de Git; `.gitignore` defensivo incluido. La primera ejecución de tests de artefactos detectó un nombre de atributo que colisionaba con unittest.run; se corrigió en el código experimental y se generó un candidato nuevo, preservando la iteración anterior.

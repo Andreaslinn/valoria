@@ -1,0 +1,35 @@
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent/'valoria'))
+from psycopg.rows import dict_row
+from services.sii.jobs import connect
+from services.sii.settings import Settings
+
+with connect(Settings.load()) as c:
+    c.row_factory=dict_row
+    with c.transaction():
+        c.execute('SET TRANSACTION READ ONLY')
+        c.execute("SET LOCAL statement_timeout='120s'")
+        c.execute('SET LOCAL max_parallel_workers_per_gather=0')
+        c.execute("SET LOCAL work_mem='64MB'")
+        constraints=c.execute("SELECT conname,convalidated FROM pg_constraint WHERE conrelid='sii.transferencia'::regclass AND contype='f'").fetchall()
+        trigger=c.execute("SELECT tgname,tgenabled FROM pg_trigger WHERE tgrelid='sii.transferencia_raw'::regclass AND NOT tgisinternal").fetchall()
+        metrics=c.execute("SELECT comuna,count(*) FILTER(WHERE cierre_comparable AND tipo='depto') AS deptos,count(*) FILTER(WHERE cierre_comparable AND tipo='casa') AS casas FROM sii.transferencia WHERE fi>=DATE '2024-01-01' GROUP BY comuna ORDER BY comuna").fetchall()
+        invariant=c.execute("""SELECT count(*) FILTER(WHERE cierre_comparable AND (monto_uf IS NULL OR monto_uf<=0 OR m2_h IS NULL OR m2_h<=0 OR predio_source_file_id IS NULL OR cardinality(motivos_exclusion)>0)) AS bad_comparables,
+         count(*) FILTER(WHERE m2_cerrado IS DISTINCT FROM m2_h-(SELECT p.m2_h_abierta FROM sii.predio p WHERE (p.source_file_id,p.comuna,p.manzana,p.predio)=(t.predio_source_file_id,t.comuna,t.manzana,t.predio))) AS bad_closed_surface
+         FROM sii.transferencia t WHERE cierre_comparable AND fi>=DATE '2024-01-01'""").fetchone()
+        packages=c.execute("""WITH groups AS (
+          SELECT comuna,manzana,fe,fi,
+           count(*) FILTER(WHERE tipo IN('estac','bodega') AND monto_uf IS NULL AND monto_clp>0) AS positive_clp_unknown_uf,
+           count(*) FILTER(WHERE tipo IN('estac','bodega') AND coalesce(monto_uf,0)<=0 AND coalesce(monto_clp,0)<=0) AS actually_unpriced,
+           count(*) FILTER(WHERE tipo='depto' AND paquete) AS marked_apartments,
+           (array_agg(rol) FILTER(WHERE tipo='depto' AND paquete))[1:5] AS examples
+          FROM sii.transferencia WHERE fi>=DATE '2024-01-01' AND NOT ('duplicado_rol_fecha'=ANY(motivos_exclusion))
+          GROUP BY comuna,manzana,fe,fi)
+          SELECT * FROM groups WHERE positive_clp_unknown_uf>0 AND actually_unpriced=0 AND marked_apartments>0""").fetchall()
+        counterexample=c.execute("""SELECT count(*) FILTER(WHERE tipo IN('estac','bodega') AND coalesce(monto_uf,0)<=0) AS counted_unpriced,
+          max(monto_clp) AS declared_clp FROM (VALUES('estac',NULL::numeric,2000000::numeric)) AS v(tipo,monto_uf,monto_clp)""").fetchone()
+result={'foreign_keys':constraints,'raw_trigger':trigger,'metrics':metrics,'invariants':invariant,'false_package_groups_2024_plus':packages,'package_counterexample':counterexample}
+(Path(__file__).parent/'review-readonly.json').write_text(json.dumps(result,default=str,ensure_ascii=False,indent=2),encoding='utf8')
+print(json.dumps(result,default=str,ensure_ascii=False),flush=True)

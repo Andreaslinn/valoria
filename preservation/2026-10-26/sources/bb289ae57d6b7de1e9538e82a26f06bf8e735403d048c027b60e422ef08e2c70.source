@@ -1,0 +1,25 @@
+"""Observed coverage of existing A ranges; no nominal probability invented."""
+from lab import *
+from models import np
+from temporal_prepare import temporal_data
+from avm01.isolation import LabelCustody,dependency_hash
+from avm01.splits import Split
+from avm01.engines import FrozenA
+from domain.valuation.price_surface import clear_price_surface_cache
+
+def main():
+ ds,train,test,_=temporal_data();c=read(HERE/'temporal_protocol.json');seed=20261009;split=Split(train,test,'temporal',seed,ds.hash(),dependency_hash(ds))
+ config={'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':['A'],'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'temporal_protocol.json')}
+ custody=LabelCustody(ds,());batch=custody.issue(ds,split,config,());m=FrozenA().fit(batch);old={r['row_id']:r['predictions']['A'] for r in decrypt(HERE/'temporal_predictions.json.dpapi')};rows=[];vals={'A':{}}
+ for t in batch.targets:
+  clear_price_surface_cache();p=m.predict(t);assert p.value_uf==old[t.row_id];z=p.trace['diagnostics'].get('result',{});vals['A'][t.row_id]=p.value_uf
+  rows.append({'row_id':t.row_id,'group':batch.components[t.row_id],'prediction':p.value_uf,'low':z.get('range_low_uf'),'high':z.get('range_high_uf'),'confidence':z.get('confidence_label')})
+ custody.record_predictions(batch,vals);truth=custody.complete(vals,test)
+ for r in rows:r['target_uf']=truth[r['row_id']]
+ def aggregate(ss):
+  good=[r for r in ss if r['prediction'] is not None and r['low'] is not None and r['high'] is not None]
+  return {'n':len(good),'contained':sum(float(r['low'])<=r['target_uf']<=float(r['high']) for r in good),'observed_coverage':float(np.mean([float(r['low'])<=r['target_uf']<=float(r['high']) for r in good])) if good else None,'median_width_pct_of_estimate':float(np.median([100*(float(r['high'])-float(r['low']))/r['prediction'] for r in good])) if good else None,'gt20_rate':float(np.mean([abs(r['prediction']/r['target_uf']-1)>.2 for r in good])) if good else None}
+ out={'all':aggregate(rows),'by_confidence':{str(q):aggregate([r for r in rows if r['confidence']==q]) for q in set(r['confidence'] for r in rows) if q is not None},'parity':len(rows),'interpretation':'These are heuristic A_core ranges; no nominal 80/90/95% level declared, so empirical coverage is not an assessment against a claimed probability. Temporal149 already exploratory; no calibration performed.'}
+ assert not (HERE/'interval_audit.json').exists();encrypt(HERE/'interval_rows.json.dpapi',rows);write(HERE/'interval_audit.json',out);print(json.dumps(out))
+
+if __name__=='__main__':main()

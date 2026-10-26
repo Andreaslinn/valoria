@@ -1,0 +1,30 @@
+"""Validation-only telemetry; wraps the existing worker without changing policy."""
+import json,os,time
+from pathlib import Path
+from infrastructure.thumbnails import pipeline,security
+LOG=Path('/state/validation-events.jsonl')
+def record(event,**values):
+ data=(json.dumps({'event':event,**values})+'\n').encode()
+ fd=os.open(LOG,os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
+ try:os.write(fd,data)
+ finally:os.close(fd)
+original_fetch=pipeline.fetch
+def observed_fetch(url):
+ record('source_attempt')
+ result=original_fetch(url)
+ record('source_download',bytes=len(result.body))
+ return result
+pipeline.fetch=observed_fetch
+original_response=security.PinnedHTTPS.getresponse
+def observed_response(connection):
+ response=original_response(connection)
+ record('http_response',status=response.status)
+ return response
+security.PinnedHTTPS.getresponse=observed_response
+original_fail=pipeline.Store.fail
+def observed_fail(store,job,code,now=None):
+ record('job_failure',attempt=job['attempt'],code=code)
+ return original_fail(store,job,code,now)
+pipeline.Store.fail=observed_fail
+from workers.thumbnails import main
+if __name__=='__main__':main()

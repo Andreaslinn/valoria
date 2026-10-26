@@ -1,0 +1,15 @@
+import sys,sqlite3,json
+from pathlib import Path
+root=Path(__file__).parent
+sys.path.insert(0,str(root/'valoria'))
+from services.sii.address_details import address_details
+data=root/'closing-validation-final'
+db=sqlite3.connect(data/'address-index.sqlite');db.row_factory=sqlite3.Row
+rows=db.execute("SELECT * FROM role WHERE comuna=15160 AND kind='casa' AND area=226 AND year=1979").fetchall()
+for row in rows:
+    address=f"{row['street']} {row['number']}"+(f" CASA {row['unit']}" if row['unit'] else '')
+    result=address_details(address=address,comuna='vitacura',data_dir=str(data))
+    if result['status']=='resolved' and result['fields'].get('land_area_m2'):
+        (root/'vitacura-redesign-case-local.json').write_text(json.dumps({'address':address,'comuna':'vitacura','fields':result['fields']},ensure_ascii=False),encoding='utf8')
+        print({'matching_houses':len(rows),'land_available':True,'individual_records_published':False})
+        break

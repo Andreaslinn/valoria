@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd /home/ubuntu/apps/valoria
+exec docker compose --env-file deploy/oracle.env -f docker-compose.oracle.yml exec -T -e PORTAL_HTTP_ENABLED=true api python scripts/portal_card_first.py --apply --max-pages 1 --max-details 5 --pause-s 3

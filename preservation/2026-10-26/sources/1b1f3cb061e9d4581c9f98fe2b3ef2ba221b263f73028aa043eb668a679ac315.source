@@ -1,0 +1,208 @@
+# Signals Inventory Latest
+
+Fecha: 2026-06-18  
+Producto: Valoria  
+Alcance: Investment Intelligence Report (`PROPERTY_VALUATION`), Listing Opportunity Report (`LISTING_ANALYSIS`), Investment Score y Risk Report.
+
+Este documento es una auditoria de lectura de codigo. No se modifico codigo, no se generaron commits y no se cambio UI.
+
+## Resumen Ejecutivo
+
+Valoria ya tiene una base amplia de senales reales para separar dos productos:
+
+- `PROPERTY_VALUATION`: hoy esta mejor soportado por senales de calidad de tasacion, comparables, confianza, beta scope, price surface y contexto de mercado por comuna/microzona textual.
+- `LISTING_ANALYSIS`: hoy esta soportado por precio publicado, discount, Radar, watchlist, price history, alerts y URL lookup, pero aun faltan senales reales de `days_on_market`, liquidez, reglas de alerta, mapa real y delta AVM periodico de watchlist.
+
+La mayor oportunidad arquitectonica no es crear mas senales, sino normalizarlas. Varias evidencias aparecen con nombres distintos o se exponen como codigos tecnicos: `confidence`, `warnings`, `risk_flags`, `beta_scope_flags`, `price_basis_used`, `price_data_quality`, `surface_adjustment_reason`, `engine_results`.
+
+## Clasificacion Usada
+
+- A. `Valuation Quality`: calidad/confiabilidad de tasacion, comparables, geocoding, dispersion, confidence.
+- B. `Investment Intelligence`: contexto de inversion, ubicacion, microzona, profundidad de mercado, superficie de precios, score/report.
+- C. `Listing Analysis`: publicacion, precio listado, discount, watchlist, alertas, historial de precio.
+- D. `Technical Only`: provenance, debug, configuracion, engine diagnostics, flags internas.
+
+Disponibilidad:
+
+- `hoy`: calculado o expuesto actualmente.
+- `parcial`: existe pero no esta integrado end-to-end o solo en diagnostics/audits/demo.
+- `futura`: placeholder, coming soon o faltante real.
+
+## Hallazgos Principales
+
+1. Valoria ya distingue `PROPERTY_VALUATION` vs `LISTING_ANALYSIS` en `ui/components/risk_report_html.py` mediante `_valuation_analysis_context`.
+2. La senal mas madura para calidad de tasacion es el bloque `confidence + comparable_quality + beta_scope`.
+3. La senal mas madura para oportunidad de listing es `discount_pct`, alimentada por precio publicado canonico y valor estimado.
+4. Microzona textual existe y se usa hoy; microzona geografica por grilla existe como auditoria/read-only.
+5. Price history y alerts existen, pero su potencial de Listing Opportunity aun esta subutilizado fuera de price-drop alerts.
+6. Portfolio/watchlist real existe, pero delta AVM, tendencia y upside de portafolio siguen en `Coming soon`.
+7. El Risk Report actual mezcla producto y tecnica: muestra o consume raw warning codes, beta vocabulary y campos de provenance.
+
+## Inventario De Senales
+
+| Signal | Nombre interno | Ubicacion codigo | Flujo/endpoint consumidor | Descripcion | Tipo | Disponibilidad | Visible |
+|---|---|---|---|---|---|---|---|
+| analysis_context | `PROPERTY_VALUATION`, `LISTING_ANALYSIS` | `ui/components/risk_report_html.py` | Risk Report | Distingue tasacion manual vs listing por URL/source/listing_id. | B | hoy | Si |
+| target_location_comuna | `comuna`, `comuna_normalized`, `comuna_match_strategy` | `api/v1/valuations.py`, `domain/ingestion/data_cleaning.py`, `infrastructure/db/models.py` | valuations, listings, radar, watchlist, alerts | Comuna canonica para filtro de comparables y mercado. | B | hoy | Si |
+| property_type | `property_type`, `property_type_confidence`, `property_type_reason` | `domain/ingestion/data_cleaning.py`, `core/normalization/property_type.py` | valuations, radar, canonical engine | Segmenta y filtra comparables. | B | hoy | Si |
+| area_profile | `m2`, `built_area_m2`, `land_area_m2`, `usable_area_m2` | `api/v1/valuations.py`, `domain/valuation/comparables.py`, `domain/ingestion/data_cleaning.py` | valuations, radar, risk report | Superficie base, bucket m2 y precio/m2. | B | hoy | Si |
+| physical_attributes | `dormitorios`, `banos`, `estacionamientos`, `bedrooms`, `bathrooms`, `parking` | `core/entities/listing.py`, `api/v1/listings.py` | listings, watchlist, portfolio | Atributos fisicos de publicacion/propiedad. | B | parcial | Si |
+| published_price | `precio_publicado_uf`, `precio_publicado_clp`, `price_uf`, `price_clp` | `api/v1/valuations.py`, `api/v1/listings.py`, `domain/radar/price_basis.py` | valuations, listings, radar, watchlist | Precio listado/base del discount. | C | hoy | Si |
+| canonical_price_basis | `price_currency`, `price_uf_source`, `price_uf_confidence`, `price_recovery_method`, `price_basis_used`, `price_data_quality` | `domain/valuation/canonical_price.py`, `domain/radar/price_basis.py`, `api/v1/listings.py`, `api/v1/watchlist.py` | listings, watchlist, radar, canonical engine | Provenance/calidad tecnica del precio. | D | hoy | Si |
+| estimated_value | `estimated_price_uf`, `estimated_price_clp`, `estimated_value_uf`, `estimated_value_clp` | `services/valuation.py`, `services/radar.py`, `core/entities/opportunity.py` | valuations, radar, risk report | Valor central AVM. | B | hoy | Si |
+| base_estimated_value | `base_estimated_price_uf`, `base_estimated_price_clp` | `services/valuation.py`, `domain/valuation/engines/canonical_comparables.py` | valuations | Valor previo a ajuste de surface. | D | hoy | Si |
+| valuation_range | `price_range_low_*`, `price_range_high_*`, `range_low_clp`, `range_high_clp` | `domain/valuation/comparables.py`, `api/v1/valuations.py` | valuations, risk report | Banda de incertidumbre. | A | hoy | Si |
+| price_m2 | `price_m2_uf`, `price_per_m2`, `published_price_m2_uf`, `estimated_price_m2_uf` | `domain/valuation/price_surface.py`, `api/v1/valuations.py`, `ui/redesign/radar_adapter.py` | valuations, risk report, radar UI | Precio por m2 estimado o publicado. | B | hoy | Si |
+| discount_pct | `discount_pct`, `canonical_discount_pct`, `_valuation_discount_pct` | `domain/radar/price_basis.py`, `domain/radar/detector.py`, `ui/components/risk_report_html.py` | radar, LISTING_ANALYSIS report | Brecha entre valor estimado y precio publicado. | C | hoy | Si |
+| opportunity_score | `score`, `ranking_score` | `core/entities/opportunity.py`, `services/radar.py` | radar, risk report | Ranking de oportunidad. | C | hoy | Si |
+| confidence_contract | `confidence`, `confidence_score`, `confidence_label`, `confidence_reasons`, `confidence_risk_flags` | `core/assessment/confidence.py`, `services/valuation.py`, `services/radar.py` | valuations, radar, reports | Confianza numerica/categorica y razones. | A | hoy | Si |
+| comparable_count | `comparable_count`, `comparables_used`, `n_comparables`, `comparables_count` | `api/v1/valuations.py`, `core/entities/opportunity.py`, `api/v1/radar.py` | valuations, radar, risk report | Cantidad de comparables usados. | A | hoy | Si |
+| comparables_list | `comparables`, `selected_comparables`, `EngineComparable` | `services/valuation.py`, `domain/valuation/engines/contracts.py` | valuations, risk report | Evidencia comparable con precio, comuna, m2, similitud. | A | hoy | Si |
+| similarity_score | `similarity`, `similarity_score`, `score` | `domain/valuation/scoring.py`, `domain/geocoding/microzones.py` | comparables, valuations | Ranking de comparables; incluye bonus microzona. | A | hoy | Si |
+| comparable_quality_level | `comparable_quality_level` | `domain/valuation/comparable_quality.py`, `api/v1/valuations.py`, `api/v1/radar.py` | valuations, radar, safety | Nivel poor/weak/acceptable/strong. | A | hoy | Si |
+| comparable_quality_flags | `comparable_quality_flags`, `risk_flags` | `domain/valuation/comparable_quality.py` | valuations, radar | Flags: low count, high dispersion, weak geo, weak microzone. | A | hoy | Si |
+| price_per_m2_dispersion | `price_per_m2_dispersion`, `price_m2_iqr_pct` | `domain/valuation/comparable_metrics.py`, `domain/valuation/reliability.py` | valuations, radar | Dispersion IQR/mediana de precio/m2. | A | hoy | Si |
+| geo_quality_ratio | `address_level_geo_ratio`, `address_geocode_share` | `domain/valuation/comparable_metrics.py`, `domain/valuation/reliability.py` | valuations, radar | Proporcion de evidencia address-level. | A | hoy | Si |
+| microzone_match_ratio | `same_microzone_ratio`, `weak_microzone`, `microzone_tokens` | `domain/valuation/comparable_metrics.py`, `domain/geocoding/microzones.py` | valuations, price surface | Proporcion de comparables misma microzona textual. | B | hoy | Si |
+| m2_bucket_coverage | `m2_bucket_coverage`, `target_m2_bucket`, `sparse_m2_bucket` | `domain/valuation/comparable_metrics.py`, `domain/valuation/price_surface.py`, `domain/valuation/beta_scope.py` | valuations, beta scope | Cobertura de bucket de superficie. | B | hoy | Si |
+| property_type_consistency | `property_type_consistency`, `mixed_property_type` | `domain/valuation/comparable_metrics.py`, `domain/valuation/beta_scope.py` | valuations | Consistencia de tipo propiedad entre comparables. | A | hoy | Si |
+| outlier_pressure | `outlier_pressure`, `high_outliers_excluded`, `low_outliers_excluded` | `domain/valuation/comparable_metrics.py`, `domain/valuation/engines/canonical_comparables.py` | valuations diagnostics | Presion/exclusion de outliers precio/m2. | A | parcial | Si |
+| source_diversity | `unique_source_count`, `single_source_comparables` | `domain/valuation/comparable_metrics.py`, `domain/valuation/reliability.py` | valuations | Diversidad de fuentes en comparables. | A | hoy | Si |
+| near_duplicate_share | `near_duplicate_share`, `near_duplicate_comparables` | `domain/valuation/comparable_metrics.py`, `domain/valuation/reliability.py` | valuations | Proporcion de comparables casi duplicados. | A | hoy | Si |
+| house_land_area_share | `house_land_area_share`, `house_land_area_weak` | `domain/valuation/comparable_metrics.py`, `domain/valuation/reliability.py` | valuations casas | Cobertura de terreno en comparables de casas. | A | hoy | Si |
+| beta_scope | `beta_scope_status`, `beta_scope_flags`, `beta_scope_metrics`, `beta_scope_message` | `domain/valuation/beta_scope.py`, `api/v1/valuations.py`, `api/v1/radar.py` | valuations, radar safety | Soporte de segmento beta. | A | hoy | Si |
+| segment_depth | `segment_sample_count`, `m2_bucket_sample_count` | `domain/valuation/beta_scope.py` | valuations, radar | Profundidad de mercado por segmento. | B | hoy | Si |
+| price_surface_context | `surface.available`, `level_used`, `sample_count`, `median_price_m2`, `dispersion`, `confidence` | `domain/valuation/price_surface.py` | valuation engines, diagnostics | Estadistica local por comuna/microzona/bucket. | B | parcial | No |
+| surface_adjustment | `surface_adjustment_applied`, `surface_adjustment_weight`, `surface_adjustment_reason` | `services/valuation.py`, `domain/valuation/price_surface.py` | valuations | Ajuste conservador por superficie de precios. | D | hoy | Si |
+| geocode_precision | `geocode_precision`, `canonical_geocode_precision`, `geocode_precision_rank` | `core/normalization/geocode_precision.py`, `domain/geocoding/quality.py` | comparables, audits | Precision honesta de geocoding. | A | hoy | No |
+| coordinates | `lat`, `lon`, `coordinates` | `core/entities/listing.py`, `infrastructure/db/models.py`, `domain/geocoding/geographic_microzones.py` | comparables, future maps | Coordenadas para distancia/microzona geografica. | B | parcial | No |
+| textual_microzone_signals | `geo_signals`, `nearby_metro`, `nearby_avenue`, `intersection_hint`, `geo_microzone_tokens` | `domain/geocoding/microzones.py`, `domain/geocoding/geo_signals.py` | scoring, price surface | Senales textuales de ubicacion. | B | hoy | No |
+| geo_signal_candidates | `geo_signal_candidates`, `geo_signal_rejected`, `geo_signal_recovery_version` | `domain/geocoding/geo_signals.py` | ingestion/audit | Candidatos con provenance. | D | hoy | No |
+| geographic_microzone | `microzone_id`, `grid_meters`, `geographic_microzone_coverage_pct` | `domain/geocoding/geographic_microzones.py` | audit report | Microzona por grilla desde coordenadas confiables. | B | parcial | No |
+| valuation_warnings | `warnings`, `low_data_mode`, `published_price_not_provided`, `price_surface_*` | `services/valuation.py`, `domain/valuation/engines/canonical_comparables.py` | valuations, risk report | Advertencias agregadas. | A | hoy | Si |
+| engine_results | `engine_results`, `engine_name`, `engine_version`, `role`, `status`, `safe_error_message` | `domain/valuation/engines/consensus_orchestrator.py`, `api/v1/valuations.py` | valuations | Diagnostico por motor. | D | hoy | Si |
+| consensus_summary | `consensus`, `consensus_method`, `engine_weights`, `selected_engine_names` | `domain/valuation/engines/consensus_orchestrator.py`, `api/v1/valuations.py` | valuations | Resumen de seleccion/consenso. | D | hoy | Si |
+| consensus_agreement | `agreement`, `consensus_weak_agreement`, `consensus_extreme_disagreement` | `domain/valuation/engines/valoria_consensus/engine.py` | experimental engines | Acuerdo entre motores. | A | parcial | No |
+| canonical_engine_diagnostics | `candidates_loaded`, `structurally_eligible`, `canonical_price_usable`, `exclusions`, `pool` | `domain/valuation/engines/canonical_comparables.py` | audits/diagnostics | Counters internos del motor canonico. | D | parcial | No |
+| product_classification | `target_product_class`, `candidate_product_class`, `product_incompatible` | `domain/valuation/engines/canonical_comparables.py`, `domain/valuation/product_classification.py` | canonical engine | Compatibilidad de producto comparable. | B | parcial | No |
+| listing_identity | `listing_id`, `title`, `url`, `source`, `external_id`, `fingerprint`, `property_id` | `core/entities/listing.py`, `api/v1/listings.py`, `services/listing_url_lookup.py` | listings, watchlist, alerts | Identidad de listing/propiedad. | C | hoy | Si |
+| listing_status_freshness | `status`, `scraped_at`, `last_seen_at`, `last_refresh_status`, `captured_at` | `core/entities/listing.py`, `infrastructure/db/models.py`, `api/v1/listings.py` | listings, radar, tracking | Estado y frescura de publicacion. | C | hoy | Si |
+| days_on_market | `days_on_market` | `ui/redesign/radar_adapter.py`, `services/future_features.py` | Radar UI/future | Dias en mercado; real hoy queda 0/coming soon. | C | futura | Si |
+| watchlist_state | `saved`, `saved_at`, `saved_price_clp`, `saved_price_uf`, `status`, `note` | `api/v1/watchlist.py`, `infrastructure/db/models.py` | watchlist, portfolio, alerts | Seguimiento por usuario. | C | hoy | Si |
+| price_history_series | `observed_at`, `price_clp`, `price_uf`, `change_basis`, `point_type` | `api/v1/listings.py`, `infrastructure/db/repositories/price_history_repo.py` | price history endpoint, alerts | Serie de precios por listing. | C | hoy | Si |
+| price_history_artifact | `is_artifact`, `artifact_reason`, `include_artifacts` | `api/v1/listings.py`, `infrastructure/db/models.py`, `domain/alerts/price_drop_detector.py` | price history, alerts | Provenance tecnica para filtrar puntos. | D | hoy | Si |
+| price_drop_event | `drop_pct`, `previous_price_*`, `new_price_*`, `canonical_price_unit` | `domain/alerts/price_drop_detector.py`, `api/v1/alerts.py` | alerts | Evento de baja de precio. | C | hoy | Si |
+| alert_state | `alert_type`, `message`, `payload`, `created_at`, `is_read` | `api/v1/alerts.py`, `infrastructure/db/models.py`, `ui/redesign/alerts_adapter.py` | alerts, radar, portfolio | Estado/contenido de alertas. | C | hoy | Si |
+| radar_safety_verdict | `radar_verdict`, `radar_verdict_message`, `risk_flags`, `show` | `domain/radar/beta_safety.py`, `services/radar.py` | radar | Veredicto beta-safe de oportunidad. | C | hoy | Si |
+| radar_market_depth | `total_listings_analyzed`, `total_candidates`, `processed_candidates`, `skipped_invalid_area` | `domain/radar/detector.py`, `services/radar.py` | logs | Metadata del run Radar. | B | parcial | No |
+| risk_report_scores | `scores.overall`, `Valuation`, `Market Support`, `Data Quality` | `ui/components/risk_report_html.py` | Risk Report | Score overall y componentes. | B | hoy | Si |
+| risk_report_reliability_fields | `available`, `missing`, `estimated`, `required_data`, `risk_report_status` | `ui/components/risk_report_html.py`, `ui/redesign/tasar_playground_adapter.py` | Risk Report | Campos disponibles/faltantes/estimados. | A | hoy | Si |
+| risk_report_catalysts_risks | `catalysts`, `risks`, `bottom_line`, `verdict` | `ui/components/risk_report_html.py` | Risk Report | Narrativa derivada de senales. | B | hoy | Si |
+| legal_external_risk | `Riesgo legal`, `Riesgo normativo`, `legal_external_data`, `legal_score` | `ui/components/risk_report_html.py`, `services/future_features.py` | Risk Report | CBR/SII/legal no integrado. | B | futura | Si |
+| market_map_heat_zones | `pins`, `heat_zones`, `hot_zones`, `map_x_pct`, `map_y_pct` | `ui/redesign/radar_adapter.py`, `services/future_features.py` | Radar UI | Mapa/heatmap aun demo/futuro. | B | futura | Si |
+| liquidity | `liquidity`, `liquidity_score` | `ui/redesign/radar_adapter.py`, `services/future_features.py` | Radar/Risk future | Liquidez esperada. | B | futura | Si |
+| portfolio_avm_delta | `avm_value_uf`, `delta_pct`, `trend`, `upside_potential_uf` | `ui/redesign/portfolio_adapter.py`, `services/future_features.py` | Portfolio | Delta AVM/watchlist aun future. | C | futura | Si |
+| listing_url_lookup_status | `status`, `warnings`, `source`, `listing_data` | `services/listing_url_lookup.py`, `api/v1/listings.py` | URL lookup, Tasar | Prefill y contexto LISTING_ANALYSIS. | C | hoy | Si |
+| data_quality_warnings | `data_quality_warnings`, `unknown_comuna`, `missing_m2`, `missing_property_type`, `missing_price` | `domain/ingestion/data_cleaning.py`, `services/listing_url_lookup.py` | ingestion, URL lookup | Completitud/calidad base. | A | hoy | Si |
+| provenance_debug_metadata | `raw_metadata`, `fingerprint`, `engine_config`, `pool`, `exclusion_ids`, `cache_hits` | `infrastructure/db/models.py`, `domain/valuation/engines/canonical_comparables.py`, `infrastructure/external/nominatim_client.py` | audits/logs | Trazabilidad tecnica. | D | hoy | No |
+
+## Duplicadas O Superpuestas
+
+| Cluster | Senales | Observacion | Recomendacion |
+|---|---|---|---|
+| Confidence | `confidence`, `confidence_score`, `confidence_label`, `confidence_reasons`, `confidence_risk_flags` | `confidence` es alias legacy de `confidence_label`. | Usar `confidence_score` + `confidence_label`; mantener `confidence` solo compatibilidad. |
+| Comparable count | `comparable_count`, `comparables_used`, `n_comparables`, `comparables_count` | Mismo concepto en Valuation, Radar, beta metrics y engine results. | Canonico publico: `comparable_count`; por motor: `engine_results[].comparables_count`. |
+| Score | `score`, `ranking_score`, `scores.overall` | Radar score y Risk Report score no miden lo mismo. | Renombrar conceptualmente a `opportunity_score` vs `risk_report_score`/`investment_score`. |
+| Microzona | `geo_signals`, `geo_microzone_tokens`, `same_microzone_ratio`, `geographic_microzone.microzone_id` | Microzona textual se usa; geografica es audit/read-only. | Separar `textual_microzone` y `geographic_microzone`. |
+| Price provenance | `price_uf_source`, `price_uf_confidence`, `price_recovery_method`, `price_display_basis`, `price_basis_used`, `price_data_quality` | Mezcla decision de producto con provenance tecnica. | Exponer `price_quality_label`; esconder raw provenance en modo usuario. |
+| Warning flags | `warnings`, `comparable_quality_flags`, `reliability_warnings`, `confidence_risk_flags`, `beta_scope_flags`, `risk_flags` | Una misma debilidad se repite en varios arrays. | Crear `evidence_flags` normalizado con `code`, `source`, `severity`, `category`. |
+| Estimated value aliases | `estimated_price_uf`, `estimated_value_uf`, `market_price`, `estimate_uf` | Alias por endpoint/adaptador. | Canonico conceptual: `avm_estimated_value`. |
+| Surface | `surface.stats`, `surface_adjustment_*` | Ajuste visible, stats no visibles. | Traducir a senal de producto: “soporte local de mercado”, no `weight/reason`. |
+
+## Senales Visibles Que Son Tecnicas
+
+Estas deberian ocultarse, traducirse o agruparse antes de entrar a Investment Intelligence / Listing Opportunity:
+
+- `confidence` legacy alias si ya existe `confidence_label`.
+- Codigos crudos en `warnings`.
+- `confidence_risk_flags`, `comparable_quality_flags`, `beta_scope_flags`, `risk_flags`.
+- `beta_scope_status`, `beta_scope_message` con vocabulario beta interno.
+- `surface_adjustment_applied`, `surface_adjustment_weight`, `surface_adjustment_reason`.
+- `engine_results.*`: `engine_name`, `engine_version`, `role`, `status`, `safe_error_message`.
+- `consensus_method`, `engine_weights`, `selected_engine_names`.
+- `price_uf_source`, `price_uf_confidence`, `price_recovery_method`.
+- `price_display_basis`, `price_basis_used`, `price_data_quality`, `saved_price_basis`.
+- `uf_rate_used_for_display`, `uf_rate_source`, `uf_rate_is_fallback`.
+- `price_history.is_artifact`, `price_history.artifact_reason`, `price_history.change_basis`.
+- `listing_url_lookup.status` y `listing_url_lookup.warnings` como codigos raw.
+
+## Recomendacion De Arquitectura Conceptual
+
+Proponer una capa intermedia `SignalRegistry`/`ReportSignalSet` antes de los reportes:
+
+- `valuation_quality`: confidence, comparable_count, dispersion, geo quality, comparable quality, beta scope.
+- `market_context`: comuna, property_type, area bucket, microzone, segment depth, price surface context.
+- `listing_opportunity`: published price, discount, watchlist, price history, price-drop events, listing freshness.
+- `technical_provenance`: raw warnings, engine diagnostics, price provenance, geocode provenance, cache/debug.
+
+Los reportes deberian consumir una forma normalizada:
+
+```json
+{
+  "code": "price_per_m2_dispersion",
+  "label": "Dispersion de comparables",
+  "category": "Valuation Quality",
+  "severity": "medium",
+  "value": 62.5,
+  "unit": "pct",
+  "availability": "hoy",
+  "source": "domain.valuation.comparable_quality"
+}
+```
+
+Esto permite construir:
+
+- `Investment Score`: solo B + C + A resumidas, sin D.
+- `Risk Report`: A + C + B, con D traducida a etiquetas humanas.
+- `Investment Intelligence Report`: B dominante, A como confiabilidad.
+- `Listing Opportunity Report`: C dominante, A como soporte y B como contexto.
+
+## Tabla Final
+
+La tabla final completa tambien esta estructurada en `signals_inventory_latest.json` bajo `final_table`.
+
+| Signal | Current Source | Current Usage | Recommended Category | User Visible |
+|---|---|---|---|---|
+| analysis_context | Risk report builder | PROPERTY_VALUATION vs LISTING_ANALYSIS routing | B | Yes |
+| target_location_comuna | Valuation/listing input | Comparable filtering and market context | B | Yes |
+| property_type | Input/ingestion | Segmentation and comparable filtering | B | Yes |
+| area_profile | Input/ingestion | Valuation, m2 bucket, price/m2 | B | Yes |
+| published_price | Listing/request/watchlist | Discount and opportunity analysis | C | Yes |
+| canonical_price_basis | Price provenance helpers | Eligibility and price display | D | Yes |
+| estimated_value | Valuation/Radar | Central AVM estimate | B | Yes |
+| valuation_range | Comparables/consensus | Uncertainty band | A | Yes |
+| discount_pct | Radar/risk report | Listing opportunity signal | C | Yes |
+| opportunity_score | Radar | Opportunity ranking | C | Yes |
+| confidence_contract | Confidence contract | Valuation/Radar quality | A | Yes |
+| comparable_count | Comparables engines | Market support and confidence | A | Yes |
+| comparable_quality_level | Comparable quality assessor | Quality label | A | Yes |
+| price_per_m2_dispersion | Comparable metrics | Quality/reliability | A | Yes |
+| microzone_match_ratio | Textual microzones | Quality/scoring/surface | B | Yes |
+| beta_scope | Beta scope assessor | Segment support/radar safety | A | Yes |
+| segment_depth | Candidate pool | Market depth | B | Yes |
+| price_surface_context | Price surface index | Market statistics/adjustment | B | No |
+| surface_adjustment | Price surface policy | Valuation adjustment audit | D | Yes |
+| geocode_precision | Geocoding guardrails | Quality/scoring eligibility | A | No |
+| textual_microzone_signals | Microzone extraction | Scoring and market context | B | No |
+| engine_results | Consensus orchestrator | Engine diagnostics | D | Yes |
+| consensus_summary | Consensus orchestrator | Model selection audit | D | Yes |
+| watchlist_state | Saved listings | Portfolio and alert scope | C | Yes |
+| price_history_series | Price history repo | Price history endpoint and alerts | C | Yes |
+| price_drop_event | Alert detector | Alerts and listing opportunity | C | Yes |
+| alert_state | Alerts table | Alerts/Radar/Portfolio | C | Yes |
+| radar_safety_verdict | Radar beta safety | Opportunity wording/visibility | C | Yes |
+| risk_report_scores | Risk report builder | Report score display | B | Yes |
+| legal_external_risk | Future/N/A | Shown unavailable | B | Yes |
+| days_on_market | Future/demo | Radar sorting future | C | Yes |
+| liquidity | Demo/future | Radar/Risk future | B | Yes |
+| provenance_debug_metadata | DB/engines/adapters | Internal audit/debug | D | No |

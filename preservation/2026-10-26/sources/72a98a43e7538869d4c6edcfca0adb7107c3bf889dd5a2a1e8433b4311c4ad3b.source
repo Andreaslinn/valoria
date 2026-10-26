@@ -1,0 +1,99 @@
+import sys,math,asyncio,json
+from pathlib import Path
+from decimal import Decimal
+from types import SimpleNamespace
+from copy import deepcopy
+import pytest
+HERE=Path(__file__).resolve().parent
+sys.path.insert(0,str(HERE/'integration'))
+from domain.geocoding.source_quality import assess,attach_map_point
+from infrastructure.scrapers.portalinmobiliario import parse_listing_detail_portal,PortalInmobiliarioScraper
+from scripts.portal_canary import portal_detail_to_raw
+from scripts.portal_card_first import _card_raw
+from domain.ingestion.data_cleaning import clean_listing
+from domain.ingestion.pipeline import process_listing
+from infrastructure.db.base import Base
+from infrastructure.db.repositories import SqlAlchemyListingRepository,SqlAlchemyPriceHistoryRepository,SqlAlchemyPropertyRepository
+from infrastructure.db.models import ListingORM
+from infrastructure.db.mappers import listing_from_orm
+from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
+TARGET={'operation':'venta','label':'offline','property_type':'apartment','base_url':'https://www.portalinmobiliario.com'}
+UF=SimpleNamespace(rate=Decimal('41089.96'),source='archived',cache_hit=False,is_stale=False)
+def detail(number=1,url=''):
+ return parse_listing_detail_portal((HERE/'fixtures'/f'portal_detail_real_{number}_sanitized.html').read_text(encoding='utf-8'),url)
+@pytest.mark.parametrize('number,xy',[(1,(-33.4569685,-70.6697457)),(2,(-33.476406,-70.6484696))])
+def test_archived_detail_raw_parsed_roundtrip(number,xy):
+ d=detail(number);ev=d['raw_metadata']['coordinates_evidence'];raw=portal_detail_to_raw(d,TARGET,uf_info=UF)
+ c=clean_listing(raw)
+ assert (c.coordinates.lat,c.coordinates.lon)==xy
+ assert c.geocode_precision=='unknown'
+ assert ev['source_listing_id']==d['external_id']
+ assert ev['normalized']=={'lat':xy[0],'lon':xy[1]}
+ assert ev['quality']['status']=='UNCERTAIN'
+ assert ev['original']['lat']==str(xy[0])
+ assert json.loads(json.dumps(ev))==ev
+def test_wrong_requested_mlc_rejects_coordinates():
+ d=detail(1,'https://www.portalinmobiliario.com/MLC-9999999999-wrong')
+ assert d['raw_metadata']['coordinates_rejection_reason']=='unbound_or_conflicting_mlc'
+ assert 'lat' not in d['raw_metadata']
+def test_country_centroid_is_not_property_coordinate():
+ d=detail();assert d['raw_metadata']['lat']!=-35.675148
+def card():
+ return {'external_id':'MLC-12345','title':'Departamento','url':'https://portalinmobiliario.com/MLC-12345-x',
+ 'comuna':'Ñuñoa','m2':60,'bedrooms':2,'bathrooms':2,'parking':1,
+ 'raw_metadata':{'currency_original':'UF','price_uf':4000}}
+def test_already_acquired_map_point_flows_through_card_adapter():
+ c=attach_map_point(card(),{'id':'MLC12345','latitude':'-33.45','longitude':'-70.6'},observed_at='2026-10-10T00:00:00Z')
+ raw=_card_raw(c,TARGET,UF.rate);clean=clean_listing(raw)
+ assert (clean.coordinates.lat,clean.coordinates.lon)==(-33.45,-70.6)
+ assert clean.geocode_precision=='unknown'
+ assert raw['raw_metadata']['coordinates_evidence']['observed_at']=='2026-10-10T00:00:00Z'
+def test_map_mlc_mismatch_is_rejected():
+ with pytest.raises(ValueError,match='MLC mismatch'):attach_map_point(card(),{'id':'MLC999','latitude':-33,'longitude':-70})
+def test_unbound_card_coordinate_is_not_accepted():
+ c=card();c.update(lat=-33.45,lon=-70.6);assert 'lat' not in _card_raw(c,TARGET,UF.rate)
+@pytest.mark.parametrize('xy,expected',[( (None,None),'MISSING'),((None,-70),'INVALID'),((math.nan,-70),'INVALID'),
+ ((math.inf,-70),'INVALID'),((0,0),'INVALID'),((-334523233,-706946134),'INVALID'),
+ ((True,-70),'INVALID'),((-33.45,-70.6),'UNCERTAIN')])
+def test_geographic_quality(xy,expected):assert assess(*xy)['status']==expected
+def test_source_precision_and_origin_are_explicit():
+ assert assess(-33,-70,precision='address',source='declared',identity_match=True,declared_precision=True)['status']=='USABLE'
+ assert assess(-33,-70,precision='address',source='inferred',identity_match=True)['status']=='UNCERTAIN'
+ assert assess(-33,-70,precision='address')['status']=='UNCERTAIN'
+ assert assess(-33,-70,precision='address',source='x',identity_match=True,approximate=True)['status']=='UNCERTAIN'
+ assert assess(-33,-70,precision='address',source='x',identity_match=False)['status']=='INVALID'
+ assert not assess(-33,-70,precision='address',repeated=True)['local_eligible']
+def test_missing_card_fields_keep_legacy_path():
+ raw=_card_raw(card(),TARGET,UF.rate);assert clean_listing(raw).coordinates is None
+def test_legacy_yapo_semantics_unchanged():
+ raw={'source':'yapo','external_id':'x','title':'Depto','comuna':'Ñuñoa','property_type':'apartment',
+ 'url':'https://www.yapo.cl/propiedad/x',
+ 'm2':60,'bedrooms':2,'bathrooms':2,'parking':1,'price_clp':164359840,'lat':-33.45,'lon':-70.6,
+ 'raw_metadata':{'location_source':'yapo_search_payload'}}
+ c=clean_listing(raw);assert c.coordinates.lat==-33.45;assert c.geocode_precision=='address'
+def test_sqlite_persistence_reobservation_and_nondestructive_merge(monkeypatch):
+ import config
+ monkeypatch.setattr(config,'get_settings',lambda:SimpleNamespace(ingestion_observation_history_enabled=False))
+ async def check():
+  engine=create_async_engine('sqlite+aiosqlite:///:memory:')
+  async with engine.begin() as connection:await connection.run_sync(Base.metadata.create_all)
+  async with async_sessionmaker(engine,expire_on_commit=False)() as session:
+   lr=SqlAlchemyListingRepository(session);pr=SqlAlchemyPropertyRepository(session);hr=SqlAlchemyPriceHistoryRepository(session)
+   raw=portal_detail_to_raw(detail(),TARGET,uf_info=UF)
+   first=await process_listing(raw,listing_repo=lr,property_repo=pr,price_history_repo=hr)
+   second=await process_listing(deepcopy(raw),listing_repo=lr,property_repo=pr,price_history_repo=hr)
+   assert first.id==second.id
+   orm=await session.get(ListingORM,first.id);mapped=listing_from_orm(orm)
+   assert (mapped.coordinates.lat,mapped.coordinates.lon)==(-33.4569685,-70.6697457)
+   assert mapped.geocode_precision=='unknown'
+   assert mapped.raw_metadata['coordinates_evidence']['source_listing_id']==first.external_id
+   # A stronger pre-existing point and its provenance survive a weaker observation.
+   second.geocode_precision='street';second.raw_metadata['location_source']='old_better_point';await lr.save(second)
+   weak=deepcopy(raw);weak['lat']=-33.4;weak['lon']=-70.5
+   final=await process_listing(weak,listing_repo=lr,property_repo=pr,price_history_repo=hr)
+   assert final.coordinates.lat==-33.4569685
+   assert final.raw_metadata['location_source']=='old_better_point'
+   assert 'coordinates_candidate_evidence' in final.raw_metadata
+   active=await lr.list_active();assert active[0].coordinates.lat==-33.4569685
+  await engine.dispose()
+ asyncio.run(check())

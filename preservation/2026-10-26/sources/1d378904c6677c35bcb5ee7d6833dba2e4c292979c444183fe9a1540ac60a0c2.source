@@ -1,0 +1,48 @@
+"""Settings for the isolated local database; never falls back to app settings."""
+
+import os
+from pathlib import Path
+
+from sqlalchemy.engine import make_url
+
+LOCAL_PORT = 55439
+
+
+def enabled():
+    value = os.environ.get("PROPERTY_LIFE_ENABLED")
+    if value is None:
+        from dotenv import dotenv_values
+
+        values = dotenv_values(Path(__file__).resolve().parents[1] / ".env.local")
+        value = values.get("PROPERTY_LIFE_ENABLED", "false")
+    return str(value).lower() == "true"
+
+
+def validate_local_url(value):
+    url = make_url(value)
+    if (
+        url.drivername != "postgresql+psycopg"
+        or url.host not in {"localhost", "127.0.0.1"}
+        or url.port != LOCAL_PORT
+        or url.database != "property_life_local"
+        or url.query
+    ):
+        raise RuntimeError("Property life exige PostgreSQL en localhost:55439/property_life_local")
+    return url
+
+
+def local_url():
+    # Refuse an inherited production connection without logging its credentials.
+    for name in ("DATABASE_URL", "SYNC_DATABASE_URL", "DATABASE_URL_SYNC"):
+        value = os.environ.get(name)
+        if value:
+            active = make_url(value)
+            if active.host and active.host not in {"localhost", "127.0.0.1", "::1"}:
+                raise RuntimeError("Config activa con base externa/producción; detenido")
+    from dotenv import dotenv_values
+
+    values = dotenv_values(Path(__file__).resolve().parents[1] / ".env.local")
+    value = os.environ.get("PROPERTY_LIFE_DATABASE_URL") or values.get("PROPERTY_LIFE_DATABASE_URL")
+    if not value:
+        raise RuntimeError("Falta PROPERTY_LIFE_DATABASE_URL en .env.local")
+    return validate_local_url(value)

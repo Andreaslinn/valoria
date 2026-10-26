@@ -1,0 +1,84 @@
+"""Compact certification of code/tests and manufactured-data execution only."""
+from pathlib import Path
+import ast,hashlib,json,re,subprocess,sys
+from datetime import datetime,timezone
+from importlib.metadata import version
+
+ROOT=Path(__file__).resolve().parent
+WORKSPACE=ROOT.parents[1]
+ORIGINAL=WORKSPACE/'work/avm-01-20261008'
+MAIN=Path('C:/Users/heiko/Downloads/AVM v3/Andy/AVM-v2')
+def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def read(path):return json.loads(Path(path).read_text(encoding='utf-8-sig'))
+def constants(path,names):
+    found={}
+    for node in ast.parse(Path(path).read_text(encoding='utf-8-sig')).body:
+        if isinstance(node,ast.AnnAssign) and isinstance(node.target,ast.Name) and node.target.id in names:found[node.target.id]=ast.literal_eval(node.value)
+    if set(found)!=set(names):raise ValueError('Missing valuation constants')
+    return found
+
+def main():
+    test_text=(ROOT/'test-output.txt').read_text(encoding='utf-8-sig')
+    count=int(re.search(r'Ran (\d+) tests',test_text).group(1))
+    assert count==89 and '\nOK' in test_text.replace('\r\n','\n')
+    before=read(ROOT/'baseline-integrity.json')
+    for name,expected in before['files'].items():
+        path=Path(name);assert sha(path if path.is_absolute() else WORKSPACE/path)==expected,name
+    frozen=read(ORIGINAL/'evidence/source-freeze.json')['source_files']
+    assert all(sha(ROOT/'frozen_a'/p)==expected and sha(ORIGINAL/'frozen_a'/p)==expected for p,expected in frozen.items())
+    old_manifest=read(ORIGINAL/'artifacts/manifest.json')
+    original_code={p:v for p,v in old_manifest['files'].items() if p.startswith(('avm01/','tests/','frozen_a/')) and p.endswith('.py')}
+    assert all(sha(ORIGINAL/p)==v['sha256'] for p,v in original_code.items())
+    assert all(version(name)==expected for name,expected in old_manifest['dependencies'].items())
+    names=['MIN_COMPARABLES','TOP_N_COMPARABLES','COMPARABLES_MAX_DISTANCE_KM','COMPARABLES_M2_TOLERANCE','SCORE_WEIGHTS']
+    assert constants(ROOT/'frozen_a/config/constants.py',names)==constants(MAIN/'config/constants.py',names)
+    old_tree=ast.parse((ORIGINAL/'avm01/engines.py').read_text());new_tree=ast.parse((ROOT/'avm01/engines.py').read_text())
+    defaults=lambda tree:next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='DEFAULTS' for t in n.targets))
+    assert defaults(old_tree)==defaults(new_tree)
+    git={}
+    for key,path in [('main',MAIN),('reconciled',WORKSPACE/'valoria-reconciled')]:
+        head=subprocess.check_output(['git','--no-optional-locks','-C',str(path),'rev-parse','HEAD'],text=True).strip()
+        status=subprocess.run(['git','--no-optional-locks','-C',str(path),'status','--porcelain','-uall'],text=True,capture_output=True,check=True)
+        matching=any(hashlib.sha256(s.encode()).hexdigest()==before[key]['status_sha256'] for s in [status.stdout,status.stdout.strip(),status.stdout.rstrip()])
+        assert head==before[key]['HEAD'] and matching,key
+        git[key]={'HEAD':head,'status_unchanged':matching,'legacy_temp_permission_warnings':bool(status.stderr)}
+    program='''
+import sys,json
+from pathlib import Path
+from avm01.fixtures import synthetic
+from avm01.harness import run,CONFIG
+r=run(synthetic(18,publications_per_group=2),dict(CONFIG,n_folds=3,bootstrap_replicates=10))
+root=Path('frozen_a').resolve();main=Path(r'C:\\Users\\heiko\\Downloads\\AVM v3\\Andy\\AVM-v2')
+matched=[];different=[]
+for name,module in sorted(sys.modules.items()):
+ p=getattr(module,'__file__',None)
+ if not p:continue
+ p=Path(p).resolve()
+ if not p.is_relative_to(root) or p.suffix!='.py':continue
+ rel=p.relative_to(root);other=main/rel
+ if other.exists() and p.read_text(encoding='utf-8-sig').splitlines()==other.read_text(encoding='utf-8-sig').splitlines():matched.append(rel.as_posix())
+ else:different.append(rel.as_posix())
+assert set(different)=={'config/constants.py','config/settings.py'},different
+print(json.dumps({'hash':r['result_sha256'],'observations':r['original_observations_n'],'index_observations':r['index_observations_n'],
+ 'eligible_n':r['comparison']['per_engine']['A']['eligible_n'],'coverage':{n:v['coverage'] for n,v in r['comparison']['per_engine'].items()},
+ 'holdout_evaluated':r['holdout_evaluated'],'same_loaded_main_modules':len(matched),'irrelevant_config_differences':different}))
+'''
+    executions=[]
+    for _ in range(2):
+        raw=subprocess.check_output([sys.executable,'-B','-c',program],cwd=ROOT,text=True)
+        executions.append(json.loads(raw))
+    assert executions[0]==executions[1] and not executions[0]['holdout_evaluated']
+    manifest={p.relative_to(ROOT).as_posix():sha(p) for p in sorted(ROOT.rglob('*.py')) if '__pycache__' not in p.parts}
+    certificate={'status':'PASS','indicator':'AVM_HARNESS_CERTIFIED','at_utc':datetime.now(timezone.utc).isoformat(),
+        'scope':'trusted experimental adapters/controller; supplied dependency/feature policy; controlled fixtures only',
+        'tests_passed':count,'tests_failed':0,'test_log_sha256':sha(ROOT/'test-output.txt'),
+        'acceptance':dict(A_core=True,group_isolation=True,fold_validation=True,label_custody=True,fair_comparison=True,reproducibility=True),
+        'fresh_process_synthetic_execution':executions[0],'frozen_files_byte_identical':len(frozen),'original_experimental_code_files_unchanged':len(original_code),
+        'valuation_constants_unchanged':True,'learned_engine_defaults_unchanged':True,'git':git,
+        'dependencies':old_manifest['dependencies'],'code_sha256':manifest,
+        'oracle_accessed':False,'real_training':False,'real_benchmark':False,'official_splits_created':False,'final_holdout_consumed':False,
+        'limitations':['not A_production or Oracle runtime certification','external physical identity/target/features need cohort certification','real fitting and final holdout execution remain disabled','not hostile-plugin OS isolation']}
+    (ROOT/'certification.json').write_text(json.dumps(certificate,indent=2),encoding='utf-8')
+    print(json.dumps({k:certificate[k] for k in ['status','indicator','tests_passed','tests_failed','fresh_process_synthetic_execution','oracle_accessed']}))
+
+if __name__=='__main__':main()

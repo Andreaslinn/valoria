@@ -1,0 +1,44 @@
+# Local synthetic validation only. No host DB port or production mount.
+name: portal-geo-operational-validation
+services:
+  postgres:
+    image: postgres:16.14-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    platform: linux/amd64
+    networks:
+      validation:
+        aliases: [portal-geo-pg-op-20261011]
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=256m
+    environment:
+      POSTGRES_DB: portal_geo_validation
+      POSTGRES_USER: geo_validation
+      POSTGRES_PASSWORD: isolated-validation-only
+    command: [postgres, -c, log_lock_waits=on, -c, deadlock_timeout=100ms]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U geo_validation -d portal_geo_validation"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  validation:
+    image: ${PORTAL_GEO_VALIDATION_IMAGE:-valoria-portal-geo-validation:20261011}
+    platform: linux/arm64
+    networks: [validation]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ..:/validation/tests:ro
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL: postgresql+asyncpg://[USER]:[PASSWORD]@portal-geo-pg-op-20261011:5432/portal_geo_validation
+      SYNC_DATABASE_URL: postgresql+psycopg://[USER]:[PASSWORD]@portal-geo-pg-op-20261011:5432/portal_geo_validation
+      PORTAL_GEO_TEST_DATABASE_URL: postgresql+asyncpg://[USER]:[PASSWORD]@portal-geo-pg-op-20261011:5432/portal_geo_validation
+      JWT_SECRET_KEY: "[REDACTED]"
+      INGESTION_OBSERVATION_HISTORY_ENABLED: "true"
+      PORTAL_HTTP_ENABLED: "false"
+      SCHEDULER_ENABLED: "false"
+    entrypoint: [python, -B]
+    command: [/validation/tests/integration_pg/test_portal_geography_operational.py]
+networks:
+  validation:
+    internal: true

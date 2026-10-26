@@ -1,0 +1,154 @@
+"""Audit/reclassify the existing Vitacura MVP; no sales rebuild or web calls."""
+from __future__ import annotations
+import argparse,hashlib,io,json,math,shutil,sqlite3,zipfile
+from collections import Counter,defaultdict
+from pathlib import Path
+from statistics import median
+import pandas as pd
+from services.sii.geocoding import distance
+from services.sii.local_geography import block_fallback,write_geography
+
+
+def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def audit(source:Path, legacy_zip:Path, reference_dir:Path, output:Path):
+    output.mkdir(parents=True,exist_ok=True)
+    with sqlite3.connect(source/'address-index.sqlite') as c:
+        c.row_factory=sqlite3.Row
+        roles={r['rol']:dict(r) for r in c.execute('SELECT * FROM role WHERE comuna=15160')}
+    with sqlite3.connect(source/'geography.sqlite') as c:
+        c.row_factory=sqlite3.Row
+        original={r['rol']:dict(r) for r in c.execute('SELECT * FROM geo')}
+        meta={k:json.loads(v) for k,v in c.execute('SELECT * FROM metadata')}
+    for g in original.values():g['evidence']=json.loads(g['evidence'])
+    assert len(original)==99486,'Unexpected input generation; audit a known immutable MVP'
+    with zipfile.ZipFile(legacy_zip) as z:
+        member=meta['legacy']['member'];blob=z.read(member)
+        assert hashlib.sha256(blob).hexdigest()==meta['legacy']['member_sha256']
+        assert sha(legacy_zip)==meta['legacy']['sha256']
+        provenance=json.loads(z.read(next(n for n in z.namelist() if n.endswith('data/provenance.json'))))
+        code=z.read(next(n for n in z.namelist() if n.endswith('pipeline/build_data.py')))
+        legacy=pd.read_parquet(io.BytesIO(blob),columns=['c','mz','pr','dir','st','num','lat','lon','geo_method'])
+        legacy=legacy[(legacy.c==15160)&legacy.lat.notna()&legacy.lon.notna()]
+    assert len(legacy)==74065
+    declared=provenance['sii_catastro_2026_2']['files']['BRTMPCATASN_2026_2_15160']
+    assert meta['audit']['n_source']['hash'].startswith(declared)
+    fresh={rol:dict(g,evidence=dict(g['evidence'])) for rol,g in original.items() if g['method'].startswith('osm_')}
+    # Published SII points are tied to exact commune/block/parcel identities.
+    # Only geometric/identity fields are retained, never owner identifiers.
+    references={};corrections=[];anchor_replacements={}
+    for path in sorted(reference_dir.glob('response-15160-*.json')):
+        raw=json.loads(path.read_text(encoding='utf8'))['data']
+        rol=f"{raw['comuna']}-{raw['manzana']}-{raw['predio']}"
+        if rol not in roles or raw['direccion'].strip()!=roles[rol]['raw'].strip():continue
+        point=float(raw['ubicacionX']),float(raw['ubicacionY'])
+        assert -33.45<point[0]<-33.30 and -70.66<point[1]<-70.40
+        published=raw.get('predioPublicado') or {}
+        assert (published.get('comuna'),published.get('manzana'),published.get('predio'))==tuple(map(int,rol.split('-')))
+        ref={'rol':rol,'address':raw['direccion'].strip(),'point':point,'sha256':sha(path),
+             'source':'SII getPredioNacional cached 2026-10-25','projected_point':
+                [published.get('ubicacionX'),published.get('ubicacionY')],
+             'precision_note':'Published role point; 25m is a working estimate, not surveyed accuracy.'}
+        references[rol]=ref
+        before=original.get(rol)
+        delta=distance(point,(before['lat'],before['lon'])) if before else None
+        corrections.append({'rol':rol,'before_method':before['method'] if before else None,
+                            'discrepancy_m':delta,'reference':ref})
+        if before and before['method']=='osm_direct' and delta>100:
+            anchor_replacements[before['evidence']['street_osm'],int(roles[rol]['number'])]=(point,ref)
+        fresh[rol]={'lat':point[0],'lon':point[1],'source_id':roles[rol]['source'],
+            'method':'sii_published_point','precision_m':25.,'quality':'sii_role_point',
+            'source':ref['sha256'],'evidence':{'reference':ref,'superseded':before}}
+    # Correct downstream interpolations whose anchors were the conflicting OSM nodes.
+    for rol,g in list(fresh.items()):
+        if g['method']!='osm_interpolated':continue
+        detail=g['evidence'];street=detail['street_osm'];nums=detail['anchor_numbers']
+        replacements=[anchor_replacements.get((street,n)) for n in nums]
+        if not any(replacements):continue
+        points=[replacements[i][0] if replacements[i] else detail['anchor_points'][i] for i in range(2)]
+        if distance(*points)>300:
+            del fresh[rol];continue
+        t=(int(roles[rol]['number'])-nums[0])/(nums[1]-nums[0])
+        g.update(lat=points[0][0]+t*(points[1][0]-points[0][0]),
+                 lon=points[0][1]+t*(points[1][1]-points[0][1]),
+                 precision_m=max(50,distance(*points)/2),quality='corrected_anchor_interpolation',
+                 method='mixed_anchor_interpolated')
+        detail['anchor_points']=points
+        detail['sii_anchor_sources']=[r[1]['sha256'] for r in replacements if r]
+    # Build independent block support from distinct current OSM/SII points.
+    blocks=defaultdict(set)
+    for rol,g in fresh.items():
+        if g['method'] in {'osm_direct','sii_published_point'}:
+            blocks[roles[rol]['block']].add((g['lat'],g['lon']))
+    centers={}
+    for block,points in blocks.items():
+        if len(points)<3:continue
+        center=median(p[0] for p in points),median(p[1] for p in points)
+        spread=median(distance(center,p) for p in points)
+        if spread<=150:centers[block]=(center,max(100,3*spread))
+    legacy_audit=[];legacy_locations={}
+    for r in legacy.itertuples():
+        rol=f'15160-{r.mz}-{r.pr}';current=roles.get(rol)
+        assert current and current['raw'].strip()==r.dir.strip(),f'Legacy identity mismatch: {rol}'
+        point=float(r.lat),float(r.lon)
+        g=fresh.get(rol)
+        delta=distance(point,(g['lat'],g['lon'])) if g else None
+        civic_match=bool(current['number'] and str(current['number']).isdigit() and
+                         not pd.isna(r.num) and int(r.num)==int(current['number']))
+        quality='legacy_unverified';precision=150.;reason='Original OSM extract absent; hash/procedure/role/address verified'
+        if not civic_match:
+            quality='quarantined';precision=500.;reason='Legacy civic number differs from current parsed address'
+        elif g and delta<=50:
+            quality='legacy_corroborated';precision=50.;reason='Within 50m of current independently downloaded address geometry'
+        elif g and delta>150:
+            quality='quarantined';precision=max(500.,delta);reason='Disagrees with current supported point by >150m'
+        elif current['block'] in centers:
+            center,spread=centers[current['block']]
+            d=distance(point,center)
+            if d>max(300,spread):
+                quality='quarantined';precision=max(500.,d);reason='Outside independently supported block neighborhood'
+            elif d<=150:
+                quality='legacy_block_consistent';precision=150.;reason='Within 150m of block center supported by >=3 distinct current addresses'
+        entry={'rol':rol,'method':r.geo_method,'quality':quality,'precision_m':precision,
+               'current_difference_m':delta,'reason':reason,'civic_match':civic_match}
+        legacy_audit.append(entry)
+        legacy_locations[rol]={'lat':point[0],'lon':point[1],'method':'legacy_'+r.geo_method,
+            'source_id':current['source'],'source':meta['legacy']['member_sha256'],
+            'quality':quality,'precision_m':precision,'evidence':entry}
+    located={**legacy_locations,**fresh}
+    # Unknown legacy points may be retained for inspection but cannot seed new blocks.
+    trusted={rol:g for rol,g in located.items() if g['quality'] not in {'legacy_unverified','quarantined'}}
+    block_fallback(list(roles.values()),trusted)
+    for rol,g in trusted.items():
+        if rol not in located or located[rol]['quality'] in {'legacy_unverified','quarantined'}:
+            if g['method']=='block_median':
+                g['precision_m']=max(150.,g['precision_m'])
+            located[rol]=g
+    # All original roles remain traceable, including unavailable/quarantined positions.
+    for rol,g in original.items():
+        if rol not in located:
+            located[rol]={**g,'quality':'quarantined','precision_m':max(500,g['precision_m']),
+                          'evidence':{'reason':'Old block approximation lacks independent support','previous':g['evidence']}}
+    for name in ['address-index.sqlite','address-details.sqlite','closings.json']:
+        shutil.copyfile(source/name,output/name)
+    sales=json.loads((source/'closings.json').read_text(encoding='utf8'))
+    summary={'input_roles':len(original),'roles_retained':len(located),'legacy_checked':len(legacy_audit),
+        'legacy_quality':dict(Counter(r['quality'] for r in legacy_audit)),
+        'output_quality':dict(Counter(g['quality'] for g in located.values())),
+        'output_methods':dict(Counter(g['method'] for g in located.values())),
+        'legacy_source':meta['legacy'],'legacy_provenance':provenance['osm_direcciones'],
+        'legacy_code_sha256':hashlib.sha256(code).hexdigest(),
+        'legacy_limit':'Original OSM input unavailable; legacy interpolation lacked parity and physical distance guards.',
+        'corrections':corrections,'corrected_anchor_keys':[list(k) for k in anchor_replacements],
+        'no_new_external_requests':True,'precision_note':'Working uncertainty classes, not certified cadastral boundaries.'}
+    write_geography(output/'geography.sqlite',located,sales,{**meta,'geography_audit_v2':summary})
+    (output/'geography-audit.json').write_text(json.dumps(summary,indent=2),encoding='utf8')
+    (output/'legacy-quality.json').write_text(json.dumps(legacy_audit),encoding='utf8')
+    print(json.dumps({k:v for k,v in summary.items() if k in ['input_roles','roles_retained','legacy_checked','legacy_quality','output_quality']},indent=2))
+
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser(description=__doc__)
+    for arg in ['source','legacy-zip','reference-dir','output']:p.add_argument('--'+arg,type=Path,required=True)
+    a=p.parse_args();audit(a.source,a.legacy_zip,a.reference_dir,a.output)

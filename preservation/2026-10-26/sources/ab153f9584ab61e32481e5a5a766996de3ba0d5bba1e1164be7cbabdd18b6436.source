@@ -1,0 +1,61 @@
+"use client";
+import {useEffect,useState} from "react";
+import {Building2} from "lucide-react";
+import {API_BASE_URL} from "@/lib/config";
+import type {ThumbnailRef} from "@/types/thumbnail";
+import {apiClient} from "@/lib/api/client";
+import "./property-photo.css";
+
+const renewing = new Map<string, Promise<ThumbnailRef>>();
+function renew(hash: string) {
+  let pending = renewing.get(hash);
+  if (!pending) {
+    pending = apiClient.get<ThumbnailRef>(`/api/v1/thumbnails/${hash}.webp/reference`);
+    renewing.set(hash, pending);
+    void pending.finally(() => renewing.delete(hash)).catch(() => {});
+  }
+  return pending;
+}
+
+export function thumbnailSrc(ref: ThumbnailRef | undefined): string | null {
+  if (!ref || !Number.isInteger(ref.width) || !Number.isInteger(ref.height) || ref.width <= 0 || ref.height <= 0
+      || ref.width > 8192 || ref.height > 8192 || !Number.isInteger(ref.bytes) || ref.bytes <= 0
+      || !/^[a-f0-9]{64}$/.test(ref.hash)) return null;
+  const expected = new RegExp(`^/api/v1/thumbnails/${ref.hash}\\.webp\\?expires=[0-9]+&sig=[a-f0-9]{64}$`);
+  return expected.test(ref.url) ? `${API_BASE_URL}${ref.url}` : null;
+}
+
+export function PropertyPhoto({thumbnail,title,className="",small=false,illustrativeSrc}: {
+  thumbnail: ThumbnailRef | undefined; title: string; className?: string; small?: boolean; illustrativeSrc?: string;
+}) {
+  const [current,setCurrent] = useState(thumbnail);
+  useEffect(() => {setCurrent(thumbnail);}, [thumbnail]);
+  useEffect(() => {
+    if (!current || !thumbnailSrc(current)) return;
+    let active = true, busy = false, retryAt = 0;
+    async function check() {
+      if (!active || busy || document.hidden || Date.now() < retryAt) return;
+      const expiry = Number(current!.url.match(/expires=([0-9]+)/)?.[1]) * 1000;
+      if (Date.now() < expiry - 60000) return;
+      busy = true;
+      try {const ref = await renew(current!.hash);if (active && thumbnailSrc(ref)) setCurrent(ref);}
+      catch {retryAt = Date.now() + 300000;}
+      finally {busy = false;}
+    }
+    void check();
+    const timer = setInterval(() => void check(), 60000);
+    document.addEventListener("visibilitychange", check);
+    return () => {active = false;clearInterval(timer);document.removeEventListener("visibilitychange", check);};
+  }, [current]);
+  const src = thumbnailSrc(current) ?? (process.env.NODE_ENV === "development" && illustrativeSrc && /^\/images\/[a-z0-9-]+\.jpg$/.test(illustrativeSrc) ? illustrativeSrc : null);
+  // Key isolates load failures across URL changes, including returning to a prior URL.
+  return <Photo key={src ?? "missing"} src={src} thumbnail={current} title={title} className={className} small={small}/>;
+}
+
+function Photo({src,thumbnail,title,className,small}: {src:string|null;thumbnail:ThumbnailRef|undefined;title:string;className:string;small:boolean}) {
+  const [failed,setFailed]=useState(false);
+  return <div className={`property-photo ${className}`} data-photo-state={src&&!failed?"image":"fallback"}>
+    {src&&!failed?<img src={src} alt={`Fotografía de la publicación · ${title}`} width={thumbnail?.width??320} height={thumbnail?.height??240}
+      loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={()=>setFailed(true)}/>:<><Building2 size={small?20:40} aria-hidden="true"/>{!small&&<span>Fotografía no disponible</span>}</>}
+  </div>;
+}

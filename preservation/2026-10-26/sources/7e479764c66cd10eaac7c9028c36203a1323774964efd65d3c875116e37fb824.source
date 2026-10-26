@@ -1,0 +1,8 @@
+import subprocess,json
+code='''import sqlite3,importlib.util,json
+c=sqlite3.connect("file:/home/browser/profile/Default/Cookies?mode=ro",uri=True)
+rows=c.execute("select host_key,name,length(encrypted_value),hex(substr(encrypted_value,1,3)),is_httponly,is_secure from cookies where host_key like '%portalinmobiliario%' or host_key like '%mercadolibre%'").fetchall()
+print(json.dumps({"cookies_metadata":rows,"cryptography":bool(importlib.util.find_spec("cryptography")),"crypto":bool(importlib.util.find_spec("Crypto"))}))
+'''
+r=subprocess.run(['docker','exec','-i','valoria-portal-interactive-20261011','python','-B','-'],input=code,capture_output=True,text=True)
+print(r.stdout,r.stderr)

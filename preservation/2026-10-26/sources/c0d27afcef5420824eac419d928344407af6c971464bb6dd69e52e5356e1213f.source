@@ -1,0 +1,29 @@
+# Correspondencia producto–benchmark: límites de la certificación
+
+La evidencia de ejecución está en `oracle_runtime.json`, `contract_certificate.json`, `production_unchanged.json` y los fuentes capturados en `deployed_runtime/`. Se inspeccionó el contenedor activo, no se asumió que el checkout de Oracle fuera su código.
+
+| Modalidad | Entrada efectiva del objetivo | Catálogo y cálculo | Estado experimental |
+|---|---|---|---|
+| Tasar manual v2 actual | Comuna, tipo, superficies y distribución física; los desconocidos de distribución llegan como 0. Sin coordenadas, dirección ni descripción. El precio personal no se usa como verdad para calcular. | Activos de comuna/tipo; exclusión por ID si se suministra; guardrails geográficos; gate inicial de comparables; comparable, superficie, challenger guarded; Consensus habilitado o fallback; DTO. | `manual`: replay del servicio capturado. |
+| Tasar localizado | Lo anterior + coordenadas archivadas y precisión registrada; sin texto. Sin coordenadas, idéntico al manual. | Mismo recorrido del servicio, con constructor del objetivo ampliado únicamente en sandbox. | `located`: contrato propuesto, no disponible actualmente en el formulario. |
+| Publicación enriquecida para Tasar | Datos físicos, coordenadas y metadata textual disponible, saneada y sin precio del objetivo. | Mismo servicio mediante adapter experimental. | `enriched`: contrato futuro; no representa automáticamente Analizar URL ni Radar actuales. |
+| Analizar URL actual | La extracción obtiene una publicación, pero el adapter de valoración solo transmite atributos físicos y campos de precio publicado; descarta geografía y texto. | Solicita Consensus, mismo servicio. No transmite `target_listing_id`. | Correspondencia física con manual; el benchmark excluye dependencias del objetivo. No reproduce una posible autocontaminación operacional como si fuera una mejora. |
+| Radar actual | `_listing_as_property` conserva coordenadas, precisión y metadata. | `services/radar.py:opportunities` carga activos; filtra objetivos por vigencia/scope/dormitorios. `domain/radar/detector.py:_evaluate_listing` excluye el propio listing y llama a `domain.valuation.comparables.valuate` sobre candidatos. No pasa por superficie/challenger/Consensus del servicio de Tasar. Después selecciona oportunidades usando el precio anunciado. | Ruta rica distinta. Las métricas de `Final` de este estudio NO certifican Radar. |
+
+## Configuración efectiva y geografía
+
+- Imagen `valoria-thumbnails:shared-v2-20261008`, Consensus ON, challenger de calidad `guarded`, motores canónicos global/segmentado OFF. Flags y hashes comprobados antes/después sin cambios.
+- La distancia ausente vale 0,5: contribución nominal 0,125 con peso 0,25. Es constante espacial; puede intervenir en pesos normalizados y confianza. No inventa una ubicación ni activa el límite duro de 5 km.
+- La familia `microzone_geo_v1` busca metadata de microzona/neighborhood y usa comuna como fallback. No obtiene vecinos por coordenadas. En la intervención localizada cambian confianzas territorial/hedónica aun cuando la referencia estimada sigue siendo comunal. `route_diagnostics.json` documenta el mecanismo, no una demostración de que eliminarlo mejore.
+
+## Qué se certificó y qué no
+
+1. Proyección de entradas, aislamiento de labels, mismas particiones/objetivos por modalidad, matemática nativa y replay del servicio capturado con flags reales. Paridad numérica de A frente al comparable desplegado sobre pools idénticos.
+2. Dos seeds reutilizan 791 objetivos; no son replicaciones independientes. La cohorte temporal de 149 también se había consumido. Todo el nuevo análisis es exploratorio.
+3. El catálogo ampliado es el snapshot del 4 de octubre con 2.396 departamentos activos, no el inventario actual del 11 de octubre. Cada motor conserva sus filtros nativos monetarios y estructurales. La parte aprendida usa 791 referencias UF elegibles anteriores; los targets temporales están separados del grafo de 6.283 listings antiguos. No se reparan referencias dudosas.
+4. SQL manual sin ORDER BY frente a desempate determinista de A congelado: se impuso el mismo orden por ID a todas las variantes. Esto certifica la comparación archivada, no la repetición exacta de una petición viva con orden desconocido.
+5. `FinalAM`/`FinalBlend` son ablaciones de valor de la familia comparable: mantienen confianza nativa, escalan proporcionalmente su intervalo y reejecutan las reglas existentes. No son integraciones terminadas ni evaluaciones de una confianza nueva calibrada. Se conserva el gate inicial y el fallback.
+6. Los labels son ofertas publicadas; las coordenadas son pins registrados de precisión desigual, no ubicación física exacta verificada. La UF archivada se congela igual para todas las variantes. No se certifica moneda ni población operativa del día actual.
+7. Se corrigió el contrato localizado sin coordenadas: copiar una etiqueta de precisión sin añadir ubicación cambiaba Consensus indebidamente para esa ablación. Los originales v1 siguen preservados; la entrega usa exclusivamente v2, sin retuning de modelos.
+
+Los cinco hallazgos de Astra se confirman con estas precisiones. Una ganancia de texto bajo `enriched` no se puede trasladar al manual, ni una ganancia de `A_core` a la salida final de Tasar.

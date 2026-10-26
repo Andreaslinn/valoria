@@ -1,0 +1,17 @@
+import json
+import sys
+import time
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent/'valoria'))
+from services.sii.jobs import f2890_fetch
+base=Path(__file__).parent
+deadline=time.monotonic()+1200
+while not (base/'idempotence.json').exists():
+    if time.monotonic()>deadline:
+        raise RuntimeError('Local idempotence did not complete')
+    time.sleep(10)
+assert json.loads((base/'idempotence.json').read_text())['passed']
+result=f2890_fetch()
+(base/'public-fetch.json').write_text(json.dumps(result,default=str,indent=2),encoding='utf8')
+print(json.dumps(result,default=str),flush=True)
+assert result['rows_new']==0

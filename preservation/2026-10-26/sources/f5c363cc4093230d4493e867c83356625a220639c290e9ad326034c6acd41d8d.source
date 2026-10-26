@@ -1,0 +1,41 @@
+"""Bounded READ ONLY production evidence export; no scraper/API requests."""
+from lab import *
+import subprocess
+REMOTE=r'''
+import asyncio,json
+from datetime import datetime,timezone
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+FIELDS={'source','external_id','title','url','comuna','property_type','m2','built_area_m2','usable_area_m2','land_area_m2','bedrooms','bathrooms','parking','coordinates','geocode_precision','price','price_uf','price_currency','price_uf_confidence','price_uf_source','price_recovery_method','status','scraped_at','last_seen_at'}
+META={'currency_original','price_uf','price_clp','price_original','price_raw','price_uf_source','price_uf_method','parser_source','price_clp_provenance','price_conversion','price_conversion_method','price_conversion_rate','uf_rate','uf_rate_date','built_area_parse_source','usable_area_parse_source','source_total_area_m2','explicit_studio','address','address_label','street_hint','location_text','image_urls','images','main_image_url','building_name','project_name','unit','unit_number','street_number','normalized_address','location_source','coordinates_source','geocode_precision'}
+def project(s):
+ v={k:x for k,x in s.items() if k in FIELDS}
+ v['raw_metadata']={k:x for k,x in (s.get('raw_metadata') or {}).items() if k in META or k.startswith(('price_','uf_','currency_'))}
+ return v
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  await s.execute(text("SET LOCAL statement_timeout='25s'"));await s.execute(text("SET LOCAL lock_timeout='1s'"))
+  assert (await s.execute(text('SHOW transaction_read_only'))).scalar()=='on'
+  rows=(await s.execute(text("SELECT observation_id,listing_id,source,external_id,observed_at,document FROM listing_observations WHERE event_kind='listing_seen' ORDER BY observed_at,observation_id LIMIT 10001"))).mappings().all()
+  assert len(rows)<=10000,'Bounded capture exceeded'
+  out=[]
+  for r in rows:
+   d=r['document'];raw=d.get('raw_state') or {};ev=raw.get('_source_evidence') or {};payload=(ev.get('raw') or {}).get('payload') or {}
+   q={k:v for k,v in dict(r).items() if k!='document'}
+   q['parsed_state']=project(d.get('parsed_state') or {});q['raw_state']=project(raw)
+   q['raw_price']={k:payload.get(k) for k in ['price','square','usableArea','rooms','bathrooms','parking','id']}
+   q['parser']=ev.get('parser');q['provenance']={k:v for k,v in (d.get('provenance') or {}).items() if k in ['price_uf','m2','built_area_m2','usable_area_m2','parking','coordinates']}
+   out.append(q)
+  print(json.dumps({'captured_at':datetime.now(timezone.utc).isoformat(),'read_only':'on','rows':out},default=str))
+asyncio.run(main())
+'''
+def main():
+ path=HERE/'modern_history.json.dpapi';assert not path.exists(),'No snapshot overwrite'
+ cmd=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','docker exec -i valoria_oracle_beta-api-1 python -B -']
+ p=subprocess.run(cmd,input=REMOTE.encode(),capture_output=True,timeout=70)
+ if p.returncode:raise RuntimeError('Read-only history capture failed; remote output withheld')
+ v=json.loads(p.stdout);assert v['read_only']=='on';h=encrypt(path,v)
+ write(HERE/'history_manifest.json',{'captured_at':v['captured_at'],'rows':len(v['rows']),'read_only':'on','plaintext_sha256':h,'ciphertext_sha256':sha(path),'privacy':'DPAPI CurrentUser; no persisted_state/current values join, no phone/broker/contact fields; no raw rows printed','remote_script_sha256':hashlib.sha256(REMOTE.encode()).hexdigest()})
+ print(json.dumps(read(HERE/'history_manifest.json')))
+if __name__=='__main__':main()

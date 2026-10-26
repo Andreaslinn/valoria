@@ -1,0 +1,26 @@
+from pathlib import Path
+import sys,json,httpx,time
+from playwright.sync_api import sync_playwright
+expected_fingerprint=sys.argv[3] if len(sys.argv)>3 else '6995bb1144c5070d27f89cd94b70e622dc5569bf70fbb950b85e0f536d375847'
+base=sys.argv[1].rstrip('/');phase=sys.argv[2];root=Path(__file__).parent/('hosted-'+phase);root.mkdir(exist_ok=True);out={'origin':base,'phase':phase,'api':{},'routes':[],'browser_errors':[],'network_failures':[]}
+with httpx.Client(base_url=base,timeout=45,follow_redirects=True) as c:
+ for path,expected in [('/backend/api/v1/health/capabilities',200),('/backend/openapi.json',200),('/backend/api/v1/watchlist',401)]:
+  res=c.get(path);out['api'][path]={'status':res.status_code,'headers':{k:res.headers.get(k) for k in ['cache-control','cache-status','content-type','server']}};assert res.status_code==expected,(path,res.status_code)
+  if 'capabilities' in path:assert res.json()['code_fingerprint']==expected_fingerprint
+with sync_playwright() as pw:
+ b=pw.chromium.launch(headless=True)
+ for device,viewport in [('desktop',{'width':1440,'height':1000}),('mobile',{'width':390,'height':844})]:
+  ctx=b.new_context(viewport=viewport);p=ctx.new_page();p.on('pageerror',lambda err:out['browser_errors'].append(str(err)));p.on('requestfailed',lambda req:out['network_failures'].append({'url':req.url,'failure':req.failure}))
+  for path in ['/','/resumen','/radar','/tasar','/analizar-url','/portfolio','/alerts','/app','/login']:
+   res=p.goto(base+path,wait_until='networkidle',timeout=60000);assert res and res.status==200,(path,res.status if res else None)
+   body=p.locator('body').inner_text();assert body.strip()
+   if path in ['/resumen','/app']:assert 'Esto cambió en tu mercado.' in body and 'La nueva forma' not in body,(path,body[:300])
+   if path=='/':assert 'La nueva forma' in body and 'Entrar' in body
+   if path=='/login':assert 'Entrar a Valoria' in body
+   overflow=p.evaluate('document.documentElement.scrollWidth>innerWidth+2')
+   out['routes'].append({'device':device,'path':path,'status':res.status,'horizontal_overflow':overflow});p.screenshot(path=str(root/(device+path.replace('/','-')+'.png')),full_page=True)
+   res=p.reload(wait_until='networkidle');assert res.status==200
+  ctx.close()
+ b.close()
+assert not out['browser_errors'],out['browser_errors'];assert not [x for x in out['network_failures'] if 'ERR_ABORTED' not in str(x)],out['network_failures']
+(root/'results.json').write_text(json.dumps(out,indent=2));print(json.dumps({'routes_and_refreshes':len(out['routes'])*2,'browser_errors':out['browser_errors'],'network_failures':out['network_failures'],'horizontal_overflows':[x for x in out['routes'] if x['horizontal_overflow']],'public_api_contract_transport':'PASS'}))

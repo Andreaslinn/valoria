@@ -1,0 +1,43 @@
+from lab import *
+def normalize(o):
+ s=dict(o['parsed_state']);s['id']=o['listing_id'];s['external_id']=o['external_id'];s['source']=o['source'];s['price_clp']=(s.get('price') or {}).get('clp') if isinstance(s.get('price'),dict) else None
+ xy=s.pop('coordinates',None) or {};s['lat']=xy.get('lat');s['lon']=xy.get('lon')
+ return s
+def run():
+ verify();b=module('history_cohort',ROOT/'research/tasar_cohort_20261009T154414Z/build.py')
+ old=read(ROOT/b.POLICY['snapshot'])['listings'];history=decrypt(HERE/'modern_history.json.dpapi')['rows']
+ oldpub={(r['source'],str(r.get('external_id'))) for r in old};oldids={r['id'] for r in old}
+ first={}
+ for o in history:first.setdefault((o['source'],str(o['external_id'])),o)
+ tally=Counter();candidates=[];samples=Counter();physical=Counter();match=Counter()
+ for pub,o in first.items():
+  r=normalize(o);tier,y,why,_=b.target(r);tally[tier]+=1;samples[(tier,why)]+=1
+  if pub not in oldpub:tally['new_publication']+=1
+  reasons=[v for v in b.physical_reasons(r) if not (v=='inactive' and r.get('status') is None)]
+  if reasons:physical.update(reasons)
+  if tier!='T1' or reasons:continue
+  # Native payload corroboration strengthens truth beyond the old parsed-only trace.
+  p=o['raw_price'].get('price') or {};currency=(p.get('currency') or {}).get('symbol');amount=b.num((p.get('amount') or {}).get('value'))
+  coherent=currency in ['UF','CLF'] and amount is not None and math.isclose(amount,y,rel_tol=0,abs_tol=.011)
+  match['native_raw_corroborated' if coherent else 'native_raw_not_corroborated']+=1
+  if pub in oldpub:continue
+  if r['id'] in oldids:match['new_external_but_old_listing']+=1;continue
+  if not coherent:continue
+  candidates.append((o,r,y))
+ # Price-blind dependency screen against the entire old graph (including rejected listings).
+ fs={r['id']:b.signals(r) for r in old};eligible=[];blocked=[]
+ for o,r,y in candidates:
+  f=b.signals(r);risks=[]
+  for g in fs.values():
+   if f['comuna']!=g['comuna'] and f['canonical_url']!=g['canonical_url']:continue
+   q=b.pair(f,g)
+   if q['candidate']:risks.append({'old_id':g['id'],'reason':q['rule'],'G3':q['G3']})
+  if risks:blocked.append({'observation_id':o['observation_id'],'risks':risks})
+  else:eligible.append(o['observation_id'])
+ audit={'observations':len(history),'unique_publications':len(first),'first_observation_only':True,'tiers':dict(tally),'tier_reasons':{str(k):v for k,v in samples.items()},'physical_rejections':dict(physical),'raw_match':dict(match),'new_eligible_raw_verified_before_dependency':len(candidates),'price_blind_screen_blocked':len(blocked),'eligible_new_temporal':len(eligible),
+  'earliest':min(o['observed_at'] for o in history),'latest':max(o['observed_at'] for o in history),
+  'identity_limit':'Conservative same-commune candidate exclusion against entire old snapshot, no building/unit independence certification. Not a final holdout.',
+  'selection':'Earliest observation chosen before checking monetary quality; no substitution by later valid/cheaper observation; listing_seen is an accepted source observation, parsed status absent is not inferred inactive or manufactured active'}
+ write(HERE/'history_feasibility.json',audit);encrypt(HERE/'temporal_eligibility.json.dpapi',{'eligible':eligible,'blocked':blocked,'candidate_ids':[o['observation_id'] for o,r,y in candidates]})
+ print(json.dumps(audit,ensure_ascii=False))
+if __name__=='__main__':run()

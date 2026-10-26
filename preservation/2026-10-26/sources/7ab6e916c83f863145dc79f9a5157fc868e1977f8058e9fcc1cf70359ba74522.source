@@ -1,0 +1,94 @@
+const fs = require('fs');
+const path = require('path');
+const assert = require('assert');
+const { performance } = require('perf_hooks');
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+
+async function main() {
+  const resultDir = path.resolve('../thumbnail_lab/results');
+  fs.mkdirSync(resultDir,{recursive:true});
+  const profile = path.resolve('../../browser-test-profile-'+Date.now());
+  const context = await chromium.launchPersistentContext(profile,{channel:'msedge',headless:true,
+    viewport:{width:1365,height:1000}});
+  const page=await context.newPage();
+  const errors=[]; const remote=[]; const results={browser:context.browser()?.version() || 'Edge',checks:[]};
+  const check=(name,value)=>{assert(value,name);results.checks.push(name)};
+  await context.route('**/*',route=>{
+    const url=new URL(route.request().url());
+    if (!['127.0.0.1','localhost'].includes(url.hostname)) {
+      remote.push(url.hostname); return route.abort();
+    }
+    return route.continue();
+  });
+  page.on('pageerror',error=>errors.push(error.message));
+  try {
+    const start=performance.now();
+    await page.goto('http://127.0.0.1:3105/sandbox',{waitUntil:'networkidle',timeout:90000});
+    await page.locator('[data-thumbnail-slot]').first().waitFor();
+    results.first_page_ready_ms=performance.now()-start;
+    // The first response can have placeholders: worker completion never blocks it.
+    await page.reload({waitUntil:'networkidle'});
+    await page.locator('img[alt="Vista de la propiedad"]').first().waitFor();
+    for (const img of await page.locator('img[alt="Vista de la propiedad"]').all()) {
+      await img.scrollIntoViewIfNeeded();
+      await img.evaluate(img=>img.decode());
+    }
+    await page.evaluate(()=>window.scrollTo(0,0));
+    await page.waitForFunction(()=>[...document.querySelectorAll('img[alt="Vista de la propiedad"]')].every(i=>i.complete&&i.naturalWidth>0));
+    check('real Watchlist cards have six cached images',await page.locator('img[alt="Vista de la propiedad"]').count()===6);
+    check('missing and expired references show placeholders',await page.getByText('Sin imagen',{exact:true}).count()===2);
+    const slots=await page.locator('[data-thumbnail-slot]').evaluateAll(nodes=>nodes.map(n=>({height:n.getBoundingClientRect().height,width:n.getBoundingClientRect().width})));
+    check('fixed 112px image slots',slots.every(n=>n.height===112));
+    check('no remote image URL',await page.locator('img[alt="Vista de la propiedad"]').evaluateAll(nodes=>nodes.every(n=>n.src.startsWith('http://127.0.0.1:8105/sandbox/assets/'))));
+    await page.screenshot({path:path.join(resultDir,'portfolio-desktop.png'),fullPage:true});
+    results.thumbnail_payload_bytes=await page.evaluate(()=>performance.getEntriesByType('resource').filter(r=>r.name.includes('/sandbox/assets/')).map(r=>({url:r.name,transferSize:r.transferSize,encodedBodySize:r.encodedBodySize,duration:r.duration})));
+    const before=(await page.locator('[data-thumbnail-slot]').first().boundingBox()).height;
+    await page.locator('img[alt="Vista de la propiedad"]').first().evaluate(img=>img.dispatchEvent(new Event('error')));
+    await page.waitForFunction(()=>document.querySelectorAll('[aria-label="Imagen no disponible"]').length===3);
+    check('browser error produces fallback',await page.getByText('Sin imagen',{exact:true}).count()===3);
+    check('no slot shift on image error',(await page.locator('[data-thumbnail-slot]').first().boundingBox()).height===before);
+    await page.getByRole('button',{name:'radar',exact:true}).click();
+    const search=page.getByRole('button',{name:/Buscar|Ejecutar|Analizar|Explorar|Detectar/i});
+    results.radar_buttons=await page.getByRole('button').allTextContents();
+    const target=page.getByRole('button',{name:/Buscar oportunidades|Ejecutar Radar|Buscar en Radar|Ejecutar radar/i});
+    if (await target.count()) await target.first().click();
+    else await search.last().click();
+    await page.locator('[data-thumbnail-slot]').first().waitFor();
+    check('real Radar cards have thumbnails',await page.locator('img[alt="Vista de la propiedad"]').count()>0);
+    await page.screenshot({path:path.join(resultDir,'radar-desktop.png'),fullPage:true});
+    await page.getByRole('button',{name:'detail',exact:true}).click();
+    await page.locator('input').first().fill('https://www.yapo.cl/replay/1');
+    results.detail_buttons=await page.getByRole('button').allTextContents();
+    await page.getByRole('button',{name:'Analizar URL',exact:true}).click();
+    await page.locator('img[alt="Vista de la propiedad"]').first().waitFor();
+    check('real property lookup has thumbnail',await page.locator('img[alt="Vista de la propiedad"]').count()===1);
+    await page.screenshot({path:path.join(resultDir,'detail-desktop.png'),fullPage:true});
+    await page.getByRole('button',{name:'portfolio',exact:true}).click();
+    await page.setViewportSize({width:390,height:844});
+    await page.locator('[data-thumbnail-slot]').first().waitFor();
+    await page.locator('img[alt="Vista de la propiedad"]').first().evaluate(img=>img.decode());
+    await page.screenshot({path:path.join(resultDir,'portfolio-mobile.png'),fullPage:true});
+    check('no mobile horizontal overflow',await page.evaluate(()=>document.documentElement.scrollWidth<=390));
+    check('no client exceptions',errors.length===0);
+    check('no external requests',remote.length===0);
+    // Decode all encoded formats in the actual browser using data URLs.
+    results.format_decode={};
+    for (const [format,file] of [['webp','1-WEBP-60-320.webp'],['jpeg','1-JPEG-60-320.jpg'],['avif','1-AVIF-55-320.avif']]) {
+      const data=fs.readFileSync(path.join(resultDir,file)).toString('base64');
+      results.format_decode[format]=await page.evaluate(async ({format,data})=>{
+        const img=new Image();img.src=`data:image/${format};base64,${data}`;
+        const start=performance.now();await img.decode();return {width:img.naturalWidth,height:img.naturalHeight,decode_ms:performance.now()-start};
+      },{format,data});
+    }
+    results.status='PASS';
+  } catch(error) {
+    results.status='FAIL';results.error=error.stack;results.errors=errors;
+    await page.screenshot({path:path.join(resultDir,'ui-failure.png'),fullPage:true}).catch(()=>{});
+    throw error;
+  } finally {
+    fs.writeFileSync(path.join(resultDir,'ui-results.json'),JSON.stringify(results,null,2));
+    await context.close();
+  }
+  console.log(JSON.stringify(results,null,2));
+}
+main().catch(error=>{console.error(error);process.exit(1)});

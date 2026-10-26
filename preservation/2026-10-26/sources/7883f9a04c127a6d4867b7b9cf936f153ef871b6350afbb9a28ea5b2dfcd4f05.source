@@ -1,0 +1,62 @@
+import pathlib,subprocess,json
+root=pathlib.Path('work/oracle-ingestion-resilience')
+paths=['domain/ingestion/published_fields.py','infrastructure/scrapers/published_fields.py','infrastructure/db/published_fields.py','scripts/audit_published_fields.py']
+modules={p:(root/p).read_text(encoding='utf8') for p in paths}
+records=[json.loads(x) for x in pathlib.Path('outputs/published-fields/acquisition.jsonl').read_text(encoding='utf8').splitlines()]
+assert any(r.get('event')=='complete' for r in records),'Acquisition not complete'
+cache=[json.loads(x) for x in pathlib.Path('outputs/published-fields/price-cache.jsonl').read_text(encoding='utf8').splitlines()]
+extra=pathlib.Path('outputs/published-fields/missing-price-cache.jsonl')
+if extra.exists():cache += [json.loads(x) for x in extra.read_text(encoding='utf8').splitlines()]
+# Keep this disposable process comfortably below the existing memory budget.
+keys={(r.get('source'), ''.join(c for c in str(r.get('id','')) if c.isdigit())) for r in records if r.get('event')=='detail'}
+filtered=[]
+for row in cache:
+ identity=''.join(c for c in str(row.get('external_id','')) if c.isdigit())
+ if (row.get('source'),identity) not in keys:continue
+ metadata=row.get('raw_metadata') or {}
+ row=dict(row);row['raw_metadata']={k:metadata[k] for k in ['published_fields','valuation_m2_kind','area_source','area_parse_sources','built_area_parse_source','usable_area_parse_source','geocode_precision','location_source','price_uf'] if k in metadata}
+ filtered.append(row)
+cache=filtered
+records=[{k:r[k] for k in ['event','source','id','url','comuna','checked_at','inputs'] if k in r} for r in records if r.get('event') in {'detail','detail_recheck'}]
+for record in records:
+ if record['source']=='portalinmobiliario':
+  for name in ['location','location_and_points']:
+   component=record['inputs']['components'].get(name) or {}
+   info=component.get('map_info') or {}
+   if info:
+    record['inputs']['components'][name]={'map_info':{k:info[k] for k in ['location','item_address','precision','accuracy','approximate','radius','is_centroid','isCentroid'] if k in info}}
+code=r"""
+import asyncio,json,sys,types
+SOURCES=SOURCE_VALUE
+RECORDS=RECORD_VALUE
+CACHE=CACHE_VALUE
+for path,source in SOURCES.items():
+ name=path[:-3].replace('/','.')
+ module=types.ModuleType(name);module.__file__='/app/'+path;sys.modules[name]=module
+ exec(compile(source,'candidate:'+path,'exec'),module.__dict__)
+from scripts.audit_published_fields import validate
+async def main():
+ proof,results,export,holdout=await validate(RECORDS,CACHE)
+ proof['executed_on']='Oracle; candidate in memory, isolated SQLite database'
+ print(json.dumps({'proof':proof,'results':results,'export':export,'holdout':holdout},ensure_ascii=True,default=str))
+asyncio.run(main())
+""".replace('SOURCE_VALUE',repr(modules)).replace('RECORD_VALUE',repr(records)).replace('CACHE_VALUE',repr(cache))
+remote='import subprocess;r=subprocess.run(["docker","exec","-i","valoria_oracle_beta-api-1","python","-B","-"],input='+repr(code)+',text=True,capture_output=True,timeout=500);print(r.stdout);print(r.stderr if r.returncode else "");raise SystemExit(r.returncode)'
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -'],input=remote,text=True,encoding='utf8',capture_output=True,timeout=550)
+if r.returncode:raise SystemExit((r.stdout+r.stderr)[-2500:])
+bundle=json.loads(r.stdout)
+import hashlib
+bundle['proof']['candidate_file_sha256']={path:hashlib.sha256(source.encode()).hexdigest() for path,source in modules.items()}
+out=pathlib.Path('outputs/published-fields')
+for name,key in [('persistence-proof.json','proof'),('persisted-fields.json','results'),('random-60-private-review.json','holdout')]:
+ (out/name).write_text(json.dumps(bundle[key],ensure_ascii=False,indent=2),encoding='utf8')
+# Use the same export semantics as the versioned validation tool.
+import sys,csv,hashlib
+sys.path=[entry for entry in sys.path if pathlib.Path(entry or '.').resolve()!=pathlib.Path(__file__).resolve().parent]
+sys.path.insert(0,str(root))
+from scripts.audit_published_fields import AUDIT_COLUMNS
+rows=bundle['export'];columns=AUDIT_COLUMNS+sorted(set().union(*(r.keys() for r in rows))-set(AUDIT_COLUMNS))
+with (out/'before-after.csv').open('w',newline='',encoding='utf-8-sig') as stream:
+ writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader()
+ for row in rows:writer.writerow({k:json.dumps(v,ensure_ascii=False) if isinstance(v,(dict,list)) else v for k,v in row.items()})
+print(json.dumps(bundle['proof']))

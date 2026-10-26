@@ -1,0 +1,79 @@
+import json
+import os
+import subprocess
+from pathlib import Path
+
+import httpx
+
+base = Path(__file__).resolve().parent
+repo = base/'valoria'
+branch = 'feature/sii-closing-layer-20261019'
+release = 'release/canonical-only-reproducible-20261013'
+root = 'https://api.github.com/repos/Andreaslinn/valoria'
+assert subprocess.check_output(['git','branch','--show-current'],cwd=repo,text=True).strip()==branch
+assert not subprocess.check_output(['git','status','--porcelain'],cwd=repo,text=True).strip()
+sha = subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip()
+assert subprocess.check_output(['git','rev-parse','HEAD^'],cwd=repo,text=True).strip()=='24b56dc6fe626d19834bcd6707a9b77d1d3d44c7'
+d = json.loads((repo/'reports/sii/closing_layer_20261019/summary.json').read_text(encoding='utf8'))
+assert not d['passed'] and d['address_passed']
+assert d['tests']=='105 passed'
+os.environ['GIT_TERMINAL_PROMPT']='0'
+os.environ['GCM_INTERACTIVE']='never'
+r = subprocess.run(['git','credential','fill'],input='protocol=https\nhost=github.com\n\n',text=True,capture_output=True,cwd=repo,timeout=20)
+if r.returncode:
+    raise SystemExit('GitHub credential unavailable; sensitive output suppressed')
+credential = dict(x.split('=',1) for x in r.stdout.splitlines() if '=' in x)
+token = credential.get('password')
+if not token:
+    raise SystemExit('GitHub credential unavailable')
+headers = {'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+table = '| Comuna | Dirección % | MdAPE % | P95 error % |\n|---|---:|---:|---:|\n'
+for x in d['by_commune']:
+    table += f"| {x['name']} | {x['address_resolution_pct']:.2f} | {x['mdape_pct']:.2f} | {x['p95_ape_pct']:.2f} |\n"
+body = f'''Implementa y evalúa offline la segunda capa SII por dirección. **Se detiene antes de integrar en Tasar porque seis de las ocho comunas superan MdAPE 10%.** No es una segunda opinión certificada para producto.
+
+Base exacta `{sha}` parent `24b56dc6fe626d19834bcd6707a9b77d1d3d44c7`, release `release/canonical-only-reproducible-20261013` con PR #9 incluido. PR en borrador; sin merge ni deploy.
+
+### Resultado
+
+Índice de 1.673.327 roles, parseado desde la dirección original. Muestra estratificada de 300 roles, semilla fija: **281/300 (93,67%)** al edificio base. Son reescrituras automáticas de estilo humano y consistencia con el catastro; no certificación independiente de identidad física. Estación Central y Ñuñoa tienen debilidad de cobertura en el desglose. Coincidencias ambiguas devuelven candidatos, nunca un rol elegido arbitrariamente.
+
+Holdout: **13.135 cierres 2026, 12.881 predichos y 254 abstenciones**; fechas FE (FI solo si FE ausente), todos los roles del holdout completamente excluidos del pool 2024–2025. Fecha estrictamente anterior y exclusión de mismo rol también se controlan en el estimador. P95/MdAPE calculados sobre predicciones; abstenciones y tramos de edad visibles en el informe.
+
+{table}
+
+### Implementación y límites
+
+- kNN K=10, pesos área/ubicación/edad/fecha 0,30/0,30/0,30/0,10. Área logarítmica ±50%, edificio/manzana/comuna 1/0,7/0,2, escalas 20 años y 2 años. Mediana ponderada y P25–P75 de UF/m² sobre **m2_H − m2_H_abierta**, por superficie de la unidad. Cada predicción conserva los diez comparables con rol, fecha, m² y UF/m².
+- Un piso por sí solo no permite identificar unidad en estos datos; devuelve candidatos. OSM tiene interfaz de respaldo tras un fallo de texto y controles de comuna/número; **no había extracto local y su recuperación no se evaluó**.
+- Flag **`sii_closing_layer` apagado por defecto**. **Paso 4 detenido: encender el flag todavía no muestra una segunda opinión.** Endpoints, servicio y ambas interfaces permanecen idénticos a la release; resultados sin dirección y flag apagado mantienen el mismo código. Hashes de igualdad en summary.json.
+- Lectura del SII local mediante `REPEATABLE READ READ ONLY`; índice SQLite desechable, sin migraciones/escrituras en SII ni producción. Sin jobs o scrapers nuevos en ejecución.
+
+### Validación y evidencia
+
+**105 pruebas unitarias/regresión pasadas**, Ruff y diff check correctos. Incluye servicio real de valoración canónica, guardia release, endpoints y ruta compartida Radar. No se ejecutó la suite completa del repositorio.
+
+[Informe agregado con métricas por comuna y error por edad](https://github.com/Andreaslinn/valoria/blob/{sha}/reports/sii/closing_layer_20261019/report.md). Los cinco fallos por comuna y sus motivos, CSV de 300 consultas y 13.135 predicciones, JSON de fuentes/métricas y todos los comparables **se entregan localmente al solicitante y no se publican en GitHub**. El PR excluye direcciones, roles y registros individuales de transacciones. [Reproducción y límites](https://github.com/Andreaslinn/valoria/blob/{sha}/docs/sii_closing_layer.md).
+
+No se retocaron pesos ni umbrales para aprobar el holdout. Los mayores residuos son precios declarados por m² muy diferentes a sus vecinos, incluso en edificios coincidentes; el informe no inventa causas económicas o registrales sin verificación. Queda pendiente investigar esas diferencias y validar identidad independiente antes de reanudar integración.
+'''
+(base/'closing-pr-body.md').write_text(body,encoding='utf8')
+with httpx.Client(headers=headers,timeout=30,follow_redirects=False) as c:
+    response = c.get(root+'/pulls/9'); response.raise_for_status(); assert response.json()['merged']
+    response = c.get(root+'/git/ref/heads/'+release); response.raise_for_status()
+    assert response.json()['object']['sha']=='24b56dc6fe626d19834bcd6707a9b77d1d3d44c7', 'Release changed; re-review base before publishing'
+    subprocess.run(['git','push','--set-upstream','origin',branch],cwd=repo,check=True,timeout=120)
+    existing = c.get(root+'/pulls',params={'state':'open','head':'Andreaslinn:'+branch,'base':release}); existing.raise_for_status()
+    if existing.json():
+        pr = existing.json()[0]
+        assert pr['draft']
+    else:
+        response = c.post(root+'/pulls',json={'title':'SII segunda capa: índice y kNN offline; parada por MdAPE >10% en seis comunas','head':branch,'base':release,'body':body,'draft':True})
+        if response.status_code!=201:
+            raise SystemExit(f'Draft PR creation refused: HTTP {response.status_code}')
+        pr = response.json()
+    assert pr['draft'] and pr['head']['sha']==sha and not pr['merged_at']
+    result = {'url':pr['html_url'],'number':pr['number'],'draft':pr['draft'],
+              'sha':pr['head']['sha'],'base':pr['base']['ref'],'merged':bool(pr['merged_at'])}
+    (base/'closing-pr-created.json').write_text(json.dumps(result,indent=2),encoding='utf8')
+    print(json.dumps(result))

@@ -1,0 +1,4 @@
+"""Sandbox-only AVM-01. Real fitting, splitting and prediction are disabled."""
+import os
+# Process-local resource cap; never alters production or machine configuration.
+os.environ.setdefault('LOKY_MAX_CPU_COUNT','1')

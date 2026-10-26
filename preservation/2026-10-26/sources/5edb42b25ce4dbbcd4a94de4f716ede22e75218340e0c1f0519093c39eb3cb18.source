@@ -1,0 +1,114 @@
+import sys,json,sqlite3,time,random,statistics,hashlib
+from pathlib import Path
+from collections import Counter
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+from services.sii.local_geography import LocalGeography,osm_anchors,block_fallback
+from services.sii.closing_address import AddressIndex
+from services.sii.geocoding import distance,interpolate
+OUT=ROOT.parent/'outputs'
+DATA=OUT/'vitacura'
+svc=LocalGeography(DATA)
+idx=AddressIndex(DATA/'address-index.sqlite')
+rows=[dict(r) for r in idx.db.execute('SELECT * FROM role')]
+with sqlite3.connect(DATA/'geography.sqlite') as c:
+    c.row_factory=sqlite3.Row
+    geo={r['rol']:dict(r) for r in c.execute('SELECT * FROM geo')}
+
+result={'coverage':{},'cases':[],'latency_ms':{},'address_test':{},'precision':{}}
+for kind in [None,'casa','depto']:
+    group=[r for r in rows if kind is None or r['kind']==kind]
+    found=[geo[r['rol']] for r in group if r['rol'] in geo]
+    result['coverage'][kind or 'all']={'total':len(group),'located':len(found),
+        'percent':round(100*len(found)/len(group),2),'methods':dict(Counter(g['method'] for g in found))}
+sales=json.loads((DATA/'closings.json').read_text())
+result['coverage']['sales']={'total':len(sales),'located':sum(s['rol'] in geo for s in sales)}
+for kw in [dict(address='Samotracia 2071'),dict(rol='1261-6'),dict(address='Laura Tromben 5631'),
+           dict(address='Samotracia 2071 departamento 99')]:
+    t=time.perf_counter();r=svc.nearby(**kw)
+    result['cases'].append({'input':kw,'elapsed_ms':round((time.perf_counter()-t)*1000,2),'response':r})
+    if r['status']=='ok':
+        times=[]
+        for _ in range(30):
+            t=time.perf_counter();svc.nearby(**kw);times.append((time.perf_counter()-t)*1000)
+        result['latency_ms'][json.dumps(kw)]={'n':30,'median':round(statistics.median(times),2),
+            'p95':round(sorted(times)[28],2),'max':round(max(times),2)}
+
+rng=random.Random(20261025)
+groups={}
+for r in rows:
+    if r['number'] and r['kind'] in {'casa','depto'}:
+        groups.setdefault((r['street'],r['number']),[]).append(r)
+sample=rng.sample([g[0] for g in groups.values() if len(g)==1 and
+    not any(ch.isdigit() for ch in g[0]['street']) and len(g[0]['street'])>5],200)
+stats=Counter()
+for r in sample:
+    for variant in [r['raw'].lower(),f"{r['street'][:-1]} {r['number']}"]:
+        resolution=idx.resolve(15160,variant)
+        candidates=resolution['candidates']
+        stats['queries']+=1
+        unique=len(candidates)==1 and resolution['status'] not in {'ambiguous','unresolved'}
+        if unique:
+            stats['unique_correct' if candidates[0]['rol']==r['rol'] else 'unique_wrong']+=1
+        else:
+            stats['abstained']+=1
+result['address_test']={'description':'200 unique addresses with alphabetic parsed streets; lower-case raw and final street-letter deletion (synthetic, not independent ground truth). Excludes malformed legacy street fields containing civic/unit numbers.',**stats}
+# Keep a second, unrestricted diagnostic sample, including semantic collisions.
+# Deleting V from APOLO IV produces the real street APOLO I: the query no longer
+# identifies the original address, so fuzzy matching cannot infer the intention.
+diagnostic=Counter()
+collisions=[]
+for r in random.Random(20261025).sample([g[0] for g in groups.values() if len(g)==1],200):
+    for variant in [r['raw'].lower(),f"{r['street'][:-1]} {r['number']}"]:
+        resolution=idx.resolve(15160,variant)
+        cs=resolution['candidates']
+        diagnostic['queries']+=1
+        if len(cs)==1 and resolution['status'] not in {'ambiguous','unresolved'}:
+            if cs[0]['rol']==r['rol']:
+                diagnostic['correct']+=1
+            else:
+                diagnostic['wrong_against_original_label']+=1
+                collisions.append({'original':r['raw'],'input':variant,'resolved':cs[0]['raw'],
+                                   'method':resolution.get('method')})
+        else:
+            diagnostic['abstained']+=1
+result['address_test']['unrestricted_diagnostic']={**diagnostic,'collisions':collisions}
+idx.close()
+
+anchors,_,_=osm_anchors(json.loads((ROOT/'osm-vitacura.json').read_text(encoding='utf8')))
+errors=[]
+for street,pts in sorted(anchors.items()):
+    for num,p in sorted(pts.items()):
+        # Deterministic held-out addresses; an address never supplies its own anchor.
+        if int(hashlib.sha256(f'{street}|{num}'.encode()).hexdigest()[:8],16)%5:
+            continue
+        candidate=interpolate(num,{n:q for n,q in pts.items() if n!=num})
+        if candidate:
+            errors.append(distance(p,candidate[:2]))
+def summary(errors):
+    return {'n':len(errors),'median_error_m':round(statistics.median(errors),1),
+        'p90_error_m':round(sorted(errors)[int(.9*(len(errors)-1))],1),
+        'mean_error_m':round(statistics.mean(errors),1)} if errors else {'n':0}
+result['precision']['interpolation_osm_holdout']=summary(errors)
+direct={rol:g for rol,g in geo.items() if g['method']=='osm_direct'}
+hidden={rol for rol,g in direct.items() if int(hashlib.sha256(f"{g['lat']}|{g['lon']}".encode()).hexdigest()[:8],16)%5==0}
+train={rol:g for rol,g in direct.items() if rol not in hidden}
+block_fallback(rows,train)
+result['precision']['block_osm_holdout']=summary([distance((direct[rol]['lat'],direct[rol]['lon']),
+    (train[rol]['lat'],train[rol]['lon'])) for rol in hidden if rol in train])
+result['precision']['direct']={'estimated_m':25,'measured_independent_error':None,
+    'note':'Textual OSM address match, no independent ground survey.'}
+ref=Path('C:/Users/heiko/Documents/Codex/2026-10-19/segunda-capa-sii-tasar-desde-la/outputs/sii-cartografia-prueba-20261025/pilot-results.json')
+checks=[]
+for r in json.loads(ref.read_text(encoding='utf8')):
+    g=geo.get(r['role'])
+    if g and r.get('coordinate_valid'):
+        checks.append({'rol':r['role'],'method':g['method'],'reference':'previous cached SII point',
+            'distance_m':round(distance((g['lat'],g['lon']),(r['ubicacionX'],r['ubicacionY'])),1)})
+g=geo['15160-2481-13']
+checks.append({'rol':'15160-2481-13','method':g['method'],'reference':'Hark document coordinate',
+    'distance_m':round(distance((g['lat'],g['lon']),(-33.38252,-70.55775)),1)})
+result['precision']['reference_checks']=checks
+result['precision']['note']='OSM holdout measures internal consistency; neither holdout nor these few reference points certify parcel accuracy. Legacy geometry has not been independently validated.'
+(OUT/'validation.json').write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf8')
+print(json.dumps({k:v for k,v in result.items() if k!='cases'},ensure_ascii=False,indent=2))

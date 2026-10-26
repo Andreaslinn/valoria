@@ -1,0 +1,16 @@
+from pathlib import Path
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'integration'))
+import pytest,pytest_asyncio
+from types import SimpleNamespace
+from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
+from infrastructure.db.base import Base
+from infrastructure.db import models
+@pytest_asyncio.fixture
+async def session(monkeypatch):
+ import config
+ monkeypatch.setattr(config,'get_settings',lambda:SimpleNamespace(ingestion_observation_history_enabled=False))
+ engine=create_async_engine('sqlite+aiosqlite:///:memory:')
+ async with engine.begin() as c:await c.run_sync(Base.metadata.create_all)
+ async with async_sessionmaker(engine,expire_on_commit=False)() as s:yield s
+ await engine.dispose()

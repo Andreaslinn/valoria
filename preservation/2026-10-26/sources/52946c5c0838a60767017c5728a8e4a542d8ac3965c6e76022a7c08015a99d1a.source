@@ -1,0 +1,17 @@
+from pathlib import Path
+import subprocess
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner='''import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'));repo=SqlAlchemyListingRepository(s);out=[]
+  for id in [1130,298,3633]:
+   row=await repo.find_by_id(id);out.append({'id':row.id,'url':row.url,'status':row.status,'last_seen_at':str(row.last_seen_at),'comuna':row.comuna,'property_type':row.property_type,'m2':row.m2})
+  print(json.dumps(out,default=str))
+asyncio.run(main())
+'''
+code="import subprocess\np=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=25);assert p.returncode==0,'Read-only fixture metadata query failed';print(p.stdout)"
+p=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=35);Path(__file__).with_name('production-public-listing-test-metadata.json').write_text(p.stdout);print(p.stdout);p.check_returncode()

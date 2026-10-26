@@ -1,0 +1,37 @@
+"use client";
+type Metric={mdape_pct:number|null;mape_pct:number|null;mean_bias_pct:number|null;median_bias_pct:number|null;within_10_pct:number|null;within_20_pct:number|null};
+type Control={n:number;value_uf:number|null};
+type Comp={raw_id:number;fecha:string;m2:number;land_m2:number;uf:number;distance_m:number;distance_approximate:boolean;index_factor:number;area_factor:number;land_factor:number;adjusted_uf:number;weight_share:number};
+type Validation={baseline:Metric;candidate:Metric;baseline_coverage_pct:number;candidate_coverage_pct:number;n:number};
+type Hybrid={status:string;model_used:string;motivo:string;confianza:string;active?:boolean;value_uf?:number;p25_uf?:number;p75_uf?:number;effective_n?:number;validation?:Validation};
+export type HouseCandidate={status:string;promoted:boolean;message:string;hybrid?:Hybrid;reason?:string;value_uf?:number;p25_uf?:number;p75_uf?:number;effective_n?:number;radius_m?:number;b?:number;c?:number;area_m2?:number;land_m2?:number;comparable_count?:number;comparables?:Comp[];controls?:{appraisal:Control;land:Control;review?:boolean;reason:string};validation?:{baseline:Metric;candidate:Metric;baseline_coverage_pct:number;candidate_coverage_pct:number;n:number}};
+const uf=(v:number|null|undefined)=>v==null?"No disponible":`${Math.round(v).toLocaleString("es-CL")} UF`;
+const pct=(v:number|null|undefined)=>v==null?"—":`${v.toFixed(2)}%`;
+export function HouseRulesCandidate({result:h}:{result:HouseCandidate}){
+  const v=h.hybrid?.active?h.hybrid.validation:h.validation;
+  return <div aria-label="Casas SII R1–R11">
+    <h4>Casas · reglas duras R1–R11</h4>
+    <p>{h.hybrid?.active?"Híbrido activo localmente para casas de Vitacura.":h.promoted?"Modelo activo localmente.":"Sin promover: se conserva el baseline publicado."}</p>
+    {h.hybrid&&<div aria-label="Híbrido casas SII"><h4>Híbrido · {h.hybrid.active?"activo":"aprobación pendiente"}</h4>
+      <p>Ruta: {h.hybrid.model_used}. Motivo: {h.hybrid.motivo}. Confianza: {h.hybrid.confianza}.</p>
+      <p>{h.hybrid.status==="ok"?<>Valor: {uf(h.hybrid.value_uf)} · P25–P75: {uf(h.hybrid.p25_uf)} — {uf(h.hybrid.p75_uf)} · peso efectivo {h.hybrid.effective_n?.toFixed(2)}.</>:"Sin señal del baseline ni del candidato."} {h.hybrid.active?"Esta ruta determina la tasación SII local.":"El precio publicado se conserva."}</p>
+    </div>}
+    {h.status==="ok"?<><p><strong>Candidato: {uf(h.value_uf)}</strong></p>
+      <p>Rango: {uf(h.p25_uf)} — {uf(h.p75_uf)}. Peso efectivo: {h.effective_n?.toFixed(2)}.</p>
+      <p>{h.comparable_count} ventas a ≤{h.radius_m} m, con lote parecido. Sujeto: {h.area_m2} m² construidos y {h.land_m2} m² de terreno.</p>
+      <p>Ajustes estimados antes de 2024: superficie {h.b?.toFixed(3)}, terreno {h.c?.toFixed(3)}.</p>
+    </>:<p role="status"><strong>R1–R11 sin señal suficiente</strong> · {h.reason}. {h.hybrid?"El híbrido recurre al baseline; consulta su estado arriba.":"No se calcula un precio R1–R11."}</p>}
+    {h.controls&&<p>Controles, sin promediarlos: avalúo {uf(h.controls.appraisal.value_uf)} ({h.controls.appraisal.n} ventas); terreno {uf(h.controls.land.value_uf)} ({h.controls.land.n} ventas). {h.controls.review?"REVISAR: ":""}{h.controls.reason}.</p>}
+    {!!h.comparables?.length&&<details><summary>Comparables, pesos y ajustes del candidato</summary><ol>{h.comparables.map(c=><li key={c.raw_id}>
+      {c.fecha} · {uf(c.uf)} · {c.m2} m² / lote {c.land_m2} m² · {Math.round(c.distance_m)} m{c.distance_approximate?" (referencia de manzana)":""}<br/>
+      Índice ×{c.index_factor.toFixed(3)} · superficie ×{c.area_factor.toFixed(3)} · terreno ×{c.land_factor.toFixed(3)} → {uf(c.adjusted_uf)} · peso {(100*c.weight_share).toFixed(2)}%
+    </li>)}</ol></details>}
+    {v&&<details><summary>Validación 2024–2025 · {v.n} ventas válidas</summary>
+      <p>{h.hybrid?.active?"Comparación del híbrido sobre las mismas 818 ventas.":"Comparación sobre las mismas ventas con señal en ambos modelos."} Baseline con su fórmula original e historial desde 2019.</p>
+      <table><thead><tr><th>Métrica</th><th>Baseline</th><th>{h.hybrid?.active?"Híbrido":"R1–R11"}</th></tr></thead><tbody>
+        {([['mdape_pct','MdAPE'],['mape_pct','MAPE'],['median_bias_pct','Sesgo mediano'],['mean_bias_pct','Sesgo medio'],['within_10_pct','Dentro ±10%'],['within_20_pct','Dentro ±20%']] as const).map(([key,label])=><tr key={key}><th>{label}</th><td>{pct(v.baseline[key])}</td><td>{pct(v.candidate[key])}</td></tr>)}
+        <tr><th>Cobertura total</th><td>{pct(v.baseline_coverage_pct)}</td><td>{pct(v.candidate_coverage_pct)}</td></tr>
+      </tbody></table><p>Catastro retrospectivo de 2026. Estos datos ya intervinieron en experimentos anteriores; esta separación no crea un holdout independiente nuevo.</p>
+    </details>}
+  </div>;
+}

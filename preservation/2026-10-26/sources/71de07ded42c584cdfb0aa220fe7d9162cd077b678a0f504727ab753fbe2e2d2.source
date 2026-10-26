@@ -1,0 +1,66 @@
+import sys,json,math
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+from scripts.validate_sii_closing import connect
+OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+def save(name,obj):(OUT/name).write_text(json.dumps(obj,indent=2,ensure_ascii=False,default=str),encoding='utf8')
+queries=[]
+def query(c,label,sql,params=()):
+    queries.append({'label':label,'sql':sql,'params':params})
+    return c.execute(sql,params).fetchall()
+def distance(a,b):
+    lat1,lon1,lat2,lon2=map(math.radians,[float(a['lat']),float(a['lon']),float(b['lat']),float(b['lon'])])
+    return 6371000*2*math.asin(min(1,math.sqrt(math.sin((lat2-lat1)/2)**2+math.cos(lat1)*math.cos(lat2)*math.sin((lon2-lon1)/2)**2)))
+pred=json.loads((OUT/'sii-target-prediction.json').read_text(encoding='utf8'))
+selected_ids=[c['raw_id'] for c in pred['prediction']['comparables']]
+with connect('postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55432/valoria_sii_local') as c:
+    c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    c.execute("SET LOCAL statement_timeout='120s'")
+    control=c.execute("SELECT current_database() AS database,current_setting('transaction_read_only') AS read_only,transaction_timestamp() AS as_of").fetchone()
+    assert control['read_only']=='on'
+    save('database-control.json',control)
+    sources=query(c,'sources','SELECT * FROM sii.source_file ORDER BY id')
+    save('source-files.json',sources)
+    target=query(c,'target','SELECT * FROM sii.predio WHERE source_file_id=9 AND comuna=15160 AND manzana=1261 AND predio=6')[0]
+    save('target-original.json',target)
+    geo=query(c,'commune_geo','SELECT g.*,p.direccion_raw,p.tipo,p.m2_cerrado,p.m2_terreno FROM sii.geo_predio g LEFT JOIN sii.predio p ON (g.predio_source_file_id,g.comuna,g.manzana,g.predio)=(p.source_file_id,p.comuna,p.manzana,p.predio) WHERE g.comuna=15160')
+    target_geo=[g for g in geo if g['manzana']==1261 and g['predio']==6 and g['predio_source_file_id']==9]
+    nearby=[g for g in geo if target_geo and g.get('lat') is not None and g.get('lon') is not None and distance(target_geo[0],g)<=500]
+    save('target-geo.json',target_geo)
+    save('geo-within-500m.json',nearby)
+    addresses=query(c,'same_block_and_named_streets',"SELECT * FROM sii.predio WHERE source_file_id=9 AND comuna=15160 AND (manzana=1261 OR direccion_raw ~* '(DEN[E]*GR|TROMB)') ORDER BY manzana,predio")
+    focus=[p for p in addresses if any(str(p.get('numero') or '')==n for n in ('5630','5665','5698'))]
+    text_nearby=[p for p in addresses if str(p.get('numero') or '').isdigit() and abs(int(p['numero'])-5631)<=300]
+    save('text-neighbourhood-definition.json',{'criterion':'Same block, or Denegri/Tromben street spelling and civic number within 300 of 5631; numeric proximity is NOT geographic metres. Geo radius cannot be computed without target coordinates.','roles':text_nearby})
+    roles={(p['manzana'],p['predio']) for p in addresses if p['manzana']==1261}|{(p['manzana'],p['predio']) for p in text_nearby}|{(g['manzana'],g['predio']) for g in nearby}
+    save('address-candidates-original.json',addresses)
+    save('named-addresses-original.json',focus)
+    selected=query(c,'selected_exact_joins','''SELECT t.*,p.direccion_raw,p.calle,p.numero,p.unidad,p.destino,p.tipo AS catastro_tipo,p.anio_min,p.m2_terreno,p.m2_h_abierta,p.raw_line AS predio_raw_line,r.uf AS raw_uf,r.clp AS raw_clp,r.fi AS raw_fi,r.fe AS raw_fe,r.fila AS raw_fila,r.raw_line AS transferencia_raw_line,r.campos,r.errores_parseo,u.value AS calendar_uf,u.source AS calendar_source,u.date AS calendar_date
+    FROM sii.transferencia t LEFT JOIN sii.predio p ON (t.predio_source_file_id,t.comuna,t.manzana,t.predio)=(p.source_file_id,p.comuna,p.manzana,p.predio)
+    LEFT JOIN sii.transferencia_raw r ON r.id=t.raw_id LEFT JOIN public.ingestion_uf_calendar u ON u.date=t.fecha WHERE t.raw_id=ANY(%s) ORDER BY t.raw_id''',(selected_ids,))
+    save('selected-closings-original.json',selected)
+    blocks=sorted({b for b,p in roles})
+    neighbourhood=query(c,'neighbourhood_transfers','''SELECT t.*,p.direccion_raw,p.numero,p.anio_min,p.m2_terreno,p.m2_h_abierta,p.destino,p.unidad,p.tipo AS catastro_tipo,r.uf AS raw_uf,r.clp AS raw_clp,r.fila AS raw_fila,r.raw_line,r.errores_parseo,u.value AS calendar_uf,u.source AS calendar_source
+    FROM sii.transferencia t LEFT JOIN sii.predio p ON (t.predio_source_file_id,t.comuna,t.manzana,t.predio)=(p.source_file_id,p.comuna,p.manzana,p.predio)
+    LEFT JOIN sii.transferencia_raw r ON r.id=t.raw_id LEFT JOIN public.ingestion_uf_calendar u ON u.date=t.fecha
+    WHERE t.comuna=15160 AND t.manzana=ANY(%s) ORDER BY t.manzana,t.predio,t.fecha,t.raw_id''',(blocks,))
+    neighbourhood=[t for t in neighbourhood if (t['manzana'],t['predio']) in roles]
+    save('neighbourhood-transfers-original.json',neighbourhood)
+    raw=query(c,'raw_same_neighbourhood','SELECT * FROM sii.transferencia_raw WHERE comuna=15160 AND manzana=ANY(%s) ORDER BY id',(blocks,))
+    save('neighbourhood-raw-original.json',[t for t in raw if (t['manzana'],t['predio']) in roles])
+    all_audited=selected+neighbourhood
+    all_roles={(t['manzana'],t['predio']) for t in all_audited}|{(1261,6)}
+    source_lines=next(s['line_source_file_id'] for s in sources if s['id']==9)
+    lines=query(c,'construction_lines','SELECT * FROM sii.linea_construccion WHERE source_file_id=%s AND comuna=15160 AND manzana=ANY(%s) ORDER BY manzana,predio,n_linea',(source_lines,sorted({b for b,p in all_roles})))
+    save('construction-lines-original.json',[l for l in lines if (l['manzana'],l['predio']) in all_roles])
+    op_groups=[]
+    for b,fe,fi in {(t['manzana'],t['fe'],t['fi']) for t in all_audited}:
+        op_groups+=query(c,'operation_group','''SELECT t.*,r.fila,r.uf AS raw_uf,r.clp AS raw_clp FROM sii.transferencia t LEFT JOIN sii.transferencia_raw r ON r.id=t.raw_id WHERE t.comuna=15160 AND t.manzana=%s AND t.fe IS NOT DISTINCT FROM %s AND t.fi IS NOT DISTINCT FROM %s ORDER BY t.raw_id''',(b,fe,fi))
+    save('operation-groups-original.json',list({t['raw_id']:t for t in op_groups}.values()))
+    dates=sorted({t['fecha'] for t in all_audited if t['fecha']})
+    save('uf-calendar-original.json',query(c,'dated_uf','SELECT * FROM public.ingestion_uf_calendar WHERE date=ANY(%s) ORDER BY date',(dates,)))
+    save('geo-audited-original.json',[g for g in geo if (g['manzana'],g['predio']) in all_roles])
+    c.rollback()
+save('audit-sql.json',queries)
+print(json.dumps({'selected':len(selected),'neighbourhood_transfers':len(neighbourhood),'named_addresses':len(focus),'within_500m':len(nearby),'target_geo':target_geo,'source_lines':source_lines},default=str))

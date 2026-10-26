@@ -1,0 +1,7 @@
+from pathlib import Path
+import subprocess
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+s=Path(__file__).with_name('canonical_cases_probe_inner.py').read_text(encoding='utf-8')
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(s)+",text=True,capture_output=True,timeout=90)\nprint(r.stdout);print(r.stderr if r.returncode else '');raise SystemExit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=110)
+Path(__file__).with_name('canonical-cases-before.json').write_text(r.stdout,encoding='utf-8');print(r.stdout);r.check_returncode()

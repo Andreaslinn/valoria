@@ -1,0 +1,86 @@
+# Valoria — correspondencia producto/benchmark e investigación, 11 octubre 2026
+
+**Conclusión:** no se demuestra una mejora del Tasar manual actual. El híbrido A + modelo físico/textual sigue siendo candidato exploratorio bajo el contrato enriquecido; no se certifica un ganador en la salida completa de Consensus.
+
+## Correspondencia comprobada
+
+Los cinco hallazgos Astra se confirmaron mediante código y configuración del contenedor activo. Manual y Analizar URL descartan geografía/texto del objetivo; Radar sí los conserva, pero utiliza otro recorrido. Consensus está realmente habilitado y el challenger está en modo guarded. La distancia desconocida contribuye una constante nominal 0,125. Los benchmarks ricos anteriores no representan el contrato manual ni la salida final de Tasar. Ver `contract_addendum.md` para los cinco recorridos, fallbacks, ajustes, fuentes y límites.
+
+Se implementaron manual / located / enriched sobre el runtime capturado. En cada comparación algorítmica se conservan entradas, población, catálogo y orden; las comparaciones entre modalidades se etiquetan como disponibilidad de información. El cambio de catálogo también se evalúa por separado. No hubo nueva búsqueda de pesos sobre outer-test.
+
+## Experimentos ejecutados
+
+- Dos particiones G3 sobre los mismos 791 objetivos archivados, tres modalidades cada una.
+- Cohorte temporal ya explorada de 149 publicaciones Yapo, con catálogo limpio de entrenamiento.
+- Puente con esos mismos 149 objetivos y catálogo completo archivado de 2.396 departamentos activos. El modelo aprendido mantiene las 791 referencias elegibles anteriores; cada motor aplica sus filtros nativos. Esto aproxima mejor el catálogo operativo, pero NO representa una muestra nueva ni la base actual.
+- A intacto; A-M fijo de la misma comuna; modelo físico sin texto en manual/located; modelo físico/TF-IDF en enriched; blend geométrico 50/50 fijo. A-M entre comunas queda como diagnóstico de cambio de pool en los folds originales, no prueba de mejora bajo pool constante.
+- Replay de la salida final con reglas y flags capturados. FinalAM/FinalBlend sustituyen solo el valor comparable, mantienen confianza original y escalan intervalos proporcionalmente: ablaciones de transmisión, no integración completa de los candidatos.
+
+## Resultados principales: catálogo completo archivado
+
+| Modalidad | Salida | Casos / 149 | MdAPE % | MAPE % | MAE-log | P90 % | P95 % |
+|---|---|---:|---:|---:|---:|---:|---:|
+| manual | A | 130 | 14.25 | 17.91 | 0.1869 | 39.80 | 45.27 |
+| manual | AM | 130 | 14.25 | 17.91 | 0.1869 | 39.80 | 45.27 |
+| manual | Blend | 130 | 15.20 | 17.65 | 0.1782 | 39.10 | 42.29 |
+| manual | Final | 133 | 14.63 | 18.71 | 0.1903 | 41.40 | 48.19 |
+| manual | FinalAM | 133 | 14.63 | 18.71 | 0.1903 | 41.40 | 48.19 |
+| manual | FinalBlend | 133 | 14.51 | 18.59 | 0.1881 | 40.22 | 48.00 |
+| located | A | 130 | 14.14 | 18.27 | 0.1905 | 40.26 | 45.38 |
+| located | AM | 130 | 13.71 | 18.22 | 0.1850 | 40.39 | 48.45 |
+| located | Blend | 130 | 16.02 | 17.76 | 0.1792 | 39.37 | 43.79 |
+| located | Final | 133 | 14.62 | 18.91 | 0.1919 | 42.83 | 48.23 |
+| located | FinalAM | 133 | 14.25 | 19.22 | 0.1941 | 42.64 | 50.57 |
+| located | FinalBlend | 133 | 14.29 | 18.68 | 0.1887 | 41.66 | 48.33 |
+| enriched | A | 130 | 14.14 | 18.27 | 0.1905 | 40.26 | 45.38 |
+| enriched | AM | 130 | 13.71 | 18.22 | 0.1850 | 40.39 | 48.45 |
+| enriched | Blend | 130 | 13.87 | 16.69 | 0.1690 | 35.27 | 44.73 |
+| enriched | Final | 133 | 14.80 | 18.90 | 0.1915 | 43.04 | 48.23 |
+| enriched | FinalAM | 133 | 13.76 | 19.22 | 0.1938 | 42.64 | 50.57 |
+| enriched | FinalBlend | 133 | 13.61 | 18.49 | 0.1871 | 41.49 | 50.10 |
+
+`A`, `AM` y `Blend` comparten 130 casos tasables; `Final`, `FinalAM` y `FinalBlend` comparten 133. Cobertura 87,25% y 89,26%, respectivamente, con 19 y 16 abstenciones. No comparar métricas entre etapas con denominadores diferentes como si fueran efectos causales. `results.json` incluye comparaciones de A/Final sobre soporte común, folds, fuentes, sesgo, umbrales >20/>30/>50 y subconjuntos geográficos.
+
+| Comparación pareada | n | ΔMAPE puntos | IC95% por grupos |
+|---|---:|---:|---:|
+| manual: A__Blend | 130 | -0.267 | [-1.345; +0.834] |
+| manual: Final__FinalBlend | 133 | -0.122 | [-0.635; +0.372] |
+| located: A__AM | 130 | -0.054 | [-1.687; +1.420] |
+| located: Final__FinalAM | 133 | +0.310 | [-0.176; +0.861] |
+| enriched: A__Blend | 130 | -1.581 | [-2.792; -0.375] |
+| enriched: Final__FinalBlend | 133 | -0.411 | [-0.973; +0.150] |
+
+Intervalos bootstrap pareados por grupos, 2.000 draws, condicionales a predicciones ya ajustadas. No incluyen incertidumbre de todo el entrenamiento ni corrigen selección múltiple. Son evidencia exploratoria, no confirmación independiente.
+
+**Ubicación manteniendo A fijo:** ΔMAPE +0.356 puntos, IC95% [-0.131; +0.879], n=130. En objetivos con coordenadas: +0.503, IC [-0.196; +1.217], n=92. No se demuestra beneficio predictivo por aportar esos pins al A actual. Son coordenadas registradas, no ubicación exacta certificada.
+
+**A-M:** mejora ligeramente la mediana del comparable localizado, pero no MAPE de manera robusta y empeora P95. Al intervenir la familia comparable de Consensus, la media del error sube. De los 149 objetivos, 49 hacen fallback por ubicación ausente y 21 por soporte local insuficiente; 79 usan selección adaptativa compatible.
+
+**Físico/textual:** la variante física manual reduce MAPE modestamente, con IC que incluye cero y mediana peor en catálogo ampliado. La variante enriquecida reduce MAPE 1,58 puntos y MAE-log 0,0215 en soporte común; IC exploratorios excluyen cero, pero el de MdAPE no. En la salida final, ΔMAPE -0,41 tiene IC [-0,97; +0,15] y P95 sube de 48,23% a 50,10%. No declarar mejora uniforme ni final confirmada. El texto disponible es mayormente título/contexto, no una ficha completa de edificio.
+
+## Diagnóstico y decisión
+
+La ruta importa: localizar el objetivo puede cambiar confianza/peso territorial y hedónico incluso cuando sus estimaciones permanecen comunales. En el catálogo ampliado esto ocurre en 95 casos. No es todavía prueba de un bug ni de que eliminar ese término mejore; es una hipótesis independiente sobre calibración y correlación de familias.
+
+El benchmark anterior servía para investigar A_core en publicaciones enriquecidas; no permitía afirmar superioridad en Tasar manual. El harness nuevo cierra la discrepancia de contratos y calcula la transmisión al final, con los límites explicitados. También se corrigió una contaminación del nuevo contrato located: sin coordenadas copiaba precisión y cambiaba confianza. Se conservaron v1 y protocolos; los resultados de esta entrega son v2. No se modificaron modelos según outcomes.
+
+No corresponde sustituir A ni agregar otra familia al consenso. Se conserva el candidato enriquecido fijo. La barrera material es **certificar generalización independiente ahora**: las cohortes disponibles ya fueron consumidas, el holdout sigue protegido y la comprobación READ ONLY de History da las mismas 3.824 observations, última 11 octubre 06:25:31 UTC. No hay nuevas observaciones normales para una validación independiente en esta revisión. Las alternativas físicas, espaciales, ajustes de comparables, kernels, agregaciones y texto examinadas previamente siguen preservadas. Esto no demuestra imposibilidad de mejorar el AVM.
+
+Siguiente acción: fijar por adelantado un corte temporal futuro del pipeline normal y el criterio de precisión/incertidumbre antes de ver nuevos precios. Evaluar contratos por separado y el final completo; conservar cobertura y colas como gates. Si se desarrolla una calibración de confianza de Consensus, ajustarla exclusivamente en desarrollo interno y evaluarla como otra hipótesis congelada. No seguir eligiendo pesos contra estas mismas etiquetas externas. No se programó scraping ni una automatización nueva.
+
+## Reproducción, integridad y seguridad
+
+20 tests de contratos y 22 del baseline pasan **en procesos separados**. La ejecución conjunta produjo una colisión entre módulos homónimos `lab` de dos sandboxes; se conserva su log y explicación en `test_status.json`. No se cambió el baseline para ocultarla. `verification.json` comprueba 5.640 recibos target×modalidad (no casos independientes), mismas particiones/labels/grupos, paridad del comparable nativo, roundtrip de checkpoints, 1.437 archivos previos y 145 fuentes capturados.
+
+Artefactos individuales cifrados DPAPI CurrentUser, excluidos de Git. Informes agregados sin secretos. Oracle solo se leyó; imagen, arranque, flags y hashes de valoración permanecen iguales. Sin migración, scraping, cambios de timers, History, producto ni evaluación del holdout.
+
+Desde la carpeta del proyecto, comandos sobre los archivos ya archivados:
+
+```powershell
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/product_contracts_20261011/verify_delivery.py
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/product_contracts_20261011/summarize.py
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/product_contracts_20261011/diagnose_routes.py
+& work/avm-01-20261008/.venv-repro/Scripts/python.exe -B research/product_contracts_20261011/deliver.py
+```
+
+Los runners de preparación/entrenamiento rechazan sobrescribir resultados. Para repetir entrenamiento completo, usar otra carpeta aislada y registrar un nuevo protocolo, sin alterar este archivo. Los tests requieren pytest del Python del sistema con site-packages de `.venv-repro`, cada suite en proceso propio. `metrics.csv` y `results.json` contienen los agregados; `delivery_manifest.json` fija sus hashes y los del código/protocolos/resultados cifrados. Los scripts de captura Oracle no forman parte del replay offline.

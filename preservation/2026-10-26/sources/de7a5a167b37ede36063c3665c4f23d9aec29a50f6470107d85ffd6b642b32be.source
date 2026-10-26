@@ -1,0 +1,22 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+
+code="""import subprocess,json,re
+names=['valoria-portal-candidate-api','valoria-portal-candidate-redis','valoria-portal-candidate-pg','valoria-portal-release-restore-check','valoria-portal-final-restore-check']
+for name in names:
+ x=json.loads(subprocess.check_output(['docker','inspect',name]))[0]
+ assert x['Name']=='/'+name and x['HostConfig']['Memory'] in [33554432,268435456,402653184]
+ for mount in x['Mounts']:
+  if mount['Type']=='volume':assert re.fullmatch('[0-9a-f]{64}',mount['Name']) and mount['Destination']==('/data' if name=='valoria-portal-candidate-redis' else '/var/lib/postgresql/data')
+  else:assert name=='valoria-portal-candidate-api' and mount['Destination']=='/portal-session' and not mount['RW']
+for name in names:subprocess.run(['docker','rm','-f','-v',name],capture_output=True,check=True)
+subprocess.run(['docker','network','rm','valoria-portal-candidate-net'],capture_output=True,check=True)
+x=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+assert x['Image']=='sha256:70447ccad59a69df70c52a1ee90cac8f3f92d98dff818c48c02abf24fec3297d' and x['State']['Health']['Status']=='healthy'
+units={}
+for name in ['valoria-portal-discovery.service','valoria-yapo-discovery.service']:
+ d=dict(line.split('=',1) for line in subprocess.check_output(['systemctl','show',name,'--property=Result,ExecMainStatus'],text=True).splitlines());assert d=={'Result':'success','ExecMainStatus':'0'};units[name]=d
+print(json.dumps({'removed_ephemeral_containers':names,'anonymous_restore_volumes_removed':True,'production_health':'healthy','production_image':x['Image'],'scraper_results':units,'protected_backups_and_production_volumes':'retained'},indent=2))
+"""
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=55);Path(__file__).with_name('portal-final-cleanup.json').write_text(r.stdout+r.stderr);print(r.stdout);print(r.stderr);r.check_returncode()

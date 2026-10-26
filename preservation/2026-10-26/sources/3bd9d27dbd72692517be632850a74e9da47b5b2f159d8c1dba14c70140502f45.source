@@ -1,0 +1,44 @@
+from pathlib import Path
+repo=Path(__file__).parent/'valoria'
+p=repo/'frontend-v2/src/features/valuation/property-form.tsx'
+t=p.read_text(encoding='utf8')
+t=t.replace('autoArea=useRef<string|null>(null), typeEdited=useRef(false);','autoArea=useRef<string|null>(null), typeEdited=useRef(false), autoType=useRef(false);')
+t=t.replace('if(!p)return;const n=', 'if(!p)return;autoArea.current=null;autoType.current=false;typeEdited.current=true;const n=')
+t=t.replace('if(data.fields.property_type&&!typeEdited.current)setType(data.fields.property_type);','if(data.fields.property_type&&!typeEdited.current){autoType.current=true;setType(data.fields.property_type);}')
+t=t.replace('if(key==="address"||key==="comuna"){if(!typeEdited.current)setType("apartment");setTargetId(undefined);setImported(false);}', 'if(key==="address"||key==="comuna"){if(autoType.current){autoType.current=false;setType("apartment");}if(key==="address"){setTargetId(undefined);setImported(false);}}')
+t=t.replace('typeEdited.current=true;setType(value);','typeEdited.current=true;autoType.current=false;setType(value);')
+t=t.replace('usable_area_m2:type==="apartment"?area:null','usable_area_m2:type==="apartment"&&autoArea.current===null?area:null')
+t=t.replace('type==="apartment"?"Superficie útil":"Superficie construida"','autoArea.current!==null?"Superficie cerrada SII":type==="apartment"?"Superficie útil":"Superficie construida"')
+p.write_text(t,encoding='utf8')
+
+p=repo/'frontend/src/features/valuation/ValuationForm.tsx'
+t=p.read_text(encoding='utf8').replace('useEffect, useState','useEffect, useRef, useState')
+t=t.replace('import { useSiiClosingCapability } from "./SiiClosingOpinion";', 'import { useSiiClosingCapability } from "./SiiClosingOpinion";\nimport { AddressAutofillNote, useAddressDetails } from "./address-autofill";')
+t=t.replace('  const isHouse = values.propertyType === "house";', '''  const isHouse = values.propertyType === "house";
+  const autoArea = useRef<string|null>(null), typeEdited = useRef(false), autoType = useRef(false);
+  const lookup = useAddressDetails(siiEnabled&&!isSubmitting, values.address, values.comuna);
+  useEffect(() => {
+    const data=lookup.data;if(data?.status!=="resolved")return;
+    setValues(v=>{
+      const next={...v};const area=data.fields.closed_area_m2;
+      if(typeof area==="number"&&area>0&&v.builtAreaM2===""){autoArea.current=String(area);next.builtAreaM2=String(area);}
+      if(data.fields.property_type&&!typeEdited.current){autoType.current=true;next.propertyType=data.fields.property_type;}
+      return next;
+    });
+  },[lookup.data]);
+  function update(key:keyof FormValues,value:string) {
+    const clearArea=(key==="address"||key==="comuna")&&autoArea.current!==null;
+    if(clearArea||key==="builtAreaM2")autoArea.current=null;
+    const clearType=(key==="address"||key==="comuna")&&autoType.current;
+    if(clearType)autoType.current=false;
+    setValues(v=>({...v,...(clearArea?{builtAreaM2:""}:{}),...(clearType?{propertyType:"apartment" as PropertyType}:{}),[key]:value}));
+  }''')
+t=t.replace('    if (!importedPrefill) return;', '    if (!importedPrefill) return;\n    autoArea.current=null;autoType.current=false;typeEdited.current=true;')
+t=t.replace('usable_area_m2: values.propertyType === "apartment" ? builtArea : null','usable_area_m2: values.propertyType === "apartment" && autoArea.current===null ? builtArea : null')
+t=t.replace('onChange={(value) => setValues((current) => ({ ...current, propertyType: value as PropertyType }))}', 'onChange={(value) => {typeEdited.current=true;autoType.current=false;setValues((current) => ({ ...current, propertyType: value as PropertyType }));}}')
+t=t.replace('onChange={(value) => setValues((current) => ({ ...current, comuna: value }))}', 'onChange={(value) => update("comuna",value)}')
+t=t.replace('onChange={(event) => setValues(current => ({...current,address:event.target.value}))}', 'onChange={(event) => update("address",event.target.value)}')
+t=t.replace('      <div className="grid gap-4 sm:grid-cols-2">\n        <Input label="Superficie útil"', '      <AddressAutofillNote lookup={lookup}/>\n      <div className="grid gap-4 sm:grid-cols-2">\n        <Input label={autoArea.current!==null?"Superficie cerrada SII":"Superficie útil"}')
+t=t.replace('onChange={(event) => setValues((current) => ({ ...current, builtAreaM2: event.target.value }))}', 'onChange={(event) => update("builtAreaM2",event.target.value)}')
+p.write_text(t,encoding='utf8')
+print('Both forms updated; closed area stays distinct from usable area')

@@ -1,0 +1,20 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+code='''import subprocess,json,os
+
+def run(args):
+ p=subprocess.run(args,capture_output=True,text=True,timeout=20)
+ return p.stdout.strip() if p.returncode==0 else {'exit':p.returncode,'error':p.stderr[-250:]}
+cs=json.loads(run(['docker','inspect','valoria_oracle_beta-api-1','valoria_oracle_beta-postgres-1','valoria_oracle_beta-redis-1']))
+for c in cs:
+ print(json.dumps({'name':c['Name'],'image_id':c['Image'],'image_name':c['Config']['Image'],'labels':{k:v for k,v in c['Config'].get('Labels',{}).items() if k.startswith('org.opencontainers.image') or k in ['com.docker.compose.project.working_dir','com.docker.compose.project.config_files']},'state':{'status':c['State']['Status'],'health':c['State'].get('Health',{}).get('Status'),'started':c['State']['StartedAt']},'mounts':[{'type':m['Type'],'name':m.get('Name'),'destination':m['Destination']} for m in c['Mounts']]}))
+print('resources',run(['free','-m']))
+print('disk',run(['df','-h','/home/ubuntu']))
+print('containers',run(['docker','ps','--format','{{.Names}} {{.Status}} {{.Image}}']))
+print('timers',run(['systemctl','list-timers','--all','--no-pager']))
+print('git',run(['git','-C','/home/ubuntu/apps/valoria','rev-parse','HEAD']))
+print('backup_dirs',run(['find','/home/ubuntu/backups','-maxdepth','2','-type','f','-name','*.dump','-printf','%p %s bytes\\n']))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=55)
+Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\oracle-release-preflight.txt').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr if r.returncode else '')

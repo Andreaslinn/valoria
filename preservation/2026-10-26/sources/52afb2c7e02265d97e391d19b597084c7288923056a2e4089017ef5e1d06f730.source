@@ -1,0 +1,10 @@
+import subprocess,tarfile,io
+from pathlib import Path
+root=Path('work/oracle-runtime');root.mkdir(exist_ok=True)
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+files=['api/v1/listings.py','api/v1/radar.py','api/v1/watchlist.py','api/v1/health.py','api/v1/valuations.py','api/main.py','api/v1/thumbnails.py','services/thumbnails.py','infrastructure/thumbnails','services/valuation.py','services/listing_analysis.py','services/listing_url_lookup.py','services/radar.py']
+code="import subprocess,sys\np=subprocess.run(['docker','exec','valoria_oracle_beta-api-1','tar','-czf','-']+"+repr(files)+",capture_output=True,timeout=40)\nsys.stdout.buffer.write(p.stdout)\nsys.exit(p.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=code.encode(),capture_output=True,timeout=65)
+assert r.returncode==0,'Read-only source extraction failed'
+with tarfile.open(fileobj=io.BytesIO(r.stdout),mode='r:gz') as t:t.extractall(root,filter='data')
+print('Read-only code snapshot extracted:',len(files),'explicit paths; no configuration or credentials included')

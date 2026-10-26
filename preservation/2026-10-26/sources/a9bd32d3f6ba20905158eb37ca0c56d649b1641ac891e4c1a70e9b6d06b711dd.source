@@ -1,0 +1,14 @@
+# Additive code-only release: retains the active image's API, thumbnails and deps.
+# Build only after validating BASE_IMAGE against the approved production image ID.
+ARG BASE_IMAGE=valoria-thumbnails:shared-v2-20261008
+FROM ${BASE_IMAGE}
+COPY config/settings.py /app/config/settings.py
+COPY domain/geocoding/source_quality.py /app/domain/geocoding/source_quality.py
+COPY domain/ingestion/pipeline.py /app/domain/ingestion/pipeline.py
+COPY infrastructure/db/portal_geography.py /app/infrastructure/db/portal_geography.py
+COPY infrastructure/scrapers/portalinmobiliario.py /app/infrastructure/scrapers/portalinmobiliario.py
+COPY scripts/portal_canary.py /app/scripts/portal_canary.py
+COPY scripts/portal_card_first.py /app/scripts/portal_card_first.py
+COPY scripts/recover_portal_geography.py /app/scripts/recover_portal_geography.py
+COPY workers/portal_geo_enrichment.py /app/workers/portal_geo_enrichment.py
+COPY workers/refresh_scraper.py /app/workers/refresh_scraper.py

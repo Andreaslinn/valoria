@@ -1,0 +1,18 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''from pathlib import Path
+import json,time,stat,hashlib
+root=Path('/home/ubuntu/apps/valoria/private/portal-session');p=root/'session.json'
+out={'session_present':p.exists(),'reverification_circuit_open':(root/'reauth_required.json').exists()}
+if p.exists():
+ info=p.lstat();out.update(private_regular_file=stat.S_ISREG(info.st_mode) and not bool(info.st_mode&0o077),modified_at=info.st_mtime)
+ data=json.loads(p.read_text());cs=data.get('cookies',[]);valid=[c for c in cs if c.get('expires') is None or c['expires']>time.time()]
+ out.update(cookie_count=len(cs),unexpired_cookie_count=len(valid),unexpired_session_cookie_present=any(c.get('name')=='ssid' for c in valid),domains_allowlisted=all(c.get('domain') in {'.portalinmobiliario.com','www.portalinmobiliario.com','.www.portalinmobiliario.com'} for c in cs))
+for name in ['last_run.json','reauth_required.json']:
+ p=root/name
+ if p.exists():
+  d=json.loads(p.read_text());out[name]={k:d[k] for k in ['at','exit_code','counts','runtime_error','reason'] if k in d}
+print(json.dumps(out,indent=2))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=40);r.check_returncode();Path(__file__).with_name('portal-session-metadata.json').write_text(r.stdout,encoding='utf-8');print(r.stdout)

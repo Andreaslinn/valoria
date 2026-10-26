@@ -1,0 +1,99 @@
+"""Real local Vitacura artifacts; no remote service or listing dependencies."""
+import json,socket,sqlite3
+from pathlib import Path
+from types import SimpleNamespace
+import httpx
+import pytest
+from fastapi import FastAPI
+from services.sii.pure_valuation import sii_valuation
+from services.sii.geographic_opinion import select_prediction,_valuation_geography
+from services.sii.geographic_knn import load_geography,usable
+
+DATA=Path(__file__).resolve().parents[4]/'outputs/integrated/vitacura'
+
+
+@pytest.fixture
+def actual(monkeypatch):
+    if not (DATA/'geographic-policy.json').exists():pytest.skip('Local Vitacura integration artifacts required')
+    monkeypatch.setenv('SII_GEOGRAPHY_DATA_DIR',str(DATA))
+    monkeypatch.setenv('SII_CLOSING_DATA_DIR',str(DATA))
+    monkeypatch.setenv('sii_closing_layer','true')
+    return DATA
+
+
+def test_geometry_audit_and_correction(actual):
+    audit=json.loads((actual/'geography-audit.json').read_text())
+    assert audit['input_roles']==99486 and audit['legacy_checked']==74065
+    assert sum(audit['legacy_quality'].values())==74065
+    c=sqlite3.connect(actual/'geography.sqlite')
+    assert c.execute("SELECT lat,lon,method,quality FROM geo WHERE rol='15160-1261-6'").fetchone()==(
+        -33.389492,-70.583885,'sii_published_point','sii_role_point')
+    c.close()
+
+
+def test_lightweight_loader_matches_frozen_evaluation_inputs(actual):
+    light=_valuation_geography(actual);full=load_geography(actual)
+    for rol,g in light.items():
+        assert all(full[rol][k]==v for k,v in g.items())
+    assert '15160-1261-6' in light and '15160-2481-13' in light
+
+
+@pytest.mark.parametrize('identity',[{'address':'Samotracia 2071'},{'rol':'1261-6'}])
+def test_real_sii_prices_and_attributes_only(actual,monkeypatch,identity):
+    monkeypatch.setattr(socket,'create_connection',lambda *a,**kw:pytest.fail('External request in SII valuation'))
+    result=sii_valuation(data_dir=actual,**identity)
+    assert result['status']=='available' and result['sii_only']
+    assert result['model_used']=='baseline' # Neither type passed the sealed holdout guards.
+    assert result['value_uf']==result['baseline_value_uf']
+    assert len(result['selected_comparables'])==10
+    sales={str(r['raw_id']):r for r in json.loads((actual/'closings.json').read_text())}
+    for comparable in result['selected_comparables']:
+        original=sales[comparable['raw_id']]
+        assert comparable['uf']==pytest.approx(original['uf'],abs=.011)
+        assert comparable['m2']==original['area']
+        assert 'rol' not in comparable and 'building' not in comparable
+    assert result['fields']['closed_area_m2']==result['area_m2']
+
+
+def test_address_role_equivalence_and_ambiguity(actual):
+    role=sii_valuation(rol='1261-6',data_dir=actual)
+    address=sii_valuation(address='Laura Tromben 5631',data_dir=actual)
+    assert role['value_uf']==address['value_uf'] and role['selected_comparables']==address['selected_comparables']
+    c=sqlite3.connect(actual/'address-index.sqlite')
+    street,number=c.execute("""SELECT street,number FROM role WHERE kind='depto'
+        AND unit IS NOT NULL AND number IS NOT NULL GROUP BY street,number HAVING count(*)>2
+        ORDER BY street,number LIMIT 1""").fetchone();c.close()
+    result=sii_valuation(address=f'{street} {number}',data_dir=actual)
+    assert result['status']=='ambiguous' and 'value_uf' not in result
+
+
+def test_stale_policy_falls_back_without_altering_baseline(tmp_path,monkeypatch):
+    for name in ['closings.json','geography.sqlite','historical-controls.json','address-index.sqlite']:
+        (tmp_path/name).write_text('{}')
+    policy={'hashes':{n:'bad' for n in ['closings.json','geography.sqlite','historical-controls.json','address-index.sqlite']}}
+    (tmp_path/'geographic-policy.json').write_text(json.dumps(policy))
+    monkeypatch.setenv('SII_GEOGRAPHY_DATA_DIR',str(tmp_path))
+    baseline={'status':'ok','value_uf':123.}
+    result,meta=select_prediction({'date':'2026-10-25','kind':'casa'},baseline,tmp_path)
+    assert result==baseline and meta['model_used']=='baseline'
+    assert meta['geographic_reason']=='geographic_validation_unavailable'
+
+
+@pytest.mark.asyncio
+async def test_pure_endpoint_auth_identity_and_no_listing_dependency(actual,monkeypatch):
+    from api import deps
+    from api.v1.tasar import router
+    def forbidden(*args,**kwargs):pytest.fail('Legacy listing valuation service was used')
+    monkeypatch.setattr(deps,'get_valuation_service',forbidden)
+    app=FastAPI();app.include_router(router,prefix='/api/v1')
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://local') as client:
+        r=await client.post('/api/v1/tasar/sii-valuation',json={'rol':'1261-6'})
+        assert r.status_code==401
+        async def user():return SimpleNamespace(id=1)
+        app.dependency_overrides[deps._resolve_current_user]=user
+        assert (await client.post('/api/v1/tasar/sii-valuation',json={'rol':'1261-6','address':'Samotracia 2071'})).status_code==422
+        assert (await client.post('/api/v1/tasar/sii-valuation',json={})).status_code==422
+        r=await client.post('/api/v1/tasar/sii-valuation',json={'rol':'1261-6'})
+        assert r.status_code==200 and r.json()['sii_only'] and r.json()['value_uf']>0
+        monkeypatch.setenv('sii_closing_layer','false')
+        assert (await client.post('/api/v1/tasar/sii-valuation',json={'rol':'1261-6'})).status_code==404

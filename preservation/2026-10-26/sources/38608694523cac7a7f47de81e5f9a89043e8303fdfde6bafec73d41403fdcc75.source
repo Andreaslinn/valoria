@@ -1,0 +1,31 @@
+from pathlib import Path
+import subprocess,json
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+manifest=json.loads(Path(__file__).with_name('radar-engine-overlay-manifest.json').read_text())
+code='''import pathlib,subprocess,json,hashlib,shutil
+root=pathlib.Path('/home/ubuntu/radar-engine-release-20261013');assert not root.exists();root.mkdir(mode=0o700)
+api=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+assert api['Image']==BASE and api['State']['Health']['Status']=='healthy'
+assert subprocess.check_output(['docker','image','inspect','valoria-remediation:candidate-20261012-v6','--format','{{.Id}}'],text=True).strip()==BASE
+available=int(next(x.split()[1] for x in pathlib.Path('/proc/meminfo').read_text().splitlines() if x.startswith('MemAvailable:')))*1024
+assert available>600*1024**2 and shutil.disk_usage('/home/ubuntu').free>4*1024**3
+print(json.dumps({'baseline_healthy':True,'available_memory_bytes':available,'disk_free_bytes':shutil.disk_usage('/home/ubuntu').free}))
+'''.replace('BASE',repr(manifest['base_image']))
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=35);print(r.stdout);r.check_returncode()
+scp=[r'C:\Windows\System32\OpenSSH\scp.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key',str(Path(__file__).with_name('radar-engine-overlay.tar.gz')),'ubuntu@161.153.201.245:/home/ubuntu/radar-engine-release-20261013/context.tar.gz']
+r=subprocess.run(scp,capture_output=True,text=True,timeout=45);r.check_returncode()
+code='''import pathlib,subprocess,json,hashlib,tarfile
+root=pathlib.Path('/home/ubuntu/radar-engine-release-20261013')
+with tarfile.open(root/'context.tar.gz') as t:t.extractall(root,filter='data')
+for name,expected in MANIFEST['files'].items():assert hashlib.sha256((root/name).read_bytes()).hexdigest()==expected
+image='valoria-remediation:radar-tasar-20261013'
+r=subprocess.run(['docker','build','--network=none','--label','org.opencontainers.image.revision='+MANIFEST['revision'],'-t',image,'.'],cwd=root,capture_output=True,text=True,timeout=120)
+assert r.returncode==0,'Candidate image build failed'
+check="from api.main import create_app;from services.v2_contract import check_v2_contract,v2_capabilities;import json;cap=v2_capabilities();assert not check_v2_contract(create_app().openapi(),cap);print(json.dumps(cap))"
+r=subprocess.run(['docker','run','--rm','--network','none','--memory','256m','--cpus','1','-e','DATABASE_URL=sqlite+aiosqlite:///:memory:','-e','SYNC_DATABASE_URL=sqlite:///:memory:','-e','JWT_SECRET_KEY=isolated-image-validation-only','--entrypoint','python',image,'-B','-c',check],capture_output=True,text=True,timeout=45)
+assert r.returncode==0,'Image import/contract gate failed'
+cap=json.loads(r.stdout.strip().splitlines()[-1]);image_id=subprocess.check_output(['docker','image','inspect',image,'--format','{{.Id}}'],text=True).strip()
+out={'image':image,'image_id':image_id,'revision':MANIFEST['revision'],'fingerprint':cap['code_fingerprint'],'image_contracts':'PASS','files':MANIFEST['files']}
+(root/'image-manifest.json').write_text(json.dumps(out,indent=2));(root/'image-manifest.json').chmod(0o600);print(json.dumps(out,indent=2))
+'''.replace('MANIFEST',repr(manifest))
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=180);Path(__file__).with_name('radar-candidate-image.json').write_text(r.stdout,encoding='utf-8');print(r.stdout);r.check_returncode()

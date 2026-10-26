@@ -1,0 +1,143 @@
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from decimal import Decimal
+
+import httpx
+import pytest_asyncio
+from httpx import ASGITransport
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+from api.main import create_app
+from api.security import hash_password
+from core.entities.user import User
+from infrastructure.db.database import get_db
+from infrastructure.db.models import AlertORM, ListingORM, SavedListingORM
+from infrastructure.db.repositories import SqlAlchemyUserRepository
+
+
+@pytest_asyncio.fixture
+async def client(engine: AsyncEngine) -> AsyncGenerator[httpx.AsyncClient, None]:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    async def _get_db_override() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as s:
+            yield s
+
+    app = create_app()
+    app.dependency_overrides[get_db] = _get_db_override
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+async def test_alerts_return_only_current_user_saved_listing_alerts(
+    client: httpx.AsyncClient,
+    engine: AsyncEngine,
+) -> None:
+    user_headers, other_headers, own_alert, unsaved_alert, other_alert = await _seed_users_alerts(engine, client)
+
+    resp = await client.get("/api/v1/alerts", headers=user_headers)
+    other_resp = await client.get("/api/v1/alerts", headers=other_headers)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [item["id"] for item in body] == [own_alert.id]
+    assert body[0]["message"].startswith("La propiedad bajo")
+    assert unsaved_alert.id not in [item["id"] for item in body]
+    assert other_resp.status_code == 200
+    assert [item["id"] for item in other_resp.json()] == [other_alert.id]
+
+
+async def test_mark_own_alert_as_read_and_hides_from_list(
+    client: httpx.AsyncClient,
+    engine: AsyncEngine,
+) -> None:
+    user_headers, _, own_alert, _, _ = await _seed_users_alerts(engine, client)
+
+    resp = await client.post(f"/api/v1/alerts/{own_alert.id}/read", headers=user_headers)
+    listed = await client.get("/api/v1/alerts", headers=user_headers)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"id": own_alert.id, "is_read": True}
+    assert listed.json() == []
+
+
+async def test_cannot_mark_another_users_alert_as_read(
+    client: httpx.AsyncClient,
+    engine: AsyncEngine,
+) -> None:
+    user_headers, _, _, _, other_alert = await _seed_users_alerts(engine, client)
+
+    resp = await client.post(f"/api/v1/alerts/{other_alert.id}/read", headers=user_headers)
+
+    assert resp.status_code == 404
+
+
+async def _seed_users_alerts(
+    engine: AsyncEngine,
+    client: httpx.AsyncClient,
+) -> tuple[dict[str, str], dict[str, str], AlertORM, AlertORM, AlertORM]:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        repo = SqlAlchemyUserRepository(session)
+        user = await repo.save(User(id=None, email="alerts-user@example.com", password_hash=hash_password("password123"), role="beta_user", is_active=True))
+        other = await repo.save(User(id=None, email="alerts-other@example.com", password_hash=hash_password("password123"), role="beta_user", is_active=True))
+        own_listing = _listing("own")
+        unsaved_listing = _listing("unsaved")
+        other_listing = _listing("other")
+        session.add_all([own_listing, unsaved_listing, other_listing])
+        await session.flush()
+        session.add_all(
+            [
+                SavedListingORM(user_id=user.id, listing_id=own_listing.id, saved_price_clp=own_listing.price_clp, status="active"),
+                SavedListingORM(user_id=other.id, listing_id=other_listing.id, saved_price_clp=other_listing.price_clp, status="active"),
+            ]
+        )
+        own_alert = _alert(own_listing.id)
+        unsaved_alert = _alert(unsaved_listing.id)
+        other_alert = _alert(other_listing.id)
+        session.add_all([own_alert, unsaved_alert, other_alert])
+        await session.commit()
+
+    return (
+        await _login(client, "alerts-user@example.com"),
+        await _login(client, "alerts-other@example.com"),
+        own_alert,
+        unsaved_alert,
+        other_alert,
+    )
+
+
+async def _login(client: httpx.AsyncClient, username: str) -> dict[str, str]:
+    resp = await client.post("/api/v1/auth/login", data={"username": username, "password": "[REDACTED]"})
+    assert resp.status_code == 200
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+def _listing(suffix: str) -> ListingORM:
+    scraped_at = datetime.now(UTC)
+    return ListingORM(
+        source="yapo",
+        external_id=suffix,
+        title=f"Listing {suffix}",
+        comuna="nunoa",
+        m2=70.0,
+        bedrooms=2,
+        bathrooms=2,
+        parking=1,
+        price_clp=Decimal("100000000"),
+        status="active",
+        fingerprint=f"alerts-{suffix}",
+        scraped_at=scraped_at,
+        last_seen_at=scraped_at,
+        raw_metadata={},
+    )
+
+
+def _alert(listing_id: int) -> AlertORM:
+    return AlertORM(
+        listing_id=listing_id,
+        alert_type="price_drop",
+        payload={"previous_price_clp": 100_000_000, "new_price_clp": 90_000_000, "drop_pct": 10.0},
+    )

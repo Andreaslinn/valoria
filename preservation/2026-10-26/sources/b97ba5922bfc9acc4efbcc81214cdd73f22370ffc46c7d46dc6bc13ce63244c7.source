@@ -1,0 +1,19 @@
+# Load and verify the preserved production image with scripts/build_reconciled.py.
+# Keeps the exact ARM64 Python/runtime dependencies; no registry or pip resolution.
+FROM valoria-production-reference:e8eff534
+WORKDIR /app
+COPY pyproject.toml README.md alembic.ini ./
+COPY alembic ./alembic
+COPY api ./api
+COPY audits ./audits
+COPY config ./config
+COPY core ./core
+COPY domain ./domain
+COPY infrastructure ./infrastructure
+COPY scripts ./scripts
+COPY services ./services
+COPY workers ./workers
+COPY ui/__init__.py ui/formatting.py ./ui/
+COPY ui/components/__init__.py ui/components/risk_report_contract.py ui/components/risk_report_html.py ./ui/components/
+# No migrations or producer startup. Runtime secrets are supplied outside the image.
+CMD ["python", "-B", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

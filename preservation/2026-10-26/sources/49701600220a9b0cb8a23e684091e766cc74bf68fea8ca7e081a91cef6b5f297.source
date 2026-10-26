@@ -1,0 +1,451 @@
+"""Snapshot-only dataset EDA. No DB, network, valuation or predictive training calls."""
+from pathlib import Path
+import sys, json, hashlib, subprocess, math, copy, itertools, html, re, platform
+from collections import Counter, defaultdict
+from dataclasses import fields, replace
+from decimal import Decimal
+from datetime import datetime
+import numpy as np
+import pandas as pd
+
+HERE = Path(__file__).resolve().parent
+BASE = HERE.parents[1]
+REPO = BASE / 'valoria-reconciled'
+sys.path.insert(0, str(REPO))
+from core.entities.listing import Listing
+from core.value_objects.price import Price
+from core.value_objects.location import Coordinates
+from domain.valuation.canonical_price import valuation_price_basis
+from domain.valuation.engines.canonical_comparables import _strict_price_exclusion
+from domain.geocoding.quality import normalized_precision_for, apply_geocoding_guardrails
+from domain.ingestion.deduplication import make_fingerprint
+from domain.ingestion.data_cleaning import CleanedListing
+
+UF = Decimal('41040.82')  # fixed conversion from preceding snapshot experiment; not historical UF
+SEED = 20261002
+
+def inventory():
+    def git(*args):
+        return subprocess.check_output(['git','-C',str(REPO),*args]).decode('utf-8')
+    names = git('ls-files','--cached','--others','--exclude-standard','-z').split('\0')
+    return dict(commit=git('rev-parse','HEAD').strip(), status=git('status','--porcelain=v1','--untracked-files=all'),
+                hashes={n:hashlib.sha256((REPO/n).read_bytes()).hexdigest() for n in names if n and (REPO/n).is_file()})
+
+def dump(name, obj):
+    (HERE/name).write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str,allow_nan=False),encoding='utf-8')
+
+def csv(name, rows, columns=None):
+    frame = rows if isinstance(rows,pd.DataFrame) else pd.DataFrame(rows,columns=columns)
+    frame.to_csv(HERE/name,index=False,encoding='utf-8',float_format='%.10g')
+
+def entity(r):
+    d={k:v for k,v in r.items() if k in {f.name for f in fields(Listing)}}
+    d['price']=Price(clp=Decimal(d['price']['clp']))
+    if d.get('price_uf') is not None: d['price_uf']=Decimal(d['price_uf'])
+    if d.get('coordinates'): d['coordinates']=Coordinates(**d['coordinates'])
+    for key in ('scraped_at','last_seen_at','last_refresh_attempted_at'):
+        if d.get(key): d[key]=datetime.fromisoformat(d[key])
+    return Listing(**d)
+
+def components(rows, include_property):
+    parent=list(range(len(rows))); seen={}; edges=[]
+    def root(i):
+        while parent[i]!=i:
+            parent[i]=parent[parent[i]]; i=parent[i]
+        return i
+    for i,r in enumerate(rows):
+        keys=[('id',r['id'])]
+        for key in ('fingerprint','url'):
+            if r.get(key): keys.append((key,r[key]))
+        if r.get('external_id'): keys.append(('external',r['source'],r['external_id']))
+        if include_property and r.get('property_id') is not None: keys.append(('property',r['property_id']))
+        for key in keys:
+            if key in seen:
+                j=seen[key]; parent[root(i)]=root(j)
+                edges.append(dict(id_a=r['id'],id_b=rows[j]['id'],evidence=key[0],
+                                  confidence='weak_stored_match' if key[0]=='property' else 'publication_evidence'))
+            seen[key]=i
+    members=defaultdict(list)
+    for i,r in enumerate(rows): members[root(i)].append(r['id'])
+    label={k:min(v) for k,v in members.items()}
+    return {r['id']:label[root(i)] for i,r in enumerate(rows)},edges
+
+def finite(x):
+    try: return math.isfinite(float(x))
+    except (ValueError,TypeError): return False
+
+def coord_distance(a,b):
+    lat1,lon1,lat2,lon2=map(math.radians,[a['lat'],a['lon'],b['lat'],b['lon']])
+    h=math.sin((lat2-lat1)/2)**2+math.cos(lat1)*math.cos(lat2)*math.sin((lon2-lon1)/2)**2
+    return 6371*2*math.asin(min(1,math.sqrt(h)))
+
+def stats(s):
+    s=pd.to_numeric(s,errors='coerce'); s=s[np.isfinite(s)]
+    if len(s)==0: return dict(N=0)
+    q=s.quantile([.01,.05,.25,.5,.75,.95,.99])
+    return dict(N=len(s),min=s.min(),P01=q.iloc[0],P05=q.iloc[1],P25=q.iloc[2],median=q.iloc[3],
+                P75=q.iloc[4],P95=q.iloc[5],P99=q.iloc[6],max=s.max(),mean=s.mean(),std=s.std(),
+                skewness=s.skew(),excess_kurtosis=s.kurt())
+
+def histogram(name, s, title):
+    values=np.asarray(s,dtype=float); counts,bins=np.histogram(values[np.isfinite(values)],bins=35)
+    w,h=900,400; maximum=max(counts.max(),1)
+    svg=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">',
+         '<rect width="900" height="400" fill="white"/>',f'<text x="60" y="30" font-size="20">{html.escape(title)}</text>',
+         '<line x1="60" y1="340" x2="860" y2="340" stroke="black"/>']
+    for i,c in enumerate(counts):
+        bh=280*c/maximum; x=60+i*800/len(counts)
+        svg.append(f'<rect x="{x}" y="{340-bh}" width="{800/len(counts)-1}" height="{bh}" fill="#206080"/>')
+    for i in range(6):
+        value=bins[0]+i*(bins[-1]-bins[0])/5
+        svg.append(f'<text x="{60+i*160}" y="365" text-anchor="middle" font-size="12">{value:.2f}</text>')
+    svg.append(f'<text x="60" y="390" font-size="12">N={len(values)}; eje vertical: recuento; máximo bin={maximum}</text></svg>')
+    (HERE/name).write_text('\n'.join(svg),encoding='utf-8')
+    return [dict(variable=title,left=float(bins[i]),right=float(bins[i+1]),n=int(c)) for i,c in enumerate(counts)]
+
+def scatter(name,x,y,title):
+    xa=np.asarray(x,dtype=float); ya=np.asarray(y,dtype=float)
+    def scale(v): return (v-v.min())/(v.max()-v.min())
+    sx,sy=scale(xa),scale(ya)
+    elements=['<svg xmlns="http://www.w3.org/2000/svg" width="900" height="450">',
+       '<rect width="900" height="450" fill="white"/>',f'<text x="60" y="30" font-size="20">{html.escape(title)}</text>',
+       '<path d="M60 60V380H850" fill="none" stroke="black"/>']
+    elements.extend(f'<circle cx="{60+790*a:.2f}" cy="{380-310*b:.2f}" r="2" fill="#206080" opacity="0.4"/>' for a,b in zip(sx,sy))
+    elements.append(f'<text x="60" y="420">x: {xa.min():.2f} a {xa.max():.2f}; y: {ya.min():.2f} a {ya.max():.2f}; N={len(xa)}</text></svg>')
+    (HERE/name).write_text('\n'.join(elements),encoding='utf-8')
+
+def main():
+    before=inventory()
+    baseline=HERE/'integrity_before.json'
+    if baseline.exists():
+        assert json.loads(baseline.read_text(encoding='utf-8'))==before,'Code differs from frozen audit base; create a new audit folder'
+    else:
+        dump('integrity_before.json',before)
+    src=BASE/'work/spatial-readiness-20261002/oracle-snapshot.json'
+    dest=HERE/'input_snapshot.json'
+    if not dest.exists(): dest.write_bytes(src.read_bytes())
+    snapshot=json.loads(dest.read_text(encoding='utf-8')); rows=snapshot['listings']
+    assert hashlib.sha256(dest.read_bytes()).hexdigest()=='a5991dd086056fa304416ddfa1ad464352957bebcb5df9fcd2ce5565938e3641','Snapshot differs from audit input'
+    csv('metadata_key_inventory.csv',[dict(key=k,active_snapshot_rows=v,pct_all_active=100*v/len(rows),
+        scope='all active rows; count does not establish candidate coverage or meaningful content')
+        for k,v in sorted(snapshot.get('metadata_key_counts',{}).items())])
+    objects=[entity(r) for r in rows]
+    pubmap,pubedges=components(rows,False); groupmap,edges=components(rows,True)
+    csv('group_edges.csv',edges,['id_a','id_b','evidence','confidence'])
+    guarded=apply_geocoding_guardrails(copy.deepcopy(objects))
+    records=[]; reasons=Counter(); apartment_valid=0
+    for r,o,g in zip(rows,objects,guarded):
+        if o.property_type!='apartment': continue
+        basis=valuation_price_basis(o,UF)
+        if not basis.is_usable_for_valuation:
+            reasons[basis.exclusion_reason or basis.quality]+=1; continue
+        apartment_valid+=1
+        area=o.built_area_m2 or o.usable_area_m2 or o.m2
+        if not finite(area) or area<=0:
+            reasons['nonpositive_or_nonfinite_area']+=1; continue
+        meta=r.get('raw_metadata') or {}
+        lat,lon=r.get('stored_lat'),r.get('stored_lon')
+        validcoords=finite(lat) and finite(lon) and -90<=lat<=90 and -180<=lon<=180 and (lat,lon)!=(0,0)
+        address=str(meta.get('address') or meta.get('address_label') or '').strip()
+        rec={k:r.get(k) for k in ('id','external_id','source','url','fingerprint','property_id','comuna','property_type','m2',
+             'built_area_m2','usable_area_m2','land_area_m2','bedrooms','bathrooms','parking','scraped_at','last_seen_at',
+             'last_refresh_attempted_at','last_refresh_status','stored_created_at','stored_updated_at','price_currency',
+             'price_uf_confidence','price_uf_source','price_recovery_method')}
+        rec.update(area_m2=area,price_uf_canonical=float(basis.amount_uf),price_clp_raw=float(o.price.clp),
+                   price_basis=basis.basis_used,price_quality=basis.quality,uf_m2=float(basis.amount_uf)/area,
+                   existing_strict_price_exclusion=_strict_price_exclusion(o,basis,UF),
+                   metadata_price_uf_source=meta.get('price_uf_source'),metadata_price_uf_confidence=meta.get('price_uf_confidence'),
+                   metadata_price_recovery_method=meta.get('price_recovery_method'),
+                   price_uf_raw=float(o.price_uf) if o.price_uf is not None else None,
+                   log_price_uf=math.log(float(basis.amount_uf)),log_area=math.log(area),
+                   log_uf_m2=math.log(float(basis.amount_uf)/area),lat=lat,lon=lon,coords_valid=validcoords,
+                   precision_raw=r.get('geocode_precision'),precision_normalized=normalized_precision_for(o),
+                   precision_guarded=g.geocode_precision,geo_usable=validcoords and g.geocode_precision=='address',
+                   coordinates_source=meta.get('coordinates_source') or meta.get('location_source'),
+                   geocode_precision_reason=meta.get('geocode_precision_reason'),
+                   uf_rate_date=meta.get('uf_rate_date'),price_recovered_at=meta.get('price_recovered_at'),
+                   uf_rate_used=meta.get('uf_rate_used'),
+                   nearby_metro=meta.get('nearby_metro') or None,nearby_avenue=meta.get('nearby_avenue') or None,
+                   neighborhood_hint=meta.get('neighborhood_hint') or None,intersection_hint=meta.get('intersection_hint') or None,
+                   geo_microzone_tokens='|'.join(str(t) for t in meta.get('geo_microzone_tokens',[])) or None,
+                   microzone_confidence=meta.get('microzone_confidence'),
+                   location_text_hash=hashlib.sha256(str(meta['location_text']).encode()).hexdigest() if meta.get('location_text') else None,
+                   group_id=f"observed-{groupmap[r['id']]}",publication_group_id=f"publication-{pubmap[r['id']]}",
+                   plausible_area_existing_bounds=10<=area<=1000,address_present=bool(address),
+                   address_hash=hashlib.sha256(address.lower().encode()).hexdigest() if address else None,
+                   title_hash=hashlib.sha256(o.title.encode()).hexdigest(),
+                   structured_age=meta.get('year_built') or meta.get('age'),
+                   publication_date=meta.get('publication_date'),snapshot_date=snapshot['captured_at'])
+        records.append(rec)
+    df=pd.DataFrame(records).sort_values('id').reset_index(drop=True)
+    csv('candidate_dataset_with_group_id.csv',df)
+    counts=[dict(stage='active snapshot (all types)',n=len(rows),definition="SELECT * FROM listings WHERE status='active' ORDER BY id"),
+            dict(stage='apartments',n=sum(o.property_type=='apartment' for o in objects),definition="property_type == 'apartment'"),
+            dict(stage='canonical price usable',n=apartment_valid,definition='valuation_price_basis.is_usable_for_valuation'),
+            dict(stage='positive finite area (final candidates)',n=len(df),definition='built_area_m2 or usable_area_m2 or m2 > 0, finite'),
+            dict(stage='plausible area, diagnostic only',n=int(df.plausible_area_existing_bounds.sum()),definition='10 <= area <= 1000; no extra exclusion')]
+    counts.extend(dict(stage=f'exclusion: {k}',n=v,definition='existing canonical price rules / finite area') for k,v in reasons.items())
+    counts.append(dict(stage='existing strict price pass, diagnostic only',n=int(df.existing_strict_price_exclusion.isna().sum()),
+                       definition='canonical engine _strict_price_exclusion; candidate universe unchanged'))
+    csv('dataset_counts.csv',counts)
+    numeric=['price_uf_canonical','price_clp_raw','price_uf_raw','uf_m2','log_price_uf','log_uf_m2','area_m2','log_area',
+             'm2','built_area_m2','usable_area_m2','land_area_m2','bedrooms','bathrooms','parking','lat','lon','microzone_confidence']
+    coverage=[]; numerical=[]; distributions=[]
+    for population,part in [('all_candidates',df),*list(df.groupby('source'))]:
+        for col in df.columns:
+            missing=part[col].isna() | part[col].astype(str).eq('')
+            coverage.append(dict(population=population,feature=col,type=str(part[col].dtype),N=len(part),
+                present=int((~missing).sum()),missing=int(missing.sum()),missing_pct=100*missing.mean(),
+                cardinality=part[col].nunique(dropna=True),zero_count=int(part[col].eq(0).sum()) if col in numeric else None,
+                parsing_caveat='zero is ambiguous, not recoded as missing' if col in ['parking','bathrooms','bedrooms'] else ''))
+            if col in numeric:
+                numerical.append(dict(population=population,feature=col,missing=int(missing.sum()),**stats(part[col])))
+            elif col in ['price_quality','price_basis','precision_raw','precision_guarded','coordinates_source','comuna','source']:
+                distributions.extend(dict(population=population,feature=col,value=str(k),n=int(v)) for k,v in part[col].fillna('MISSING').value_counts().items())
+    csv('feature_coverage.csv',coverage); csv('numeric_statistics.csv',numerical); csv('categorical_distributions.csv',distributions)
+    summaries=[]; diffs=[]
+    for gid,p in df.groupby('group_id'):
+        coord=p.loc[p.coords_valid].to_dict('records')
+        maxdist=max((coord_distance(a,b) for a,b in itertools.combinations(coord,2)),default=None)
+        summary=dict(group_id=gid,n=len(p),sources='|'.join(sorted(p.source.unique())),source_count=p.source.nunique(),
+                     comunas='|'.join(sorted(p.comuna.unique())),comuna_count=p.comuna.nunique(),
+                     publication_groups=p.publication_group_id.nunique(),property_ids=p.property_id.nunique(),
+                     confidence='singleton_unverified' if len(p)==1 else 'weak_stored_property_match',
+                     maximum_coordinate_distance_km=maxdist)
+        summaries.append(summary)
+        if len(p)>1:
+            d=dict(group_id=gid,n=len(p),price_min=p.price_uf_canonical.min(),price_max=p.price_uf_canonical.max(),
+                   price_range=p.price_uf_canonical.max()-p.price_uf_canonical.min(),
+                   price_relative_range=(p.price_uf_canonical.max()-p.price_uf_canonical.min())/p.price_uf_canonical.median(),
+                   area_range=p.area_m2.max()-p.area_m2.min(),maximum_coordinate_distance_km=maxdist)
+            for c in ['bedrooms','bathrooms','parking']: d[c+'_distinct']=p[c].nunique()
+            diffs.append(d)
+    gs=pd.DataFrame(summaries); csv('group_summary.csv',gs)
+    dd=pd.DataFrame(diffs); csv('within_group_differences.csv',dd)
+    csv('within_group_numeric_statistics.csv',[dict(feature=c,**stats(dd[c])) for c in ['price_range','price_relative_range','area_range','maximum_coordinate_distance_km']] if len(dd) else [])
+    csv('group_size_distribution.csv',[dict(size=b,groups=int((gs.n==b).sum()) if b!='5+' else int((gs.n>=5).sum())) for b in [1,2,3,4,'5+']])
+    crossed=[]
+    for (source,comuna),p in df.groupby(['source','comuna']):
+        crossed.append(dict(source=source,comuna=comuna,n=len(p),observed_groups=p.group_id.nunique(),
+            pct_total=100*len(p)/len(df),coords_pct=100*p.coords_valid.mean(),usable_geo_pct=100*p.geo_usable.mean(),
+            bedrooms_pct=100*p.bedrooms.notna().mean(),bathrooms_pct=100*p.bathrooms.notna().mean(),parking_pct=100*p.parking.notna().mean(),
+            parking_zero_pct=100*p.parking.eq(0).mean(),median_area=p.area_m2.median(),median_price_uf=p.price_uf_canonical.median(),median_uf_m2=p.uf_m2.median()))
+    csv('source_comuna_summary.csv',crossed)
+    repeated=df.loc[df.coords_valid].groupby(['comuna','lat','lon']).agg(n=('id','size'),groups=('group_id','nunique'),
+        address_raw=('precision_normalized',lambda x:int(x.eq('address').sum()))).reset_index()
+    csv('repeated_coordinates.csv',repeated.loc[repeated.n>1])
+    geo_flags=[]
+    for r in df.loc[df.coords_valid].to_dict('records'):
+        distance=coord_distance(r,dict(lat=-33.45,lon=-70.65))
+        if distance>100:
+            geo_flags.append(dict(id=r['id'],source=r['source'],comuna=r['comuna'],lat=r['lat'],lon=r['lon'],
+                precision_guarded=r['precision_guarded'],distance_to_santiago_reference_km=distance,
+                diagnostic='>100km from fixed Santiago reference; no automatic exclusion or precise RM boundary claim'))
+    csv('geo_location_flags.csv',geo_flags,['id','source','comuna','lat','lon','precision_guarded','distance_to_santiago_reference_km','diagnostic'])
+    anomaly=[]
+    for r in df.to_dict('records'):
+        flags=[]
+        if not r['plausible_area_existing_bounds']: flags.append('selected area outside existing ingestion 10..1000')
+        if r['parking']>10: flags.append('parking >10; parsing review, retained')
+        if r['built_area_m2'] and r['m2'] and r['built_area_m2']/r['m2']>2: flags.append('built_area/m2 >2 descriptive discrepancy, retained')
+        if flags: anomaly.append(dict(id=r['id'],source=r['source'],comuna=r['comuna'],m2=r['m2'],built_area_m2=r['built_area_m2'],
+                                      price_uf=r['price_uf_canonical'],parking=r['parking'],flags='; '.join(flags)))
+    csv('anomaly_flags.csv',anomaly)
+    # Missing means absent, not zero. Derived presence indicators are separately documented.
+    miss_features=['area_m2','bedrooms','bathrooms','parking','comuna','lat','lon','coordinates_source','address_hash',
+                   'structured_age','publication_date','scraped_at','last_seen_at','stored_created_at','last_refresh_attempted_at',
+                   'nearby_metro','nearby_avenue','neighborhood_hint','intersection_hint','geo_microzone_tokens']
+    missing=df[miss_features].isna().astype(int)
+    missing['usable_coordinates_missing']=(~df.geo_usable).astype(int)
+    missing['parking_zero_ambiguous']=df.parking.eq(0).astype(int)
+    pricebin=pd.cut(df.price_uf_canonical,[-np.inf,2000,4000,6000,10000,20000,np.inf]).astype(str)
+    areabin=pd.cut(df.area_m2,[-np.inf,30,50,80,120,200,np.inf]).astype(str)
+    miss=[]
+    for axis,labels in [('all',pd.Series('all',index=df.index)),('source',df.source),('comuna',df.comuna),('price_bin_uf',pricebin),('area_bin_m2',areabin)]:
+        for value,indices in labels.groupby(labels).groups.items():
+            for f in missing.columns:
+                miss.append(dict(axis=axis,value=value,feature=f,N=len(indices),missing_or_flag_n=int(missing.loc[indices,f].sum()),
+                                 pct=100*missing.loc[indices,f].mean()))
+    csv('missingness_summary.csv',miss)
+    corr=missing.corr(); corr.index.name='indicator'; corr.reset_index().to_csv(HERE/'missingness_associations.csv',index=False)
+    temporal=[]; date_stats=[]
+    semantics={'stored_created_at':'database insertion; not original publication or guaranteed first sighting',
+       'stored_updated_at':'last database update, may include recovery/backfill', 'scraped_at':'last ingested scrape, overwritten on refresh',
+       'last_seen_at':'last sighting, overwritten on refresh','last_refresh_attempted_at':'last operational attempt, not publication',
+       'publication_date':'not preserved in current snapshot','snapshot_date':'one extraction instant',
+       'uf_rate_date':'UF conversion date metadata; not listing publication date',
+       'price_recovered_at':'recovery operation metadata; not original price observation'}
+    for col,meaning in semantics.items():
+        dates=pd.to_datetime(df[col],utc=True,errors='coerce'); valid=dates.dropna()
+        date_stats.append(dict(feature=col,meaning=meaning,N=len(valid),missing=len(df)-len(valid),first=str(valid.min()) if len(valid) else None,
+                               last=str(valid.max()) if len(valid) else None,span_days=(valid.max()-valid.min()).total_seconds()/86400 if len(valid) else None))
+        if not len(valid): continue
+        for freq in ['W','M']:
+            periods=dates.dt.tz_localize(None).dt.to_period(freq).astype(str)
+            for axis,labels in [('all',pd.Series('all',index=df.index)),('source',df.source),('comuna',df.comuna)]:
+                t=pd.DataFrame(dict(period=periods,category=labels,group_id=df.group_id)).loc[dates.notna()]
+                for (period,category),p in t.groupby(['period','category']):
+                    temporal.append(dict(feature=col,frequency=freq,axis=axis,category=category,period=period,n=len(p),groups=p.group_id.nunique()))
+    csv('temporal_summary.csv',temporal); csv('date_semantics.csv',date_stats)
+    timegroups=[]
+    for gid,p in df.groupby('group_id'):
+        dates=pd.to_datetime(p.scraped_at,utc=True)
+        if len(p)>1: timegroups.append(dict(group_id=gid,n=len(p),first=str(dates.min()),last=str(dates.max()),span_days=(dates.max()-dates.min()).total_seconds()/86400,
+            interpretation='different listings in weak group, not proven republications'))
+    csv('group_temporal_spans.csv',timegroups)
+    # Manual sample selected by fixed hash of group ID, never target price.
+    review=[]
+    for label,eligible in [('size2',gs.loc[gs.n==2]),('size3plus',gs.loc[gs.n>=3])]:
+        selected=sorted(eligible.group_id,key=lambda x:hashlib.sha256(f'{SEED}:{x}'.encode()).hexdigest())[:10]
+        for gid in selected:
+            for _,r in df.loc[df.group_id==gid].iterrows():
+                review.append(dict(sample_type=label,group_id=gid,id=r.id,source=r.source,url=r.url,property_id=r.property_id,
+                    comuna=r.comuna,area_m2=r.area_m2,bedrooms=r.bedrooms,bathrooms=r.bathrooms,parking=r.parking,
+                    price_uf=r.price_uf_canonical,lat=r.lat,lon=r.lon,precision=r.precision_guarded,address_hash=r.address_hash,title_hash=r.title_hash))
+    csv('manual_group_review.csv',review)
+    suspicious=[]
+    buckets=defaultdict(list)
+    for r in df.to_dict('records'): buckets[(r['comuna'],r['bedrooms'],r['bathrooms'],r['parking'])].append(r)
+    for members in buckets.values():
+        for a,b in itertools.combinations(members,2):
+            if a['group_id']==b['group_id'] or abs(a['m2']-b['m2'])>1 or abs((a['built_area_m2'] or a['m2'])-(b['built_area_m2'] or b['m2']))>1: continue
+            suspicious.append(dict(id_a=a['id'],id_b=b['id'],source_a=a['source'],source_b=b['source'],comuna=a['comuna'],
+                area_a=a['area_m2'],area_b=b['area_m2'],bedrooms=a['bedrooms'],bathrooms=a['bathrooms'],parking=a['parking'],
+                evidence='existing structural matcher compatible; weak; price not consulted',
+                distance_km=coord_distance(a,b) if a['coords_valid'] and b['coords_valid'] else None))
+    suspicious=sorted(suspicious,key=lambda x:hashlib.sha256(f"{SEED}:{x['id_a']}:{x['id_b']}".encode()).hexdigest())
+    csv('suspicious_ungrouped_pairs.csv',suspicious[:10],['id_a','id_b','source_a','source_b','comuna','area_a','area_b','bedrooms','bathrooms','parking','evidence','distance_km'])
+    bins=[]
+    for c,title in [('price_uf_canonical','Precio UF'),('area_m2','Superficie m2'),('uf_m2','UF por m2'),('log_price_uf','log Precio UF'),('log_uf_m2','log UF por m2')]:
+        bins.extend(histogram(f'{c}_histogram.svg',df[c],title))
+    csv('histogram_bins.csv',bins)
+    associations=[]
+    for x,y in [('area_m2','price_uf_canonical'),('log_area','log_price_uf'),('area_m2','uf_m2'),('log_area','log_uf_m2')]:
+        associations.append(dict(x=x,y=y,pearson=df[x].corr(df[y]),spearman=df[x].rank().corr(df[y].rank())))
+        scatter(f'{x}_vs_{y}.svg',df[x],df[y],f'{y} vs {x}')
+    csv('target_associations.csv',associations)
+    x=df.log_area.to_numpy(); y=df.log_price_uf.to_numpy(); X=np.column_stack([np.ones(len(x)),x])
+    beta=np.linalg.lstsq(X,y,rcond=None)[0]; residual=y-X@beta
+    inv=np.linalg.inv(X.T@X); cov=inv@(X.T@(X*residual[:,None]**2))@inv*len(df)/(len(df)-2)
+    se=math.sqrt(cov[1,1]); rng=np.random.default_rng(SEED); slopes=[]
+    group_arrays=[p.index.to_numpy() for _,p in df.groupby('group_id')]
+    for _ in range(1000):
+        ix=np.concatenate([group_arrays[k] for k in rng.integers(0,len(group_arrays),len(group_arrays))])
+        slopes.append(np.linalg.lstsq(X[ix],y[ix],rcond=None)[0][1])
+    eda=dict(description='EDA only; gross confounded elasticity, not C1 or predictive evaluation',a=float(beta[0]),b=float(beta[1]),
+        hc1_se_b=se,hc1_normal_95_interval=[float(beta[1]-1.96*se),float(beta[1]+1.96*se)],
+        weak_group_bootstrap_95_interval=np.quantile(slopes,[.025,.975]).tolist(),bootstrap_repetitions=1000,
+        caveat='weak stored-property groups do not establish independence; intervals conditional on these groups')
+    dump('eda_regression.json',eda)
+    # Explicit leakage inventory. Text/price-metadata are never ingested as predictors here.
+    leakage=[]
+    def add(features,label,why):
+        for f in features: leakage.append(dict(feature=f,classification=label,reason=why))
+    add(['area_m2','bedrooms','bathrooms','parking','comuna','property_type'],'SAFE','pre-valuation physical attributes if supplied; zeros need missing semantics')
+    add(['lat','lon','geocode_precision','address_hash'],'UNKNOWN','pre-valuation only if target input provides them; geocode quality and address identity unverified')
+    add(['nearby_metro','nearby_avenue','neighborhood_hint','intersection_hint','geo_microzone_tokens','microzone_confidence'],
+        'UNKNOWN','existing text-derived geographic descriptors, not price aggregate; availability for manual target and parsing must be confirmed')
+    add(['geocode_score'],'UNKNOWN','13 keys in all-active metadata inventory; values not preserved; not assumed to be valuation score')
+    add(['source','url','id','external_id','title_hash'],'UNKNOWN','publication identifiers; unavailable for manual Tasar or memorization/source proxy; not default model features')
+    add(['fingerprint','property_id','group_id'],'UNKNOWN','grouping-only; no price in current code but physical false positives/negatives; not predictors')
+    add(['price_uf_canonical','price_clp_raw','price_uf_raw','uf_m2','log_price_uf','log_uf_m2','price_basis','price_quality',
+         'price_uf_source','price_uf_confidence','price_recovery_method','price/currency/uf metadata','existing_strict_price_exclusion'],'UNSAFE','target or derived target/provenance; labels/quality audit only')
+    add(['title','description','card_text','detail_text'],'UNKNOWN','can contain asking price, seller/contact details and target-derived statements; needs sanitization before features')
+    add(['comuna_price_median','local_price_surface','comparable_statistics','territorial_target_statistics','learned_encoding','imputation','scaling','feature_selection'],'FOLD-LOCAL','fit exclusively on training observations/groups; target listing and held-out groups excluded')
+    add(['previous_valuation','current_engine_score','ranking','future_price','future_label'],'UNSAFE','valuation/target-derived or future; not exported as candidates')
+    add(['stored_created_at','scraped_at'],'UNKNOWN','database ingestion and latest scrape, not original publication; availability as-of needs historical reconstruction')
+    add(['stored_updated_at','last_seen_at','last_refresh_attempted_at','snapshot_date','price_recovered_at'],'UNSAFE','future/operational info relative to original observation unless proven as-of')
+    add(['repeated_coordinate_guard'],'FOLD-LOCAL','current quality uses full pool counts; recompute training-only and document target handling')
+    add(['structured_age','building_features','publisher_profile'],'UNKNOWN','absent from this preserved snapshot; coverage cannot be inferred from unexported metadata')
+    csv('leakage_audit.csv',leakage)
+    # Feasibility only. Assignments are transient and never persisted.
+    groupmeta=df.groupby('group_id').agg(comuna=('comuna',lambda x:'|'.join(sorted(x.unique()))),source=('source',lambda x:'|'.join(sorted(x.unique()))),n=('id','size')).reset_index()
+    splitrows=[]
+    for k in [5,4,3]:
+        loads=np.zeros(k,int); assignment={}; stratumloads=defaultdict(lambda:np.zeros(k,int))
+        ordered=sorted(groupmeta.to_dict('records'),key=lambda r:(-r['n'],hashlib.sha256(f"{SEED}:{r['group_id']}".encode()).hexdigest()))
+        for r in ordered:
+            key=(r['comuna'],r['source']); fold=min(range(k),key=lambda f:(stratumloads[key][f],loads[f],f))
+            assignment[r['group_id']]=fold; stratumloads[key][fold]+=1; loads[fold]+=1
+        for fold in range(k):
+            test=df.loc[df.group_id.map(assignment).eq(fold)]
+            splitrows.append(dict(k=k,fold=fold,test_groups=test.group_id.nunique(),train_groups=len(gs)-test.group_id.nunique(),
+                                  test_listings=len(test),train_listings=len(df)-len(test),comunas_present=test.comuna.nunique()))
+    csv('split_feasibility_counts.csv',splitrows)
+    # Fixed coordinate grid is a stress-test description, not a learned microzone or property identity.
+    spatial=[]
+    usable=df.loc[df.geo_usable].copy()
+    usable['cell']=usable.lat.map(lambda x:math.floor(x/.02)).astype(str)+':'+usable.lon.map(lambda x:math.floor(x/.02)).astype(str)
+    for cell,p in usable.groupby('cell'):
+        gids=set(p.group_id)
+        total=df.loc[df.group_id.isin(gids)]
+        spatial.append(dict(cell=cell,geo_listings_in_cell=len(p),test_groups=len(gids),test_listings_whole_groups=len(total),
+                            train_groups=len(gs)-len(gids),comunas='|'.join(sorted(p.comuna.unique()))))
+    csv('spatial_stress_feasibility.csv',spatial)
+    comunagroups=df.groupby('comuna').group_id.nunique().sort_values(ascending=False)
+    shares=comunagroups/comunagroups.sum(); hhi=float((shares**2).sum())
+    csv('concentration.csv',[dict(axis='comuna',value=c,observed_groups=int(n),n_listings=int(df.comuna.eq(c).sum()),share=float(shares[c])) for c,n in comunagroups.items()])
+    # Fingerprint price invariance test on observed fields, without executing ingestion.
+    tested=0; mismatches=0; mismatch_rows=[]; price_text_rows=[]
+    for o in objects:
+        if o.property_type!='apartment': continue
+        d={f.name:getattr(o,f.name) for f in fields(CleanedListing) if hasattr(o,f.name)}
+        cleaned=CleanedListing(**d)
+        assert make_fingerprint(cleaned)==make_fingerprint(replace(cleaned,price=Price(clp=Decimal('999999999')),price_uf=Decimal('1')))
+        tested+=1
+        if make_fingerprint(cleaned)!=o.fingerprint:
+            mismatches+=1; mismatch_rows.append(dict(id=o.id,source=o.source,reason='stored fingerprint differs from current code replay; historical cause unknown'))
+        if re.search(r'\bUF\s*[\d.,]+|[\d.,]+\s*UF\b|\$\s*[\d.,]+',o.title,re.I):
+            price_text_rows.append(dict(id=o.id,source=o.source,candidate=o.id in set(df.id),reason='explicit monetary-looking title tokens may enter fingerprint'))
+    csv('fingerprint_replay_mismatches.csv',mismatch_rows)
+    csv('fingerprint_price_text_flags.csv',price_text_rows,['id','source','candidate','reason'])
+    source_counts={k:int(v) for k,v in df.source.value_counts().items()}
+    summary=dict(N=len(df),groups=len(gs),publication_groups=df.publication_group_id.nunique(),singletons=int(gs.n.eq(1).sum()),
+        singleton_pct=100*gs.n.eq(1).mean(),max_group=int(gs.n.max()),listing_group_ratio=len(df)/len(gs),
+        group_sizes={str(b):int(gs.n.eq(b).sum()) for b in [1,2,3,4]},groups_5plus=int(gs.n.ge(5).sum()),
+        multi_source_groups=int(gs.source_count.gt(1).sum()),same_source_multilisting_groups=sum(len(p)>p.source.nunique() for _,p in df.groupby('group_id')),
+        varying_price_groups=int(dd.price_range.gt(0).sum()) if len(dd) else 0,
+        groups_coordinate_spread_gt1km=int(gs.maximum_coordinate_distance_km.gt(1).sum()),
+        groups_coordinate_spread_gt5km=int(gs.maximum_coordinate_distance_km.gt(5).sum()),
+        groups_coordinate_spread_known=int(gs.maximum_coordinate_distance_km.notna().sum()),
+        fingerprint_price_invariance_tested=tested,fingerprint_current_rule_mismatches=mismatches,
+        price_text_titles_apartments=len(price_text_rows),price_text_titles_candidates=sum(r['candidate'] for r in price_text_rows),
+        suspicious_ungrouped_pairs=len(suspicious),source_counts=source_counts,
+        geo_usable=int(df.geo_usable.sum()),geo_pct=100*df.geo_usable.mean(),coords=int(df.coords_valid.sum()),
+        address_raw=int((df.coords_valid & df.precision_normalized.eq('address')).sum()),
+        other_coords=int((df.coords_valid & ~df.precision_normalized.eq('address')).sum()),no_coords=int((~df.coords_valid).sum()),
+        n_comunas=df.comuna.nunique(),top5_comunas={k:int(v) for k,v in df.comuna.value_counts().head(5).items()},
+        comunas_lt10_groups={k:int(v) for k,v in comunagroups.items() if v<10},hhi=hhi,effective_comunas=1/hhi,
+        parking_zero=int(df.parking.eq(0).sum()),bathroom_zero=int(df.bathrooms.eq(0).sum()),bedroom_zero=int(df.bedrooms.eq(0).sum()),
+        implausible_area=int((~df.plausible_area_existing_bounds).sum()),missing_property_id=int(df.property_id.isna().sum()),
+        holdout_groups=round(.2*len(gs)),train_groups_80=len(gs)-round(.2*len(gs)),eda=eda,date_summary=date_stats,
+        captured_at=snapshot['captured_at'],input_sha256=hashlib.sha256(dest.read_bytes()).hexdigest(),code_commit=before['commit'])
+    summary['geo_usable_apartment_only_guard']=sum(g.geocode_precision=='address' and g.id in set(df.id)
+        for g in apply_geocoding_guardrails(copy.deepcopy([o for o in objects if o.property_type=='apartment'])))
+    summary['geo_usable_candidate_only_guard']=sum(g.geocode_precision=='address' for g in apply_geocoding_guardrails(copy.deepcopy([o for o in objects if o.id in set(df.id)])))
+    summary['price_basis_counts']={k:int(v) for k,v in df.price_basis.value_counts().items()}
+    summary['price_quality_counts']={k:int(v) for k,v in df.price_quality.value_counts().items()}
+    summary['strict_price_exclusion_counts']={k:int(v) for k,v in df.existing_strict_price_exclusion.dropna().value_counts().items()}
+    summary['spatial_cells']=len(spatial)
+    summary['geo_far_from_santiago']=len(geo_flags)
+    summary['geo_far_address_guarded']=sum(r['precision_guarded']=='address' for r in geo_flags)
+    summary['anomaly_listing_count']=len(anomaly)
+    summary['groups_by_source']={s:int(p.group_id.nunique()) for s,p in df.groupby('source')}
+    listing_shares=df.comuna.value_counts(normalize=True)
+    summary['hhi_listings']=float((listing_shares**2).sum())
+    summary['effective_comunas_listings']=float(1/(listing_shares**2).sum())
+    summary['manual_size2_groups']=len(set(r['group_id'] for r in review if r['sample_type']=='size2'))
+    summary['manual_size3plus_groups']=len(set(r['group_id'] for r in review if r['sample_type']=='size3plus'))
+    summary['grouped_with_different_bedrooms']=int(dd.bedrooms_distinct.gt(1).sum())
+    summary['grouped_with_different_bathrooms']=int(dd.bathrooms_distinct.gt(1).sum())
+    summary['grouped_with_different_parking']=int(dd.parking_distinct.gt(1).sum())
+    summary['python_version']=platform.python_version(); summary['numpy_version']=np.__version__; summary['pandas_version']=pd.__version__
+    dump('results.json',summary)
+    after=inventory(); dump('integrity_after.json',after); assert before==after,'Product checkout changed'
+    dump('verification.json',dict(checkout_unchanged=True,files_hashed=len(before['hashes']),
+        candidate_ids_unique=bool(df.id.is_unique),counts_reconcile=sum(source_counts.values())==len(df),
+        groups_reconcile=int(gs.n.sum())==len(df),price_invariance_tested=tested,
+        all_edges_transitive=all(groupmap[e['id_a']]==groupmap[e['id_b']] for e in edges)))
+    print(json.dumps({k:v for k,v in summary.items() if k not in ['date_summary','eda']},ensure_ascii=False,indent=2))
+
+if __name__=='__main__': main()

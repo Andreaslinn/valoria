@@ -1,0 +1,42 @@
+"""Stage a review image and isolated canary only; never modify running services."""
+import pathlib,subprocess,json,hashlib
+package=pathlib.Path('outputs/oracle-resilience-20261015/candidate.tar.gz')
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+root='/home/ubuntu/apps/valoria/private/ingestion-review-20261015'
+remote="umask 077; mkdir -p "+root+"; cat > "+root+"/candidate.tar.gz"
+r=subprocess.run(ssh+[remote],input=package.read_bytes(),capture_output=True,timeout=60)
+if r.returncode:raise SystemExit('Upload failed')
+code='''import pathlib,hashlib,tarfile,subprocess,json,os
+root=pathlib.Path("ROOT")
+package=root/"candidate.tar.gz"
+assert hashlib.sha256(package.read_bytes()).hexdigest()=="DIGEST"
+with tarfile.open(package) as archive:
+ for member in archive.getmembers():
+  destination=(root/member.name).resolve()
+  if not destination.is_relative_to(root.resolve()) or not member.isfile():raise RuntimeError("unsafe_archive")
+ archive.extractall(root)
+manifest=json.loads((root/"app/release-manifest.json").read_text())
+runtime=json.loads(subprocess.check_output(["docker","image","inspect","valoria-canonical-runtime:22081087e836"]))[0]
+assert runtime["Id"]==manifest["runtime_dependencies_image_id"]
+before=json.loads(subprocess.check_output(["docker","inspect","valoria_oracle_beta-api-1"]))[0]
+assert before["Image"]=="sha256:2aa86cd937c507681b65b9dff0453b6ef76ab9e30eadfb9cc2fc75eaa7c2c9fb"
+image="valoria-ingestion-review:"+manifest["commit"][:12]
+env=dict(os.environ,DOCKER_BUILDKIT="0")
+r=subprocess.run(["docker","build","--network=none","--memory=384m","--cpu-quota=25000","--cpu-period=100000","--build-arg","RELEASE_COMMIT="+manifest["commit"],"-t",image,str(root)],capture_output=True,text=True,timeout=180,env=env)
+print(json.dumps({"step":"build","exit":r.returncode,"image":image,"commit":manifest["commit"]}),flush=True)
+if r.returncode:
+ print(r.stdout[-2000:]);print(r.stderr[-2000:]);raise SystemExit(r.returncode)
+args=["docker","run","--rm","--name","valoria-ingestion-review-canary","--user",str(os.getuid())+":"+str(os.getgid()),"--memory=384m","--memory-swap=384m","--cpus=0.25","--pids-limit=96","--cap-drop=ALL","--security-opt=no-new-privileges","--read-only","--tmpfs","/tmp:rw,nosuid,nodev,size=32m",
+ "-e","DATABASE_URL=sqlite+aiosqlite:///:memory:","-e","SYNC_DATABASE_URL=sqlite:///:memory:","-e","JWT_SECRET_KEY="+"0"*32,"-e","PORTAL_HTTP_ENABLED=true","-e","PORTAL_SESSION_FILE=/portal-session/session.json","-e","PORTAL_SESSION_READ_ONLY=1","-e","ENABLE_SCHEDULER=false",
+ "--volume","/home/ubuntu/apps/valoria/private/portal-session:/portal-session:ro","--entrypoint","python",image,"-B","scripts/ingestion_canary.py"]
+r=subprocess.run(args,capture_output=True,text=True,timeout=240)
+proof={"step":"canary","exit":r.returncode,"image":image,"stdout":r.stdout.strip(),"stderr":r.stderr[-3000:]}
+(root/"canary-result.json").write_text(json.dumps(proof,indent=2))
+print(json.dumps(proof),flush=True)
+after=json.loads(subprocess.check_output(["docker","inspect","valoria_oracle_beta-api-1"]))[0]
+assert before["Id"]==after["Id"] and before["State"]["StartedAt"]==after["State"]["StartedAt"]
+print(json.dumps({"production_container_unchanged":True}),flush=True)
+'''.replace('ROOT',root).replace('DIGEST',hashlib.sha256(package.read_bytes()).hexdigest())
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=450)
+out=pathlib.Path('outputs/oracle-resilience-20261015/oracle-canary-transport.txt');out.write_text(r.stdout+'\n'+r.stderr,encoding='utf-8')
+print(r.stdout);print('ssh_exit',r.returncode)

@@ -1,0 +1,22 @@
+import os,subprocess,json
+from pathlib import Path
+import httpx
+def github_env():
+ env=dict(os.environ,GCM_INTERACTIVE='never',GIT_TERMINAL_PROMPT='0')
+ p=subprocess.run(['git','credential','fill'],input='protocol=https\nhost=github.com\nusername=Andreaslinn\n\n',capture_output=True,text=True,env=env,timeout=20)
+ if p.returncode:raise RuntimeError('Existing GitHub credential unavailable')
+ fields=dict(line.split('=',1) for line in p.stdout.splitlines() if '=' in line)
+ assert fields.get('password'),'No existing GitHub credential'
+ return dict(env,GH_TOKEN=fields['password'])
+def github_client():
+ return httpx.Client(base_url='https://api.github.com',headers={'Authorization':'Bearer '+github_env()['GH_TOKEN'],'Accept':'application/vnd.github+json'},timeout=30)
+if __name__=='__main__':
+ with github_client() as c:
+  user=c.get('/user');user.raise_for_status();print(json.dumps({'authenticated_login':user.json()['login']}))
+  repos=[]
+  for page in range(1,6):
+   res=c.get('/user/repos',params={'per_page':100,'page':page});res.raise_for_status();data=res.json();repos+=data
+   if len(data)<100:break
+  matches=[{k:x.get(k) for k in ['full_name','private','html_url','default_branch','description']} for x in repos if 'valoria' in (x['name']+' '+(x.get('description') or '')).lower()]
+  Path(__file__).with_name('github-discovery.json').write_text(json.dumps({'user':user.json()['login'],'matching_repositories':matches},indent=2))
+  print(json.dumps(matches,indent=2))

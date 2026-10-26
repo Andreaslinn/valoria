@@ -1,0 +1,9 @@
+from pathlib import Path
+import json
+from netlify_bridge import netlify_client
+with netlify_client() as c:
+ r=c.get('/sites/0af3d12f-a75b-494e-b75a-333a6165db68');r.raise_for_status();s=r.json();b=s['build_settings']
+ out={'site_id':s['id'],'url':s['ssl_url'],'build_settings':{k:b.get(k) for k in ['provider','repo_path','repo_branch','base','dir','cmd','base_rel_dir','stop_builds','installation_id']},'published_deploy':{k:(s.get('published_deploy') or {}).get(k) for k in ['id','state','context','commit_ref','published_at','build_id']}}
+ r=c.get('/sites/'+s['id']+'/deploys');r.raise_for_status();out['deploys']=[{k:d.get(k) for k in ['id','state','context','commit_ref','published_at','error_message','build_id']} for d in r.json()[:4]]
+ old=c.get('/sites/346587ad-56cc-4a1c-afd3-218d750a2183');old.raise_for_status();old=old.json();out['legacy_entrypoint_site']={'site_id':old['id'],'production_branch':old['build_settings']['repo_branch'],'published_deploy':{k:old['published_deploy'].get(k) for k in ['id','state','commit_ref','published_at','build_id']},'authorized_changed_routes':['/','/login'],'original_deploy_retained_for_rollback':'6a61ec59082af70008237760'}
+ Path('work/netlify-production-status.json').write_text(json.dumps(out,indent=2));print(json.dumps(out,indent=2))

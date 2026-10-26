@@ -1,0 +1,7 @@
+import sys,pathlib,subprocess
+source=pathlib.Path(sys.argv[1]).read_text(encoding='utf8')
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -'],input=source,text=True,encoding='utf8',capture_output=True,timeout=1800)
+out=pathlib.Path('outputs/published-fields/deploy');out.mkdir(exist_ok=True)
+(out/(pathlib.Path(sys.argv[1]).stem+'.log')).write_text(r.stdout+'\n'+r.stderr,encoding='utf8')
+print(r.stdout[-10000:]);print(r.stderr[-500:] if r.returncode else '')
+raise SystemExit(r.returncode)

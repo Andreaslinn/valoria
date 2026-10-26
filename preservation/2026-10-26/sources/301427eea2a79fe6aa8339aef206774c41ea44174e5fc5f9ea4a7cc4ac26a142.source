@@ -1,0 +1,18 @@
+# Valoria 2.0 — Resumen
+
+Frontend independiente de Valoria 1.x. Primera pasada visual, con datos ilustrativos.
+
+```powershell
+npm ci
+npm run dev
+```
+
+Abrir http://localhost:3002 (también `/resumen` y `/app`). Para compilar: `npm run build`.
+
+- Tokens visuales: `src/app/tokens.css`.
+- Datos reemplazables: `src/features/summary/data.ts`.
+- Shell y componentes compartidos: `src/components/`.
+- Cliente, autenticación por token y contratos API reutilizados de 1.x: `src/lib/` y `src/types/`. Configuración: `.env.example`. Esta vista no hace llamadas al backend todavía.
+- Los periodos, búsqueda de ejemplos, detalles y marcadores funcionan localmente. Los marcadores duran hasta recargar; las demás páginas quedan pendientes.
+- Fotografías ilustrativas: Unsplash, imágenes `photo-1600210492486-724fe5c67fb0` y `photo-1600607687939-ce8a6c25118c`.
+- Fuentes Inter y Barlow servidas localmente; licencias OFL en `public/fonts/`.

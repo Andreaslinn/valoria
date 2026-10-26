@@ -1,0 +1,10 @@
+from pathlib import Path
+import shutil
+repo=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled');base=Path('work/oracle-runtime')
+for name in ['services/thumbnails.py','api/v1/thumbnails.py']:
+ shutil.copyfile(base/name,repo/name)
+shutil.copytree(base/'infrastructure/thumbnails',repo/'infrastructure/thumbnails',dirs_exist_ok=True,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+source=Path(r'C:\Users\heiko\Documents\Codex\2026-10-05\files-pasted-by-the-user-quiero\work\shared-thumbnails\frontend-v2\src')
+for name in ['components/ui/property-photo.tsx','components/ui/property-photo.css','types/thumbnail.ts']:
+ shutil.copyfile(source/name,repo/'frontend-v2/src'/name)
+print('Reused existing Oracle thumbnail backend and existing V2 image component; no new pipeline introduced')

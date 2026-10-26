@@ -1,0 +1,8 @@
+import subprocess,pathlib,json
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -']
+out=pathlib.Path('outputs/oracle-resilience-20261015')
+for source,target in [('work/oracle_history_forensics.py','historical-forensics.json'),('work/replay_portal_legacy_failure.py','historical-replay.jsonl')]:
+ r=subprocess.run(ssh,input=pathlib.Path(source).read_bytes(),capture_output=True,timeout=220)
+ if r.returncode:raise SystemExit('Read-only evidence capture failed')
+ (out/target).write_bytes(r.stdout)
+ print(target,'saved')

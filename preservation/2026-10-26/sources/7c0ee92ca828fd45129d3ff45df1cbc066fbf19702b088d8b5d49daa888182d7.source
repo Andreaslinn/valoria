@@ -1,0 +1,20 @@
+"""Full listing metadata from LOCAL dev DB only, explicit read-only rollback."""
+import subprocess,json
+from datetime import datetime,timezone
+from common import H,save,sha
+SQL="""BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SELECT json_build_object('schema',(SELECT version_num FROM alembic_version),'listings',
+ (SELECT json_agg(x ORDER BY id) FROM
+ (SELECT id, source, external_id,title,url,comuna,property_type,m2,built_area_m2,usable_area_m2,land_area_m2,
+ bedrooms,bathrooms,parking,lat,lon,geocode_precision,price_clp,price_uf,price_currency,
+ price_uf_source,price_uf_confidence,price_recovery_method,raw_metadata,scraped_at,last_seen_at,
+ status,created_at,updated_at FROM listings WHERE status='active') x));
+ROLLBACK;"""
+if __name__=='__main__':
+    out=H/'private/local_current_snapshot.json'
+    if out.exists(): raise SystemExit('Refusing overwrite')
+    cmd=['docker','exec','-i','valoria-v2-dev-postgres-1','sh','-c','exec psql --no-psqlrc -U "$POSTGRES_USER" -d "$POSTGRES_DB" -qAt -v ON_ERROR_STOP=1']
+    p=subprocess.run(cmd,input=SQL.encode(),capture_output=True,check=True)
+    d=json.loads(p.stdout); d['captured_at']=datetime.now(timezone.utc).isoformat(); d['environment']='local_dev_read_only'
+    out.parent.mkdir(exist_ok=True); save('private/local_current_snapshot.json',d)
+    print('Captured local ONLY',len(d['listings']),'active rows; SHA256',sha(out.read_bytes()))

@@ -1,0 +1,103 @@
+"""Offline service replay in a process isolated from frozen A modules.
+
+Only in-memory repo, archived UF and copied deployed source are available.
+Located/enriched are explicit experimental target-construction adapters.
+Candidate interventions replace comparable-family value, keeping its confidence
+and proportional interval unchanged; no new family, tuning or productive patch.
+"""
+from pathlib import Path
+import sys,json,os,asyncio,logging,math
+from datetime import datetime,date
+from decimal import Decimal
+from dataclasses import replace
+HERE=Path(__file__).resolve().parent
+sys.path.insert(0,str(HERE/'deployed_runtime'))
+logging.disable(logging.CRITICAL)
+evidence=json.loads((HERE/'oracle_runtime.json').read_text())
+for key,val in evidence['flag_environment'].items():
+ if val is None:os.environ.pop(key,None)
+ else:os.environ[key]=val
+from core.entities.listing import Listing,Property
+from core.value_objects.price import Price
+from core.value_objects.location import Coordinates
+from core.ports.uf_service import UFRateInfo
+from core.exceptions import InsufficientDataError,ValidationError
+from domain.geocoding.quality import apply_geocoding_guardrails
+from domain.valuation.engines.contracts import EngineRequest,EngineContext
+from domain.valuation.engines.registry import experimental_engine_registry
+from domain.valuation.price_surface import clear_price_surface_cache
+import services.valuation as svc
+
+def listing(payload):
+ p=dict(payload);p['price']=Price(clp=Decimal(str(p['price']['clp'])))
+ if p.get('price_uf') is not None:p['price_uf']=Decimal(str(p['price_uf']))
+ if p.get('coordinates'):p['coordinates']=Coordinates(**p['coordinates'])
+ for k in ['scraped_at','last_seen_at','last_refresh_attempted_at']:
+  if p.get(k):p[k]=datetime.fromisoformat(p[k])
+ return Listing(**p)
+
+class Repo:
+ def __init__(self,rows):self.rows=rows
+ async def find_active_in_comuna(self,comuna,property_type=None):
+  return apply_geocoding_guardrails([replace(l) for l in self.rows if l.comuna==comuna and l.status=='active' and (property_type is None or l.property_type==property_type)])
+class UF:
+ def __init__(self,r):self.r=r
+ async def get_current_rate_info(self):return UFRateInfo(rate=Decimal(str(self.r['value'])),source=self.r['source'],rate_date=date.fromisoformat(self.r['effective_date']))
+
+class FamilyValue:
+ name='comparables_canonical_outliers';version='sandbox_value_intervention_v1'
+ def __init__(self,original,value):self.original=original;self.value=value
+ def valuate(self,request,context):
+  r=self.original.valuate(request,context)
+  if not r.is_successful or self.value is None:return r
+  clp=Decimal(str(self.value))*context.uf_to_clp
+  factor=clp/r.estimated_price_clp
+  return replace(r,estimated_price_uf=Decimal(str(self.value)),estimated_price_clp=clp,range_low_clp=r.range_low_clp*factor,range_high_clp=r.range_high_clp*factor,diagnostics={**r.diagnostics,'sandbox_value_intervention':True})
+
+async def replay(data):
+ rows=[listing(p) for p in data['pool']];repo=Repo(rows);rate=Decimal(str(data['uf_reference']['value']));out={}
+ original_property=svc.Property
+ for target in data['targets']:
+  p=target['canonical_target'];current=[None]
+  def property_factory(**kw):
+   if data['mode']!='manual':
+    kw['coordinates']=Coordinates(**p['coordinates']) if p.get('coordinates') else None
+    kw['geocode_precision']=p.get('geocode_precision') or 'unknown'
+    kw['raw_metadata']=dict(p.get('raw_metadata') or {}) if data['mode']=='enriched' else {}
+   obj=Property(**kw);current[0]=obj;return obj
+  svc.Property=property_factory
+  physical=svc.ValuationInput(comuna=p['comuna'],property_type=p['property_type'],m2=p['m2'],built_area_m2=p.get('built_area_m2'),usable_area_m2=p.get('usable_area_m2'),land_area_m2=p.get('land_area_m2'),dormitorios=p.get('bedrooms'),banos=p.get('bathrooms'),estacionamientos=p.get('parking'))
+  r={};baseline_family=None
+  for label,value in [('Final',None),('FinalAM',target['am']),('FinalBlend',target['blend'])]:
+   registry=experimental_engine_registry()
+   if value is not None:registry._engines['comparables_canonical_outliers']=FamilyValue(registry.get('comparables_canonical_outliers'),value)
+   service=svc.ValuationService(listing_repo=repo,uf_service=UF(data['uf_reference']),engine_registry=registry)
+   clear_price_surface_cache()
+   try:
+    dto=await service.valuate_property(physical,valuation_strategy='consensus_v1')
+    r[label]=dto.estimated_price_uf
+    if label=='Final':
+     r['trace']={'consensus_used':dto.consensus_used,'strategy':dto.valuation_strategy,'fallback_reason':dto.consensus_unavailable_reason,'comparable_count':dto.comparable_count,'base_uf':dto.base_estimated_price_uf,'surface_weight':dto.surface_adjustment_weight,'surface_reason':dto.surface_adjustment_reason,'selected':dto.selected_engine_names,'families':[e.to_payload() for e in dto.engine_results],'weights':dto.weight_audit,'candidate_ids':[l.id for l in await repo.find_active_in_comuna(p['comuna'],p['property_type'])]}
+   except (InsufficientDataError,ValidationError) as exc:
+    r[label]=None
+    if label=='Final':r['trace']={'status':'service_pre_consensus_abstention','reason':type(exc).__name__}
+  # Exact deployed A family on the SAME service pool, independently of service's early gate.
+  pool=await repo.find_active_in_comuna(p['comuna'],p['property_type'])
+  clear_price_surface_cache()
+  a=experimental_engine_registry().get('comparables_canonical_outliers').valuate(EngineRequest(published_price_provided=False),EngineContext(target=current[0],candidates=pool,uf_to_clp=rate))
+  r['DeployedA']=float(a.estimated_price_uf) if a.is_successful else None
+  r['trace']['deployed_A_status']=a.status
+  out[target['row_id']]=r
+ svc.Property=original_property
+ return out
+
+if __name__=='__main__':
+ data=json.load(sys.stdin)
+ loop=asyncio.new_event_loop()
+ asyncio.set_event_loop(loop)
+ # Network is prohibited even if a future copied engine attempts IO.
+ import socket
+ def denied(*a,**kw):raise RuntimeError('Network prohibited in offline service replay')
+ socket.create_connection=denied;socket.socket.connect=denied
+ try:print(json.dumps(loop.run_until_complete(replay(data)),default=str,allow_nan=False))
+ finally:loop.close()

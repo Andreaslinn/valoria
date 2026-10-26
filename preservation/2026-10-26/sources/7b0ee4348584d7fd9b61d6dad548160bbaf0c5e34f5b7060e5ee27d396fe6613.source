@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator
+
+import httpx
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+from api.main import create_app
+from api.security import hash_password
+from core.entities.user import User
+from infrastructure.db.database import get_db
+from infrastructure.db.repositories import SqlAlchemyUserRepository
+
+
+@pytest_asyncio.fixture
+async def client(engine: AsyncEngine) -> AsyncGenerator[httpx.AsyncClient, None]:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    async def _get_db_override() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            yield session
+
+    app = create_app()
+    app.dependency_overrides[get_db] = _get_db_override
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as test_client:
+        yield test_client
+
+
+@pytest_asyncio.fixture
+async def auth_headers(engine: AsyncEngine, client: httpx.AsyncClient) -> dict[str, str]:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with session_factory() as session:
+        repo = SqlAlchemyUserRepository(session)
+        await repo.save(
+            User(
+                id=None,
+                email="reports@example.com",
+                password_hash=hash_password("passwordsegura123"),
+                role="beta_user",
+                is_active=True,
+            )
+        )
+        await session.commit()
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "reports@example.com", "password": "passwordsegura123"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.mark.asyncio
+async def test_valuation_report_requires_auth(client: httpx.AsyncClient) -> None:
+    response = await client.post("/api/v1/reports/valuation", json=_valuation_report_payload())
+
+    assert response.status_code in {401, 403}
+
+
+@pytest.mark.asyncio
+async def test_valuation_report_html_download_headers_and_context(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/api/v1/reports/valuation",
+        headers=auth_headers,
+        json=_valuation_report_payload(),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["content-disposition"].startswith('attachment; filename="valoria-tasacion-nunoa-')
+    assert response.headers["content-disposition"].endswith('.html"')
+    html = response.text
+    assert "Investment Intelligence Report" in html
+    assert "Ñuñoa" in html
+    assert "m²" in html
+    assert "published_price_not_provided" not in html
+    assert "listing id para watchlist" not in html
+    assert "Traceback" not in html
+
+
+@pytest.mark.asyncio
+async def test_consensus_valuation_report_lists_only_real_engine_participants(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    payload = _valuation_report_payload()
+    payload["valuation_result"].update(
+        {
+            "consensus_used": True,
+            "valuation_strategy": "consensus_v1",
+            "engine_breakdown": [
+                {
+                    "engine_name": "comparables_canonical_outliers",
+                    "estimate_uf": 5100,
+                    "low_uf": 4900,
+                    "high_uf": 5300,
+                    "confidence": 0.72,
+                    "weight": 0.42,
+                    "status": "ok",
+                },
+                {
+                    "engine_name": "hedonic_baseline_v1",
+                    "estimate_uf": 5000,
+                    "confidence": 0.68,
+                    "weight": 0.18,
+                    "status": "ok",
+                },
+                {
+                    "engine_name": "microzone_geo_v1",
+                    "status": "insufficient_data",
+                    "explanation": "No hubo evidencia suficiente para que este motor participe.",
+                },
+                {
+                    "engine_name": "market_trends_v1",
+                    "estimate_uf": 9000,
+                    "weight": 0.0,
+                    "status": "failed",
+                },
+            ],
+            "consensus_audit": {
+                "engines_used": ["comparables_canonical_outliers", "hedonic_baseline_v1"],
+            },
+        }
+    )
+
+    response = await client.post("/api/v1/reports/valuation", headers=auth_headers, json=payload)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Cómo se calculó esta tasación" in html
+    assert "Consenso multimotor" in html
+    assert "Comparables Valoria" in html
+    assert "Modelo hedonico" in html
+    assert "UF 5.100,00" in html
+    assert "42 %" in html
+    assert "No participó" in html
+    assert "Tendencia de mercado" in html
+    assert "UF 9.000,00" not in html
+
+
+@pytest.mark.asyncio
+async def test_single_engine_valuation_report_explains_the_real_method(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    payload = _valuation_report_payload()
+    payload["valuation_result"].update(
+        {
+            "consensus_used": False,
+            "selected_engine_names": ["hedonic_baseline_v1"],
+            "valuation_strategy": "single_engine",
+        }
+    )
+    response = await client.post("/api/v1/reports/valuation", headers=auth_headers, json=payload)
+
+    assert response.status_code == 200
+    assert "Cómo se calculó esta tasación" in response.text
+    assert "Modelo hedonico" in response.text
+    assert "fallback" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_fallback_report_explains_missing_consensus_and_safe_engine_states(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    payload = _valuation_report_payload()
+    payload["valuation_result"].update(
+        {
+            "consensus_used": False,
+            "valuation_strategy": "current_engine_fallback",
+            "fallback_engine_used": "current_valuation",
+            "consensus_unavailable_reason": "insufficient_distinct_engine_families",
+            "engine_breakdown": [
+                {
+                    "engine_name": "hedonic_baseline_v1",
+                    "status": "insufficient_data",
+                    "explanation": "No hubo evidencia suficiente para que este motor participe.",
+                },
+                {
+                    "engine_name": "microzone_geo_v1",
+                    "estimate_uf": 9999,
+                    "status": "failed",
+                    "explanation": "internal_exception: weak_microzone",
+                },
+            ],
+        }
+    )
+
+    response = await client.post("/api/v1/reports/valuation", headers=auth_headers, json=payload)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Comparables Valoria" in html
+    assert "No disponible para esta tasación" in html
+    assert "familias de modelos distintas" in html
+    assert "Modelo hedonico" in html
+    assert "No participó" in html
+    assert "UF 9.999,00" not in html
+    assert "weak_microzone" not in html
+
+
+@pytest.mark.asyncio
+async def test_fallback_without_breakdown_does_not_invent_engines_or_reasons(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    payload = _valuation_report_payload()
+    payload["valuation_result"].update(
+        {
+            "consensus_used": False,
+            "valuation_strategy": "current_engine_fallback",
+            "fallback_engine_used": "current_valuation",
+        }
+    )
+
+    response = await client.post("/api/v1/reports/valuation", headers=auth_headers, json=payload)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Comparables Valoria" in html
+    assert "no hubo evidencia suficiente para construir un consenso multimotor" in html
+    assert "Modelo territorial" not in html
+
+
+@pytest.mark.asyncio
+async def test_listing_analysis_report_html_download_headers_and_listing_context(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/api/v1/reports/listing-analysis",
+        headers=auth_headers,
+        json={"analysis": _listing_analysis()},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "no-store"
+    assert 'filename="valoria-analisis-publicacion-123-' in response.headers["content-disposition"]
+    html = response.text
+    assert "Listing Risk / Opportunity Report" in html
+    assert "Precio publicado" in html
+    assert "https://example.test/depto-123" not in response.headers["content-disposition"]
+    assert "publication_history_missing" not in html
+    assert "Traceback" not in html
+
+
+@pytest.mark.asyncio
+async def test_report_pdf_format_is_controlled_422(
+    client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await client.post(
+        "/api/v1/reports/valuation?format=pdf",
+        headers=auth_headers,
+        json=_valuation_report_payload(),
+    )
+
+    assert response.status_code == 422
+    assert "PDF no disponible" in response.json()["detail"]
+
+
+def _valuation_report_payload() -> dict:
+    return {
+        "valuation_payload": {
+            "comuna": "Ñuñoa",
+            "property_type": "apartment",
+            "m2": 75,
+            "built_area_m2": 75,
+            "dormitorios": 2,
+            "banos": 2,
+            "estacionamientos": 1,
+        },
+        "valuation_result": {
+            "estimated_price_uf": 5200,
+            "estimated_price_clp": 205000000,
+            "price_range_low_uf": 4900,
+            "price_range_high_uf": 5500,
+            "confidence": "medium",
+            "confidence_label": "medium",
+            "comparable_count": 6,
+            "price_m2_uf": 69.3,
+            "warnings": ["published_price_not_provided", "low_data_mode"],
+            "comparables": [
+                {
+                    "listing_id": 10,
+                    "title": "Comparable Ñuñoa",
+                    "comuna": "Ñuñoa",
+                    "price_uf": 5100,
+                    "price_clp": 201000000,
+                    "m2": 74,
+                    "similarity": 0.82,
+                    "url": "https://example.test/comparable",
+                }
+            ],
+        },
+    }
+
+
+def _listing_analysis() -> dict:
+    return {
+        "listing": {
+            "listing_id": 123,
+            "title": "Departamento en Estación Central",
+            "url": "https://example.test/depto-123",
+            "source": "test",
+            "comuna": "Estación Central",
+            "property_type": "apartment",
+            "m2": 46,
+            "built_area_m2": 46,
+            "bedrooms": 1,
+            "bathrooms": 1,
+            "parking": 0,
+            "price_uf": 1450,
+            "price_clp": 58000000,
+        },
+        "valuation": {
+            "estimated_value_uf": 1700,
+            "estimated_value_clp": 68000000,
+            "range_low_uf": 1600,
+            "range_high_uf": 1800,
+            "confidence_score": 0.72,
+            "confidence_label": "medium",
+            "comparables_used": 5,
+            "warnings": ["publication_history_missing"],
+        },
+        "price_analysis": {
+            "published_price_uf": 1450,
+            "estimated_price_uf": 1700,
+            "difference_uf": 250,
+            "difference_pct": 14.7,
+            "verdict": "under_market",
+            "verdict_label": "Bajo estimado",
+            "explanation": "Precio bajo estimacion.",
+        },
+        "signals": {"positives": [], "risks": [], "unavailable": []},
+        "report_status": {"listing_risk_report_available": True, "reason": "Disponible"},
+    }

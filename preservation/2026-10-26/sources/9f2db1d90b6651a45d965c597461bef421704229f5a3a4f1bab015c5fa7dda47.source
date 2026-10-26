@@ -1,0 +1,39 @@
+import asyncio,io,hashlib,time,sys,json
+from datetime import datetime,UTC,date,timedelta
+from decimal import Decimal
+from pathlib import Path
+from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
+from sqlalchemy import text
+from infrastructure.db.models import UserORM,ListingORM,SavedListingORM,AlertORM,UFRateORM
+from api.security import hash_password
+from config import get_settings
+from infrastructure.thumbnails.pipeline import Store
+from PIL import Image
+async def main():
+ engine=create_async_engine(get_settings().database_url)
+ now=datetime.now(UTC)
+ async with async_sessionmaker(engine,expire_on_commit=False)() as s:
+  assert not (await s.execute(text('select id from users limit 1'))).first(), 'Isolated seed requires empty candidate DB'
+  s.add_all([UserORM(id=1,email='candidate-a@example.test',password_hash=hash_password('CandidateOnly123!'),role='admin',is_active=True),UserORM(id=2,email='candidate-b@example.test',password_hash=hash_password('CandidateOnly123!'),role='beta_user',is_active=True),UserORM(id=3,email='candidate-empty@example.test',password_hash=hash_password('CandidateOnly123!'),role='beta_user',is_active=True)])
+  s.add(UFRateORM(date=date.today(),value_clp=Decimal('40000'),source='isolated_e2e_fixture',fetched_at=now))
+  rows=[]
+  for lid in [1130,1131,298,3633]+list(range(10000,10014)):
+   portal=lid==3633; removed=lid==298
+   ext='MLC-4082793840' if portal else '31261710' if lid==1130 else str(lid)
+   url='https://www.portalinmobiliario.com/MLC-4082793840-departamento' if portal else 'https://www.yapo.cl/departamento/31261710'+('?utm_source=duplicate' if lid==1131 else '') if lid in (1130,1131) else f'https://www.yapo.cl/departamento/{ext}'
+   price=1520 if lid in (1130,1131) else 3000+(lid%14)*25
+   row=ListingORM(id=lid,source='portalinmobiliario' if portal else 'yapo',external_id=ext,title=f'Fixture departamento Independencia {lid}',url=url,comuna='independencia',property_type='apartment',m2=50+(lid%3),built_area_m2=50+(lid%3),usable_area_m2=50+(lid%3),bedrooms=2,bathrooms=1,parking=1,lat=-33.42,lon=-70.66,geocode_precision='street',price_clp=price*40000,price_uf=price,price_currency='UF',price_uf_confidence='high',price_uf_source='published',status='removed' if removed else 'active',fingerprint=f'isolated-{lid}',raw_metadata={},scraped_at=now,last_seen_at=datetime(2026,6,5,16,23,39,tzinfo=UTC) if removed else now,last_refresh_attempted_at=now,last_refresh_status='ok')
+   rows.append(row)
+  s.add_all(rows);await s.flush()
+  for uid in [1,2]:
+   for lid in [1130,298,3633]:s.add(SavedListingORM(user_id=uid,listing_id=lid,status='active',saved_price_clp=60800000,saved_price_uf=1520,note='Isolated candidate fixture'))
+  s.add(AlertORM(id=1,listing_id=1130,alert_type='price_drop',payload={'previous_price_clp':72000000,'new_price_clp':60800000,'drop_pct':15.56},is_read=False,created_at=now))
+  await s.commit()
+ await engine.dispose()
+ root=Path(__import__('os').environ['THUMBNAIL_STORAGE_ROOT']);store=Store(root)
+ out=io.BytesIO();Image.new('RGB',(320,220),(70,100,120)).save(out,format='WEBP');blob=out.getvalue();digest=hashlib.sha256(blob).hexdigest();(store.assets/(digest+'.webp')).write_bytes(blob)
+ with store.connection() as db:
+  db.execute('INSERT INTO thumbnails(listing_id,source,status,asset_key,width,height,bytes,content_hash,last_seen) VALUES (?,?,?,?,?,?,?,?,?)',(1130,'yapo','ready',digest+'.webp',320,220,len(blob),digest,time.time()))
+ store.close()
+ print('Seeded isolated PostgreSQL: 3 synthetic users,18 listings,shared alert and bounded derived image. UF40000 is explicitly synthetic. No production mutation.')
+asyncio.run(main())

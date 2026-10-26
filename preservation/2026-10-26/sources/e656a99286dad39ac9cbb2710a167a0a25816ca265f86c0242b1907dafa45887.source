@@ -1,0 +1,36 @@
+"""Frozen initial DDL for the isolated property_life schema."""
+
+from alembic import op
+
+revision = "life_0001"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+DDL = [
+    "CREATE TABLE property_life.source_file (\n\tid SERIAL NOT NULL, \n\tkind TEXT NOT NULL, \n\tfilename TEXT NOT NULL, \n\tsha256 TEXT NOT NULL, \n\tversion_date DATE NOT NULL, \n\timported_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\trow_count BIGINT NOT NULL, \n\tPRIMARY KEY (id), \n\tUNIQUE (kind, sha256)\n)",
+    "CREATE TABLE property_life.construction_line (\n\tid SERIAL NOT NULL, \n\tsource_file_id INTEGER NOT NULL, \n\trow_number INTEGER NOT NULL, \n\tcomuna INTEGER NOT NULL, \n\tmz INTEGER NOT NULL, \n\tpr INTEGER NOT NULL, \n\tdata JSON NOT NULL, \n\tPRIMARY KEY (id), \n\tUNIQUE (source_file_id, row_number), \n\tFOREIGN KEY(source_file_id) REFERENCES property_life.source_file (id)\n)",
+    "CREATE TABLE property_life.property (\n\tid SERIAL NOT NULL, \n\tsource_file_id INTEGER NOT NULL, \n\tcomuna INTEGER NOT NULL, \n\tmz INTEGER NOT NULL, \n\tpr INTEGER NOT NULL, \n\tdir TEXT NOT NULL, \n\ttipo TEXT NOT NULL, \n\tm2 FLOAT, \n\tterreno FLOAT, \n\tanio INTEGER, \n\tavaluo FLOAT, \n\tcontribucion FLOAT, \n\tdata JSON NOT NULL, \n\tPRIMARY KEY (id), \n\tUNIQUE (source_file_id, comuna, mz, pr), \n\tFOREIGN KEY(source_file_id) REFERENCES property_life.source_file (id)\n)",
+    "CREATE TABLE property_life.transfer_raw (\n\tid SERIAL NOT NULL, \n\tsource_file_id INTEGER NOT NULL, \n\trow_number INTEGER NOT NULL, \n\traw_line TEXT NOT NULL, \n\tdata JSON NOT NULL, \n\tPRIMARY KEY (id), \n\tUNIQUE (source_file_id, row_number), \n\tFOREIGN KEY(source_file_id) REFERENCES property_life.source_file (id)\n)",
+    "CREATE TABLE property_life.uf_daily (\n\tsource_file_id INTEGER NOT NULL, \n\tfecha DATE NOT NULL, \n\tvalue FLOAT NOT NULL, \n\tPRIMARY KEY (source_file_id, fecha), \n\tFOREIGN KEY(source_file_id) REFERENCES property_life.source_file (id)\n)",
+    "CREATE TABLE property_life.transfer (\n\tid SERIAL NOT NULL, \n\tdataset_key TEXT NOT NULL, \n\tsource_file_ids JSON NOT NULL, \n\treference_date DATE NOT NULL, \n\tproperty_id INTEGER NOT NULL, \n\tfecha DATE, \n\tuf_principal FLOAT, \n\tuf_total FLOAT, \n\tconfianza TEXT NOT NULL, \n\tmotivo_exclusion TEXT, \n\tusable BOOLEAN NOT NULL, \n\tdata JSON NOT NULL, \n\toperation_key TEXT NOT NULL, \n\tPRIMARY KEY (id), \n\tUNIQUE (dataset_key, property_id, operation_key), \n\tFOREIGN KEY(property_id) REFERENCES property_life.property (id)\n)",
+    "CREATE TABLE property_life.transfer_unit (\n\ttransfer_id INTEGER NOT NULL, \n\tproperty_id INTEGER NOT NULL, \n\tPRIMARY KEY (transfer_id, property_id), \n\tFOREIGN KEY(transfer_id) REFERENCES property_life.transfer (id), \n\tFOREIGN KEY(property_id) REFERENCES property_life.property (id)\n)",
+    "CREATE INDEX ix_life_property_rol ON property_life.property (comuna, mz, pr)",
+    "CREATE INDEX ix_life_raw_source ON property_life.transfer_raw (source_file_id)",
+    "CREATE INDEX ix_life_transfer_dataset ON property_life.transfer (dataset_key)",
+]
+
+
+def upgrade():
+    for statement in DDL:
+        op.execute(statement)
+
+
+def downgrade():
+    op.drop_table("transfer_unit", schema="property_life")
+    op.drop_table("transfer", schema="property_life")
+    op.drop_table("uf_daily", schema="property_life")
+    op.drop_table("transfer_raw", schema="property_life")
+    op.drop_table("property", schema="property_life")
+    op.drop_table("construction_line", schema="property_life")
+    op.drop_table("source_file", schema="property_life")

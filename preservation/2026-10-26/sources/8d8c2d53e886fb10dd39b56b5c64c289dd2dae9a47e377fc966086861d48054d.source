@@ -1,0 +1,7 @@
+import subprocess
+code="from pathlib import Path;p=Path('workers/scheduler.py').read_text().splitlines();print('\\n'.join(p[565:625]));print('\\n'.join(str(i+1)+': '+l for i,l in enumerate(p) if 'uf_' in l.lower() and ('job' in l or 'hour' in l or 'snapshot' in l)))"
+r=subprocess.run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',code],capture_output=True,text=True)
+print(r.stdout)
+r=subprocess.run(['docker','logs','--since','60h','valoria_oracle_beta-api-1'],capture_output=True,text=True)
+lines=[l for l in (r.stdout+'\n'+r.stderr).splitlines() if any(s in l for s in ['UF API','UF fetch','UF real','UF obtenida','uf_daily','UF daily','snapshot failed'])]
+print('\n'.join(lines[-30:]))

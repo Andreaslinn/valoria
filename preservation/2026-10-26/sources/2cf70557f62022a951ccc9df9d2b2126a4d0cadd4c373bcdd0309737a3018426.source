@@ -1,0 +1,34 @@
+"""Two separate offline containers share only a named thumbnail volume."""
+import os
+os.environ['DATABASE_URL']='sqlite+aiosqlite:///:memory:'
+os.environ['SYNC_DATABASE_URL']='sqlite:///:memory:'
+os.environ['JWT_SECRET_KEY']='offline-container-validation-key-32'
+os.environ['THUMBNAIL_STORAGE_ROOT']='/state'
+import json
+from pathlib import Path
+import sys
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from infrastructure.thumbnails.pipeline import Context, work_one
+from infrastructure.thumbnails.security import Download
+from services.thumbnails import get_store, signed_reference
+from api.v1.thumbnails import router
+
+store=get_store()
+if sys.argv[1]=='fill':
+    folder=Path('validation/thumbnail_lab/fixtures')
+    item=json.loads((folder/'manifest.json').read_text())[0]
+    store.request({'listing_id':1,'source':'yapo','raw_metadata':{'main_image_url':item['url']}},Context('detail',True,True,'1'))
+    assert work_one(store, lambda _:Download((folder/item['file']).read_bytes(),item['mime'],'offline',0))
+    assert store.lookup(1)
+    print('Persistent cache populated')
+else:
+    ref=signed_reference(store.lookup(1))
+    app=FastAPI();app.include_router(router,prefix='/api/v1')
+    with TestClient(app) as client:
+        response=client.get(ref.url)
+        assert response.status_code==200 and response.headers['content-type']=='image/webp'
+        assert client.get(ref.url,headers={'If-None-Match':response.headers['etag']}).status_code==304
+        assert client.get(ref.url.replace('sig=','sig=0')).status_code==403
+    print('New container reopened cache; signed serving 200/304 and tamper rejection 403 passed')
+store.close()

@@ -1,0 +1,20 @@
+"""Finalize/verify the artifact inventory without refitting or evaluating models."""
+from lab import *
+import platform,importlib.metadata
+
+def main():
+ c=verify();prior_runtime=PRIOR/'runtime';checked=0
+ for f in prior_runtime.rglob('*'):
+  if not f.is_file() or '__pycache__' in f.parts or f.suffix=='.pyc' or f.relative_to(prior_runtime).as_posix()=='avm01/pilot_authorization.py':continue
+  assert sha(f)==sha(RUNTIME/f.relative_to(prior_runtime));checked+=1
+ protocols=[]
+ for f in HERE.glob('*protocol.json'):
+  h=sha(f);assert h==f.with_suffix('.sha256').read_text().strip();protocols.append(f.name)
+ for prefix in ['history','fresh_history']:
+  m=read(HERE/(prefix+'_manifest.json'));name='modern_history.json.dpapi' if prefix=='history' else 'fresh_history.json.dpapi';assert sha(HERE/name)==m['ciphertext_sha256'];assert m['read_only']=='on'
+ for f in HERE.glob('*.py'):compile(f.read_text(encoding='utf-8'),str(f),'exec')
+ replay=read(HERE/'replay_validation.json');assert replay['predictions_exact']==84 and replay['network_calls']==0
+ inventory={str(f.relative_to(HERE)):{'bytes':f.stat().st_size,'sha256':sha(f)} for f in HERE.rglob('*') if f.is_file() and f.name!='manifest.json' and '__pycache__' not in f.parts and f.suffix!='.pyc'}
+ m={'created_at':datetime.now(timezone.utc).isoformat(),'original_inputs_verified':len(c['immutable_inputs']),'runtime_files_verified':checked,'protocols_verified':protocols,'environment':{'python':platform.python_version(),**{n:importlib.metadata.version(n) for n in ['numpy','scipy','scikit-learn','joblib','threadpoolctl']}},'validation':read(HERE/'validation.json'),'private_rows':'All new row-level artifacts DPAPI CurrentUser; gitignored isolated research directory; current Windows user/context required for decryption. No public raw evidence.','artifacts':inventory};write(HERE/'manifest.json',m);print(json.dumps({'artifacts':len(inventory),'originals':len(c['immutable_inputs']),'runtime':checked,'protocols':len(protocols),'tests':m['validation']['pytest']['passed'],'replay_exact':replay['predictions_exact'],'production_writes':0}))
+
+if __name__=='__main__':main()

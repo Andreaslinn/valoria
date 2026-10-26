@@ -1,0 +1,25 @@
+# Readiness — MODIFY acotado; AVM_NOT_READY
+
+Última evidencia local: 2026-10-08T01:00:16.252564+00:00 UTC. No es una comprobación de producción actual. Oracle no se consultó. El cached aggregate del 8 de octubre tenía casi 21 horas al comenzar la revisión (21:46 UTC). Un cuarto ciclo sería esperable si siguió la pauta diaria; no está observado en estos archivos.
+
+1639 observations, 989 publicaciones source/external_id, 371 reobservadas y 650 observations adicionales respecto de la primera por publicación. Cobertura de reobservación: 37.51%. 279 publicaciones en 3 ciclos/días acreditados. Ciclos válidos conocidos: 3/7. El conteo exacto actual de listings canónicos y unidades físicas es desconocido.
+
+6 listings con varias publicaciones; 2 publicaciones con variantes URL (si no exportado: null). No son errores de identidad confirmados. No se reparó ninguna asociación. Crecimiento elegible neto desconocido: los agregados no contienen labels/atributos actuales.
+
+| Gate | Estado | Bloqueo |
+|---|---|---|
+| G_ACCUMULATION | NOT_READY | existing accumulation thresholds not met in available evidence |
+| G_IDENTITY | NOT_READY | no reviewed dependence policy and residual-risk assessment |
+| G_TARGET | CONDITIONAL | current eligible native/converted UF cohort not certified |
+| G_FEATURES | CONDITIONAL | current semantic inclusion policy not approved |
+| G_REPRESENTATIVENESS | CONDITIONAL | cannot claim generalization to both sources from new Yapo history alone |
+| G_SPLITS | CONDITIONAL | dependency uncertainty and sparse strata |
+| G_LEAKAGE | NOT_READY | cross-group unknown links; real A mapping missing; holdout custody incomplete |
+| G_REPRODUCIBILITY | READY | Sin bloqueo en su alcance |
+| G_HARNESS | NOT_READY | A reconstruction synthetic-only; holdout related groups not fully reserved; no enforcement of approved eligible primary observation projection |
+
+Investigación exploratoria: CONDITIONAL (diagnóstico local permitido; entrenamiento requiere aprobación y controles). Benchmark confirmatorio: NOT_READY. Producto: NOT_READY. No se creó holdout/folds ni se entrenó con datos reales.
+
+El bloqueo más rápido de resolver es disponer de un snapshot local de observations completo, con ciclo/provenance/fecha de extracción. La exportación desde Oracle requiere autorización separada. Después, adjudicación de dependencias y contrato de A real; seguir esperando cards sin señales de unidad no garantiza resolver cross-source.
+
+Siguiente experimento recomendado, no ejecutado: una vez aprobada cohorte y control de dependencia, A vs C1 fijo sobre UF nativa confiable, con universo común/cobertura y diagnóstico por fuente/comuna. Flex/C2 se conservan para la comparación completa. No inferir valor de cierre desde labels de oferta.

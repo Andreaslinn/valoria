@@ -1,0 +1,42 @@
+# Plan de integración para revisión — no ejecutado
+
+1. Revisar patch/bundle sobre la copia de preservación fijada en SOURCE_MANIFEST.
+   No aplicar directo al host ni reusar scripts deploy/migration/trial del baseline.
+2. Aceptar primero offline en contenedor Linux ARM64 Python 3.13 slim, instalando
+   Pillow 12.3.0 wheel binary. Ejecutar unittest + encode/decode JPEG/WebP/AVIF;
+   medir latencia/RSS nativas con las cinco fixtures. No necesita red ni Oracle.
+3. Mantener el servicio experimental desactivado por defecto. Preparar root
+   persistente separado del árbol de build: /var/lib/valoria/thumbnails (assets y
+   SQLite sidecar), mismo mount API/worker, permisos mínimos, quota propia. Medir
+   free space/reserva al autorizar la integración; no provisionar un recurso pago.
+4. Insertar enriquecimiento best-effort después de autorización/selección:
+   Radar opportunities finales (incluidos filtros que hoy se aplican en cliente),
+   Watchlist activa del usuario y lookup/get individual cuando se presenta la ficha.
+   Nunca en ingestión, comparables, discarded, History o list general del inventario.
+   Resolver las referencias existentes solo para esos IDs (raw_metadata.main_image_url,
+   o evidencia preservada leída por adapter). Para Portal, meta_raw og:image cubre
+   casos gallery de IDs sin URL. No inventar URLs ni activar el parser/refresh.
+5. Extender DTOs con thumbnail opcional. Nunca entregar raw_metadata/URL CDN al
+   navegador para esta función. Metadata unavailable devuelve null y datos normales.
+   Context es construido por servidor, no por POST libre de un cliente.
+6. Ejecutar worker separado, concurrencia 1 y bounded_process. Assets van a
+   filesystem por hash. Jobs idempotentes/leasing 30s, watchdog20s, retries acotados.
+   Agregar GC diario sencillo; no cron de scraping nuevo ni cambios de frecuencia.
+7. Serving same-origin /media/thumbnails/{hash}.webp con permisos vía sesión/cookie
+   o proxy de confianza, Content-Type/length/nosniff/ETag y cache private. El img
+   nativo no añade Bearer headers: no publicar un endpoint privado que dependa
+   únicamente de Authorization Bearer ni asumir que un hash autoriza acceso.
+8. En ListingThumbnail reemplazar solo namespace sandbox/URL base por el serving
+   same-origin aprobado; conservar slot112/object-contain/lazy/async/fallback.
+   Las cards y sus acciones actuales quedan como en este experimento.
+9. Revisar una muestra mayor de fuentes ya referenciadas de usuarios elegibles,
+   sin descargar inventario. Verificar coverage y p95 antes de ampliar. Thumbnails
+   no son fotos originales de calidad ni sustituyen publicación/evidencia.
+10. Preparar backup/restore sidecar+assets, métricas de queue/errors/quota y flag
+    de apagado. Un flag off deja placeholders; no modifica listings/evidencia.
+
+Estos pasos requieren una solicitud posterior de integración/despliegue. En esta
+tarea no se cambió schema productivo, Oracle, trial History, Tasar, Consensus,
+identity/groupings, scraping o lógica detectora de Radar. El servidor fixture
+no importa api.main/config ni abre una base externa; lookup fixture no analiza
+ni scrapea una URL. No hay trabajo técnico pendiente para reproducir el sandbox.

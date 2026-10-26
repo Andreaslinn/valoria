@@ -1,0 +1,16 @@
+FROM valoria-ingestion:v3-20261004-12d891d376ac
+WORKDIR /app
+RUN python -m pip install --no-cache-dir Pillow==12.3.0
+COPY api/main.py ./api/main.py
+COPY api/v1/listings.py ./api/v1/listings.py
+COPY api/v1/radar.py ./api/v1/radar.py
+COPY api/v1/thumbnails.py ./api/v1/thumbnails.py
+COPY api/v1/watchlist.py ./api/v1/watchlist.py
+COPY infrastructure/thumbnails/__init__.py ./infrastructure/thumbnails/__init__.py
+COPY infrastructure/thumbnails/metrics.py ./infrastructure/thumbnails/metrics.py
+COPY infrastructure/thumbnails/normalize.py ./infrastructure/thumbnails/normalize.py
+COPY infrastructure/thumbnails/pipeline.py ./infrastructure/thumbnails/pipeline.py
+COPY infrastructure/thumbnails/security.py ./infrastructure/thumbnails/security.py
+COPY pyproject.toml ./pyproject.toml
+COPY services/thumbnails.py ./services/thumbnails.py
+COPY workers/thumbnails.py ./workers/thumbnails.py

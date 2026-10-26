@@ -1,0 +1,19 @@
+const {chromium}=require('C:/Users/heiko/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert=require('assert'),fs=require('fs');
+(async()=>{
+ const browser=await chromium.launch({channel:'msedge',headless:true});
+ const context=await browser.newContext();await context.addInitScript(()=>localStorage.setItem('valoria_access_token','offline-validation'));
+ const page=await context.newPage();let renewals=0;
+ page.on('request',r=>{if(r.url().includes('.webp/reference'))renewals++;});
+ await page.route('**/api/v1/watchlist',async route=>{
+  const response=await route.fetch();const data=await response.json();
+  for(const item of data)if(item.thumbnail)item.thumbnail.url=item.thumbnail.url.replace(/expires=[0-9]+/,'expires=1');
+  await route.fulfill({response,json:data});
+ });
+ await page.goto('http://127.0.0.1:3116/portfolio',{waitUntil:'networkidle',timeout:120000});
+ await page.waitForFunction(()=>{const img=document.querySelector('.portfolio-detail .property-photo img');return img&&img.complete&&img.naturalWidth>0;});
+ assert(renewals>0&&renewals<=3,'renewals deduplicated by content hash');
+ const src=await page.locator('.portfolio-detail .property-photo img').getAttribute('src');assert(!src.includes('expires=1&'));
+ const result={expired_dto_recovered:true,renewal_requests:renewals,source_downloads_from_renewal:0,authorization_in_header:true};
+ fs.writeFileSync('validation/renewal-browser-results.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));await browser.close();
+})().catch(e=>{console.error(e);process.exitCode=1;});

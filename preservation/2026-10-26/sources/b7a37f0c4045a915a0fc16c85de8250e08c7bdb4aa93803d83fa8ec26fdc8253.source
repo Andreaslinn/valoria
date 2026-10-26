@@ -1,0 +1,114 @@
+import csv
+import json
+import re
+import shutil
+import sys
+from pathlib import Path
+
+base=Path(__file__).parent
+repo=base/'valoria'
+out=base.parent/'outputs'
+dest=repo/'reports/sii'
+data=json.loads((base/sys.argv[1]).read_text(encoding='utf8'))
+changes=json.loads((base/'v2-changes.json').read_text(encoding='utf8'))
+case=json.loads((base/'v2-restored-case.json').read_text(encoding='utf8'))
+old_diagnosis=json.loads((base/'metrics-diagnosis.json').read_text(encoding='utf8'))
+idem=json.loads((base/'idempotence.json').read_text()) if (base/'health-v2-final.json').exists() else {'passed':False,'status':'not_verified_for_v2'}
+testlog=(base/'suite-v2.txt').read_text(encoding='utf8',errors='replace')
+test_match=re.search(r'(\d+) passed[^\n]*',testlog)
+test_passed=bool(test_match) and not re.search(r'^FAILED |^ERROR |\d+ failed',testlog,re.M)
+test_summary=test_match[0] if test_match else 'Pendiente; ver suite-v2.txt'
+b=data['benchmark']; disk=data['disk']
+criteria={'conteo':b['conteo_cumple'],'medianas':b['medianas_cumplen'],
+ 'idempotencia':idem.get('passed',False),'pruebas':test_passed,
+ 'caso_15103_854_86':case==[['15103-854-86',True,False,[]]]}
+diagnosis={'reglas_version':'sii-phase1-v2','fecha_validacion':'2026-10-19',
+ 'criterios':criteria,'tests':test_summary,'idempotencia':idem,
+ 'caso_restaurado':case,'cambios_por_comuna_desde_v1':changes,
+ 'brecha_fuente_huechuraba':{'criterio_aceptacion':False,
+  'manzanas_ausentes':[3115,3116],
+  'comprobacion_archivo_original':old_diagnosis['huechuraba_direct_file_check'],
+  'observaciones_sin_cruce_por_manzana':old_diagnosis['huechuraba_unmatched_blocks']}}
+
+def num(x,n=2):
+    return '—' if x is None else f'{float(x):,.{n}f}'.translate(str.maketrans(',.','.,'))
+def integer(x): return f'{int(x):,}'.replace(',','.')
+def status(value): return 'Cumplido' if value else 'No cumplido'
+ine={13101:13101,13134:13101,13135:13101,14157:13106,14158:13107,15103:13123,15105:13120,15108:13114,15128:13110,15132:13113,15160:13132,15161:13115,16106:13130}
+header=['alcance','comuna_sii','comuna_ine','nombre','deptos_comparables','casas_comparables',
+ 'mediana_depto_uf_m2_h','mediana_depto_uf_m2_cerrado','mediana_casa_uf_m2_cerrado',
+ 'deptos_sobre_300','join_pct','osm_exacto_pct','interpolado_pct','errata_corregida_pct']
+csv_rows=[]
+for r in data['por_comuna']:
+    g=r['geo']
+    csv_rows.append(['SII',r['comuna'],ine[r['comuna']],r['nombre_tabla_oficial'],r['deptos'],r['casas'],
+     r['mediana_depto_uf_m2_h'],r['mediana_depto_uf_m2_cerrado'],r['mediana_casa_uf_m2_cerrado'],
+     r['deptos_sobre_300'],r['join_pct'],g['osm_exacto_pct'],g['interpolado_pct'],g['errata_corregida_pct']])
+s=data['santiago_completo_por_comuna_ine']
+csv_rows.append(['INE (agregado)',None,13101,'SANTIAGO COMPLETO',s['deptos'],s['casas'],
+ s['mediana_depto_uf_m2_h'],s['mediana_depto_uf_m2_cerrado'],s['mediana_casa_uf_m2_cerrado'],
+ s['deptos_sobre_300'],s['join_pct'],0,0,0])
+with (out/'sii_conteos_por_comuna.csv').open('w',encoding='utf-8-sig',newline='') as f:
+    writer=csv.writer(f);writer.writerow(header);writer.writerows(csv_rows)
+
+lines=['# Valoria · Fase 1 SII · Validación del 19/10/2026','',
+ 'PR #9 · rama `feature/sii-ingest-20261017` · reglas `sii-phase1-v2`. PR en borrador, sin merge ni deploy. Base: `29eaa0b3f3543c57e1e596eda2fb64e527d3f65a`, release `release/canonical-only-reproducible-20261013`.', '',
+ f"Fuentes: `{data['f2890']['nombre']}` (SHA-256 `{data['f2890']['hash']}`) y 22 archivos N/NL del catastro 2S-2026 aportados por el usuario. {integer(data['counts']['transferencia_raw'])} observaciones crudas, {integer(data['counts']['predio'])} roles y {integer(data['counts']['linea_construccion'])} líneas. Estadísticas de comparables: **FI ≥ 01/01/2024**. Importes: **precios de transacción declarados**.",'',
+ '## Criterios de salida','', '| Criterio | Resultado | Evidencia |','|---|---|---|',
+ f"| 55.156 departamentos ±1% | {status(criteria['conteo'])} | {integer(b['deptos_8_comunas'])}; diferencia {num((b['deptos_8_comunas']/55156-1)*100,3)}% |",
+ f"| Ocho medianas dentro de ±2% | {status(criteria['medianas'])} | Ver tabla por comuna |",
+ f"| Segunda ejecución sin filas nuevas | {status(criteria['idempotencia'])} | Misma ingesta, mismos conteos y huella de valores derivados; auditoría de jobs crece intencionalmente |",
+ f"| Todas las pruebas ejecutadas en verde | {status(criteria['pruebas'])} | `{test_summary}`; incluye pruebas Postgres en 55433 y flag apagado sobre SQLite |",
+ f"| Rol 15103-854-86 comparable | {status(criteria['caso_15103_854_86'])} | Comparable=true, paquete=false, motivos=[]; probado con fixture y comprobado en los datos cargados |",'',
+ 'Huechuraba se conserva como **brecha conocida de la fuente**, excluida de aceptación de fase 1 por instrucción del 19/10. El porcentaje se informa sin ocultarlo. La geocodificación sigue en el fallback permitido: métodos listos y probados, cobertura real 0%, pendiente extracto OSM local.','',
+ '## Reglas aplicadas','',
+ '- Departamento: destino H y token DP, DEPTO, DPTO o DEP. Se reclasificaron también los roles ya cargados.',
+ '- Repetidos: se excluye el grupo solo si tiene más de una fila y **todas** tienen el mismo monto convertido positivo, después de deduplicar por rol/FE/FI.',
+ '- Auxiliar sin monto: no tiene UF positiva **ni CLP positivo en el crudo**. La falta de UF diaria para un CLP positivo deja al auxiliar sin conversión, pero no marca el departamento como paquete.',
+ '- Se conserva el techo de **500 UF/m² H**. No se cambió la conversión: UF positiva prevalece; de lo contrario CLP / UF exacta de FE, o FI solo si FE falta.',
+ '- Permanecen las reglas de superficie 20–300 m² H para departamentos, paquetes con auxiliar realmente sin monto, lotes de 10+ departamentos y bloques de 3+ casas en la misma manzana.',
+ '- Los tres sectores de Santiago conservan su código SII original; el benchmark incluye solo 13101. El agregado de comuna completa usa `comuna_ine=13101`.','',
+ '## Benchmark y filas sobre 300 UF/m²','',
+ f"Hay **{integer(b['deptos_8_comunas_sobre_300'])} departamentos comparables sobre 300 UF/m² H** en las ocho comunas, y **{sum(r['deptos_sobre_300'] for r in data['por_comuna'])}** en los trece sectores SII cargados; todos quedan dentro del techo de 500.",'',
+ '| SII | Comuna | Deptos | Antes v1 | Mediana H | Esperada | Desviación | Cumple | Sobre 300 |',
+ '|---|---|---:|---:|---:|---:|---:|---|---:|']
+for r in data['por_comuna']:
+    if 'mediana_esperada' not in r:continue
+    old=next(x for x in changes if x['comuna']==r['comuna'])
+    lines.append(f"| {r['comuna']} | {r['nombre_tabla_oficial']} | {integer(r['deptos'])} | {integer(old['before'])} | {num(r['mediana_depto_uf_m2_h'])} | {num(r['mediana_esperada'],1)} | {num(r['desviacion_pct'],3)}% | {status(r['mediana_cumple'])} | {r['deptos_sobre_300']} |")
+lines+=['','## Conteos por comuna y sector','',
+ '| SII | Comuna | Deptos | Casas | Mediana depto cerrado | Mediana casa cerrado | Join | Sobre 300 |',
+ '|---|---|---:|---:|---:|---:|---:|---:|']
+for r in data['por_comuna']:
+    lines.append(f"| {r['comuna']} | {r['nombre_tabla_oficial']} | {integer(r['deptos'])} | {integer(r['casas'])} | {num(r['mediana_depto_uf_m2_cerrado'])} | {num(r['mediana_casa_uf_m2_cerrado'])} | {num(r['join_pct'])}% | {r['deptos_sobre_300']} |")
+lines+=['',f"Santiago completo, comuna_ine=13101 (13101+13134+13135): **{integer(s['deptos'])} departamentos y {integer(s['casas'])} casas**; mediana departamentos H {num(s['mediana_depto_uf_m2_h'])}, cerrada {num(s['mediana_depto_uf_m2_cerrado'])}; mediana casas cerrada {num(s['mediana_casa_uf_m2_cerrado'])} UF/m². Join {num(s['join_pct'])}%.", '',
+ 'Geo exacto/interpolado/errata: 0% en todos los sectores. El CSV conserva los tres porcentajes y los valores numéricos completos.','',
+ '## Caso corregido y brecha de Huechuraba','',
+ 'El rol 15103-854-86 declara 2.024 UF y 58 m² H (34,8966 UF/m²), FE 12/11/1997 e FI 29/07/2025. Su estacionamiento 15103-854-154 declara CLP=1 y no tiene UF diaria disponible para esa FE. El departamento vuelve a ser comparable sin marca de paquete; el auxiliar conserva su motivo de falta de UF exacta.','',
+ 'Huechuraba: 1.208 observaciones deduplicadas sin cruce en la validación de fuentes; 1.053 pertenecen a las manzanas 3115/3116. Una lectura directa del archivo N original confirma cero roles de ambas manzanas. La brecha se atribuye al contenido de la fuente aportada; la causa histórica requiere más evidencia. No se remapean manzanas ni sectores.','',
+ '| Manzana | Filas sin cruce | Roles de ejemplo |','|---|---:|---|']
+for r in old_diagnosis['huechuraba_unmatched_blocks']:
+    lines.append(f"| {r['manzana']} | {r['no_join']} | {', '.join(r['examples'])} |")
+lines+=['','## Cambios respecto de v1 y cinco roles por comuna','',
+ '| SII | Antes | Ahora | Roles incorporados (hasta cinco) | Roles retirados (hasta cinco) |','|---|---:|---:|---|---|']
+for r in changes:
+    lines.append(f"| {r['comuna']} | {integer(r['before'])} | {integer(r['after'])} | {', '.join(r['added_examples']) or '—'} | {', '.join(r['removed_examples']) or '—'} |")
+lines+=['','## Idempotencia, disco y operación','',
+ '```json',json.dumps(idem,ensure_ascii=False,indent=2),'```','',
+ f"Crudos/auxiliares: {integer(disk['raw_and_auxiliary_bytes'])} bytes. Tablas e índices SII: {integer(disk['table_and_index_bytes'])} bytes. Total: **{num(disk['total_bytes']/1e9,3)} GB**, {'supera' if disk['over_10_gb'] else 'no supera'} 10 GB. No incluye WAL, temporales, respaldos ni el tamaño asignado del disco Docker.",'',
+ 'Base cargada: contenedor local `valoria-sii-local-20261017`, 127.0.0.1:55432. Pruebas destructivas de migración/fixtures: instancia desechable independiente 55433. `.env.local` conserva SII_INGEST_ENABLED=false; la validación activa el flag solo en su proceso. Se mantienen el esquema separado, las fuentes crudas, las migraciones reversibles y los límites del entorno local.','',
+ 'El calendario UF existente fue preparado en la base local nueva con autorización previa, reutilizando el modelo/parser y HTML oficiales cacheados. No se incorporó otra fuente UF.','',
+ '## Para la siguiente fase','',
+ 'Construir la hoja de vida sobre la llave SII original y los IDs de procedencia; definir la política de cambios históricos del catastro y de agrupación por escritura. Investigar la brecha de Huechuraba e incorporar un extracto OSM local con su evidencia y precisión.','',
+ '## Exclusiones y ejemplos','',
+ 'Las reglas pueden solaparse; sus conteos no constituyen una partición.','',
+ '| SII | Motivo | Filas | Hasta cinco roles |','|---|---|---:|---|']
+for r in data['exclusiones']:
+    lines.append(f"| {r['comuna']} | {r['motivo']} | {integer(r['n'])} | {', '.join(str(v) for v in r['ejemplos'])} |")
+
+(out/'SII_FASE1_VALIDACION.md').write_text('\n'.join(lines)+'\n',encoding='utf8')
+(out/'sii_metricas.json').write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf8')
+(out/'sii_diagnostico.json').write_text(json.dumps(diagnosis,ensure_ascii=False,indent=2),encoding='utf8')
+for source,target in [('SII_FASE1_VALIDACION.md','phase1_validation.md'),('sii_conteos_por_comuna.csv','phase1_communes.csv'),('sii_metricas.json','phase1_metrics.json'),('sii_diagnostico.json','phase1_diagnosis.json')]:
+    shutil.copyfile(out/source,dest/target)
+print(json.dumps({'criteria':criteria,'benchmark':b,'tests':test_summary,'disk':disk},ensure_ascii=False))

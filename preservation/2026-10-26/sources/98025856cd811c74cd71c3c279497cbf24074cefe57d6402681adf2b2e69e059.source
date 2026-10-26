@@ -1,0 +1,51 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner='''import asyncio,json,logging,hashlib
+from datetime import datetime,UTC
+from pathlib import Path
+import httpx
+from sqlalchemy import select
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.models import ListingORM,UFRateORM
+from services.listing_url_lookup import find_existing_listing_by_url,validate_public_listing_url,detect_source
+from urllib.parse import urljoin
+from infrastructure.scrapers.portal_acquisition import portal_lookup_client
+from infrastructure.scrapers.portalinmobiliario import extract_portal_detail_urls,classify_portal_page_state,build_portal_page_url
+from services.v2_contract import check_v2_contract
+logging.getLogger('httpx').setLevel(logging.WARNING)
+async def main():
+ out={};sf=get_session_factory()
+ session_path=Path('/portal-session/session.json');before=hashlib.sha256(session_path.read_bytes()).hexdigest()
+ async with sf() as s:
+  old=await s.get(ListingORM,3633)
+  values={c.name:getattr(old,c.name) for c in ListingORM.__table__.columns}
+  values.update(id=990002,external_id='MLC-990002990002',url='https://www.portalinmobiliario.com/MLC-990002990002-historical-fixture',fingerprint='portal-candidate-historical-fixture',status='removed',last_seen_at=datetime(2026,6,5,16,23,39,tzinfo=UTC))
+  if await s.get(ListingORM,990002) is None:
+   s.add(ListingORM(**values));await s.commit()
+ async with httpx.AsyncClient(base_url='http://127.0.0.1:8000',timeout=90) as api:
+  r=await api.post('/api/v1/auth/login',data={'username':'portal-candidate@example.test','password':'[REDACTED]'});r.raise_for_status();api.headers['Authorization']='Bearer '+r.json()['access_token']
+  schema=(await api.get('/openapi.json')).json();cap=(await api.get('/api/v1/health/capabilities')).json();out['contract_failures']=check_v2_contract(schema,cap);out['capabilities']=cap;assert not out['contract_failures']
+  for name,url in [('existing','https://www.portalinmobiliario.com/'+old.external_id+'-changed-slug?utm_source=gate'),('withdrawn_fixture',values['url'])]:
+   r=await api.post('/api/v1/listings/lookup-url',json={'url':url});r.raise_for_status();d=r.json();assert d['status']=='found_existing';out[name]={'http_status':r.status_code,'result':d}
+   if name=='withdrawn_fixture':assert d['listing_data']['status']=='removed' and d['listing_data']['last_seen_at'].startswith('2026-06-05')
+  chosen='https://www.portalinmobiliario.com/MLC-2467200996-do-apartments-_JM'
+  async with sf() as s:
+   assert await find_existing_listing_by_url(s,chosen) is None
+  out['new_url_absent_from_restored_db']=chosen is not None
+  if chosen:
+   r=await api.post('/api/v1/listings/lookup-url',json={'url':chosen});out['new']={'url':chosen,'http_status':r.status_code,'result':r.json()}
+   assert r.status_code==200 and r.json()['status'] in ['parsed_new','partial']
+   data=r.json()['listing_data'];assert data.get('title') and data.get('m2') and data.get('precio_publicado_uf')
+   assert data.get('external_id')=='MLC-2467200996' and data['property_type']=='apartment'
+   assert r.json()['status']=='parsed_new'
+   analyzed=await api.post('/api/v1/listings/analyze-url',json={'url':chosen});analyzed.raise_for_status()
+   out['new_analysis']={'http_status':analyzed.status_code,'result':analyzed.json()}
+   out['new_gate']='normalized_live_lookup_and_analysis' 
+  else:out['new_gate']='no_unseen_url_on_bounded_page'
+  out['session_file_unchanged']=hashlib.sha256(session_path.read_bytes()).hexdigest()==before;assert out['session_file_unchanged']
+ print(json.dumps(out,default=str))
+asyncio.run(main())
+'''
+remote="import subprocess,sys\nr=subprocess.run(['docker','exec','-i','valoria-portal-candidate-api','python','-B','-'],input="+repr(inner)+",capture_output=True,text=True,timeout=130)\nprint(r.stdout)\nif r.returncode: print(r.stderr[-2200:])\nsys.exit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=150);Path(__file__).with_name('portal-candidate-lifecycle-final.json').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr);r.check_returncode()

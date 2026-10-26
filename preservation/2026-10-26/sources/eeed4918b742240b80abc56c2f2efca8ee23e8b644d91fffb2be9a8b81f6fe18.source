@@ -1,0 +1,10 @@
+import subprocess
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+code='''import subprocess,json
+print(subprocess.check_output(['docker','image','inspect','valoria-remediation:candidate-20261012-v3','--format','{{.Id}} {{json .Config.Labels}}'],text=True))
+check="from api.main import create_app;from services.v2_contract import check_v2_contract,v2_capabilities;print(v2_capabilities());failures=check_v2_contract(create_app().openapi(),v2_capabilities());print(failures);assert not failures"
+args=['docker','run','--rm','--network','none','--memory','256m','--cpus','1','-e','DATABASE_URL=sqlite+aiosqlite:///:memory:','-e','SYNC_DATABASE_URL=sqlite:///:memory:','-e','JWT_SECRET_KEY=isolated-image-import-validation-key','--entrypoint','python','valoria-remediation:candidate-20261012-v3','-B','-c',check]
+r=subprocess.run(args,capture_output=True,text=True,timeout=45);print('image import gate',r.returncode);print(r.stdout);print(r.stderr[-4500:])
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=55);Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\candidate-image-gate.txt').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr if r.returncode else '')

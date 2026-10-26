@@ -1,0 +1,24 @@
+"""Read existing cadastral line years only; never rebuild F2890 or prices."""
+import sys,json,hashlib
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+from scripts.validate_sii_closing import connect
+out=ROOT.parent/'outputs/integrated/vitacura'
+out.mkdir(exist_ok=True,parents=True)
+with connect('postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55432/valoria_sii_local') as c:
+    c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    sources=c.execute('SELECT id,tipo,hash,semestre FROM sii.source_file WHERE id IN (9,20)').fetchall()
+    rows=c.execute("""SELECT '15160-'||manzana||'-'||predio AS rol,
+        min(anio) FILTER(WHERE anio>0) AS first_closed_year,
+        max(anio) FILTER(WHERE anio>0) AS last_closed_year,
+        count(*) FILTER(WHERE anio IS NULL OR anio<=0) AS undated_lines,
+        sum(m2)::float8 AS closed_area
+        FROM sii.linea_construccion WHERE comuna=15160 AND source_file_id=20
+        AND destino='H' AND NOT abierta GROUP BY manzana,predio""").fetchall()
+    assert c.execute('SHOW transaction_read_only').fetchone()['transaction_read_only']=='on'
+    c.rollback()
+payload={'sources':sources,'read_only':True,'controls':{r['rol']:r for r in rows},
+    'limitation':'2026 stock records, with declared construction years. Earlier cadastral snapshots and alteration dates unavailable; not a historical replay of information publication.'}
+(out/'historical-controls.json').write_text(json.dumps(payload,indent=2),encoding='utf8')
+print('historical role controls',len(rows))

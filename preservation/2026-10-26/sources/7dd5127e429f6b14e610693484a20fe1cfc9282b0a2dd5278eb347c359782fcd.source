@@ -1,0 +1,77 @@
+from scripts.analyze_published_backfill import analyze, cause, sample
+
+
+def row(identity=123):
+    return {"id": identity, "source": "yapo", "external_id": str(identity),
+            "url": f"https://www.yapo.cl/ficha/{identity}", "comuna": "Santiago",
+            "status": "active", "property_type": "apartment", "scraped_at": "2026-10-15T00:00:00Z",
+            "last_seen_at": "2026-10-15T00:00:00Z", "detail_attempted_at": None}
+
+
+def observation(**kwargs):
+    return {"listing_id": 123, "source": "yapo", "external_id": "123",
+            "observed_at": "2026-10-17T00:00:00Z", **kwargs}
+
+
+def test_map_point_does_not_prove_ficha_read_or_parser_failure():
+    obs = observation(event_kind="geo_enriched", geo_origin="search_map")
+    assert cause(row(), [obs]) == "sin_relectura_ficha_registrada"
+
+
+def test_request_attempt_without_result_remains_unknown():
+    r = {**row(), "detail_attempted_at": "2026-10-17T00:00:00Z"}
+    assert cause(r, []) == "intento_sin_resultado_trazable"
+
+
+def test_old_refresh_ok_is_not_a_post_pr5_read():
+    r = {**row(), "last_refresh_attempted_at": "2026-07-01T00:00:00Z", "last_refresh_status": "ok"}
+    assert cause(r, []) == "sin_relectura_ficha_registrada"
+
+
+def test_actual_detail_read_distinguishes_parser_and_persistence_gap():
+    obs = observation(stage="structured_detail")
+    assert cause(row(), [obs]) == "detalle_leido_sin_snapshot"
+    obs["raw_fields"] = {"version": 1, "source": "yapo", "external_id": "123"}
+    assert cause(row(), [obs]) == "detalle_con_campos_no_retenidos"
+    obs["raw_fields"]["external_id"] = "999"
+    assert cause(row(), [obs]) == "detalle_leido_sin_snapshot"
+
+
+def test_card_read_is_separate_from_ficha_and_wrong_identity_history_is_ignored():
+    obs = observation(event_kind="listing_seen", stage="card")
+    assert cause(row(), [obs]) == "relectura_listado_sin_detalle_trazable"
+    obs["external_id"] = "999"
+    assert cause(row(), [obs]) == "sin_relectura_ficha_registrada"
+
+
+def test_conditional_coverage_denominator_is_observed_ads_not_all_active():
+    observed = row(124)
+    observed["published_fields"] = {"version": 1, "source": "yapo", "external_id": "124",
+                                    "street": "Portugal", "address_number": "564", "address_type": "exact",
+                                    "provenance": {"address": "yapo:exactAddress"}}
+    result = analyze({"as_of_utc": "now", "transaction_read_only": True,
+                      "rows": [row(), observed], "observations": []})
+    total = result["total"]
+    assert total["active"] == 2 and total["missing"] == 1
+    assert total["conditional_observed_coverage"]["porcentajes"]["direccion_o_coordenadas"] == 100
+    assert total["current_coverage"]["porcentajes"]["direccion_o_coordenadas"] == 50
+    assert total["confirmed_portal_does_not_publish"] == 0
+
+
+def test_frozen_sample_is_deterministic_and_independent_of_inventory_order():
+    rows = [row(i) for i in range(1, 151)]
+    chosen = sample(rows)
+    assert len(chosen) == 50
+    assert sample(list(reversed(rows))) == chosen
+    assert len({r["external_id"] for r in chosen}) == 50
+
+
+def test_readonly_auditor_stdin_bundle_compiles_and_disabled_mode_never_connects(monkeypatch, capsys):
+    from scripts import read_published_backfill
+    bundled = read_published_backfill.standalone()
+    compile(bundled, "<production-readonly-stdin>", "exec")
+    monkeypatch.delenv("SII_PUBLISHED_BACKFILL_ENABLED", raising=False)
+    monkeypatch.setattr("sys.argv", ["audit", "--production-readonly"])
+    monkeypatch.setattr(read_published_backfill, "collect", lambda: (_ for _ in ()).throw(AssertionError("must not connect")))
+    read_published_backfill.main()
+    assert '"status": "disabled"' in capsys.readouterr().out

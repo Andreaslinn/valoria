@@ -1,0 +1,55 @@
+# Dual Risk Reports Integration Latest
+
+Fecha: 2026-06-18
+
+## Que Se Separo
+
+- `Investment Intelligence Report`
+  - Builder: `build_investment_intelligence_report_data`
+  - Enfocado en la propiedad como activo/inversion.
+  - Excluye senales de publicacion aunque el input venga desde URL.
+
+- `Listing Risk / Opportunity Report`
+  - Builder: `build_listing_risk_report_data`
+  - Enfocado en una publicacion concreta.
+  - Usa precio publicado, descuento, URL, source, listing id y limitaciones de publicacion.
+
+## Archivos Modificados
+
+- `ui/components/risk_report_contract.py`
+- `ui/components/risk_report_html.py`
+- `ui/redesign/tasar_playground_adapter.py`
+- `ui/redesign/tasar_playground.py`
+- `tests/unit/test_risk_report_contract.py`
+- `tests/unit/test_risk_report_html.py`
+- `tests/unit/test_tasar_playground_adapter.py`
+
+## UI / Downloads
+
+- Tasacion manual:
+  - `Descargar Investment Intelligence Report`
+
+- Analisis desde URL/listing:
+  - `Descargar Investment Intelligence Report`
+  - `Descargar Listing Risk Report`
+
+Nombres de archivo:
+
+- `investment_intelligence_report_<comuna>_<fecha>.html`
+- `listing_risk_report_<comuna>_<fecha>.html`
+
+## Compatibilidad
+
+- `build_valuation_risk_report_data` sigue existiendo como wrapper contextual legacy.
+- `risk_report_html` sigue existiendo en `TasarRiskReportContract` y apunta al Investment report para compatibilidad.
+- Se reutiliza la estructura visual HTML existente.
+
+## Tests Ejecutados
+
+- `python -m pytest tests/unit/test_risk_report_contract.py tests/unit/test_risk_report_html.py tests/unit/test_tasar_playground_adapter.py` -> 31 passed
+- `python -m ruff check ui/components/risk_report_contract.py ui/components/risk_report_html.py ui/redesign/tasar_playground_adapter.py ui/redesign/tasar_playground.py tests/unit/test_risk_report_contract.py tests/unit/test_risk_report_html.py tests/unit/test_tasar_playground_adapter.py` -> All checks passed
+
+## Pendientes
+
+- Agregar cobertura con payloads reales de watchlist/alertas cuando existan fixtures estables.
+- Deprecar el wrapper contextual legacy cuando todos los callers usen builders explicitos.

@@ -1,0 +1,26 @@
+from pathlib import Path
+import subprocess,json
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+release=json.loads(Path('work/canonical-candidate-image.json').read_text());root=release['remote_directory']
+code='''from pathlib import Path
+import subprocess,json,os
+root=Path(ROOT);backup=Path('/home/ubuntu/backups/canonical-only-ready-20261013');release=json.loads((root/'candidate-image.json').read_text());before=json.loads((backup/'api-before-private.json').read_text())
+def run(args,env=None):
+ r=subprocess.run(args,text=True,capture_output=True,env=env,timeout=60);assert r.returncode==0,'Private preflight failed';return r.stdout
+live=json.loads(run(['docker','inspect','valoria_oracle_beta-api-1']))[0];assert live['Image']==before['Image']
+env=dict(os.environ,PORTAL_GEO_RELEASE_IMAGE=before['Config']['Image'])
+base=['docker','compose','--project-name','valoria_oracle_beta','--env-file','/home/ubuntu/apps/valoria/deploy/oracle.env']
+for f in before['Config']['Labels']['com.docker.compose.project.config_files'].split(','):base+=['-f',f]
+override=root/'prepared-canonical-image.override.yml';override.write_text('services:\\n  api:\\n    image: '+release['image']+'\\n');override.chmod(0o600)
+old=json.loads(run(base+['config','--format','json'],env));new=json.loads(run(base+['-f',str(override),'config','--format','json'],env));expected=json.loads(json.dumps(old));expected['services']['api']['image']=release['image'];assert expected==new
+state=json.loads((backup/'preservation-state-private.json').read_text())
+for name,identity in state['other_container_ids'].items():
+ item=json.loads(run(['docker','inspect',name]))[0];assert item['Id']==identity and item['State']['StartedAt']==state['other_started_at'][name]
+plan=json.loads(run(['python3',str(root/'context/app/deploy/canonical-release/rollout.py'),'--release',str(root/'candidate-image.json'),'--backup',str(backup)]))
+assert plan['status']=='approval_required'
+out={'status':'ready_for_explicit_approval','configuration_diff':'api.image only','current_api_image':live['Image'],'current_api_started_at':live['State']['StartedAt'],'candidate_image':release['image_id'],'commit':release['commit'],'other_containers_unchanged':True,'portal_session_mount_readonly':any(x.get('Destination')=='/portal-session' and not x.get('RW') for x in live['Mounts']),'rollout_plan':plan,'backup':str(backup)}
+(root/'preflight.json').write_text(json.dumps(out,indent=2));print(json.dumps({'preflight':out,'candidate_check':json.loads((root/'candidate-check.json').read_text())}))
+'''.replace('ROOT',repr(root))
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,encoding='utf-8',capture_output=True,timeout=100)
+if r.returncode:print(r.stderr[-1600:]);r.check_returncode()
+data=json.loads(r.stdout);Path('work/canonical-release-preflight.json').write_text(json.dumps(data['preflight'],indent=2),encoding='utf-8');Path('work/canonical-image-stage-check.json').write_text(json.dumps(data['candidate_check'],indent=2),encoding='utf-8');print(json.dumps(data['preflight']))

@@ -1,0 +1,15 @@
+import importlib.util,json
+from pathlib import Path
+import httpx
+spec=importlib.util.spec_from_file_location('contract','work/github-release/services/v2_contract.py')
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+output=[]
+with httpx.Client(timeout=25,follow_redirects=False) as client:
+    for base in ['https://161-153-201-245.sslip.io','https://valoria-v2.netlify.app/backend']:
+        schema=client.get(base+'/openapi.json');schema.raise_for_status()
+        cap=client.get(base+'/api/v1/health/capabilities');cap.raise_for_status()
+        failures=module.check_v2_contract(schema.json(),cap.json())
+        if cap.json()['code_fingerprint']!='ffce732451fbbf29f1a80134d5468e73dc5acfcf82a387069a108417333a0f24':failures.append('Unexpected deployed code')
+        output.append({'base':base,'status':'passed' if not failures else 'failed','failures':failures,'capabilities':cap.json()})
+Path('work/canonical-release-public-check.json').write_text(json.dumps(output,indent=2),encoding='utf-8')
+print(json.dumps(output));assert all(x['status']=='passed' for x in output)

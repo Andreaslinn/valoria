@@ -1,0 +1,94 @@
+"""Package only the isolated Git tree; never contact a remote or deploy."""
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import zipfile
+
+BASE=Path.cwd().resolve()
+SANDBOX=BASE/'work/thumbnail-sandbox'
+OUTPUT=BASE/'outputs/thumbnail-pipeline'
+SOURCE=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\work\ingestion-production-20261004\repack\final-applied')
+OUTPUT.mkdir(parents=True,exist_ok=True)
+
+
+def git(*args,cwd=SANDBOX):
+    return subprocess.check_output(['git','-C',str(cwd),*args],stderr=subprocess.PIPE)
+
+
+manifest=json.loads((SANDBOX/'SOURCE_MANIFEST.json').read_text())
+protected={k:v for k,v in manifest.items() if k.startswith(('api/','domain/','services/',
+    'infrastructure/','workers/','alembic/','deploy/','config/')) or k in
+    ('pyproject.toml','docker-compose.yml','Dockerfile.api')}
+source_changed=[]; sandbox_protected_changed=[]
+for name,expected in manifest.items():
+    if hashlib.sha256((SOURCE/name).read_bytes()).hexdigest()!=expected:
+        source_changed.append(name)
+for name,expected in protected.items():
+    if hashlib.sha256((SANDBOX/name).read_bytes()).hexdigest()!=expected:
+        sandbox_protected_changed.append(name)
+assert not source_changed and not sandbox_protected_changed
+fixture_manifest=json.loads((SANDBOX/'thumbnail_lab/fixtures/manifest.json').read_text())
+for item in fixture_manifest:
+    assert hashlib.sha256((SANDBOX/'thumbnail_lab/fixtures'/item['file']).read_bytes()).hexdigest()==item['source_sha256']
+proof={'source_files_checked':len(manifest),'source_files_changed':source_changed,
+       'protected_sandbox_files_checked':len(protected),'protected_sandbox_files_changed':sandbox_protected_changed,
+       'network_to_oracle':False,'deployed':False,'productive_schema_changed':False,
+       'history_modified':False,'scraping_executed':False,'distinct_image_sources':len(fixture_manifest),
+       'real_fixture_hashes_verified':True,
+       'comparison_scope':'raw bytes against local preserved source; no live production verification'}
+(SANDBOX/'SAFETY_PROOF.json').write_text(json.dumps(proof,indent=2))
+baseline=git('rev-list','--max-parents=0','HEAD').decode().strip()
+git('add','.')
+git('diff','--cached','--check')
+git('-c','user.name=Sandbox','-c','user.email=sandbox@localhost','commit','-qm',
+    'Selective thumbnails: isolated worker, bounded fetching, offline benchmarks and real UI fixture integration')
+head=git('rev-parse','HEAD').decode().strip()
+patch=OUTPUT/'thumbnail-pipeline.patch'
+patch.write_bytes(git('diff','--binary',baseline,head))
+git('bundle','create',str(OUTPUT/'thumbnail-sandbox.bundle'),'--all')
+git('archive','--format=zip','--prefix=thumbnail-sandbox/',f'--output={OUTPUT/"thumbnail-sandbox.zip"}',head)
+
+# Actual check/apply against an independent clone of the packaged local baseline.
+verify=BASE/'work/packaging-verification'
+assert not verify.exists()
+subprocess.run(['git','clone','--quiet',str(OUTPUT/'thumbnail-sandbox.bundle'),str(verify)],check=True)
+git('checkout','--quiet',baseline,cwd=verify)
+git('apply','--check',str(patch),cwd=verify)
+git('apply',str(patch),cwd=verify)
+git('add','.',cwd=verify)
+tree=git('write-tree',cwd=verify).decode().strip()
+expected_tree=git('rev-parse','HEAD^{tree}').decode().strip()
+assert tree==expected_tree
+
+documents=['THUMBNAIL_ARCHITECTURE.md','IMAGE_SOURCE_AUDIT.md','FORMAT_BENCHMARK.csv',
+    'SECURITY_MODEL.md','STORAGE_PROJECTION.md','PERFORMANCE.md','LIFECYCLE.md',
+    'TEST_RESULTS.md','INTEGRATION_PLAN.md','README.md','SAFETY_PROOF.json','SOURCE_MANIFEST.json']
+for name in documents: shutil.copyfile(SANDBOX/name,OUTPUT/name)
+results=OUTPUT/'metrics'
+results.mkdir(exist_ok=True)
+for name in ('benchmark-summary.json','performance.json','performance-before.json',
+             'arm64-wheel-proof.json','arm64-inspection.json','ui-results.json','STORAGE_PROJECTION.csv'):
+    shutil.copyfile(SANDBOX/'thumbnail_lab/results'/name,results/name)
+shutil.copyfile(SANDBOX/'thumbnail_lab/test-output.txt',results/'test-output.txt')
+images=OUTPUT/'previews'
+images.mkdir(exist_ok=True)
+for name in ('quality-contact-sheet.jpg','portfolio-desktop.png','portfolio-mobile.png',
+             'radar-desktop.png','detail-desktop.png'):
+    shutil.copyfile(SANDBOX/'thumbnail_lab/results'/name,images/name)
+with zipfile.ZipFile(OUTPUT/'thumbnail-sandbox.zip') as archive:
+    names=archive.namelist()
+    assert not any('/node_modules/' in n or '/state/' in n or '/test-state/' in n
+                   or n.endswith(('.env','.sqlite3','.tsbuildinfo')) for n in names)
+verification={'gate':'THUMBNAIL_PIPELINE_READY','baseline_local_commit':baseline,
+    'sandbox_commit':head,'branch':'sandbox/thumbnail-pipeline',
+    'git_apply_check':'PASS','git_apply':'PASS','applied_tree_equals_packaged_tree':True,
+    'tree':tree,'zip_files':len(names),'backend_tests':58,'ui_checks':11,
+    'typescript':'PASS','benchmark_cases':40,'measured_encode_repeats':400,
+    'arm64_native_executed':False,'arm64_wheel_hash_elf_codecs_verified':True}
+(OUTPUT/'PACKAGE_VERIFICATION.json').write_text(json.dumps(verification,indent=2))
+checksums={str(p.relative_to(OUTPUT)).replace('\\','/'):hashlib.sha256(p.read_bytes()).hexdigest()
+           for p in OUTPUT.rglob('*') if p.is_file() and p.name!='SHA256SUMS.json'}
+(OUTPUT/'SHA256SUMS.json').write_text(json.dumps(checksums,indent=2))
+print(json.dumps({'output':str(OUTPUT),'verification':verification,'safety':proof},indent=2))

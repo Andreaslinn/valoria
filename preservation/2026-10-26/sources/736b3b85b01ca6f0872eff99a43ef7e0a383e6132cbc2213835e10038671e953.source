@@ -1,0 +1,7 @@
+from pathlib import Path
+p=Path('frontend-v2/src/features/listing-url/workspace.tsx')
+s=p.read_text(encoding='utf-8')
+s=s.replace('const status=m.result?.status===', 'const historical=["removed","inactive","withdrawn","unavailable"].includes(analysis?.listing.status??data?.status??m.result?.listing_status??"");\n  const status=historical?"Retirada · Histórica":m.result?.status===')
+s=s.replace('{m.saved?"Guardada":m.busy==="save"?"Guardando…":"Guardar en watchlist"}', '{m.saved?(historical?"Histórica guardada":"Guardada"):m.busy==="save"?"Guardando…":historical?"Guardar referencia histórica":"Guardar en watchlist"}')
+s=s.replace('freshnessText(analysis??m.result!)','freshnessText({...analysis??m.result!,listing_status:analysis?.listing.status??data.status??m.result?.listing_status})')
+p.write_text(s,encoding='utf-8')

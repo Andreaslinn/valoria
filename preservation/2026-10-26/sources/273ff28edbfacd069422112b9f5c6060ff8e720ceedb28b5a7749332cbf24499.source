@@ -1,0 +1,42 @@
+"""User-authorized PR #4 merge, fail-closed until natural-run gate passes."""
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
+import json,urllib.request,subprocess,hashlib
+
+out=Path('outputs/portal-location-2a')
+gate_path=out/'scheduled-part-a-passed.json'
+if not gate_path.is_file():raise SystemExit('Part A pending: no GitHub changes made')
+gate=json.loads(gate_path.read_text(encoding='utf-8'))
+assert gate.get('passed') is True and gate.get('read_only') is True
+assert set(gate['services'])=={'uf','yapo','portalinmobiliario'}
+assert all(item['status']=='passed' and item.get('first_report') for item in gate['services'].values())
+assert gate['health']['status']=='ok'
+age=datetime.now(timezone.utc)-datetime.fromisoformat(gate['checked_at'])
+assert timedelta(0)<=age<=timedelta(hours=1),'Part A proof is stale; reobserve first'
+validation=json.loads((out/'validation.json').read_text(encoding='utf-8'))
+assert validation['unit_integration_passed']==1937 and validation['frozen_reference_candidate_matches_commit']
+repo=Path('work/oracle-ingestion-resilience')
+head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip()
+assert head==validation['commit']
+frozen=json.loads((out/'reference-same-snapshot.json').read_text(encoding='utf-8'))
+assert frozen['passed'] and frozen['before']==frozen['after']
+for path,digest in frozen['candidate_file_sha256'].items():
+ assert hashlib.sha256(subprocess.check_output(['git','show','HEAD:'+path],cwd=repo)).hexdigest()==digest
+scope={}
+exec(compile(Path('work/create_resilience_pr.py').read_text(encoding='utf-8').split('tip=api(',1)[0],'private_credentials','exec'),scope)
+api=scope['api'];pr=api('/pulls/4')
+assert pr['head']['sha']==head and pr['base']['ref']=='release/canonical-only-reproducible-20261013'
+assert pr['base']['sha']=='c55f4b65da8c03cb3a3fd6634f35ccd09f8f427a','Base changed; review before merge'
+if pr['merged']:
+ result={'merged':True,'sha':pr['merge_commit_sha']}
+else:
+ if pr['draft']:
+  query='mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}'
+  req=urllib.request.Request('https://api.github.com/graphql',data=json.dumps({'query':query,'variables':{'id':pr['node_id']}}).encode(),headers={'Authorization':'Bearer '+scope['token'],'User-Agent':'Valoria-Conditional-Merge','Content-Type':'application/json'})
+  with urllib.request.urlopen(req,timeout=30) as response:ready=json.load(response)
+  if ready.get('errors'):raise SystemExit('GitHub did not permit ready transition')
+ result=api('/pulls/4/merge',{'sha':head,'merge_method':'merge','commit_title':'Merge PR #4: bounded Portal location coverage'},method='PUT')
+if not result.get('merged'):raise SystemExit('PR not merged')
+proof={'merged':True,'commit':result['sha'],'pr':pr['html_url'],'head_before_merge':head,'base':pr['base']['ref'],'part_a_checked_at':gate['checked_at']}
+(out/'merge-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+print(json.dumps(proof))

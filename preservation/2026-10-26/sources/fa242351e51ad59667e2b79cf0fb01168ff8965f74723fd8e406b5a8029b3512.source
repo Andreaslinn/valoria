@@ -1,0 +1,409 @@
+"""Offline additive-history regressions; no network or production database."""
+
+import copy
+import importlib.util
+import json
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
+
+from config import get_settings
+from domain.ingestion.pipeline import process_listing
+from infrastructure.db.models import ListingObservationORM, ListingORM
+from infrastructure.db.repositories import (
+    SqlAlchemyListingRepository,
+    SqlAlchemyPropertyRepository,
+    SqlAlchemyPriceHistoryRepository,
+)
+from infrastructure.scrapers.yapo import YapoScraper
+from infrastructure.scrapers.portalinmobiliario import (
+    PortalInmobiliarioScraper,
+    parse_listing_detail_portal,
+)
+from domain.ingestion.observations import json_value
+
+FIX = Path(__file__).parents[1] / "fixtures"
+T = datetime(2026, 10, 2, 12, tzinfo=UTC)
+
+
+def raw(**kw):
+    r = dict(
+        source="yapo",
+        external_id="123",
+        title="Depto Ñuñoa",
+        url="https://yapo.cl/depto/123",
+        comuna="Ñuñoa",
+        property_type="apartment",
+        m2=50,
+        bedrooms=2,
+        bathrooms=1,
+        parking=1,
+        price_clp=120000000,
+        scraped_at=T,
+        raw_metadata={"custom": {"nested": [None, "original"]}},
+    )
+    r.update(kw)
+    return r
+
+
+def repos(session):
+    return dict(
+        listing_repo=SqlAlchemyListingRepository(session),
+        property_repo=SqlAlchemyPropertyRepository(session),
+        price_history_repo=SqlAlchemyPriceHistoryRepository(session),
+    )
+
+
+@pytest.fixture
+def enabled(monkeypatch):
+    monkeypatch.setattr(get_settings(), "ingestion_observation_history_enabled", True)
+
+
+async def history(session):
+    return (
+        await session.scalars(
+            select(ListingObservationORM).order_by(ListingObservationORM.observed_at)
+        )
+    ).all()
+
+
+async def test_raw_parsed_roundtrip(session, enabled):
+    r = raw(
+        _source_evidence={
+            "parser": {"version": "test"},
+            "raw": {"images": ["https://x/a", "https://x/b"], "extra": None},
+        }
+    )
+    expected = json_value(copy.deepcopy(r))
+    saved = await process_listing(r, **repos(session))
+    await session.commit()
+    doc = (await history(session))[0].document
+    assert doc["raw_state"] == expected
+    assert doc["parsed_state"]["m2"] == 50
+    assert doc["parsed_state"]["raw_metadata"]["custom"] == r["raw_metadata"]["custom"]
+    assert doc["persisted_state"]["source"] == saved.source
+    assert "_source_evidence" not in saved.raw_metadata
+    assert doc["provenance"]["m2"]["raw_value"] == 50
+    assert doc["provenance"]["m2"]["parsed_value"] == 50
+    assert doc["provenance"]["m2"]["normalizer"]["sha256"]
+
+
+async def test_append_reobservation_same_external_id(session, enabled):
+    ids = []
+    for k in range(3):
+        item = await process_listing(
+            raw(
+                title=f"Depto observado {k}",
+                parking=k,
+                price_clp=120000000 + k * 1000000,
+                scraped_at=T + timedelta(days=k),
+            ),
+            **repos(session),
+        )
+        ids.append(item.id)
+    await session.commit()
+    rows = await history(session)
+    assert len(rows) == 3 and len(set(ids)) == 1
+    assert [x.document["parsed_state"]["parking"] for x in rows] == [0, 1, 2]
+    assert rows[0].document["raw_state"]["title"] == "Depto observado 0"
+
+
+async def test_idempotence(session, enabled):
+    r = raw()
+    await process_listing(r, **repos(session))
+    await process_listing(copy.deepcopy(r), **repos(session))
+    await session.commit()
+    assert len(await history(session)) == 1
+
+
+async def test_missing_evidence_legacy_compatible(session, enabled):
+    r = raw(external_id=None)
+    await process_listing(r, **repos(session))
+    await session.commit()
+    doc = (await history(session))[0].document
+    assert doc["external_id"] is None and doc["source_evidence_available"] is False
+    assert doc["raw_state"].get("_source_evidence") is None
+
+
+async def test_rolls_back_listing_and_history(session, enabled):
+    await process_listing(raw(), **repos(session))
+    await session.rollback()
+    assert not await history(session)
+    assert (await session.scalars(select(ListingORM))).all() == []
+
+
+async def test_disabled_works_without_history_table(session, monkeypatch):
+    monkeypatch.setattr(get_settings(), "ingestion_observation_history_enabled", False)
+    await session.execute(text("DROP TABLE listing_observations"))
+    saved = await process_listing(raw(), **repos(session))
+    await session.commit()
+    assert saved.id
+
+
+async def test_enabled_missing_table_fails_closed(session, enabled):
+    await session.execute(text("DROP TABLE listing_observations"))
+    await session.commit()
+    with pytest.raises(Exception):
+        await process_listing(raw(), **repos(session))
+    await session.rollback()
+    assert (await session.scalars(select(ListingORM))).all() == []
+
+
+async def test_status_and_reappearance_history(session, enabled):
+    from workers.refresh_scraper import _set_refresh_state
+
+    saved = await process_listing(raw(), **repos(session))
+    await _set_refresh_state(
+        session,
+        listing_id=saved.id,
+        attempted_at=T + timedelta(days=1),
+        refresh_status="removed_404",
+        status="removed",
+    )
+    await _set_refresh_state(
+        session,
+        listing_id=saved.id,
+        attempted_at=T + timedelta(days=2),
+        refresh_status="blocked_403",
+    )
+    await process_listing(raw(scraped_at=T + timedelta(days=3)), **repos(session))
+    await session.commit()
+    docs = [r.document for r in await history(session)]
+    assert [r["event_kind"] for r in docs] == [
+        "listing_seen",
+        "refresh_result",
+        "refresh_result",
+        "listing_seen",
+    ]
+    assert docs[1]["parsed_state"]["status"] == "removed"
+    assert docs[2]["parsed_state"]["status"] == "removed"  # Block is not disappearance.
+    assert docs[3]["persisted_state"]["status"] == "active"
+
+
+async def test_refresh_idempotence(session, enabled):
+    from workers.refresh_scraper import _set_refresh_state
+
+    saved = await process_listing(raw(), **repos(session))
+    for _ in range(2):
+        await _set_refresh_state(
+            session,
+            listing_id=saved.id,
+            attempted_at=T + timedelta(days=1),
+            refresh_status="removed_404",
+            status="removed",
+        )
+    await session.commit()
+    assert len(await history(session)) == 2
+
+
+async def test_history_enabled_does_not_change_functional_listing(session, monkeypatch):
+    from dataclasses import asdict
+
+    monkeypatch.setattr(get_settings(), "ingestion_observation_history_enabled", False)
+    a = await process_listing(raw(), **repos(session))
+    before = asdict(a)
+    await session.rollback()
+    monkeypatch.setattr(get_settings(), "ingestion_observation_history_enabled", True)
+    b = await process_listing(raw(), **repos(session))
+    assert asdict(b) == before
+
+
+def test_migration_upgrade_downgrade_and_immutability():
+    from sqlalchemy import create_engine
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    p = Path(__file__).parents[2] / "alembic/versions/0021_listing_observations.py"
+    spec = importlib.util.spec_from_file_location("history_migration", p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    e = create_engine("sqlite:///:memory:")
+    with e.begin() as c:
+        with Operations.context(MigrationContext.configure(c)):
+            m.upgrade()
+            c.execute(
+                text(
+                    "INSERT INTO listing_observations(observation_id,source,observed_at,event_kind,document) VALUES ('test','yapo','2026-10-02','listing_seen','{}')"
+                )
+            )
+            for stmt in [
+                "UPDATE listing_observations SET source='x'",
+                "DELETE FROM listing_observations",
+            ]:
+                with pytest.raises(IntegrityError):
+                    c.execute(text(stmt))
+            m.downgrade()
+            m.upgrade()
+            assert c.scalar(text("SELECT count(*) FROM listing_observations")) == 0
+    e.dispose()
+
+
+async def test_deleting_listing_keeps_evidence(session, enabled):
+    saved = await process_listing(raw(), **repos(session))
+    await session.execute(text("DELETE FROM listings WHERE id=:id"), {"id": saved.id})
+    await session.commit()
+    assert len(await history(session)) == 1
+
+
+async def test_same_fingerprint_different_publication_preserved(session, enabled):
+    a = await process_listing(raw(external_id="a"), **repos(session))
+    b = await process_listing(
+        raw(external_id="b", url="https://yapo.cl/depto/b", scraped_at=T + timedelta(days=1)),
+        **repos(session),
+    )
+    await session.commit()
+    assert a.id == b.id  # Existing behavior untouched, not a new identity rule.
+    assert [r.external_id for r in await history(session)] == ["a", "b"]
+
+
+async def test_20_actual_yapo_cards_preserved(session, enabled):
+    rows = YapoScraper.parse_listings(
+        (FIX / "yapo_modern_results_sanitized.html").read_text(encoding="utf-8"),
+        uf_to_clp=Decimal("40000"),
+    )
+    assert len(rows) == 20
+    # Verify evidence for every source item; ingest RM-valid rows through actual pipeline.
+    from bs4 import BeautifulSoup
+    from infrastructure.scrapers.yapo_modern import payload_items
+
+    originals = {
+        str(i["id"]): i
+        for i in payload_items(
+            BeautifulSoup(
+                (FIX / "yapo_modern_results_sanitized.html").read_text(encoding="utf-8"), "lxml"
+            ),
+            search_only=True,
+        )
+    }
+    for r in rows:
+        assert r["_source_evidence"]["raw"]["payload"] == originals[r["external_id"]]
+        assert r["_source_evidence"]["raw"]["payload"]["images"]
+    selected = next(r for r in rows if r["external_id"] == "32986232")
+    await process_listing(selected, **repos(session))
+    await session.commit()
+    assert (await history(session))[0].document["raw_state"]["_source_evidence"]["raw"][
+        "payload"
+    ] == originals["32986232"]
+
+
+def test_portal_existing_cards_images_and_details():
+    cards = PortalInmobiliarioScraper.parse_listings(
+        (FIX / "portal_results_real_sanitized.html").read_text(encoding="utf-8"),
+        uf_to_clp=Decimal("40000"),
+    )
+    assert len(cards) == 48
+    assert all(c["_source_evidence"]["raw"]["images_raw"] for c in cards)
+    for name, n in [
+        ("portal_detail_real_1_sanitized.html", 19),
+        ("portal_detail_real_2_sanitized.html", 23),
+    ]:
+        d = parse_listing_detail_portal(
+            (FIX / name).read_text(encoding="utf-8"),
+            "https://www.portalinmobiliario.com/MLC-1949798443",
+        )
+        e = d["_source_evidence"]["raw"]["components"]
+        assert len(e["gallery"]["pictures"]) == n
+        assert e["description"]["content"]
+        assert e["quotable_models"]
+        assert e["bookmark"]
+        assert d["_source_evidence"]["coordinate_precision"] == "source_pin_unverified"
+
+
+def test_portal_adapters_forward_evidence():
+    from scripts.portal_card_first import _card_raw
+    from scripts.portal_canary import portal_detail_to_raw
+    from types import SimpleNamespace
+
+    target = dict(
+        operation="venta",
+        label="test",
+        property_type="apartment",
+        base_url="https://www.portalinmobiliario.com",
+    )
+    card = PortalInmobiliarioScraper.parse_listings(
+        (FIX / "portal_results_real_sanitized.html").read_text(encoding="utf-8"),
+        uf_to_clp=Decimal("40000"),
+    )[0]
+    assert _card_raw(card, target, Decimal("40000"))["_source_evidence"] == card["_source_evidence"]
+    detail = parse_listing_detail_portal(
+        (FIX / "portal_detail_real_1_sanitized.html").read_text(encoding="utf-8"),
+        "https://www.portalinmobiliario.com/MLC-1949798443",
+    )
+    assert (
+        portal_detail_to_raw(
+            detail,
+            target,
+            uf_info=SimpleNamespace(
+                rate=Decimal("40000"), source="test", cache_hit=False, is_stale=False
+            ),
+        )["_source_evidence"]
+        == detail["_source_evidence"]
+    )
+
+
+def test_all_existing_parser_fields_against_frozen_contract():
+    contract = json.loads((FIX / "ingestion_parser_contract_v1.json").read_text(encoding="utf-8"))
+
+    def strip(x):
+        if isinstance(x, dict):
+            return {
+                k: strip(v) for k, v in x.items() if k not in {"_source_evidence", "scraped_at"}
+            }
+        if isinstance(x, list):
+            return [strip(v) for v in x]
+        return x
+
+    for name, expected in contract.items():
+        html = (FIX / name).read_text(encoding="utf-8")
+        if name.startswith("yapo"):
+            actual = YapoScraper.parse_listings(html, uf_to_clp=Decimal("40000"))
+        elif "detail" in name:
+            actual = parse_listing_detail_portal(
+                html, "https://www.portalinmobiliario.com/MLC-1949798443"
+            )
+        else:
+            actual = PortalInmobiliarioScraper.parse_listings(html, uf_to_clp=Decimal("40000"))
+        if "detail" in name and not name.startswith("yapo"):
+            # Geographic binding/precision is deliberately additive; this contract
+            # continues to freeze every commercial field and all Yapo semantics.
+            geo = {"lat", "lon", "location_source", "coordinates_evidence", "coordinates_quality",
+                   "geocode_precision", "geocode_precision_reason", "coordinates_rejection_reason"}
+            for value in (actual, expected):
+                value["raw_metadata"] = {k: v for k, v in value["raw_metadata"].items() if k not in geo}
+        assert strip(actual) == expected
+
+
+def test_optional_malformed_images_do_not_reject_valid_card():
+    from infrastructure.scrapers.yapo_modern import adapt_item, payload_items
+    from bs4 import BeautifulSoup
+
+    item = payload_items(
+        BeautifulSoup(
+            (FIX / "yapo_modern_results_sanitized.html").read_text(encoding="utf-8"), "lxml"
+        ),
+        search_only=True,
+    )[0]
+    for images in [None, 42, ["https://[malformed", "https://x.test/ok"]]:
+        candidate = copy.deepcopy(item)
+        candidate["images"] = images
+        row = adapt_item(candidate, scraped_at=T, uf_to_clp=Decimal("40000"))
+        assert row is not None
+        assert row["_source_evidence"]["raw"]["payload"]["images"] == images
+
+
+def test_optional_source_dates_preserved_without_inventing_publication_date():
+    from infrastructure.scrapers.evidence import capture
+    import infrastructure.scrapers.yapo_modern as parser
+
+    e = capture(
+        "yapo",
+        raw={"payload": {"publishedAt": "2026-10-01", "updatedAt": "2026-10-02"}},
+        parser_file=parser.__file__,
+        stage="test",
+    )
+    assert e["parsed_signals"]["publication_date"] == "2026-10-01"
+    assert e["parsed_signals"]["source_updated_at"] == "2026-10-02"

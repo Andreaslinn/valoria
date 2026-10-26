@@ -1,0 +1,23 @@
+from pathlib import Path
+import json
+from netlify_bridge import netlify_client
+SITE='0af3d12f-a75b-494e-b75a-333a6165db68'
+PREVIEW='6acd2b4e4cad2bdcce564309'
+SHA='58e7f92effefd1a9b6750517d815e10f5b37b986'
+BRANCH='release/valoria-v2-20261012'
+with netlify_client() as c:
+ d=c.get('/deploys/'+PREVIEW);d.raise_for_status();d=d.json()
+ assert d['state']=='ready' and d['commit_ref']==SHA
+ smoke=json.loads(Path('work/hosted-preview-fixed/results.json').read_text())
+ assert not smoke['browser_errors'] and not smoke['network_failures'] and not any(r['horizontal_overflow'] for r in smoke['routes'])
+ legacy=c.get('/sites/346587ad-56cc-4a1c-afd3-218d750a2183');legacy.raise_for_status()
+ assert legacy.json()['published_deploy']['id']=='6a61ec59082af70008237760'
+ current=c.get('/sites/'+SITE);current.raise_for_status();current=current.json()
+ if (current.get('published_deploy') or {}).get('id')!=PREVIEW:
+  r=c.post(f'/sites/{SITE}/deploys/{PREVIEW}/restore');r.raise_for_status();assert r.json()['state']=='ready'
+ repo={'provider':'github','repo_path':'Andreaslinn/valoria','repo_url':'https://github.com/Andreaslinn/valoria','repo_branch':BRANCH,'installation_id':current['build_settings']['installation_id'],'base':'frontend-v2','dir':'.next','cmd':'npm ci --no-audit --no-fund && node ../tests/frontend/remediation.test.cjs && npm run build','public_repo':False,'private_logs':True,'base_rel_dir':True,'allowed_branches':[BRANCH],'stop_builds':False}
+ r=c.patch('/sites/'+SITE,json={'repo':repo});r.raise_for_status()
+ assert r.json()['build_settings']['repo_branch']==BRANCH
+ r=c.post('/sites/'+SITE+'/builds',params={'branch':BRANCH,'title':'Production release after hosted acceptance '+SHA});r.raise_for_status();build=r.json()
+ out={'site_id':SITE,'release_sha':SHA,'production_branch':BRANCH,'accepted_preview_baseline':PREVIEW,'baseline_published':True,'production_build':{k:build.get(k) for k in ['id','deploy_id','sha','done','error']},'public_url':'https://valoria-v2.netlify.app','legacy_preserved':True}
+ Path('work/netlify-production-trigger.json').write_text(json.dumps(out,indent=2));print(json.dumps(out,indent=2))

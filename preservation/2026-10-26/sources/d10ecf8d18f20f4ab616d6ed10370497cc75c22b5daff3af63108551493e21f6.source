@@ -1,0 +1,184 @@
+"""Loopback-only offline fixture API. Does not import api.main or a scraper."""
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import threading
+from urllib.parse import urlsplit, parse_qs
+from infrastructure.thumbnails.pipeline import Store, Context, work_one, attach_visible
+from infrastructure.thumbnails.security import Download, Rejected
+
+FIXTURES = Path(__file__).parent/'fixtures'
+
+
+def replay_provider(url):
+    for item in json.loads((FIXTURES/'manifest.json').read_text(encoding='utf-8')):
+        if item['url'] == url and item['status'] == 'ok':
+            blob = (FIXTURES/item['file']).read_bytes()
+            return Download(blob,item['mime'],0,hashlib.sha256(url.encode()).hexdigest())
+    raise Rejected('http_404')
+
+
+def fixture_rows():
+    rows = []
+    for item in json.loads((FIXTURES/'manifest.json').read_text(encoding='utf-8')):
+        lid = item['listing_id']
+        rows.append({'id':lid,'listing_id':lid,'source':item['source'],
+            'title':f'Propiedad replay {lid}', 'comuna':'Santiago', 'property_type':'apartment',
+            'raw_metadata':{'main_image_url':item['url']}, 'external_id':str(lid),
+            'saved_at':'2026-10-05T00:00:00Z','saved_price_clp':100000000,
+            'saved_price_uf':2500,'status':'active','note':None,'price_clp':100000000,
+            'price_uf':2500,'m2':60,'dormitorios':2,'banos':1,'estacionamientos':1,
+            'listing_status':'active','captured_at':'2026-10-05T00:00:00Z',
+            'url':f'https://www.yapo.cl/replay/{lid}', 'estimated_price_uf':3000,
+            'discount_pct':15,'score':70,'confidence':'medium','confidence_label':'Media',
+            'confidence_reasons':[],'confidence_risk_flags':[],'comparables_used':0,
+            'warnings':[],'radar_verdict':'opportunity','radar_verdict_message':'Fixture local',
+            'risk_flags':[],'bedrooms':2,'bathrooms':1,'parking':1})
+    for lid in (6,7,8):
+        row = {**rows[0],'id':lid,'listing_id':lid,'title':f'Fallback replay {lid}'}
+        row['raw_metadata'] = {} if lid==6 else {'main_image_url':'https://photos.encuentra24.com/expired'} if lid==7 else rows[0]['raw_metadata']
+        rows.append(row)
+    return rows
+
+
+class SandboxHTTP(ThreadingHTTPServer):
+    def __init__(self, address, store):
+        self.store = store
+        self.rows = fixture_rows()
+        self.saved = set(r['listing_id'] for r in self.rows)
+        self.saved_lock = threading.Lock()
+        self.stopping = threading.Event()
+        super().__init__(address, Handler)
+        self.worker = threading.Thread(target=self.run_worker,daemon=True)
+        self.worker.start()
+
+    def run_worker(self):
+        while not self.stopping.is_set():
+            if not work_one(self.store,replay_provider):
+                self.stopping.wait(.05)
+
+    def server_close(self):
+        self.stopping.set()
+        self.worker.join(timeout=2)
+        super().server_close()
+        self.store.close()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self,*args):
+        pass
+
+    def emit_headers(self):
+        origin = self.headers.get('Origin','')
+        if origin in ('http://127.0.0.1:3105','http://localhost:3105'):
+            self.send_header('Access-Control-Allow-Origin',origin)
+            self.send_header('Vary','Origin')
+        self.send_header('Access-Control-Allow-Headers','Content-Type,Authorization,If-None-Match')
+        self.send_header('Access-Control-Allow-Methods','GET,POST,DELETE,OPTIONS')
+        self.send_header('X-Content-Type-Options','nosniff')
+        self.send_header('Timing-Allow-Origin','http://127.0.0.1:3105')
+
+    def respond(self, value, status=200):
+        body = json.dumps(value).encode()
+        self.send_response(status)
+        self.emit_headers()
+        self.send_header('Content-Type','application/json')
+        self.send_header('Content-Length',str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def public_row(self,row,surface):
+        ref = attach_visible(self.server.store,row,Context(surface,True,True,'sandbox-user'))['thumbnail']
+        return {k:v for k,v in row.items() if k != 'raw_metadata'} | {'thumbnail':ref}
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.emit_headers()
+        self.end_headers()
+
+    def do_GET(self):
+        parsed = urlsplit(self.path)
+        if parsed.path == '/api/v1/watchlist':
+            with self.server.saved_lock:
+                selected = [r for r in self.server.rows if r['listing_id'] in self.server.saved]
+            return self.respond([self.public_row(r,'watchlist') for r in selected])
+        if parsed.path == '/api/v1/radar/opportunities':
+            try:
+                limit = max(1,min(100,int(parse_qs(parsed.query).get('limit',['20'])[0])))
+            except ValueError:
+                return self.respond({'detail':'Invalid limit'},400)
+            return self.respond([self.public_row(r,'radar') for r in self.server.rows[:limit]])
+        if parsed.path.startswith('/api/v1/thumbnails/'):
+            name = parsed.path.removeprefix('/api/v1/thumbnails/')
+            if not re.fullmatch(r'[a-f0-9]{64}\.webp',name):
+                return self.respond({},404)
+            asset = self.server.store.assets/name
+            if not asset.is_file():
+                return self.respond({},404)
+            blob = asset.read_bytes()
+            if hashlib.sha256(blob).hexdigest() != name[:64]:
+                return self.respond({},404)
+            etag = '"'+name[:64]+'"'
+            cached = self.headers.get('If-None-Match') == etag
+            self.send_response(304 if cached else 200)
+            self.emit_headers()
+            self.send_header('Content-Type','image/webp')
+            self.send_header('Cache-Control','private, max-age=86400, immutable')
+            self.send_header('ETag',etag)
+            if not cached:
+                self.send_header('Content-Length',str(len(blob)))
+            self.end_headers()
+            if not cached:
+                self.wfile.write(blob)
+            return
+        return self.respond({'detail':'Offline sandbox route unavailable'},404)
+
+    def do_POST(self):
+        if self.path == '/api/v1/listings/lookup-url':
+            try:
+                length = int(self.headers.get('Content-Length','0'))
+                if not 0 < length <= 4096:
+                    return self.respond({},413)
+                data = json.loads(self.rfile.read(length))
+                row = next((r for r in self.server.rows if r['url']==data.get('url')),None)
+            except (ValueError,TypeError):
+                return self.respond({},400)
+            if not row:
+                return self.respond({'detail':'Usa https://www.yapo.cl/replay/1; no se hace scraping'},404)
+            result = self.public_row(row,'detail')
+            return self.respond({'status':'found_existing','listing_data':result,'warnings':[],
+                                 'source':row['source'],'url':row['url']})
+        match = re.fullmatch(r'/api/v1/watchlist/(\d+)',self.path)
+        if match:
+            row = next((r for r in self.server.rows if r['listing_id']==int(match[1])),None)
+            if row:
+                with self.server.saved_lock:
+                    self.server.saved.add(row['listing_id'])
+                return self.respond(self.public_row(row,'watchlist'),201)
+        return self.respond({},404)
+
+    def do_DELETE(self):
+        match = re.fullmatch(r'/api/v1/watchlist/(\d+)',self.path)
+        if not match:
+            return self.respond({},404)
+        lid = int(match[1])
+        with self.server.saved_lock:
+            self.server.saved.discard(lid)
+        self.server.store.leave(lid,Context('watchlist',True,True,'sandbox-user'))
+        return self.respond({'listing_id':lid,'saved':False,'status':None})
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root',default='thumbnail_lab/state')
+    parser.add_argument('--port',type=int,default=8105)
+    args = parser.parse_args()
+    server = SandboxHTTP(('127.0.0.1',args.port),Store(Path(args.root)))
+    print(f'Offline sandbox API http://127.0.0.1:{server.server_port}',flush=True)
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()

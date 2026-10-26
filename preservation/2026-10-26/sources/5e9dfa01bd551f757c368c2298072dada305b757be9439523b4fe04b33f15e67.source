@@ -1,0 +1,29 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''import subprocess,json,time
+def run(a,**kw):
+ p=subprocess.run(a,capture_output=True,text=True,timeout=90,**kw)
+ if p.returncode:raise RuntimeError('Candidate operation failed: '+a[0]+'; no sensitive output emitted')
+ return p.stdout
+network='valoria-portal-candidate-net';pg='valoria-portal-candidate-pg';redis='valoria-portal-candidate-redis';api='valoria-portal-candidate-api'
+for n in [pg,redis,api]:assert subprocess.run(['docker','inspect',n],capture_output=True).returncode!=0,'Refuse overwrite existing test container'
+run(['docker','network','create',network])
+run(['docker','run','-d','--name',pg,'--network',network,'--memory','256m','--cpus','0.5','-e','POSTGRES_USER=restore_test','-e','POSTGRES_DB=restore_check','-e','POSTGRES_HOST_AUTH_METHOD=trust','postgres:16-alpine'])
+for _ in range(30):
+ if subprocess.run(['docker','exec',pg,'pg_isready','-U','restore_test'],capture_output=True).returncode==0:break
+ time.sleep(1)
+with open('/home/ubuntu/backups/remediation-20261012/database.dump','rb') as f:
+ p=subprocess.run(['docker','exec','-i',pg,'pg_restore','--no-owner','--no-acl','--exit-on-error','-U','restore_test','-d','restore_check'],stdin=f,capture_output=True,timeout=90)
+ assert p.returncode==0,'Isolated restore failed'
+run(['docker','run','-d','--name',redis,'--network',network,'--memory','32m','--cpus','0.25','redis:7-alpine','redis-server','--save','','--appendonly','no'])
+env=['-e','DATABASE_URL=postgresql+asyncpg://restore_test@'+pg+':5432/restore_check','-e','SYNC_DATABASE_URL=postgresql+psycopg://restore_test@'+pg+':5432/restore_check','-e','JWT_SECRET_KEY=isolated-portal-candidate-session-validation','-e','REDIS_URL=redis://'+redis+':6379/0','-e','ENVIRONMENT=development','-e','SCHEDULER_ENABLED=false','-e','WORKERS_ENABLED=false','-e','LISTING_ON_DEMAND_REFRESH_ENABLED=false','-e','PORTAL_SESSION_FILE=/portal-session/session.json']
+image='valoria-remediation:candidate-20261012-v4'
+run(['docker','run','--rm','--network',network,'--memory','256m']+env+['--entrypoint','python',image,'-B','-m','alembic','upgrade','head'])
+seed="import asyncio;from sqlalchemy import text;from api.security import hash_password;from infrastructure.db.database import get_session_factory\\nasync def main():\\n async with get_session_factory()() as s:\\n  await s.execute(text(\\\"INSERT INTO users(id,email,password_hash,role,is_active) VALUES (990001,'portal-candidate@example.test',:p,'admin',true)\\\"),{'p':hash_password('CandidateOnly123!')});await s.commit()\\nasyncio.run(main())"
+run(['docker','run','--rm','--network',network,'--memory','256m']+env+['--entrypoint','python',image,'-B','-c',seed.replace(chr(92)+'n',chr(10))])
+run(['docker','run','-d','--name',api,'--network',network,'--memory','384m','--cpus','0.5','-p','127.0.0.1:18013:8000','--volume','/home/ubuntu/apps/valoria/private/portal-session:/portal-session:ro']+env+['--entrypoint','python',image,'-B','-m','uvicorn','api.main:app','--host','0.0.0.0','--port','8000'])
+print(json.dumps({'candidate_api':api,'candidate_image':image,'schema':'0022','database':'isolated_restored_copy','synthetic_user_added_only_to_copy':True,'session_mount':'readonly','workers_scheduler_refresh':'disabled','port':'loopback18013'}))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=180)
+Path(__file__).with_name('portal-candidate-environment.json').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr);r.check_returncode()

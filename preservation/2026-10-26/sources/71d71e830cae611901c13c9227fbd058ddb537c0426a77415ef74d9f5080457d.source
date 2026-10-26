@@ -1,0 +1,185 @@
+from pathlib import Path
+import json,csv,hashlib
+from collections import Counter
+H=Path(__file__).resolve().parent
+r=json.loads((H/'results.json').read_text(encoding='utf-8'))
+def rows(name):
+    with (H/name).open(encoding='utf-8',newline='') as f: return list(csv.DictReader(f))
+def table(data,cols):
+    return '| '+' | '.join(cols)+' |\n| '+' | '.join(['---']*len(cols))+' |\n'+''.join('| '+' | '.join(str(row.get(c,'')) for c in cols)+' |\n' for row in data)
+def write(name,text): (H/name).write_text(text,encoding='utf-8')
+signals=[x for x in rows('identity_signal_inventory.csv') if x['source']=='ALL']
+evidence=rows('pair_evidence.csv'); old=rows('property_id_audit.csv')
+contradictions=rows('identity_contradictions.csv')
+old_pairs=len({(x['id_a'],x['id_b']) for x in contradictions if x['scope']=='old_property_id'})
+reasons=Counter(reason for x in contradictions if x['scope']=='candidate_pair' for reason in x['reason'].split('|'))
+write('README.md',f'''# Identidad para CV — investigación offline
+
+**Resultado: todavía no se puede certificar grouped CV. No hay ID preferido recomendado.** Esta carpeta contiene reglas target-free, sensibilidad y auditoría; no un sistema de identidad productivo.
+
+## Fuentes y base
+
+Universo cerrado: 1.179 IDs de `{H.parents[1]/'research/tasar_avm_audit_20261002/candidate_dataset_with_group_id.csv'}`. Se lee únicamente la columna ID; no se reevalúa precio, superficie o fiabilidad para alterar membership.
+
+Snapshot principal: `research/tasar_avm_audit_20261002/input_snapshot.json`, SHA-256 `a5991dd086056fa304416ddfa1ad464352957bebcb5df9fcd2ce5565938e3641`, capturado 2026-10-02T15:27:06 UTC, 4.908 activos. Campos de precio presentes en el archivo fuente nunca se proyectan a matching. Hash del archivo es trazabilidad, no feature.
+
+Código productivo contextual: `{H.parents[1]/'valoria-reconciled'}`, HEAD `{r['code_commit']}`, checkout con cambios previos; antes/después 857 archivos y status idénticos. El matcher experimental es independiente del producto, sin imports de Tasar/Consensus/settings/db.
+
+Histórico: backup LOCAL preexistente `private-preservation-20260925/production-avm.dump`, SHA-256 `{r['history']['archive_sha256']}`. Se leyó mediante `docker exec ... pg_restore --data-only --table=listings --table=properties --table=price_history --file=-`, **sin parámetro de conexión --dbname, sin restaurar DB ni escribir en el contenedor**. Solo la proyección de identidad/relaciones/fechas se guardó. Importes de COPY price_history no se decodificaron ni exportaron. No se copió SQL sin redacción.
+
+Inventario adicional LOCAL actual: `local_identity_snapshot.json`, capturado `{r['history']['local_captured_at']}`; 4.196 filas. `local_identity_query.sql` muestra la consulta: BEGIN TRANSACTION READ ONLY, SELECT columnas de identidad, ROLLBACK. No contiene columnas de precio ni contactos. Se ejecutó contra el contenedor dev local ya activo; no Oracle. Se obtuvieron 840 vínculos por publicación estable, sin nuevas direcciones con número/unidad/edificio ni identificadores de imagen. No se sustituyen atributos del snapshot principal con otro estado local.
+
+`input_provenance.json` registra hashes de todos los inputs y de los IDs congelados. Las proyecciones histórica/local son inmutables: los extractores se niegan a sobrescribirlas. No es necesario volver a consultar Docker para reproducir resultados.
+
+## Reproducir sin DB ni Docker
+
+Desde `{H.parents[1]}` en PowerShell:
+
+```powershell
+python -B research/tasar_identity_20261002/run.py
+python -B research/tasar_identity_20261002/test_identity.py
+python -B research/tasar_identity_20261002/report.py
+```
+
+Python 3.13.4; solo librería estándar. `test_identity.py` comprueba también reproducibilidad byte por byte de los CSV. Los dos extractores son evidencia del protocolo de adquisición, no pasos necesarios en una reproducción. Para otro snapshot se debe usar una carpeta experimental distinta.
+
+## Alcance
+
+Reglas originales conservadas en `methodology_frozen.json`; corrección de parser en `methodology_amendment_01.json`. No cambió ningún umbral al conocer tamaños de grupos. No se abrió ningún archivo de resultados predictivos, se creó split ni se entrenó A/C1/C1-flex/C2. Outputs previos intactos. Ceros de atributos no se imputaron. No hay commits, migraciones, cambios de datos, servicios, timers o configuración. El backup, código y tablas locales originales se conservaron.
+
+Los singletons **no son unidades independientes certificadas**. El campo property_high_confidence_id en los CSV es una componente del grafo; `high_physical_evidence=false` impide interpretar su singleton como unidad certificada. No existe `candidate_dataset_with_preferred_cv_group.parquet`: faltan condiciones para recomendarlo.
+
+La adjudicación no incluye precios, direcciones completas, correos/teléfonos ni texto de descripción. Títulos sanitizados y números no etiquetados redactados; números de dirección parcialmente ocultos. Las proyecciones de input quedan privadas en esta carpeta de investigación.
+''')
+
+write('identity_methodology.md',f'''# Método explícito y preregistro
+
+## Tres relaciones diferentes
+
+Publication: mismo source+external_id no vacío o URL canónica equivalente. URLs: host lowercase sin www, HTTPS, path unquoted con barras normalizadas y sin slash final, fragment descartado, tracking utm_/gclid/fbclid/msclkid eliminado, parámetros restantes ordenados y conservados. Se preserva un parámetro id semántico. Nunca se unen fuentes distintas por external_id sin host/source.
+
+Property high-confidence: mismo street+number+unit explícitos, tipo/comuna y estructura compatibles, sin contradicción. Coordenadas/texto solos no generan alta confianza física. Same publication puede ser una dependencia incluso con atributos inconsistentes; no se convierte por eso en high physical.
+
+CV: G1 reúne publicación determinística y high physical. G2 y G3 añaden aristas de riesgo conservador interpretables. Todas las relaciones usan componentes conexas; el grafo high nunca hereda aristas conservadoras. `property_id` y fingerprint antiguos se usan exclusivamente como auditoría/blocking de comparación, no para aceptación. Todas las aristas aceptables están además cubiertas por bloques propios de publicación, dirección o geografía; no dependen de esos IDs antiguos para ser descubiertas.
+
+## Sanitización y números
+
+NFKC, eliminación de spans `$...`, M$, CLP, UF/CLF prefijo o sufijo —incluidos UF2500 y UF:2500—, cantidades con millones/pesos y cues inequívocos precio/valor/desde. Separadores decimales/millares reconocidos; no se elimina globalmente todo número antes de extraer campos explícitos de identidad. Se eliminan email y patrones de teléfono/contacto. No se usan descripciones para matching, aunque se inventaría su cobertura.
+
+Texto de matching: Unicode sin acentos, lowercase, av/avda → avenida, depto/dpto → departamento, puntuación y espacios normalizados; tokens alfabéticos ≥3 fuera de una stoplist explícita. **No se usan tokens numéricos de título**, TF-IDF, embeddings ni labels. Similaridad Jaccard no es una probabilidad calibrada.
+
+Dirección: solo se extrae street+number con prefijo calle/avenida/pasaje/camino. Unidad exige cue de departamento/unidad con número; se evita interpretar 2D+1B, dormitorios, baños o m² como unidad. N°/Nº se normaliza a numero. Primero address/address_label/street_hint; luego location_text con dirección explícita; luego título sanitizado con road+number explícitos. Números de unidad inequívocos N° en título también se conservan como señal de contradicción. No hay fuzzy global ni coincidencia automática de edificios.
+
+## Escenarios fijados
+
+| Escenario | Unión adicional a publicación |
+| --- | --- |
+| G1 strict | dirección+número+unidad iguales, estructura compatible, sin contradicción |
+| G2 conservative | G1; o dirección+número iguales **o** coords address-grade ≤25 m, **más** estructura tight, ≥3 tokens distintivos compartidos y Jaccard ≥0,8, sin contradicción |
+| G3 very conservative | G2; o dirección+número iguales **o** coords address-grade ≤50 m, **más** estructura loose, ≥3 tokens distintivos compartidos y Jaccard ≥0,6, sin contradicción |
+
+Tight: área diferencia ≤max(1 m²,2% del menor). Loose: ≤max(2 m²,5%). Dormitorios/baños positivos conocidos son obligatorios y deben coincidir; parking positivo en ambos no puede diferir. Cero no aporta acuerdo fuerte. Comuna y tipo coinciden. Nunca basta comuna+estructura sola.
+
+Geografía positiva: coordenadas válidas, etiqueta address/exact, <5 repeticiones en los 4.908 activos, no a >100 km del punto descriptivo Santiago (−33,45;−70,65). Hay 330 candidatos con esa condición. **No es precisión de 25 m certificada por proveedor.** 25/50 m representan proximidad de edificio, y por eso requieren también estructura/texto y no otorgan alta confianza física. El radio de 1 km es solo blocking; no regla de unión.
+
+Contraindicaciones: comuna/tipo distintos, dirección explícita street+number incompatible, unidades explícitas distintas con el mismo full address o mismo street+coordenadas trusted ≤50 m, coordenadas trusted >500 m, área diferente >max(10 m²,20%), atributos positivos conocidos distintos. Faltantes o coordenadas pobres son desconocidos, no evidencia de acuerdo. Contradicted puede reflejar error de geocoding/parsing, no necesariamente probar dos propiedades diferentes.
+
+## Corrección transparente del parser
+
+El primer pase exploratorio incluía el par 5341/5342 bajo G3 por coords iguales, estructura cercana y texto idéntico. La inspección mostró **unidad explícita distinta en sus títulos**. Se corrigió la propagación de N° y se auditó el caso. `methodology_amendment_01.json` conserva ese motivo. No se ajustó radio, Jaccard, tolerancia de superficie ni regla para producir un N deseado. El par final se rechaza y aparece en la muestra F. No se oculta una excepción ni se modifica dato original.
+
+## Blocking eficiente
+
+{table(rows('pair_candidate_counts.csv'),['stage','unique_pairs_stage','cumulative_pairs'])}
+
+Se evaluaron **{r['pair_candidates']} pares** únicos, {100*r['pair_candidates']/r['all_possible_pairs']:.3f}% de los 694.431 posibles. Bloques no equivalen a match. El proxy estructural viejo usa atributos exactos y m2/área ±1; no replica orden de inserción ni los anchors de PropertyORM. Distancias Haversine en metros; sliding window de latitud antes del cálculo exacto. El inventario de imagen usa solo hashes de identificadores existentes: cero encontrados; no se descarga imagen ni se obtiene hash de contenido.
+
+## Distancias y sensibilidad
+
+`distance_distributions.csv` separa property_id actual, fingerprint antiguo, proxy estructural, bloque geográfico y nuevos aceptados. `distance_threshold_sensitivity.csv` describe 10/25/50/100/250/500/1.000 m, con denominador medido. El bloque geográfico está truncado por diseño a 1 km; su distribución no representa todas las parejas de la ciudad. Los umbrales no se calibran mediante N de grupos ni resultados de valoración.
+
+G1 sin grupos múltiples no tiene P95/max de distancias definidas. G2/G3 tienen una sola pareja con distancia 0 m: no demuestra coordenadas exactas ni identidad. Los ámbitos de comparación y sus denominadores siempre se informan.
+
+## Transitividad, contradicciones y muestras
+
+`transitive_bridge_audit.csv` muestra un singleton pair unido por una arista conservadora en G2 y el mismo componente en G3. No hay cadenas reales >2 ni grupos ≥5. Los tests sí demuestran transitividad separada y casos en los que una arista conservadora no debe ampliar el grafo high.
+
+Todas las parejas internas de cada componente se revisan para contradicción, incluso sin arista directa. No se reparan silenciosamente ni se borran componentes conflictivos. El dataset real final tiene cero grupos nuevos con contradicción, pero no implica recall suficiente para prevenir leakage.
+
+Muestras seleccionadas por SHA-256 del par y seed 20261002, sin precio:
+
+{table(rows('manual_sample_counts.csv'),['sample','eligible_pairs','sampled_pairs'])}
+
+A no tiene pares high; B solo un par; D no tiene pares aceptados que el property_id viejo separase. Se entrega lo existente, sin fabricar veinte. C entrega veinte pares del viejo grouping/proxy no admitidos. F conserva el caso de unidades diferentes. E: cero componentes ≥5, así que no existe muestra. Títulos sin números monetarios ni bare numbers visibles, direcciones parcialmente redactadas, no descripciones/contactos/precios.
+
+La tabla manual entrega clases opacas de equivalencia para unidades explícitas y el indicador de igualdad cuando existen en ambos lados; se puede observar que son distintas sin revelar sus números completos. Las clases son señales físicas, nunca categorías de precio. Los 11 unit IDs extraídos no están acompañados por una dirección street+number en ningún candidato: la unidad sola no da alta confianza.
+
+## Histórico y límites
+
+Backup: 5.306 listings, 3.833 properties, 12.583 relaciones de price_history. Para los IDs actuales hay 1.556 relaciones y 703 IDs con alguna; la continuidad de ID **no prueba continuidad de publicación física**. Hay 16 cambios de source/external_id para mismo ID interno entre backup y snapshot. No se convierten en alias de alta confianza: el pipeline antiguo pudo sobrescribir una publicación tras coincidencia de fingerprint débil.
+
+847 publicaciones actuales se vinculan al backup por source/external_id o URL canónica; 840 al estado dev local actual. Ni el backup ni esos vínculos locales suministran unidad+dirección física suficientes o hashes de imágenes existentes. Properties del backup no tienen unit/address y fueron creadas por el mismo matcher débil: no sirven como ground truth.
+
+El snapshot principal conserva un inventario agregado que cuenta main_image_url en 981 filas **de todos los tipos**, pero no conserva sus valores ni permite calcular cobertura entre candidatos. No se declara que Oracle carezca de imágenes; **no se accedió a Oracle**. El log local de ingesta resume cantidades de corrida, sin mapa de versiones de identidad. No existe un ledger demostrado de previous external IDs/URLs que restituya publicaciones colapsadas. No se scrapean URLs ni se geocodifica.
+
+De igual manera, el inventario original cuenta una clave seller en 3.606 filas de todos los tipos, pero no preserva esos valores ni demuestra un broker/listing ID estable por candidato. No se usa nombre/contacto de publicador como identidad de inmueble. El schema contextual no tiene columna explícita de unidad/dirección de PropertyORM ni un identificador de broker cross-source. La cobertura UNKNOWN de metadata no exportada no se convierte en ausencia demostrada del sistema completo.
+''')
+
+write('identity_summary.md',f'''# Resultado de identidad para validación cruzada
+
+**No recomiendo congelar todavía ningún cv_dependency_group_id_preferred.** Las reglas target-free son reproducibles, pero no permiten acotar el riesgo de que una misma unidad termine en grupos distintos. La investigación se detiene antes de crear holdout o entrenar modelos.
+
+## Señales reales
+
+{table(signals,['signal','coverage','coverage_pct','cardinality'])}
+
+De 1.179 candidatos, address_label/street_hint aparece en **180 (15,27%)**, todos Yapo; es principalmente pista de calle. No hay dirección completa estructurada ni unidad en ese campo. Con extracción explícita del título aparecen **11 street+number (0,93%)** y **11 unidades (0,93%)**, pero **cero** candidatos reúnen ambas. Normalized address/pista tiene 188 valores, incluyendo títulos con dirección explícita. La extracción es auditable, no validación de exactitud. Description solo 82/1.179, todos Yapo; no se usó para unir pares.
+
+Coordenadas disponibles 357; 330 pasan los guardrails positivos establecidos, todos Yapo. Los 449 Portal no tienen coords ni dirección estructurada/unidad en los campos preservados. Fuente/external_id/URL están disponibles en todos; no se detectan publicaciones simultáneas determinísticamente repetidas. La unicidad impuesta por el viejo fingerprint y la sobreescritura pueden haber eliminado evidencia histórica: ausencia de duplicados de publicación no prueba independencia física.
+
+## Sensibilidad final
+
+{table(r['grouping_sensitivity'],['scenario','N_groups','singletons','size2','size3','size4','size5plus','max_group','listings_groups_ratio','cross_source_groups','P95_distance_m','max_distance_m'])}
+
+Todos los escenarios tienen cero grupos que abarquen >100, >250, >500 o >1.000 m; G1 no tiene distancias internas y G2/G3 solo una pareja (0 m). **Estos números no certifican independencia**: las reglas abstienen de agrupar casi todo por falta de señales.
+
+El único par conservador final **5392/5395** comparte coordenadas, estructura y título sanitizado; ya compartía property_id. No tiene unidad explícita, por lo que podría ser repetición de anuncio, dos unidades semejantes o una misma plantilla comercial. No se adjudica físicamente. El par nuevo **5341/5342** habría parecido dependiente por geo/texto, pero sus unidades explícitas diferentes bloquean la unión. **Nuevos pares aceptados que el viejo property_id separaba: cero** tras resolver esa contradicción. No se suavizan reglas para obtener matches.
+
+## Auditoría del property_id
+
+172 property_id tienen más de un candidato: **0 supported, 133 ambiguous, 39 contradicted**. Supported exige conexión de todos sus miembros por evidencia física strong; no se usa el property_id como propia prueba. Ambiguous no equivale a incorrecto. Contradicted significa señales incompatibles bajo las reglas (sobre todo geografía), no una reparación ni un label jurídico.
+
+{old_pairs} parejas internas del property_id presentan contradicción. En la colección completa de {r['pair_candidates']} pares bloqueados hay **{r['unique_contradicted_pairs']} pares únicos con contradicción**; esto incluye diferencias físicas legítimas entre publicaciones distintas y **no significa 1.827 errores de identidad**. Cero contradicciones en grupos nuevos aceptados. Desglose por razón (categorías pueden solaparse):
+
+{table([dict(reason=k,pairs=v) for k,v in sorted(reasons.items())],['reason','pairs'])}
+
+Distancias dentro de property_id viejo: 82 de 2.597 parejas tienen coords medibles; mediana **1.200,16 m**, P95 **4.366,32 m**, máximo **7.177,20 m**. Es una distribución de parejas, no P95 de máximos por componente. Fingerprints actuales compartidos: cero pares; no hay distribución estimable. El proxy estructural viejo produce 3.143 parejas, 102 medibles, P95 **3.500,84 m**. Los CSV preservan denominadores y umbrales.
+
+## Qué queda demostrado y qué no
+
+Se demuestra que precio estructurado, UF rate, valores monetarios sanitizados, price_history amounts y performance no determinan las uniones. Se demuestra también que coordenadas y plantilla textual pueden ocultar unidades distintas. **No se demuestra recall de duplicados, false-negative rate ni P(misma unidad cruza train/test).** No hay labels físicos suficientes, ninguna unión cross-source nueva y casi todo Portal carece de ancla física.
+
+Los tres escenarios son artefactos diagnósticos. No debe interpretarse G1=1.179 como N independiente, ni G2=1.178 como solución. No se genera parquet preferido, train/test, holdout, evaluación de error ni modelo.
+
+El matching usa atributos físicos ya persistidos, sin repararlos. Las anomalías de superficie/parsing detectadas en la auditoría anterior permanecen: invariancia ante modificar campos de precio no certifica que todo atributo histórico haya sido correctamente extraído. Tampoco se usa un ID interno histórico como prueba de que su publicación no haya cambiado. Las pruebas demuestran ausencia de dependencia directa de los inputs monetarios, no una identidad física validada.
+
+## Información que más ayudaría
+
+Primero preservar dirección completa normalizada con calle/número y unidad cuando exista, más edificio/proyecto y origen/precisión verificable de las coordenadas. La unidad identifica las diferencias dentro de un edificio; el edificio por sí solo no debe convertirse en inmueble. Necesitamos esa cobertura también en Portal.
+
+Segundo conservar publicaciones separadas por source+external_id y un ledger de sus versiones/URLs; no sobrescribir cross-source al coincidir un fingerprint. Las relaciones históricas almacenadas deben poder auditarse sin precio.
+
+Tercero exportar **desde una copia autorizada** las señales de identidad ya existentes pero omitidas (por ejemplo identificadores de imágenes); distinguir hashes de contenido de URLs y fotos de stock/proyecto. Luego una adjudicación offline, ciega al precio, de pares positivos/negativos y casos cross-source. Eso permitiría validar precision/recall de identidad antes de congelar el split, sin entrenar AVM.
+
+## Integridad
+
+13 tests metodológicos pasan, incluidos todos los controles pedidos y reproducción byte a byte de CSV. Producto: 857 hashes/status idénticos. Outputs de la auditoría previa intactos. Oracle sin acceso, sin cambios en datos reales ni servicios/configuración/timers. Solo lectura de un backup local a stdout y SELECT READ ONLY en DB dev local; no restore, deploy, migración o commit.
+''')
+
+manifest=[]
+for p in sorted(H.iterdir()):
+    if p.is_file() and p.name!='output_manifest.csv':
+        manifest.append(dict(name=p.name,absolute_path=str(p),bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest()))
+with (H/'output_manifest.csv').open('w',encoding='utf-8',newline='') as f:
+    w=csv.DictWriter(f,fieldnames=['name','absolute_path','bytes','sha256']); w.writeheader(); w.writerows(manifest)
+print('Reports complete; no recommended parquet; manifest files',len(manifest)+1)

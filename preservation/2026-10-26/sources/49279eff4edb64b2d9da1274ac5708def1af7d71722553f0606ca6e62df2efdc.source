@@ -1,0 +1,67 @@
+# Auditoría inicial — 2026-10-05
+
+## Observado antes del diseño
+
+Fuente: copia local `ingestion-production-20261004/repack/final-applied`, HEAD
+`15fd7dc2bc0bc219d7b9df4f45574a553bb306c4` más cambios staged del paquete de preservación.
+La procedencia está respaldada por `repacked/final-patch-manifest.json` (2026-10-04),
+no por una lectura nueva del servidor. SOURCE_MANIFEST.json fija los bytes de 732 archivos
+copiados. No se copiaron .env, credenciales ni bases. Ninguna conexión a Oracle.
+
+* Yapo moderno (`infrastructure/scrapers/yapo_modern.py:124–132`):
+  principalImage, fallback primer string de images; raw_metadata.main_image_url.
+  CDN real observado en contrato: photos.encuentra24.com. Yapo DOM/legacy conserva
+  img src/data-src en evidence.raw.images_raw. IDs Yapo son sufijos de URL,
+  no una identidad física de propiedad.
+* Portal (`infrastructure/scrapers/portalinmobiliario.py` y evidence.py): gallery
+  components pictures con id/url, DOM por card y schema_raw.image. Las fixtures
+  HTML sanitizadas permiten replay sin activar Portal.
+* evidence.py:55–98 extrae parsed_signals.image_urls/image_ids, conserva orden,
+  prioriza principalImage; source_evidence_v2. Las observaciones contienen
+  raw_state._source_evidence y parsed_state.raw_metadata. Esto es referencia de
+  lectura, NO un lugar para persistir thumbnails ni un trigger para observar History.
+* V3 aporta evidencia, raw_metadata, provenance y fechas; no un campo público de
+  thumbnail. Los serializers/API actuales no entregan fotos al frontend.
+* Radar: GET /api/v1/radar/opportunities → RadarService.opportunities →
+  OpportunityOut → frontend lib/api/radar.ts → RadarWorkspace.OpportunityCard.
+  Elegibilidad únicamente después de seleccionar los resultados visibles.
+* Cartera/Guardadas: GET /api/v1/watchlist filtra SavedListingORM por user_id y
+  status active; joinedload listing → WatchlistItemOut → PortfolioWorkspace.WatchlistCard.
+  No hay dos inventarios distintos que deban procesarse dos veces.
+* Ficha disponible: ListingUrlWorkspace y lookup-url → listing_data. analyze-url
+  tiene otro flujo de valoración; no debe ejecutarse para obtener la imagen.
+  Existe GET /listings/{id}, pero no una ruta frontend independiente de ficha.
+* Backend: FastAPI, Python >=3.11, imagen python:3.13-slim, httpx, PostgreSQL,
+  Redis, APScheduler. Pillow NO es dependencia directa actual.
+* Frontend: Next 15, React 19, Tailwind, lucide; no librería explícita de fotos.
+  Las cards son textuales; insertar un pequeño slot fijo sin rediseñar sus acciones.
+* docker-compose.yml solo declara postgres_data/redis_data. No existe volumen
+  persistente de media para API/worker. frontend/public es para assets de build,
+  NO apropiado para generación dinámica persistente. No se ha observado bucket
+  ni contrato de asset serving existente.
+
+## Límites de evidencia
+
+No se verifica aquí estado actual del host, espacio libre ni cobertura de referencias
+del inventario. La copia local representa el paquete reciente, no garantiza que
+cada listing actual tenga imágenes. ARM64 requiere wheel compatible y smoke offline;
+las mediciones locales se realizan en Windows x86-64. El gate no debe presentarlas
+como mediciones de CPU Ampere.
+
+## Observado en la muestra acotada posterior
+
+Cinco URLs distintas ya preservadas: tres Yapo y dos Portal. Se descargaron cinco
+cuerpos válidos; nueve GET en total contando el diagnóstico MIME y los rechazos
+iniciales antes de leer cuerpo. No se solicitó ninguna página/listado nuevo.
+Yapo f_auto retornó AVIF, soportado por Pillow sin plugin adicional. Portal
+retornó WebP. Los originals y SHA256 quedan fijados en thumbnail_lab/fixtures.
+
+Portal puede preservar gallery.pictures con solo id, sin url. El helper de
+evidencia no convierte templates en URLs; el adapter del experimento lee también
+raw.meta_raw[property=og:image]. Las fixtures detail tienen ese URL exacto.
+No se construyen URLs inventadas desde IDs. La existencia de referencias en
+las fixtures no demuestra coverage del inventario o expiración futura.
+
+Frontend ejecutado contra el lock existente: Next15.5.19, React19.2.7,
+TypeScript5.9.3. No se modificaron versiones del producto. Sandbox API y UI
+solo reciben catálogo mock; las imágenes sí son cuerpos reales de las referencias.

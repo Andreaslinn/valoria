@@ -1,0 +1,37 @@
+"""Small reproducible summaries; predictions remain in machine-readable JSON."""
+import sys,json,sqlite3,hashlib,statistics
+from pathlib import Path
+from collections import Counter
+ROOT=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(ROOT/'work/valoria'))
+from services.sii.geographic_knn import load_geography,usable
+DATA=ROOT/'outputs/integrated/vitacura'
+geo=load_geography(DATA)
+with sqlite3.connect(DATA/'address-index.sqlite') as c:
+    roles=[dict(zip(['rol','kind'],r)) for r in c.execute('SELECT rol,kind FROM role')]
+coverage={}
+for kind in [None,'casa','depto']:
+    rows=[r for r in roles if kind is None or r['kind']==kind]
+    n=sum(usable(geo.get(r['rol'])) for r in rows)
+    coverage[kind or 'all']={'roles':len(rows),'usable':n,'usable_pct':100*n/len(rows)}
+sales=json.loads((DATA/'closings.json').read_text())
+coverage['sales']={'n':len(sales),'usable':sum(usable(geo.get(r['rol'])) for r in sales)}
+development=json.loads((ROOT/'outputs/integrated/evaluation/development-predictions.json').read_text())
+errors={}
+for kind in ['casa','depto']:
+    rows=[r for r in development['baseline'] if r['kind']==kind and r['prediction']['status']=='ok']
+    ordered=sorted(rows,key=lambda r:abs(r['prediction']['value_uf']/r['actual_uf']-1),reverse=True)
+    errors[kind]={'n':len(rows),'ape_over_100_pct':sum(abs(r['prediction']['value_uf']/r['actual_uf']-1)>1 for r in rows),
+        'examples':[{'rol':r['rol'],'date':r['date'],'actual_uf':r['actual_uf'],'predicted_uf':r['prediction']['value_uf'],
+                     'm2':r['area']} for r in ordered[:5]],
+        'action':'Kept all existing valid-sale filters and errors. No price-based deletion or tuning on final holdout.'}
+result={'coverage':coverage,'development_error_analysis':errors,
+    'iterations':['Audited original inputs and corrected official-point conflicts plus affected interpolations',
+        'Evaluated 18 geographic variants on two 2025 temporal folds',
+        'Inspected error tails; preserved original sales filters rather than removing low-price errors',
+        'Corrected fold-mean selection and added future-FI guard even in baseline fallback; reran development and unit tests',
+        'Sealed parameters before 2026; final holdout failed geographic promotion for both types',
+        'Retained baseline; optimized request-time loading without changing estimator or coordinate values'],
+    'scope':'Vitacura, local only; no F2890 rejoin, Portal/Yapo data, new external request or production deploy'}
+(ROOT/'outputs/integrated/evidence-summary.json').write_text(json.dumps(result,indent=2),encoding='utf8')
+print(json.dumps(coverage,indent=2))

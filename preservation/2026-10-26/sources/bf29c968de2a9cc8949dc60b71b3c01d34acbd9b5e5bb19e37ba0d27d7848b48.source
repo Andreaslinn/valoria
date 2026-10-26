@@ -1,0 +1,44 @@
+# Resultados de validación
+
+**PASS — 58 tests unittest offline**, 2,615 s en ejecución final. stdout completo:
+thumbnail_lab/test-output.txt. **PASS — TypeScript tsc --noEmit**.
+**PASS — 11 checks Edge headless**, ui-results.json y screenshots desktop/móvil.
+**PASS — benchmark 40 casos /400 repeticiones medidas**; los cinco originales
+son reales. **PASS — inspección packaging ARM64**: SHA256/ELF/WebP/AVIF incluidos,
+sin ejecución del wheel extranjero.
+
+Cobertura: eligibility por superficie, contexto autorizado/visible, exclusiones,
+identidad válida, referencias ordenadas/capadas, metadata malformada, lectura de
+evidencia/og:image; URL HTTPS/allowlist/credenciales/puerto/query, DNS privados,
+reservados, mapped y mixtos, conexión pinneada/TLS SNI, redirects seguros/prohibidos,
+rebinding y límite de saltos; 403/404/410/429/500, timeout de IO y deadline absoluto
+con slow trickle, MIME no imagen/gzip, Content-Length inválido/excesivo/mismatch,
+body sin límite; decode corrupto/HTML/formatos extraños, firma discordante,
+dimensiones/píxeles enormes, muy pequeña/no upscale, EXIF orientation/removal,
+comments stripping, animación rechazada, JPEG/WebP/AVIF y hash determinista.
+
+Store: cache miss/hit, metadata persistida y reapertura, no fuente, no inventario,
+una fila/job por listing, imagen compartida por dos listings, cambio de URL sin
+download, source mismatch, fallo/cooldown, retries/backoff, primera fuente inválida
+y segunda válida, cuota agotada, conexiones/threads concurrentes, lease vencida,
+stale result CAS, GC gracia/TTL/pins/asset compartido/huérfanos/lease activa,
+asset corrupto regenerado, metadata storage error conserva listing. Supervisor:
+spawn offline, proceso interrumpido/time limit, crash/EOF. HTTP: selección limitada
+a un resultado genera solo ese listing, asset íntegro, no traversal, 304 sin body.
+
+UI: usa componentes existentes de Cartera/Watchlist, Radar y lookup ficha; seis
+imágenes para ocho cards y dos placeholders, error img se convierte en fallback,
+sin cambio de altura, sin URL remota de origen, slot fijo, móvil sin overflow,
+sin excepciones ni requests externos. Decode de todos los formatos en Edge.
+
+La primera prueba UI esperaba que lazy images fuera del viewport estuvieran
+cargadas; se corrigió el test para scroll/decode de cada imagen. La captura móvil
+se corrigió para esperar cards, no el estado loading. Ambos fixes verifican el
+comportamiento final sin desactivar lazy loading. No hay checks finales omitidos.
+
+La sandbox de Windows requiere permisos de ejecución para named pipes y Edge
+headless. Los tests finales se ejecutaron con perfil de navegador nuevo y fixtures
+locales, sin credenciales ni tráfico externo. No es una dependencia productiva.
+No se ejecutó el resto del backend productivo ni la suite ARM64 nativa; no se
+declaran verdes suites que no se corrieron. El baseline de módulos protegidos se
+verifica byte a byte en SAFETY_PROOF.json; Oracle/History trial no fueron tocados.

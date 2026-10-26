@@ -1,0 +1,42 @@
+from pathlib import Path
+import subprocess,json
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+record=json.loads(Path('work/canonical-release-package.json').read_text());revision=record['commit']
+remote_root='/home/ubuntu/canonical-release-'+revision[:12]
+setup="from pathlib import Path\np=Path("+repr(remote_root)+");p.mkdir(mode=0o700,exist_ok=True);print('candidate_directory_ready')"
+r=subprocess.run(ssh+['python3 -B -'],input=setup,text=True,encoding='utf-8',capture_output=True,timeout=30);r.check_returncode()
+scp=[r'C:\Windows\System32\OpenSSH\scp.exe',*ssh[1:-1]]
+for local,filename in [('work/canonical-release-package.tar.gz','package.tar.gz'),('work/production-trace-snapshot.json','snapshot.json')]:
+ r=subprocess.run(scp+[str(Path(local).resolve()),'ubuntu@161.153.201.245:'+remote_root+'/'+filename],capture_output=True,text=True,timeout=120);r.check_returncode()
+code='''from pathlib import Path
+import subprocess,json,tarfile,hashlib
+root=Path(ROOT);package=root/'package.tar.gz';snapshot=root/'snapshot.json';snapshot.chmod(0o600)
+assert hashlib.sha256(package.read_bytes()).hexdigest()==RECORD['package_sha256']
+def run(args,timeout=150):
+ r=subprocess.run(args,text=True,capture_output=True,timeout=timeout)
+ if r.returncode:raise RuntimeError('Candidate command failed: '+r.stderr[-1800:]+r.stdout[-1800:])
+ return r.stdout
+base=RECORD['runtime_dependencies_image_id']
+assert json.loads(run(['docker','image','inspect',base]))[0]['Id']==base
+run(['docker','tag',base,'valoria-canonical-runtime:22081087e836'])
+with tarfile.open(package) as archive:archive.extractall(root/'context',filter='data')
+manifest=json.loads((root/'context/app/release-manifest.json').read_text());assert manifest['commit']==RECORD['commit']
+image='valoria-canonical:'+RECORD['commit'][:12]
+log=run(['docker','build','--network=none','--pull=false','--build-arg','RELEASE_COMMIT='+RECORD['commit'],'-t',image,str(root/'context')],240)
+(root/'build.log').write_text(log)
+info=json.loads(run(['docker','image','inspect',image]))[0]
+assert info['Config']['Labels']['org.opencontainers.image.revision']==RECORD['commit']
+check=run(['docker','run','--rm','--network=none','-e','DATABASE_URL=sqlite+aiosqlite:///:memory:','-e','SYNC_DATABASE_URL=sqlite:///:memory:','-e','JWT_SECRET_KEY='+'0'*32,'-e','VALORIA_USE_CONSENSUS=true','-e','VALORIA_EXPERIMENTAL_ENGINE_LAB_ENABLED=true','-v',str(snapshot)+':/diagnostic/snapshot.json:ro',image,'python','-B','-m','scripts.verify_canonical_candidate','--snapshot','/diagnostic/snapshot.json'])
+result=json.loads(check)
+assert result['release_source_check']['source_tree_match'] and result['release_source_check']['commit']==RECORD['commit']
+for c in result['cases']:
+ assert c['response']['valuation_debug']['release_manifest_match'] is True
+ assert c['response']['valuation_debug']['engine_commit']==RECORD['commit']
+ assert abs(c['candidate_uf']-float(c['canonical_snapshot_reference_uf']))<.011
+(root/'candidate-check.json').write_text(json.dumps(result,indent=2))
+release={'image':image,'image_id':info['Id'],'commit':RECORD['commit'],'source_files':result['release_source_check']['files_checked'],'release_manifest_sha256':hashlib.sha256((root/'context/app/release-manifest.json').read_bytes()).hexdigest(),'rollback_image':base,'status':'prepared_and_verified_not_deployed','remote_directory':str(root),'cases':[{k:v for k,v in c.items() if k!='response'} for c in result['cases']]}
+(root/'candidate-image.json').write_text(json.dumps(release,indent=2));print(json.dumps(release))
+'''.replace('ROOT',repr(remote_root)).replace('RECORD',repr(record))
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,encoding='utf-8',capture_output=True,timeout=300)
+if r.returncode:print(r.stdout[-2400:]);print(r.stderr[-2400:]);r.check_returncode()
+Path('work/canonical-candidate-image.json').write_text(r.stdout,encoding='utf-8');print(r.stdout)

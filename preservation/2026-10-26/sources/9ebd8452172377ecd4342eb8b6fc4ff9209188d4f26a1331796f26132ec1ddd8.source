@@ -1,0 +1,37 @@
+import subprocess,json
+code='''import tempfile,pathlib,json,os,time,sys,httpx
+sys.path.insert(0,'/runtime/scripts')
+from portal_session import load_session,save_session
+with tempfile.TemporaryDirectory() as d:
+ p=pathlib.Path(d)/'session.json'
+ c={'domain':'.portalinmobiliario.com','name':'ssid','value':'test-only','path':'/','secure':True,'expires':int(time.time())+3600}
+ p.write_text(json.dumps({'cookies':[c]}));p.chmod(0o600)
+ jar=load_session(p)
+ with httpx.Client(cookies=jar) as client:
+  assert 'ssid=' in client.build_request('GET','https://www.portalinmobiliario.com/venta').headers.get('cookie','')
+  assert 'ssid=' not in client.build_request('GET','https://unrelated.example/').headers.get('cookie','')
+  assert 'ssid=' not in client.build_request('GET','http://www.portalinmobiliario.com/').headers.get('cookie','')
+ save_session(p,jar);assert p.stat().st_mode & 0o777==0o600;assert len(list(load_session(p).jar))==1
+ for mode,domain,expiry in [(0o644,c['domain'],c['expires']),(0o600,'.example.com',c['expires']),(0o600,c['domain'],1)]:
+  p.write_text(json.dumps({'cookies':[dict(c,domain=domain,expires=expiry)]}));p.chmod(mode)
+  try:load_session(p)
+  except ValueError:pass
+  else:raise AssertionError('Unsafe session accepted')
+import importlib.util
+spec=importlib.util.spec_from_file_location('geo_test','/runtime/workers/portal_geo_enrichment.py')
+geo=importlib.util.module_from_spec(spec);spec.loader.exec_module(geo)
+assert geo.allowed_redirect('https://www.portalinmobiliario.com/MLC-12345-title-_JM','MLC12345')
+assert geo.allowed_redirect('https://www.portalinmobiliario.com/venta/casa/project-nva','MLC12345')
+for u in ['https://evil.example/MLC-12345','http://www.portalinmobiliario.com/MLC-12345','https://www.portalinmobiliario.com/MLC-99999','https://user@www.portalinmobiliario.com/MLC-12345','https://www.portalinmobiliario.com/login','https://www.portalinmobiliario.com:444/MLC-12345']:
+ assert not geo.allowed_redirect(u,'MLC12345')
+spec=importlib.util.spec_from_file_location('runner_test','/runtime/run_portal_session.py')
+runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(runner)
+with tempfile.TemporaryDirectory() as d:
+ runner.SESSION=pathlib.Path(d)
+ (runner.SESSION/'reauth_required.json').write_text('{}')
+ assert runner.main()==75
+print('PASS: private session, domain scope, HTTPS-only, expiry, atomic refresh, redirect guards, no-request circuit breaker')
+'''
+x=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+r=subprocess.run(['docker','run','--rm','--network=none','--memory=256m','--memory-swap=256m','--cpus=0.25','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=8m','-v','/home/ubuntu/apps/valoria/scripts/portal_session_runtime:/runtime:ro','--entrypoint','python',x['Image'],'-B','-c',code],capture_output=True,text=True,timeout=60)
+print(r.stdout,r.stderr);raise SystemExit(r.returncode)

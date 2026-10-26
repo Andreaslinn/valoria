@@ -1,0 +1,46 @@
+"""LOCAL ONLY. Actual routers/services with read-only captured stock and local SII files.
+Synthetic login is confined to this loopback demo; never shipped or committed.
+"""
+import os
+import sys
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from decimal import Decimal
+
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+os.environ['DATABASE_URL']='sqlite+aiosqlite:///:memory:'
+os.environ['SYNC_DATABASE_URL']='sqlite:///:memory:'
+os.environ['JWT_SECRET_KEY']='local-demo-only-000000000000000000000000000000'
+os.environ['sii_closing_layer']='true'
+os.environ['SII_CLOSING_DATA_DIR']=str(ROOT/'closing-validation-final')
+from fastapi import FastAPI
+from api import deps
+from api.v1 import valuations,tasar
+from infrastructure.db.database import get_db
+from scripts.compare_sii_canonical import listing_from_snapshot
+from tests.unit.test_valuation_service import FakeListingRepository
+from core.ports.uf_service import UFService,UFRateInfo
+
+snapshot=json.loads((ROOT/'closing-confidence-20261019/canonical-pool-verified-local.json').read_text(encoding='utf8'))
+class CapturedUF(UFService):
+    async def get_current_rate(self): return Decimal('41183.94')
+    async def get_current_rate_info(self):
+        return UFRateInfo(rate=Decimal('41183.94'),source='sii.cl',is_fallback=False,cache_hit=True)
+service=deps.get_valuation_service(FakeListingRepository([listing_from_snapshot(r) for r in snapshot['rows']]),CapturedUF())
+app=FastAPI()
+app.dependency_overrides[deps._resolve_current_user]=lambda:SimpleNamespace(id=None)
+app.dependency_overrides[deps.get_valuation_service]=lambda:service
+async def no_db():yield None
+app.dependency_overrides[get_db]=no_db
+app.include_router(valuations.router,prefix='/api/v1')
+app.include_router(tasar.router,prefix='/api/v1')
+@app.post('/api/v1/auth/login')
+async def login():return {'access_token':'[REDACTED]','expires_in':3600}
+@app.get('/api/v1/auth/me')
+async def me():return {'id':1,'email':'demo-local@example.test','role':'beta_user','is_active':True}
+
+if __name__=='__main__':
+    import uvicorn
+    uvicorn.run(app,host='127.0.0.1',port=8765,access_log=False)

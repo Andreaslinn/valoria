@@ -1,0 +1,56 @@
+"""Post-execution review only: no fitting, predictions or protocol modifications."""
+from datetime import datetime,timezone
+import json
+import pilot as p
+
+c=p.verify_lock()
+acl=p.read(p.HERE/'protection_check.json')
+expected={'S-1-5-18','S-1-5-32-544','S-1-5-21-2386185857-3555392964-3203422822-1001'}
+assert acl['protected_root'] and {r['sid'] for r in acl['root_aces']}==expected
+assert all(r['type']=='Allow' and r['rights']=='FullControl' for r in acl['root_aces'])
+assert all(set(r['sids'])==expected for r in acl['csv_acls'])
+tags=['principal','reproduction','G3-20261010','G3-20261011','G1-20261009','G1-20261010','G1-20261011']
+for tag in tags:
+    rows=p.numeric_rows(p.HERE/(tag+'.csv'))
+    assert len(rows)==len({r['observation_id'] for r in rows})==791
+    assert set(r['status_A'] for r in rows)<={'ok','insufficient_data'}
+    assert set(r['status_C1'] for r in rows)=={'ok'}
+    assert all(r['A_used']>=5 and r['A_admissible']>=r['A_used'] for r in rows if r['status_A']=='ok')
+    assert all(r['reason_A']=='insufficient_data' and r['prediction_A_uf'] is None for r in rows if r['status_A']=='insufficient_data')
+    audit=p.read(p.HERE/(tag+'-audit.json'))
+    assert len(audit['fit_audits'])==24
+    assert sum(a['stage']=='inner_tuning' for a in audit['fit_audits'])==18
+    assert sum(a['stage']=='development_cv' for a in audit['fit_audits'])==6
+    assert audit['original_inputs_unchanged']
+sens=p.csv_read(p.HERE/'grouping_sensitivity.csv')
+assert all(float(r['delta_MdAPE_pp'])>0 for r in sens if r['view']=='Portal')
+assert p.sha(p.HERE/'principal.csv')==p.sha(p.HERE/'reproduction.csv')==p.sha(p.HERE/'oof_predictions.csv')
+now=datetime.now(timezone.utc).isoformat()
+env=p.read(p.HERE/'environment_manifest.json')
+if 'real_models_not_yet_executed' in env:
+    env['real_models_not_yet_executed_at_registration']=env.pop('real_models_not_yet_executed')
+env.update(execution_completed_utc=now,actual_unique_scenarios=6,fresh_primary_reproductions=1,
+    real_training_and_inference_completed=True,source_specific_models=False,outputs_outside_git_repository=True,
+    execution_note='Independent preregistered scenarios computed in separate processes; no best-run selection. Wall-clock includes host suspension/approval wait and is not a model-speed benchmark.')
+p.json_write(p.HERE/'environment_manifest.json',env)
+p.json_write(p.HERE/'assessment.json',dict(status='PASS',classification='A_COMPETITIVE_OR_BETTER',completed_at_utc=now,
+    reasons=['Portal paired MdAPE favors A in every unique registered grouping/seed scenario',
+             'Portal principal delta C1-A +1.6925pp, exploratory grouped percentile95 [0.2906,3.1200]',
+             'Yapo C1 tail/log-error direction improves, median advantage is not partition-stable',
+             'C1 predicts all791; A predicts702; additional C1-only coverage has no paired A accuracy comparator'],
+    next_experiment='Preregister one C1 source ablation: source predictor present versus absent, same grouped outer/inner protocol and both-source training; test transferability and source/territory confounding, without adding model complexity.',
+    limitations=['Exploratory reused cohort of UF-native published offers, not transactions',
+                 'Incomplete physical identity; singletons not certified independent',
+                 'Portal has all parking=0 ambiguous, no coordinates; source and territory/area composition confounded',
+                 'C1 source predictor has no justified manual-valuation value',
+                 'Bootstrap conditions on fixed OOF predictions; not full training uncertainty',
+                 'A_core is frozen canonical estimator, not productive Consensus end-to-end'],
+    safety={'Oracle_accessed':False,'production_modified':False,'timers_scrapers_DB_modified':False,
+            'original_artifacts_modified':False,'new_holdout_created_or_used':False,'new_models_or_product_rules_added':False}))
+p.json_write(p.HERE/'final_boundary_checks.json',dict(status='PASS',scenarios_checked=7,rows_per_scenario=791,
+    original_hashes_unchanged=True,unexpected_A_or_C1_statuses=0,minimum_selected_comparables_checked=True,
+    audits_per_scenario=24,inner_audits_per_scenario=18,exact_primary_file_reproduction=True,
+    private_csv_DACL_verified=True,git_repository=False,protocol_sha256=p.sha(p.CONFIG),
+    review_checker_correction="Final review initially expected stage 'inner'; certified stage is 'inner_tuning'. Naming-only assertion corrected; no protocol/runtime/data/prediction change."))
+p.finalize()
+print(json.dumps({'status':'PASS','classification':'A_COMPETITIVE_OR_BETTER','methodology_tests':p.read(p.HERE/'methodology_tests.json')}))

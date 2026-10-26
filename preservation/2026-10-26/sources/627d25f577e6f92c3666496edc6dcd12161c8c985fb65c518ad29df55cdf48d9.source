@@ -1,0 +1,49 @@
+import json
+import subprocess
+from pathlib import Path
+base=Path(__file__).parent
+repo=base/'valoria'
+d=json.loads((base/'health-v2-final.json').read_text(encoding='utf8'))
+review=json.loads((repo/'reports/sii/phase1_diagnosis.json').read_text(encoding='utf8'))
+assert all(review['criterios'].values())
+assert d['status']=='ok'
+sha=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip()
+report=f'https://github.com/Andreaslinn/valoria/blob/{sha}/reports/sii/phase1_validation.md'
+csv=f'https://github.com/Andreaslinn/valoria/blob/{sha}/reports/sii/phase1_communes.csv'
+b=d['benchmark']
+over_all=sum(r['deptos_sobre_300'] for r in d['por_comuna'])
+count=f"{b['deptos_8_comunas']:,}".replace(',','.')
+delta=f"{(b['deptos_8_comunas']/55156-1)*100:+.3f}".replace('.',',')
+disk_gb=f"{d['disk']['total_bytes']/1e9:.3f}".replace('.',',')
+body=f'''Valoria incorpora una capa SII local con fuentes versionadas, crudos inmutables, catastro por semestre y transferencias con exclusiones auditables. Añade jobs de descarga/importación/rebuild y una sección condicional en `/health`, con `SII_INGEST_ENABLED=false` por defecto. El esquema `sii` y su historial de migraciones están separados de la aplicación.
+
+La reconstrucción usa DP/DEPTO/DPTO/DEP para departamentos, excluye repetidos solo cuando todas las filas del grupo tienen el mismo importe positivo y conserva el techo de 500 UF/m². Un auxiliar con CLP positivo y falta de UF diaria conserva su exclusión de conversión, pero permite que el departamento sea comparable: el caso **15103-854-86** quedó restaurado y cubierto por pruebas unitarias y Postgres.
+
+### Validación del 19/10/2026
+
+Fuentes: `F2890_01-10-2026.zip` y catastro 2S-2026 aportado por el usuario. 2.366.069 observaciones crudas, 1.984.584 roles y 2.513.170 líneas. Benchmark: FI ≥ 01/01/2024 y solo SII 13101 para Santiago; 13134/13135 conservan su identidad y se agregan aparte mediante `comuna_ine`.
+
+| Criterio de salida | Resultado |
+|---|---|
+| 55.156 departamentos ±1% | Cumplido: {count}, diferencia {delta}% |
+| Ocho medianas UF/m² H dentro de ±2% | Cumplido; tabla por comuna en el informe |
+| Segunda ingesta y rebuild completos | Cumplido: cero filas nuevas; mismos conteos y huella de valores derivados |
+| Pruebas | Cumplido: {review['tests']} |
+| Caso 15103-854-86 | Comparable=true, paquete=false, motivos=[] |
+
+Quedan **{b['deptos_8_comunas_sobre_300']} departamentos comparables sobre 300 UF/m² H en las ocho comunas** ({over_all} en los trece sectores cargados), conservados dentro del techo de 500. Cada fila derivada registra `reglas_version='sii-phase1-v2'`.
+
+Huechuraba sigue con 81,60% de cruce. Las manzanas 3115/3116 están ausentes del archivo N original y concentran 1.053 de las 1.208 observaciones sin cruce. Se documenta como brecha de la fuente, **fuera de aceptación de fase 1** según la instrucción del 19/10; no se remapean roles. El porcentaje permanece visible.
+
+[Informe de aceptación, medianas, cambios y ejemplos de roles]({report}) · [Conteos completos por comuna]({csv}). Evidencia JSON y comparación respecto de v1 en `reports/sii/`; contratos y operación en `docs/sii_ingest.md`.
+
+### Operación y límites
+
+Base `29eaa0b3f3543c57e1e596eda2fb64e527d3f65a`, contra `release/canonical-only-reproducible-20261013`. Validación exclusivamente local: base cargada 127.0.0.1:55432 y pruebas Postgres en instancia desechable 55433. La suite completa usa URLs SQLite generadas para el resto de la app. Downgrade poblado, upgrade posterior, flag apagado, fallos de validación de claves e idempotencia quedan cubiertos.
+
+Huella de crudos + tablas/índices SII: **{disk_gb} GB**, bajo 10 GB; excluye WAL, temporales y respaldos. Geocodificación real 0%, pendiente extracto OSM local, con los tres métodos probados y el fallback previsto en el encargo. El calendario UF existente fue preparado en la base nueva con autorización previa y el parser/HTML oficial cacheado; las migraciones SII no alteran tablas públicas.
+
+El PR **sigue en borrador**. Sin merge ni deploy. La hoja de vida requiere definir cambios históricos del catastro y agrupación por escritura; la brecha de Huechuraba y el extracto OSM quedan documentados para el siguiente trabajo.
+'''
+(base/'pr-body.md').write_text(body,encoding='utf8')
+print(json.dumps({'sha':sha,'criteria':review['criterios'],'benchmark':b,'report':report},ensure_ascii=False))

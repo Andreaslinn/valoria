@@ -1,0 +1,24 @@
+"""Eight read-only avenues for the missing historical child stderr; no secrets emitted."""
+import subprocess,json,pathlib,re
+def run(args):
+ r=subprocess.run(args,capture_output=True,text=True,timeout=30)
+ return r.returncode,r.stdout,r.stderr
+results=[]
+code,out,err=run(['journalctl','-u','valoria-portal-discovery.service','--since','2026-10-14','--until','2026-10-16','--no-pager'])
+results.append({'round':1,'avenue':'systemd service journal','original_traceback_found':'Traceback' in out,'generic_runtime_errors':out.count('runtime_error')})
+p=pathlib.Path('/home/ubuntu/apps/valoria/private/portal-session/last_run.json')
+d=json.loads(p.read_text())
+results.append({'round':2,'avenue':'last_run.json','fields':list(d),'original_error_present':'error' in d,'exit_code':d.get('exit_code')})
+code,out,err=run(['docker','ps','-a','--filter','name=valoria-portal-session-job','--format','{{.Names}}'])
+results.append({'round':3,'avenue':'retained child container','present':bool(out.strip())})
+code,out,err=run(['journalctl','-u','docker.service','--since','2026-10-14','--until','2026-10-16','--no-pager','-n','1000'])
+results.append({'round':4,'avenue':'Docker daemon journal','uf_exception_present':'UFServiceError' in out,'traceback_present':'portal_card_first.py' in out})
+code,out,err=run(['docker','inspect','--format','{{.HostConfig.LogConfig.Type}}','valoria_oracle_beta-api-1'])
+results.append({'round':5,'avenue':'logging retention configuration','driver':out.strip(),'note':'child --rm removes container-specific log; API log is not child stderr'})
+code,out,err=run(['docker','logs','--since','2026-10-14T07:40:00Z','--until','2026-10-15T08:00:00Z','valoria_oracle_beta-api-1'])
+results.append({'round':6,'avenue':'API log during failures','child_traceback_present':'portal_card_first.py' in out+err,'uf_error_count':len(re.findall('UFServiceError',out+err))})
+root=pathlib.Path('/home/ubuntu/apps/valoria/scripts/portal_session_runtime')
+source=(root/'run_portal_session.py').read_text()
+results.append({'round':7,'avenue':'launcher retention audit','captures_output':'capture_output=True' in source,'stderr_persisted':'result.stderr' in source,'container_auto_removed':"'--rm'" in source,'note':'wrapper stores counters only; stderr is never written'})
+results.append({'round':8,'avenue':'offline replay on pre/post images','result':'Both raise UFServiceError: UF real no disponible at portal_card_first.py:93 -> uf_rate.py:18 -> uf_client.py:83','scope':'reproduced, not recovered original stderr','historical_original_recoverable':False})
+print(json.dumps(results,indent=2))

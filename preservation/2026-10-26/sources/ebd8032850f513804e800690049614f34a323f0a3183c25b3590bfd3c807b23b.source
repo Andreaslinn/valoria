@@ -1,0 +1,80 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const ts = require('typescript');
+
+// Render the real component with controlled hook and API boundaries; no network.
+function shell({ status = 'checking', moreOpen = false, failure } = {}) {
+  let cleared = 0;
+  const effects = [], changes = [];
+  let hook = 0;
+  class ApiError extends Error { constructor(status) { super('test'); this.status = status; } }
+  const jsx = (type, props) => ({ type, props });
+  const deps = {
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    react: {
+      useEffect: (fn) => effects.push(fn),
+      useState: (initial) => {
+        const index = hook++;
+        return [index === 0 ? status : index === 3 ? moreOpen : initial,
+          (value) => changes.push({ index, value })];
+      },
+    },
+    'next/link': { default: 'link' },
+    'next/navigation': { usePathname: () => '/app', useRouter: () => ({ push() {} }) },
+    'lucide-react': {},
+    clsx: { clsx: (...args) => args.filter((item) => typeof item === 'string').join(' ') },
+    '@/components/ui/button': { Button: 'button' },
+    '@/components/ui/status-note': { StatusNote: 'note' },
+    '@/lib/auth/token': { getAccessToken: () => 'test-token', clearAccessToken: () => cleared++ },
+    '@/lib/api/client': { ApiError },
+    '@/lib/api/auth': { me: () => failure === undefined ? Promise.resolve({ email: 'test@example.test' })
+      : Promise.reject(failure === 'network' ? new Error('offline') : new ApiError(failure)) },
+  };
+  const context = { exports: {}, require: (name) => deps[name] ?? {} };
+  const source = fs.readFileSync(path.join(__dirname, '../src/components/layout/protected-shell.tsx'), 'utf8');
+  vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText, context);
+  const tree = context.exports.ProtectedShell({ children: 'content' });
+  return { tree, effects, changes, cleared: () => cleared };
+}
+
+for (const failure of ['network', 500, 503, 403, 401]) {
+  test(`session ${failure}: clear token only for 401`, async () => {
+    const result = shell({ failure });
+    result.effects[0]();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(result.cleared(), failure === 401 ? 1 : 0);
+    assert.equal(result.changes.at(-1).value, failure === 401 ? 'missing' : 'error');
+  });
+}
+test('unmounted session check cannot clear the token', async () => {
+  const result = shell({ failure: 401 });
+  result.effects[0]()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(result.cleared(), 0);
+});
+
+function nodes(tree) {
+  if (Array.isArray(tree)) return tree.flatMap(nodes);
+  if (!tree || typeof tree !== 'object') return [];
+  return [tree, ...nodes(tree.props?.children)];
+}
+test('retry control retries the session check', () => {
+  const result = shell({ status: 'error' });
+  const retry = nodes(result.tree).find((node) => node.props?.children === 'Reintentar');
+  retry.props.onClick();
+  assert.equal(result.changes.at(-1).value(0), 1);
+});
+test('Oracle mobile primary and secondary menus retain every destination', () => {
+  const all = nodes(shell({ status: 'ready', moreOpen: true }).tree);
+  const main = all.find((node) => node.props?.['aria-label'] === 'Navegacion principal movil');
+  const primary = nodes(main).filter((node) => node.props?.href).map((node) => node.props.href);
+  assert.deepEqual(primary, ['/app', '/app/radar', '/app/tasar', '/app/portfolio', '/app/alerts']);
+  const panel = all.find((node) => node.props?.className === 'fixed inset-0 z-50 lg:hidden');
+  const secondary = nodes(panel).filter((node) => node.props?.href).map((node) => node.props.href);
+  assert.deepEqual(secondary, ['/app/analizar-url', '/app/reportes', '/app/settings']);
+});

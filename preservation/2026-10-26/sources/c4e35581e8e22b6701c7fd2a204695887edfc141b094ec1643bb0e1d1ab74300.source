@@ -1,0 +1,61 @@
+# Proyección y alternativas
+
+Observado: mediana 11468 B, p95 muestra 17941.2 B,
+5 imágenes. Estimado: cada listing pesa esos valores; sin dedupe (conservador).
+Supuesto: 4 KiB allocation de filesystem y 2 KiB metadata/listing incluyendo índices.
+Medición sidecar: 720,896 B para 1005 listings,
+717.3 B/fila, un membership/fila, sin jobs
+pendientes. Los 2 KiB reservados dan margen a más memberships/URLs de jobs.
+WAL temporal, logs y snapshot tienen reserva aparte. MB decimal; GiB = 2^30 B.
+
+| Thumbnails | Payload mediana MB | Payload escenario p95 MB | FS+metadata mediana MB | FS+metadata p95 MB |
+|---:|---:|---:|---:|---:|
+| 100 | 1.15 | 1.79 | 1.43 | 2.25 |
+| 1,000 | 11.47 | 17.94 | 14.34 | 22.53 |
+| 5,000 | 57.34 | 89.71 | 71.68 | 112.64 |
+| 10,000 | 114.68 | 179.41 | 143.36 | 225.28 |
+| 50,000 | 573.40 | 897.06 | 716.80 | 1126.40 |
+
+
+El escenario p95 multiplicado por N no es un p95 estadístico del total: es un
+presupuesto conservador de tamaño por archivo. Un único backup completo duplica
+aproximadamente el presupuesto; 50.000 → ~2,25 GB incluyendo copia.
+
+La lectura de `outputs/ingestion-history-trial-20261004/storage-projections.json`
+(informe local previo, NO Oracle) registra 28.764.631.040 B libres proyectados a 30d
+en escenario 1x; implica 28.913.315.840 B libres en su baseline. Es margen
+histórico/proyectado, no espacio libre verificado el 2026-10-05. Logs, WAL y
+backups futuros no están modelados en ese informe. 1,13 GB para 50.000 es ~3,9%
+de ese margen; con una copia ~7,8%. Incluso la reserva operativa 4 GiB encaja.
+
+## Evaluación técnica
+
+| Dimensión | A: filesystem persistente | B: OCI Object Storage | C: PostgreSQL/Redis/public existentes |
+|---|---|---|---|
+| Storage | Disco existente; ~1,13 GB escenario 50k p95+metadata | ~0,90 GB payload + sidecar local | PG binarios inflan DB/WAL; Redis memoria; public ligado al build |
+| Requests | Sin cuota Object API; serving local | GET/PUT/HEAD/list/delete consumen requests | PG/API ya existentes, pero añade carga/memoria |
+| Latencia | Lectura local; sin red al bucket | Hop remoto y posible proxy; no medida | Consulta DB/serialización o Redis; no medida |
+| Backup | Requiere sidecar+assets consistente; snapshot aumenta tamaño | Desacopla host; versioning/backup consume más cuota | Mezcla con backups críticos; public requiere rebuild |
+| URLs | Handler/proxy local por hash y autorización | Proxy con IAM o URLs temporales; no bucket público por defecto | Requiere endpoint; public no protege acceso |
+| Cache | ETag/private max-age; hash inmutable | ETag/cache si handler conserva semántica | Debe programarse igual |
+| Dependencia host | Sí; root montado persistentemente | Assets independientes del host | PG/Redis existentes; public depende build |
+| Operación | Sidecar, carpeta, worker y GC simple | IAM/bucket/client/backoff/quotas/cleanup | Cambios en componentes críticos o build |
+| Always Free | Usa disco ya provisionado; sin recursos nuevos | Cuota de almacenamiento y requests compartida | Sin servicio nuevo, con impacto en DB/memoria actual |
+| Cleanup | Referencias locales y unlink bajo transacción | Borrado/GC remoto con requests adicionales | SQL delete; Redis eviction pierde cache; public no dinámico |
+| Restore | Copia manifest+assets+backup SQLite, validar hashes | Restaurar refs y acceso IAM al bucket | PG restore pesa más; Redis es caché; public rebuild |
+
+Recomendado: A, con cuota 2 GiB de payload vivo, reserve física para bloques,
+sidecar/WAL/backup y TTL. No se ha observado alternativa de media en C; usar PG
+para las fotos comprometería backups y Redis no da un almacén durable económico.
+Object Storage queda como opción si aumenta la dependencia de hosts o el volumen.
+
+La cuota oficial consultada el 2026-10-05 distingue Always Free only (20 GB
+combinados) de paid/free-credit (10 GB por tier), y 50.000 requests Object API/mes;
+Block Volume ofrece 200 GB combinados boot/block y 5 backups en home region.
+[Oracle Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm).
+
+Supuesto de tráfico para comparar, NO tráfico Valoria medido: 100 sesiones/día
+×20 imágenes×30d = 60.000 GET sin cache, ya superior al allowance requests aunque
+los bytes encajen. Una cache de 90% lo reduce a 6.000 misses, pero no está medida.
+Por eso B no permite garantizar coste cero solo mirando GB. A no añade esa
+cuota; el serving comparte CPU/red del host. No se alteró ningún recurso cloud.

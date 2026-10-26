@@ -1,0 +1,284 @@
+"""Vitacura houses: user-fixed R1-R11, offline, no target sale labels in fit.
+
+An uncertain block representative is eligible only within that same block.
+Coefficients use pre-2024 training only. The price index updates causally.
+"""
+from __future__ import annotations
+
+import math
+import json
+from pathlib import Path
+from decimal import Decimal
+from collections import Counter, defaultdict
+from datetime import date
+
+import numpy as np
+
+from services.sii.closing_knn import ClosingKNN, weighted_quantile
+from services.sii.geographic_knn import usable
+
+POINT_QUALITY = {'address_match', 'estimated', 'sii_role_point',
+                 'corrected_anchor_interpolation', 'legacy_corroborated'}
+BLOCK_QUALITY = {'approximate_block', 'legacy_block_consistent'}
+
+
+def load_snapshot(root):
+    root = Path(root)
+    snapshot = json.loads((root / 'existing-sii.json').read_text())
+    supplement = json.loads((root / 'historical-uf.json').read_text())
+    snapshot['calendar'] += supplement['calendar']
+    snapshot['limitations'] = [s for s in snapshot['limitations'] if not s.startswith('UF calendar begins')]
+    snapshot['limitations'].append('Exact SII daily UF2010-2012 supplemented from archived official annual tables; pre2010 CLP-only records without rates are not used by index or elasticity training.')
+    return snapshot
+
+
+def area_at(lines, year):
+    accepted = [x for x in lines if x.get('destino', '').strip() and
+                x.get('year') and 0 < x['year'] <= year and x.get('area', 0) > 0]
+    return sum(x['area'] for x in accepted), min((x['year'] for x in accepted), default=None)
+
+
+def prepare(snapshot):
+    """Project existing joined rows; do not rebuild the original join."""
+    rates = {r['date']: r['value'] for r in snapshot.get('calendar', [])}
+    transfers = []
+    for raw in snapshot['transfers']:
+        r = raw
+        conversion_date = r.get('fe') or r.get('fi')
+        if not r.get('uf') and r.get('clp') and Decimal(r['clp']) > 0 and conversion_date in rates:
+            r = {**r, 'uf': float(Decimal(r['clp']) / Decimal(str(rates[conversion_date]))),
+                 'uf_rate': rates[conversion_date], 'uf_fecha': conversion_date}
+        transfers.append(r)
+    facts = {x['rol']: x for x in snapshot['facts']}
+    lines = defaultdict(list)
+    for x in snapshot['lines']:
+        if x['rol'] in facts:
+            lines[x['rol']].append(x)
+    groups = defaultdict(dict)
+    for r in transfers:
+        if r.get('date') and r.get('uf') and r['uf'] > 0:
+            group = groups[(r['date'], round(r['uf'], 8))]
+            availability = r.get('fi') or '9999-12-31'
+            group[r['rol']] = min(group.get(r['rol'], availability), availability)
+    blocked = {k: sorted(v.values())[1] for k, v in groups.items() if len(v) >= 2}
+    winners = {}
+    for r in transfers:
+        if r['kind'] != 'casa' or r['rol'] not in facts:
+            continue
+        key = (r['rol'], r.get('fe'), r.get('fi'))
+        if key not in winners or (r.get('uf') or 0) > (winners[key].get('uf') or 0):
+            winners[key] = r
+    rows, excluded = [], Counter()
+    for r in winners.values():
+        if not r.get('date') or not r.get('fi'):
+            excluded['missing_date_or_availability'] += 1
+            continue
+        if not r.get('uf') or not 2000 <= r['uf'] <= 300000:
+            excluded['missing_amount_or_outside_2000_300000'] += 1
+            continue
+        # FE is already preferred to FI by the existing conversion. Never
+        # substitute a different UF date to fill a missing calendar entry.
+        if r.get('uf_fecha') and r['uf_fecha'] != (r.get('fe') or r['fi']):
+            excluded['wrong_uf_conversion_date'] += 1
+            continue
+        area, year = area_at(lines[r['rol']], int(r['date'][:4]))
+        if area <= 0 or not 20 <= r['uf'] / area <= 400:
+            excluded['missing_area_or_outside_20_400'] += 1
+            continue
+        f = facts[r['rol']]
+        rows.append({**r, 'area': area, 'year': year, 'land': f['land'],
+                     'appraisal': f['appraisal'], 'comuna': 15160,
+                     'building': '|'.join(map(str, [15160, f['block'], f['calle'], f['numero'] or ''])),
+                     'block_known_at': blocked.get((r['date'], round(r['uf'], 8)))})
+    rows.sort(key=lambda r: (r['date'], r['raw_id']))
+    return rows, facts, dict(lines), dict(excluded)
+
+
+def available(rows, as_of, excluded_role):
+    return [r for r in rows if r['date'] < as_of and r['fi'] < as_of and
+            r['rol'] != excluded_role and
+            (not r['block_known_at'] or r['block_known_at'] >= as_of)]
+
+
+def point_kind(g):
+    if not g or not usable(g):
+        return None
+    method = g.get('method', '').lower()
+    if 'commune' in method or 'comunal' in method:
+        return None
+    if g['quality'] in BLOCK_QUALITY or 'block' in method:
+        return 'block'
+    if g['quality'] in POINT_QUALITY and 'centroid' not in method:
+        return 'point'
+    return None
+
+
+def distances(target, rows, geography):
+    sg = geography.get(target['rol'])
+    sk = point_kind(sg)
+    if not sk:
+        return np.full(len(rows), np.inf)
+    lat = math.radians(sg['lat'])
+    gs = [geography.get(r['rol']) for r in rows]
+    valid = np.array([bool(point_kind(g)) and
+                      ((sk != 'block' and point_kind(g) != 'block') or r['block'] == target['block'])
+                      for r, g in zip(rows, gs, strict=True)])
+    lats = np.radians([g['lat'] if g else 0 for g in gs])
+    dl = np.radians([g['lon'] - sg['lon'] if g else 0 for g in gs])
+    h = np.sin((lats - lat) / 2)**2 + math.cos(lat) * np.cos(lats) * np.sin(dl / 2)**2
+    ds = 2 * 6371000 * np.arcsin(np.sqrt(np.clip(h, 0, 1)))
+    return np.where(valid, ds, np.inf)
+
+
+def year_index(rows):
+    """Alternating year/block fixed effects on log UF/m2, not communal medians."""
+    rs = [r for r in rows if r['date'] >= '2010-01-01']
+    if not rs:
+        return {}
+    years, yi = np.unique([int(r['date'][:4]) for r in rs], return_inverse=True)
+    _, bi = np.unique([r['block'] for r in rs], return_inverse=True)
+    y = np.log([r['uf'] / r['area'] for r in rs])
+    ny, nb = np.bincount(yi), np.bincount(bi)
+    a, b = np.zeros(len(ny)), np.zeros(len(nb))
+    for _ in range(200):
+        old = a.copy()
+        a = np.bincount(yi, weights=y - b[bi]) / ny
+        b = np.bincount(bi, weights=y - a[yi]) / nb
+        if np.max(np.abs(a - old)) < 1e-10:
+            break
+    return {int(yr): float(np.exp(value - a[-1])) for yr, value in zip(years, a, strict=True)}
+
+
+def index_factor(index, sale_year, query_year):
+    prior = [y for y in index if y <= query_year]
+    if sale_year not in index or not prior:
+        return None
+    return index[max(prior)] / index[sale_year]
+
+
+class HistoricalBaseline(ClosingKNN):
+    """Exact existing estimate method, with historical pool floor set to 2019.
+
+No scores, weights, K, quantiles or formula changed. Literal 2024-floor baseline
+is separately reported, avoiding a trivial apparent win on early 2024 coverage.
+"""
+    def __init__(self, rows):
+        eligible = [r for r in rows if r['date'] >= '2019-01-01']
+        # Let the original initializer apply all its other field validations;
+        # restore real dates both in groups and in precomputed ordinal arrays.
+        proxy = [{**r, 'date': max(r['date'], '2024-01-01')} for r in eligible]
+        super().__init__(proxy)
+        original = {r['raw_id']: r for r in eligible}
+        self.rows = [original[r['raw_id']] for r in self.rows]
+        for key, group in self.groups.items():
+            self.groups[key] = [original[r['raw_id']] for r in group]
+            arrays = list(self.arrays[key])
+            arrays[2] = np.array([date.fromisoformat(r['date']).toordinal() for r in self.groups[key]])
+            self.arrays[key] = tuple(arrays)
+
+
+class HouseRules:
+    def __init__(self, rows, geography, parameter_cutoff='2024-01-01'):
+        self.rows = rows
+        self.geo = geography
+        self.cutoff = parameter_cutoff
+
+    def estimate(self, target):
+        controls = {k: {'n': 0, 'value_uf': None} for k in ['appraisal', 'land']}
+        controls['reason'] = 'Controles no disponibles sin terreno o geografía fiable'
+        no = lambda reason, **extra: {'status': 'unavailable', 'reason': reason,
+                                      'message': 'Señal insuficiente', 'comparables': [], 'controls': controls, **extra}
+        if target.get('kind') != 'casa' or target.get('comuna') != 15160:
+            return no('outside_house_pilot')
+        if not target.get('land') or target['land'] <= 0 or not target.get('area') or target['area'] <= 0:
+            return no('missing_sii_land_or_area')
+        if not point_kind(self.geo.get(target['rol'])):
+            return no('subject_geography_unreliable')
+        pool = available(self.rows, target['date'], target['rol'])
+        controls = self.controls(target, pool)
+        controls['reason'] = 'Controles informativos; no sustituyen una señal insuficiente'
+        index = year_index(pool)
+        comparable_pool = [r for r in pool if r['date'] >= '2019-01-01' and r['land'] and
+                           .75 <= r['land'] / target['land'] <= 1.35 and
+                           .6 <= r['area'] / target['area'] <= 1.6]
+        ds = distances(target, comparable_pool, self.geo)
+        radius = 500
+        if sum(ds <= radius) < 8:
+            radius = 800
+        if sum(ds <= radius) < 8:
+            radius = 1000
+        selected = [(r, float(d)) for r, d in zip(comparable_pool, ds, strict=True) if d <= radius]
+        if len(selected) < 5:
+            return no('fewer_than_5_within_1000m', eligible_count=len(selected), radius_m=radius)
+        # The regression never sees 2024/2025 evaluation outcomes. It also
+        # excludes every historical transfer of the subject role from its index.
+        training_pool = available(self.rows, min(self.cutoff, target['date']), target['rol'])
+        train_index = year_index(training_pool)
+        train = [r for r in training_pool if r['date'] >= '2010-01-01' and r['land'] and r['land'] > 0]
+        td = distances(target, train, self.geo)
+        local = [(r, float(d)) for r, d in zip(train, td, strict=True) if d <= 1000]
+        last_train_year = max(train_index, default=0)
+        local = [(r, d) for r, d in local if int(r['date'][:4]) in train_index]
+        if len(local) < 5:
+            return no('insufficient_pre2024_elasticity_training', training_n=len(local))
+        X = np.array([[1., math.log(r['area']), math.log(r['land'])] for r, _ in local])
+        y = np.log([r['uf'] * index_factor(train_index, int(r['date'][:4]), last_train_year) for r, _ in local])
+        w = np.exp(-np.array([d for _, d in local]) / 500)
+        wx = X * np.sqrt(w[:, None])
+        if np.linalg.matrix_rank(wx) < 3:
+            return no('rank_deficient_elasticity_training', training_n=len(local))
+        beta = np.linalg.lstsq(wx, y * np.sqrt(w), rcond=None)[0]
+        b, c = np.clip(beta[1:], .25, .60)
+        comps = []
+        as_day = date.fromisoformat(target['date'])
+        for r, d in selected:
+            factor = index_factor(index, int(r['date'][:4]), as_day.year)
+            if factor is None:
+                continue
+            now = r['uf'] * factor
+            area_factor = (target['area'] / r['area'])**b
+            land_factor = (target['land'] / r['land'])**c
+            adj = now * area_factor * land_factor
+            age = (as_day - date.fromisoformat(r['date'])).days / 365.25
+            weight = math.exp(-d / 350) * .5**(age / 3) * (1.5 if r['block'] == target['block'] else 1)
+            g = self.geo[r['rol']]
+            comps.append({'rol': r['rol'], 'raw_id': r['raw_id'], 'fecha': r['date'], 'fi': r['fi'],
+                'm2': r['area'], 'land_m2': r['land'], 'uf': r['uf'], 'uf_m2': r['uf'] / r['area'],
+                'building': r['building'], 'distance_m': d, 'same_block': r['block'] == target['block'],
+                'geo_method': g['method'], 'geo_quality': g['quality'], 'precision_m': g['precision_m'],
+                'distance_approximate': point_kind(g) == 'block' or point_kind(self.geo[target['rol']]) == 'block',
+                'index_factor': factor, 'uf_today': now, 'area_factor': float(area_factor),
+                'land_factor': float(land_factor), 'adjusted_uf': adj, 'similarity': weight})
+        if len(comps) < 5:
+            return no('index_missing_for_comparables', eligible_count=len(comps))
+        logs = np.log([r['adjusted_uf'] for r in comps])
+        q1, q3 = np.quantile(logs, [.25, .75])
+        kept = [r for r, v in zip(comps, logs, strict=True) if q1 - 1.5 * (q3 - q1) <= v <= q3 + 1.5 * (q3 - q1)]
+        removed = [r for r in comps if r not in kept]
+        if len(kept) < 5:
+            return no('fewer_than_5_after_iqr', eligible_count=len(comps), retained_count=len(kept))
+        values, weights = [r['adjusted_uf'] for r in kept], [r['similarity'] for r in kept]
+        lo, mid, hi = [weighted_quantile(values, weights, q) for q in (.25, .5, .75)]
+        controls['review'] = all(controls[k].get('value_uf') and abs(mid / controls[k]['value_uf'] - 1) > .15 for k in ['appraisal', 'land'])
+        controls['reason'] = 'Más de15% respecto de ambos controles' if controls['review'] else (
+            'Falta al menos un control; contraste incompleto' if any(not controls[k].get('value_uf') for k in ['appraisal', 'land']) else 'No se aleja más de15% de ambos controles')
+        total = sum(weights)
+        for r in kept:
+            r['weight_share'] = r['similarity'] / total
+        return {'status': 'ok', 'model_used': 'house_rules', 'value_uf': mid, 'p25_uf': lo, 'p75_uf': hi,
+                'uf_m2': mid / target['area'], 'comparables': kept, 'outliers': removed,
+                'radius_m': radius, 'eligible_count': len(comps), 'effective_n': total**2 / sum(x*x for x in weights),
+                'b': float(b), 'c': float(c), 'unbounded_b_c': beta[1:].tolist(), 'training_n': len(local),
+                'training_max_date': max(r['date'] for r, _ in local), 'training_cutoff': self.cutoff,
+                'index': index, 'controls': controls}
+
+    def controls(self, target, pool):
+        ds = distances(target, pool, self.geo)
+        appraisal, land = [], []
+        for r, d in zip(pool, ds, strict=True):
+            if d <= 400 and r['date'] >= '2021-10-01' and r['appraisal'] and r['appraisal'] > 0 and target.get('appraisal'):
+                appraisal.append(r['uf'] / r['appraisal'] * target['appraisal'])
+            if d <= 600 and r['date'] >= '2023-01-01' and r['land'] and .8 <= r['land'] / target['land'] <= 1.25:
+                land.append(r['uf'] / r['land'] * target['land'])
+        return {k: {'n': len(v), 'value_uf': float(np.median(v)) if v else None}
+                for k, v in [('appraisal', appraisal), ('land', land)]}

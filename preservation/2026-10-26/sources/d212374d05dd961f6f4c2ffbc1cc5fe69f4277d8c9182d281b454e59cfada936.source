@@ -1,0 +1,110 @@
+"""Frozen R1-R11 temporal validation and local policy. No search or tuning."""
+from __future__ import annotations
+import argparse, json, time, hashlib
+from pathlib import Path
+from collections import Counter
+import numpy as np
+from services.sii.house_rules import prepare, available, HouseRules, HistoricalBaseline, area_at, load_snapshot
+from services.sii.closing_knn import ClosingKNN
+from services.sii.geographic_opinion import _valuation_geography
+
+
+def digest(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def save(path, data): path.write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf8')
+
+
+def metrics(records):
+    good = [r for r in records if r['prediction']['status'] == 'ok']
+    e = np.array([(r['prediction']['value_uf'] / r['actual_uf'] - 1) * 100 for r in good])
+    return {'n': len(records), 'predicted': len(good), 'coverage_pct': 100*len(good)/len(records) if records else 0,
+        'insufficient_signal': len(records)-len(good),
+        'mdape_pct': float(np.median(abs(e))) if len(e) else None,
+        'mape_pct': float(np.mean(abs(e))) if len(e) else None,
+        'mean_bias_pct': float(np.mean(e)) if len(e) else None,
+        'median_bias_pct': float(np.median(e)) if len(e) else None,
+        'within_10_pct': float(np.mean(abs(e)<=10)*100) if len(e) else None,
+        'within_20_pct': float(np.mean(abs(e)<=20)*100) if len(e) else None,
+        'p95_ape_pct': float(np.percentile(abs(e),95)) if len(e) else None,
+        'reasons': dict(Counter(r['prediction'].get('reason','ok') for r in records)),
+        'latency_p95_ms': float(np.percentile([r['elapsed_ms'] for r in records],95)) if records else None}
+
+
+def main():
+    p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--geography',type=Path,required=True);p.add_argument('--phase',choices=['freeze','evaluate','cases'],required=True)
+    a=p.parse_args();out=a.output;protocol=json.loads((out/'protocol.json').read_text())
+    snapshot=load_snapshot(out);rows,facts,lines,rejected=prepare(snapshot)
+    geo=_valuation_geography(a.geography)
+    code=Path(__file__).parents[1]/'services/sii'
+    hashes={str(k):digest(v) for k,v in {'snapshot':out/'existing-sii.json','protocol':out/'protocol.json',
+        'model':code/'house_rules.py','baseline':code/'closing_knn.py','uf_calendar':out/'historical-uf.json',
+        'geography':a.geography/'geography.sqlite','address_index':a.geography/'address-index.sqlite'}.items()}
+    cutoff=protocol['parameter_cutoff_exclusive'];start,end=protocol['evaluation']
+    training=available(rows,cutoff,'__no_subject__')
+    valid=[r for r in rows if not r['block_known_at']]
+    if a.phase=='freeze':
+        assert not (out/'evaluation.json').exists(), 'Cannot silently replace completed protocol'
+        trained=[r for r in training if r['date']>='2019-01-01']
+        land=[r['land'] for r in trained if r['land'] and r['land']>0]
+        price=[r['uf'] for r in trained]
+        seal={'hashes':hashes,'training_n':len(training),'training_comparable_n':len(trained),
+            'land_tertiles':np.quantile(land,[1/3,2/3]).tolist(),
+            'price_tertiles':np.quantile(price,[1/3,2/3]).tolist(),
+            'exclusions':rejected,'block_excluded_final':sum(bool(r['block_known_at']) for r in rows),
+            'exposure_warning':protocol['exposure'],'selection':'No tuning or grid; hard user rules only.'}
+        save(out/'sealed.json',seal)
+        print(json.dumps({k:v for k,v in seal.items() if k!='hashes'},indent=2));return
+    seal=json.loads((out/'sealed.json').read_text());assert seal['hashes']==hashes,'Frozen input or model changed'
+    model=HouseRules(rows,geo,cutoff)
+    if a.phase=='cases':
+        results=[]
+        for rol in ['15160-1261-6','15160-1261-7','15160-2481-13']:
+            f=facts[rol];area,year=area_at(lines[rol],2026)
+            target={**f,'rol':rol,'comuna':15160,'date':'2026-10-25','area':area,'year':year,
+                'building':'|'.join(map(str,[15160,f['block'],f['calle'],f['numero'] or '']))}
+            t=time.perf_counter();result=model.estimate(target)
+            results.append({'target':target,'elapsed_ms':1000*(time.perf_counter()-t),'prediction':result})
+        save(out/'cases.json',results)
+        print(json.dumps([{'rol':r['target']['rol'],'area':r['target']['area'],**{k:r['prediction'].get(k) for k in ['status','reason','value_uf','p25_uf','p75_uf','effective_n','b','c','radius_m','controls']}} for r in results],indent=2));return
+    targets=[r for r in valid if start<=r['date']<end]
+    records={k:[] for k in ['baseline','published_baseline','candidate']}
+    for i,target in enumerate(targets):
+        pool=available(rows,target['date'],target['rol'])
+        features={k:target[k] for k in ['rol','comuna','block','kind','date','area','land','appraisal','year','building']}
+        for name,fn in [('baseline',lambda:HistoricalBaseline(pool).estimate(features)),
+            ('published_baseline',lambda:ClosingKNN(pool).estimate(features)),('candidate',lambda:model.estimate(features))]:
+            t=time.perf_counter();prediction=fn();elapsed=(time.perf_counter()-t)*1000
+            for c in prediction.get('comparables',[]):
+                assert c['rol']!=target['rol'] and c['fecha']<target['date']
+                if 'fi' in c:assert c['fi']<target['date']
+            records[name].append({'raw_id':target['raw_id'],'rol':target['rol'],'date':target['date'],
+                'actual_uf':target['uf'],'land':target['land'],'prediction':prediction,'elapsed_ms':elapsed})
+        if (i+1)%100==0:print('evaluated',i+1,'/',len(targets),flush=True)
+    bm,cm=metrics(records['baseline']),metrics(records['candidate'])
+    pairs=[(b,c) for b,c in zip(records['baseline'],records['candidate'],strict=True) if b['prediction']['status']==c['prediction']['status']=='ok']
+    pb,pc=metrics([x for x,_ in pairs]),metrics([x for _,x in pairs])
+    promote=bool(pairs and pc['mdape_pct']<pb['mdape_pct'] and abs(pc['mean_bias_pct'])<abs(pb['mean_bias_pct']) and cm['coverage_pct']>=bm['coverage_pct']-5)
+    segments={}
+    for kind in ['land','price','year']:
+        groups={}
+        for idx,target in enumerate(targets):
+            if kind=='year':key=target['date'][:4]
+            else:
+                value=target['land'] if kind=='land' else target['uf']
+                key='missing' if not value else 'T'+str(1+int(np.searchsorted(seal['land_tertiles' if kind=='land' else 'price_tertiles'],value,side='right')))
+            groups.setdefault(key,[]).append(idx)
+        segments[kind]={key:{model_name:metrics([rs[i] for i in ix]) for model_name,rs in records.items()} for key,ix in groups.items()}
+    result={'hashes':hashes,'warning':protocol['exposure'],'all_valid_targets':len(targets),
+        'models':{name:metrics(rs) for name,rs in records.items()},'paired':{'baseline':pb,'candidate':pc},
+        'segments':segments,'land_tertiles':seal['land_tertiles'],'price_tertiles':seal['price_tertiles'],
+        'promotion':promote,'promotion_checks':{'mdape_improves':bool(pairs and pc['mdape_pct']<pb['mdape_pct']),
+            'absolute_mean_bias_improves':bool(pairs and abs(pc['mean_bias_pct'])<abs(pb['mean_bias_pct'])),
+            'coverage_loss_at_most_5pp':cm['coverage_pct']>=bm['coverage_pct']-5},
+        'limitations':snapshot['limitations']+[protocol['exposure'],'Block locations are approximate and usable only in same-block pairs; no surveyed truth.']}
+    save(out/'predictions.json',records);save(out/'evaluation.json',result)
+    save(out/'policy.json',{'version':protocol['version'],'hashes':hashes,'house_model':'house_rules' if promote else 'baseline',
+        'department_model':'baseline','evaluation_sha256':digest(out/'evaluation.json'),'reason':result['promotion_checks']})
+    print(json.dumps({'models':result['models'],'paired':result['paired'],'promotion_checks':result['promotion_checks'],'promote':promote},indent=2))
+
+
+if __name__=='__main__':main()

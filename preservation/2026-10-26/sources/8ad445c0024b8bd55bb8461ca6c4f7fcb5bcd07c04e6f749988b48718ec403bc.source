@@ -1,0 +1,32 @@
+"use client";
+import { useEffect, useState } from "react";
+import { apiClient } from "@/lib/api/client";
+
+type Result = { status:string; role?:string; total?:number; location?:{method:string;quality:string;precision_m:number}; sales?:{raw_id:number;date:string;uf:number;distance_m:number;geo_method:string;radius_membership:string}[] };
+const methodLabel:Record<string,string>={sii_published_point:"punto publicado por SII",osm_direct:"dirección OSM",osm_interpolated:"interpolación de calle",mixed_anchor_interpolated:"interpolación con ancla corregida",block_median:"referencia de manzana"};
+export function NearbySales({enabled,address,rol,comuna}:{enabled:boolean;address:string;rol?:string;comuna:string}) {
+  const [state,setState]=useState<{key:string;data:Result|null;loading:boolean}>({key:"",data:null,loading:false});
+  const key=JSON.stringify([address,rol,comuna]);
+  useEffect(()=>{
+    if(!enabled||comuna!=="vitacura"||!(address.trim()||rol?.trim()))return;
+    let active=true;
+    const timer=setTimeout(()=>{
+      setState({key,data:null,loading:true});
+      void apiClient.post<Result>("/api/v1/tasar/nearby-sales",{address,rol,comuna,radius_m:800,limit:5})
+        .then(data=>{if(active)setState({key,data,loading:false});})
+        .catch(()=>{if(active)setState({key,data:{status:"unavailable"},loading:false});});
+    },600);
+    return ()=>{active=false;clearTimeout(timer);};
+  },[enabled,key,address,rol,comuna]);
+  if(!enabled||comuna!=="vitacura"||state.key!==key)return null;
+  const d=state.data;
+  return <section className="address-match" aria-label="Compraventas SII cercanas">
+    <h3>Compraventas SII a 800 m</h3>
+    {state.loading?<p>Buscando ventas cercanas…</p>:d?.status==="ok"?<>
+      <p>Rol {d.role} · {d.total} ventas · {methodLabel[d.location?.method??""]??"ubicación aproximada"}</p>
+      {d.location?.quality==="reference_disagreement"&&<p role="status">La ubicación OSM difiere del punto SII previamente consultado. La incertidumbre estimada es al menos {Math.ceil(d.location.precision_m)} m; requiere verificación.</p>}
+      <ul>{d.sales?.map(s=><li key={s.raw_id}>{s.date} · {Math.round(s.uf).toLocaleString("es-CL")} UF · {Math.round(s.distance_m)} m{s.radius_membership==="uncertain"?" (cerca del límite estimado)":""}</li>)}</ul>
+      <small>Distancias aproximadas con puntos SII/OSM. Precios y atributos exclusivamente SII. Esta lista de proximidad es distinta de los comparables seleccionados para tasar. © OpenStreetMap contributors, ODbL.</small>
+    </>:<p>{d?.status==="ambiguous"?"Completa la unidad o consulta por rol para distinguir las opciones.":d?.status==="unlocated"?"Rol identificado, sin ubicación disponible.":"Sin resultados geográficos disponibles para esta consulta."}</p>}
+  </section>;
+}

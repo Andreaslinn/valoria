@@ -1,0 +1,25 @@
+from capture_runtime import call,HERE
+import json,hashlib
+from datetime import datetime,timezone
+REMOTE='''
+import json,hashlib,inspect
+from pathlib import Path
+from config import valuation_flags as f
+root=Path(inspect.getfile(f)).resolve().parents[1]
+values={}
+for name in dir(f):
+ if name.startswith(('valuation_','valoria_','experimental_')) and callable(getattr(f,name)) and not inspect.signature(getattr(f,name)).parameters:
+  v=getattr(f,name)();values[name]=sorted(v) if isinstance(v,(set,frozenset)) else v
+rels=['services/valuation.py','services/listing_analysis.py','api/v1/valuations.py','domain/valuation/scoring.py','config/valuation_flags.py']
+print(json.dumps({'flags':values,'hashes':{r:hashlib.sha256((root/r).read_bytes()).hexdigest() for r in rels}}))
+'''
+if __name__=='__main__':
+ old=json.loads((HERE/'oracle_runtime.json').read_text())
+ meta=json.loads(call("docker inspect --format '{{json .}}' valoria_oracle_beta-api-1"))
+ now=json.loads(call('docker exec -i valoria_oracle_beta-api-1 python -B -',REMOTE))
+ assert meta['Image']==old['image_id'] and meta['State']['StartedAt']==old['started_at']
+ assert now['flags']==old['flags_effective']
+ assert all(old['hashes'][p]==h for p,h in now['hashes'].items())
+ result={'checked_at':datetime.now(timezone.utc).isoformat(),'same_image_and_start_time':True,'same_valuation_flags':True,'same_valuation_code':True,'remote_actions':'Read-only docker inspect, Python flags/source hashes, aggregate read-only History count. No deployments, migrations, scrapes, timer/history changes or productive file writes.'}
+ (HERE/'production_unchanged.json').write_text(json.dumps(result,indent=2))
+ print(json.dumps(result))

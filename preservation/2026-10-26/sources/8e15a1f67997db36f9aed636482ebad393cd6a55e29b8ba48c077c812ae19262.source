@@ -1,0 +1,1 @@
+<!doctype html><html lang="es"><meta charset="utf-8"><title>Frontend v2</title><body>Abriendo frontend-v2…<script>if(localStorage.getItem('valoria_access_token')==='offline-validation'){localStorage.removeItem('valoria_access_token');}location.replace('/');</script></body></html>

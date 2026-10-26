@@ -1,0 +1,16 @@
+import pathlib,json
+scope={}
+source=pathlib.Path('work/create_resilience_pr.py').read_text(encoding='utf-8')
+exec(source.split('tip=api(')[0],scope)
+api=scope['api']
+base='release/canonical-only-reproducible-20261013'
+branch='fix/source-published-property-fields'
+tip=api('/branches/'+base.replace('/','%2F'))
+assert tip['commit']['sha']=='c55f4b65da8c03cb3a3fd6634f35ccd09f8f427a','Release base moved; review required'
+body=pathlib.Path('work/published-pr-body.md').read_text(encoding='utf-8')
+existing=api('/pulls?state=open&head=Andreaslinn%3A'+branch)
+if existing:pr=api('/pulls/'+str(existing[0]['number']),{'body':body},method='PATCH')
+else:pr=api('/pulls',{'title':'Guardar los campos publicados de Portal y Yapo sin imputar superficies','head':branch,'base':base,'body':body,'draft':True})
+proof={'url':pr['html_url'],'number':pr['number'],'base':pr['base']['ref'],'base_sha':pr['base']['sha'],'head_sha':pr['head']['sha'],'draft':pr['draft']}
+pathlib.Path('outputs/published-fields/pr.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+print(json.dumps(proof))

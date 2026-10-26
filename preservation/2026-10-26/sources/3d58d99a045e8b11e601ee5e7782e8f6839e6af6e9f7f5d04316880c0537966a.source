@@ -1,0 +1,31 @@
+"""Inspect published ARM64 wheel without installing or executing foreign code."""
+import hashlib
+import io
+import json
+from pathlib import Path
+import urllib.request
+import zipfile
+
+def verify():
+    out=Path(__file__).parent/'results'
+    item=json.loads((out/'arm64-wheel-proof.json').read_text())[0]
+    assert item['url'].startswith('https://files.pythonhosted.org/')
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(item['url'],timeout=10) as response:
+        data=response.read(8*1024*1024)
+    assert hashlib.sha256(data).hexdigest()==item['sha256']
+    archive=zipfile.ZipFile(io.BytesIO(data))
+    libraries=[n for n in archive.namelist() if '.libs/' in n]
+    binaries=[n for n in archive.namelist() if n.endswith('.so') and '/_imaging.' in n]
+    elf=archive.read(binaries[0])
+    machine=int.from_bytes(elf[18:20],'little')
+    assert machine==183  # EM_AARCH64
+    assert any('webp' in n for n in libraries)
+    assert any('avif' in n for n in libraries)
+    report={'filename':item['filename'],'sha256':item['sha256'],'bytes':len(data),
+            'verified_aarch64_elf_machine':machine,'bundled_libraries':libraries,
+            'runtime_executed':False,'source':'https://pypi.org/project/pillow/12.3.0/'}
+    (out/'arm64-inspection.json').write_text(json.dumps(report,indent=2))
+    print(json.dumps(report,indent=2))
+
+if __name__=='__main__': verify()

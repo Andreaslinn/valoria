@@ -1,0 +1,15 @@
+from pathlib import Path
+import json
+scope={};exec(Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];base='release/canonical-only-reproducible-20261013';branch='fix/discovery-deduplicated-admissions'
+assert api('/branches/'+base.replace('/','%2F'))['commit']['sha']=='fdd23f882bb603d1115232fb27ede0da1929a8a6'
+body='''Yapo deduplicó 32747182 sobre la fila de 32982982 y lo clasificó como actualización. El respaldo demuestra que no había ficha canónica completa: la omisión dejó solo datos de tarjeta. Ahora se detecta el ID antes del upsert y se captura aunque reutilice una fila existente. Los aliases incompletos ya conocidos consumen los cupos existentes de mantenimiento, sin aumentar ese presupuesto.
+
+Se agregan contadores HTTP y se conservan en ledger/lanzador para verificar cero 302/403/429. No cambia el motor, el refresher ni los timers. La alarma de disco queda explícitamente fuera; no hay limpieza ni retención.
+
+Regresiones con el caso 32747182, tanto ID nuevo deduplicado como alias conocido sin ficha, y hook HTTP sin URLs. Validación completa y procedimiento en deploy/discovery-same-day/REDEPLOY.md. Andy autorizó redespliegue con respaldo nuevo restaurado, comparaciones con misma DB/UF y rollback 80bd8a9. Si falla, release se alinea exactamente con producción y se marcan los PRs no desplegados.'''
+existing=api('/pulls?state=open&head=Andreaslinn%3A'+branch)
+pr=existing[0] if existing else api('/pulls',{'title':'Capturar altas Yapo deduplicadas y verificar HTTP en discovery','head':branch,'base':base,'body':body,'draft':False})
+out=Path('outputs/discovery-redeploy-20261016');out.mkdir(parents=True,exist_ok=True)
+(out/'pr.json').write_text(json.dumps({'url':pr['html_url'],'number':pr['number'],'head':pr['head']['sha'],'base':pr['base']['sha']},indent=2))
+print(json.dumps({'url':pr['html_url'],'number':pr['number'],'head':pr['head']['sha']}))

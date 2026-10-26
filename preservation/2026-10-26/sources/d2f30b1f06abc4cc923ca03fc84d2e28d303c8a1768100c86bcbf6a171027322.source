@@ -1,0 +1,10 @@
+import subprocess,pathlib,json
+r=subprocess.run(['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','docker logs -f valoria-discovery-admission-audit-portalinmobiliario'],text=True,encoding='utf8',capture_output=True,timeout=480)
+out=pathlib.Path('outputs/discovery-same-day')
+(out/'portalinmobiliario-recovered-private.log').write_text(r.stdout+r.stderr,encoding='utf8')
+for line in r.stdout.splitlines():
+ if not line.startswith('AUDIT_RESULT '):continue
+ event=json.loads(line[len('AUDIT_RESULT '):])
+ if event.get('event')=='complete':
+  (out/'portalinmobiliario-cycle-proof.json').write_text(json.dumps(event['proof'],indent=2),encoding='utf8')
+  print(json.dumps(event['proof']))

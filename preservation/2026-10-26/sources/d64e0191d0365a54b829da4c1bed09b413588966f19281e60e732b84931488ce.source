@@ -1,0 +1,6 @@
+import pathlib,json
+commit=json.loads(pathlib.Path('outputs/discovery-deploy-20261016/merge-proof.json').read_text())['commit']
+s=pathlib.Path('work/published_deploy_remote.py').read_text().replace('published-fields-deploy-20261016','discovery-deploy-20261016').replace('rollback_c55f4b6_rehearsed','rollback_80bd8a9_rehearsed').replace('zz-published-fields-image.conf','zzz-discovery-image.conf').replace('ready_c55f4b6','ready_80bd8a9').replace('executed_c55f4b6','executed_80bd8a9')
+pathlib.Path('work/discovery_rollout_remote.py').write_text(s)
+s=pathlib.Path('work/published_rollback_remote.py').read_text().replace('published-fields-deploy-20261016','discovery-deploy-20261016').replace('c55f4b65da8c03cb3a3fd6634f35ccd09f8f427a','80bd8a9aae5c1af733778f524ce880efcb5d815e').replace("{'80bd8a9aae5c1af733778f524ce880efcb5d815e',old",'{'+repr(commit)+',old').replace('zz-published-fields-image.conf','zzz-discovery-image.conf').replace('executed_c55f4b6','executed_80bd8a9')
+pathlib.Path('work/discovery_rollback_remote.py').write_text(s)

@@ -1,0 +1,23 @@
+import subprocess, shutil, json, hashlib
+from pathlib import Path
+
+SOURCE = Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\work\ingestion-production-20261004\repack\final-applied')
+DEST = Path('work/thumbnail-sandbox').resolve()
+DEST.mkdir(parents=True, exist_ok=True)
+paths = subprocess.check_output(['git','-C',str(SOURCE),'ls-files','-z']).decode().split('\0')
+manifest = {}
+for name in paths:
+    if not name or name.startswith('.env') or name.endswith(('.db','.sqlite','.pem','.key')):
+        continue
+    src = SOURCE/name
+    if not src.is_file(): continue
+    target = DEST/name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, target)
+    manifest[name] = hashlib.sha256(src.read_bytes()).hexdigest()
+(DEST/'SOURCE_MANIFEST.json').write_text(json.dumps(manifest,indent=2))
+subprocess.run(['git','init',str(DEST)],check=True,capture_output=True)
+subprocess.run(['git','-C',str(DEST),'add','.'],check=True,capture_output=True)
+subprocess.run(['git','-C',str(DEST),'-c','user.name=Sandbox','-c','user.email=sandbox@localhost','commit','-qm','Local preserved baseline; no production connection'],check=True)
+subprocess.run(['git','-C',str(DEST),'switch','-c','sandbox/thumbnail-pipeline'],check=True)
+print(json.dumps({'files':len(manifest),'sandbox':str(DEST)}))

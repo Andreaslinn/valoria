@@ -1,0 +1,69 @@
+"""Bounded adaptive acquisition. No DB imports, proxy, cookies, retries or services."""
+import sys,json,time
+from datetime import datetime,timezone
+import httpx
+from bs4 import BeautifulSoup
+from common import H,save,sha
+from replay import decode_yapo,build_hash,REPO
+from ingestion import append_observation,cohort
+from infrastructure.scrapers.yapo_modern import classify_page
+from config.constants import YAPO_TARGETS,SCRAPER_USER_AGENT,SCRAPER_MIN_REQUEST_INTERVAL_SEC
+from infrastructure.scrapers.yapo import build_target_url
+
+def run():
+    folder=H/'private/live_acquisition'
+    if (H/'acquisition_access.json').exists():
+        old=json.loads((H/'acquisition_access.json').read_text())
+        if '--network-permission-retry' not in sys.argv or any('status' in x for x in old['requests']):
+            raise SystemExit('Refusing another acquisition without review of prior stop condition')
+        save('acquisition_sandbox_connect_failure.json',old)
+    access=[]; observed=[]; reason=None
+    def fetch(client,url,stage):
+        nonlocal reason
+        if access: time.sleep(max(3.0,SCRAPER_MIN_REQUEST_INTERVAL_SEC))
+        stamp=datetime.now(timezone.utc).isoformat()
+        try:
+            r=client.get(url)
+        except httpx.HTTPError as e:
+            access.append(dict(url=url,time=stamp,stage=stage,error=type(e).__name__,detail=str(e)));reason='connection_unavailable_not_source_block_evidence';return None,stamp
+        state=classify_page(r.text,status_code=r.status_code) if stage=='search' else classify_page(r.text,status_code=r.status_code)
+        access.append(dict(url=url,final_url=str(r.url),time=stamp,stage=stage,status=r.status_code,state=state,sha256=sha(r.content)))
+        # Keep blocked evidence too, but never parse or retry it.
+        folder.mkdir(parents=True,exist_ok=True)
+        (folder/(f'response_{len(access):02d}.html')).write_bytes(r.content)
+        if r.status_code!=200 or state in ('http_blocked','challenge'):
+            reason='source_blocked_or_unstable';return None,stamp
+        if stage=='search' and state not in ('results','empty'):
+            reason='unknown_source_structure';return None,stamp
+        return r,stamp
+    # One diagnostic search, then deterministic target details until evidence gain stops.
+    target=next(t for t in YAPO_TARGETS if t['label']=='santiago')
+    with httpx.Client(timeout=30,follow_redirects=True,headers={'User-Agent':SCRAPER_USER_AGENT,'Accept':'text/html'}) as client:
+        response,stamp=fetch(client,build_target_url(target),'search')
+        rows=[]
+        if response:
+            rows=decode_yapo(response.content,str(response.url),stamp)
+            for r in rows: observed.append(append_observation(folder,r,response.content,source_url=str(response.url),observed_at=stamp,build_hash=build_hash(),stage='live_card'))
+        targets=sorted([r for r in rows if cohort(dict(r,evidence_parser_version='identity-evidence-v1',raw_sha256='pending',parser_build_sha256=build_hash()))['modern_avm_usable']],key=lambda r:r['external_id'])
+        previous_gain=None
+        for target in targets:
+            if reason: break
+            r,stamp=fetch(client,target['url'],'detail')
+            if r is None: break
+            details=decode_yapo(r.content,str(r.url),stamp,detail=True)
+            gain=0
+            for row in details:
+                observed.append(append_observation(folder,row,r.content,source_url=str(r.url),observed_at=stamp,build_hash=build_hash(),stage='live_detail'))
+                a=target.get('evidence',{});b=row.get('evidence',{})
+                gain+=sum(bool(b.get(k)) and not bool(a.get(k)) for k in ['description_raw','address_raw','seller_raw','publication_date','building_project'])
+                gain+=int(len(b.get('image_ids',[]))>len(a.get('image_ids',[])))
+            access[-1]['identity_signal_gain']=gain
+            if gain==0 and previous_gain==0:
+                reason='identity_gain_flat_two_successive_details';break
+            previous_gain=gain
+            if gain and any((x.get('evidence') or {}).get('address_parsed',{}).get('unit') for x in details):
+                reason='enough_evidence_for_ingestion_audit';break
+        if not reason: reason='diagnostic_search_pool_exhausted_no_need_for_more_volume_before_ingestion_review'
+    save('acquisition_access.json',dict(requests=access,stop_condition=reason,portal_requested=False,observations=len(observed)))
+    print(json.dumps(dict(requests=len(access),observations=len(observed),stop_condition=reason)))
+if __name__=='__main__': run()

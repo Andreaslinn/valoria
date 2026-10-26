@@ -1,0 +1,17 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner='''import asyncio,json,os
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION READ ONLY'))
+  data=dict((await s.execute(text("SELECT 'listings',count(*)::text FROM listings UNION ALL SELECT 'observations',count(*)::text FROM listing_observations UNION ALL SELECT 'users',count(*)::text FROM users UNION ALL SELECT 'alert_reads',count(*)::text FROM alert_reads UNION ALL SELECT 'revision',version_num FROM alembic_version"))).all())
+  assert data=={'listings':'7030','observations':'5240','users':'7','alert_reads':'0','revision':'0022'},data
+  assert (await s.execute(text("SELECT count(*) FROM listings WHERE source='portalinmobiliario' AND external_id='MLC-2467200996'"))).scalar_one()==0
+  print(json.dumps({'read_only_counts':data,'new_live_lookup_not_persisted':True}))
+asyncio.run(main())
+'''
+code="import subprocess,json\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",capture_output=True,text=True,timeout=30);print(r.stdout);assert r.returncode==0,'Data preservation gate failed'\nfor unit in ['valoria-yapo-discovery.timer','valoria-portal-discovery.timer']:\n p=subprocess.run(['systemctl','show',unit,'--property=ActiveState,NextElapseUSecRealtime'],capture_output=True,text=True);print(json.dumps({'timer':unit,'state':p.stdout.strip()}))"
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=45);Path(__file__).with_name('portal-final-data-checks.jsonl').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);r.check_returncode()

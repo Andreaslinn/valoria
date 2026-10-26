@@ -1,0 +1,46 @@
+from pathlib import Path
+import subprocess
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner='''import asyncio,json,httpx
+from dataclasses import replace
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from infrastructure.db.repositories import SqlAlchemyListingRepository
+from infrastructure.external.uf_client import UFClient
+from services.valuation import ValuationService
+from services.listing_url_lookup import listing_to_form_data
+from services.listing_analysis import _valuation_input
+from services.uf_rate import require_real_uf_rate
+from domain.radar.detector import _listing_as_property,_exclude_self
+from domain.valuation.comparables import valuate_with_comparables
+from domain.valuation.engines.canonical_comparables import ComparablesCanonicalEngine,_candidate_key
+from domain.valuation.engines.contracts import EngineRequest,EngineContext
+from core.entities.listing import Property
+from core.normalization.property_type import normalize_property_type
+from core.normalization.property_consistency import property_type_conflict
+from services.formatting import price_uf_float
+async def main():
+ async with get_session_factory()() as s,httpx.AsyncClient() as http:
+  await s.execute(text('SET TRANSACTION READ ONLY'));repo=SqlAlchemyListingRepository(s);listing=await repo.find_by_id(1130)
+  uf=UFClient(api_url='https://mindicador.cl/api/uf',http_client=http,redis=None,session_factory=get_session_factory());info=await require_real_uf_rate(uf)
+  all_rows=await repo.list_active();commune_rows=await repo.find_active_in_comuna(listing.comuna,property_type=listing.property_type)
+  pools={'all_active':[x for x in _exclude_self(listing,all_rows) if normalize_property_type(x)==normalize_property_type(listing) and not property_type_conflict(x)],'same_commune':[x for x in _exclude_self(listing,commune_rows) if not property_type_conflict(x)]}
+  full=_listing_as_property(listing);inp,missing=_valuation_input(listing_to_form_data(listing));assert not missing
+  flat=Property(id=None,comuna=inp.comuna,m2=inp.built_area_m2 or inp.usable_area_m2 or inp.m2,bedrooms=inp.dormitorios or 0,bathrooms=inp.banos or 0,parking=inp.estacionamientos or 0,property_type=inp.property_type,built_area_m2=inp.built_area_m2 or inp.usable_area_m2 or inp.m2,usable_area_m2=inp.usable_area_m2,land_area_m2=inp.land_area_m2)
+  variants=[('radar_actual',full,'all_active'),('radar_same_commune',full,'same_commune'),('no_coordinates',replace(full,coordinates=None,geocode_precision=None),'all_active'),('no_raw_metadata',replace(full,raw_metadata={}), 'all_active'),('tasar_input_all_active',flat,'all_active'),('tasar_input_same_commune',flat,'same_commune')]
+  results=[]
+  for name,target,pool in variants:
+   run=valuate_with_comparables(target,pools[pool],info.rate)
+   results.append({'case':name,'pool_size':len(pools[pool]),'estimate_uf':price_uf_float(run.result.estimated_price,info.rate),'comparable_ids':[x.id for _,x in run.scored_comparables]})
+  engine_steps=[]
+  for variant in ['price_only','outliers']:
+   e=ComparablesCanonicalEngine(variant=variant).valuate(EngineRequest(published_price_provided=True),EngineContext(target=flat,candidates=tuple(pools['same_commune']),uf_to_clp=info.rate))
+   engine_steps.append({'variant':variant,'estimate_uf':e.estimated_price_uf,'status':str(e.status),'diagnostics':{k:e.diagnostics.get(k) for k in ['canonical_price_enabled','structurally_eligible','canonical_price_usable','high_outliers_excluded','low_outliers_excluded','selected_comparables','exclusion_ids','local_reference','estimate_before_outlier_filter','estimate_after_outlier_filter']}})
+  high_ids=set(e.diagnostics.get('exclusion_ids',{}).get('price_m2_high_outlier',[]))
+  high_rows=[{'id':x.id,'title':x.title,'area':x.built_area_m2 or x.usable_area_m2 or x.m2,'price_uf':str(x.price_uf),'price_clp':str(x.price.clp),'url':x.url} for x in all_rows if _candidate_key(x) in high_ids]
+  canonical=await ValuationService(listing_repo=repo,uf_service=uf).valuate_property(inp,valuation_strategy='consensus_v1')
+  print(json.dumps({'listing_id':1130,'target':{'area':inp.m2,'beds':inp.dormitorios,'baths':inp.banos,'parking':inp.estacionamientos,'has_coordinates':full.coordinates is not None,'geocode_precision':full.geocode_precision},'ablations':results,'high_outlier_listings':high_rows,'canonical_engine_steps':engine_steps,'final_consensus_uf':canonical.estimated_price_uf,'engines':[{'name':e.engine_name,'family':e.engine_family,'status':e.status,'estimate_uf':e.estimate_uf,'selected':e.selected_for_final} for e in canonical.engine_results],'weights':canonical.consensus.engine_weights,'surface_adjustment_applied':canonical.surface_adjustment_applied,'uf_rate':str(info.rate)},default=str))
+asyncio.run(main())
+'''
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=70)\nprint(r.stdout)\nif r.returncode:print(r.stderr[-1500:]);raise SystemExit(r.returncode)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=85);Path(__file__).with_name('radar-difference-explanation.json').write_text(r.stdout,encoding='utf-8');print(r.stdout);r.check_returncode()

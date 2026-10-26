@@ -1,0 +1,37 @@
+# Identidad para CV — investigación offline
+
+**Resultado: todavía no se puede certificar grouped CV. No hay ID preferido recomendado.** Esta carpeta contiene reglas target-free, sensibilidad y auditoría; no un sistema de identidad productivo.
+
+## Fuentes y base
+
+Universo cerrado: 1.179 IDs de `C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\research\tasar_avm_audit_20261002\candidate_dataset_with_group_id.csv`. Se lee únicamente la columna ID; no se reevalúa precio, superficie o fiabilidad para alterar membership.
+
+Snapshot principal: `research/tasar_avm_audit_20261002/input_snapshot.json`, SHA-256 `a5991dd086056fa304416ddfa1ad464352957bebcb5df9fcd2ce5565938e3641`, capturado 2026-10-02T15:27:06 UTC, 4.908 activos. Campos de precio presentes en el archivo fuente nunca se proyectan a matching. Hash del archivo es trazabilidad, no feature.
+
+Código productivo contextual: `C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled`, HEAD `5288dded72df3608d495eb9b2bedb3e1839996dc`, checkout con cambios previos; antes/después 857 archivos y status idénticos. El matcher experimental es independiente del producto, sin imports de Tasar/Consensus/settings/db.
+
+Histórico: backup LOCAL preexistente `private-preservation-20260925/production-avm.dump`, SHA-256 `06108ae0457bc01a9958798cdfec2db64568f8a4a4eb28d911a716ec34c5b675`. Se leyó mediante `docker exec ... pg_restore --data-only --table=listings --table=properties --table=price_history --file=-`, **sin parámetro de conexión --dbname, sin restaurar DB ni escribir en el contenedor**. Solo la proyección de identidad/relaciones/fechas se guardó. Importes de COPY price_history no se decodificaron ni exportaron. No se copió SQL sin redacción.
+
+Inventario adicional LOCAL actual: `local_identity_snapshot.json`, capturado `2026-10-02T18:04:18.098051+00:00`; 4.196 filas. `local_identity_query.sql` muestra la consulta: BEGIN TRANSACTION READ ONLY, SELECT columnas de identidad, ROLLBACK. No contiene columnas de precio ni contactos. Se ejecutó contra el contenedor dev local ya activo; no Oracle. Se obtuvieron 840 vínculos por publicación estable, sin nuevas direcciones con número/unidad/edificio ni identificadores de imagen. No se sustituyen atributos del snapshot principal con otro estado local.
+
+`input_provenance.json` registra hashes de todos los inputs y de los IDs congelados. Las proyecciones histórica/local son inmutables: los extractores se niegan a sobrescribirlas. No es necesario volver a consultar Docker para reproducir resultados.
+
+## Reproducir sin DB ni Docker
+
+Desde `C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped` en PowerShell:
+
+```powershell
+python -B research/tasar_identity_20261002/run.py
+python -B research/tasar_identity_20261002/test_identity.py
+python -B research/tasar_identity_20261002/report.py
+```
+
+Python 3.13.4; solo librería estándar. `test_identity.py` comprueba también reproducibilidad byte por byte de los CSV. Los dos extractores son evidencia del protocolo de adquisición, no pasos necesarios en una reproducción. Para otro snapshot se debe usar una carpeta experimental distinta.
+
+## Alcance
+
+Reglas originales conservadas en `methodology_frozen.json`; corrección de parser en `methodology_amendment_01.json`. No cambió ningún umbral al conocer tamaños de grupos. No se abrió ningún archivo de resultados predictivos, se creó split ni se entrenó A/C1/C1-flex/C2. Outputs previos intactos. Ceros de atributos no se imputaron. No hay commits, migraciones, cambios de datos, servicios, timers o configuración. El backup, código y tablas locales originales se conservaron.
+
+Los singletons **no son unidades independientes certificadas**. El campo property_high_confidence_id en los CSV es una componente del grafo; `high_physical_evidence=false` impide interpretar su singleton como unidad certificada. No existe `candidate_dataset_with_preferred_cv_group.parquet`: faltan condiciones para recomendarlo.
+
+La adjudicación no incluye precios, direcciones completas, correos/teléfonos ni texto de descripción. Títulos sanitizados y números no etiquetados redactados; números de dirección parcialmente ocultos. Las proyecciones de input quedan privadas en esta carpeta de investigación.

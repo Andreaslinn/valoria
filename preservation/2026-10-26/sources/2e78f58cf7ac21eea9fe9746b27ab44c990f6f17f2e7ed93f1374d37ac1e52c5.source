@@ -1,0 +1,31 @@
+"""Check all modern listing aliases, including noneligible bridge nodes."""
+from lab import *
+from history_feasibility import normalize
+def main():
+ p,(datasets,cohort,maps,_)=load();base=datasets['G3'];b=module('bridge_cohort',ROOT/'research/tasar_cohort_20261009T154414Z/build.py')
+ old=read(ROOT/b.POLICY['snapshot'])['listings'];hist=decrypt(HERE/'modern_history.json.dpapi')['rows'];first={}
+ for o in hist:first.setdefault((o['source'],o['external_id']),o)
+ combined=list(old);mapping={};lookup={};aliases=defaultdict(list);n=max(r['id'] for r in old)+1
+ for r in old:aliases[r['id']].append(r['id'])
+ for o in first.values():
+  r=normalize(o);r['id']=n;mapping[o['observation_id']]=n;lookup[o['observation_id']]=o;combined.append(r);aliases[o['listing_id']].append(n);n+=1
+ fs,pairs,groups=b.dependencies(combined);edges=[(q['id_a'],q['id_b']) for q in pairs if q['G3']]
+ for ids in aliases.values():edges.extend(zip(ids,ids[1:]))
+ buckets=defaultdict(list)
+ for r in base.records:buckets[r.group_id].append(int(r.listing_id))
+ for ids in buckets.values():edges.extend(zip(ids,ids[1:]))
+ graph=b.identity.graph(fs,edges);oldcomp={graph[r['id']] for r in old};elig=decrypt(HERE/'temporal_eligibility.json.dpapi')['eligible'];safe=[oid for oid in elig if graph[mapping[oid]] not in oldcomp]
+ from temporal_prepare import temporal_data
+ from avm01.isolation import dependency_components
+ ds,train,test,_=temporal_data();effective=dependency_components(ds);targetgroups=len({effective[i] for i in test})
+ changed=[]
+ for a,ids in buckets.items():
+  pass
+ # Compare OLD partition equivalence under the two policies, including merges.
+ oldmap={int(r.listing_id):effective[r.row_id] for r in base.records}
+ partition=defaultdict(set)
+ for i,g in oldmap.items():partition[graph[i]].add(g)
+ merges=sum(len(g)-1 for g in partition.values())
+ result={'eligible_before':len(elig),'eligible_after_all_alias_bridges':len(safe),'excluded_extra':len(set(elig)-set(safe)),'effective_target_groups_original_custody':targetgroups,'old_training_component_merges':merges,'modern_multi_publication_listing_aliases':sum(len([i for i in ids if i>=min(mapping.values())])>1 for ids in aliases.values()),'status':'PASS' if set(safe)==set(elig) and merges==0 else 'MATERIAL_BENCHMARK_AMENDMENT_REQUIRED'}
+ write(HERE/'bridge_check.json',result);encrypt(HERE/'bridge_screen.json.dpapi',{'safe':safe,'graph':graph,'mapping':mapping});print(json.dumps(result))
+if __name__=='__main__':main()

@@ -1,0 +1,27 @@
+import os,json,subprocess
+from pathlib import Path
+import sys
+sys.path.insert(0,str(Path.cwd()))
+os.environ.setdefault('DATABASE_URL','sqlite+aiosqlite:///:memory:')
+os.environ.setdefault('SYNC_DATABASE_URL','sqlite:///:memory:')
+os.environ.setdefault('JWT_SECRET_KEY','0'*32)
+import domain.valuation.engines.canonical_comparables as engine
+from domain.valuation.engines.contracts import EngineRequest,EngineContext
+from tests.unit.test_canonical_engine_price_basis import _fixture,UF
+from core.value_objects.score import Score
+from core.value_objects.price import Price
+from dataclasses import replace
+old=subprocess.check_output(['git','show','HEAD:domain/valuation/engines/canonical_comparables.py'],text=True,encoding='utf-8')
+new=Path('domain/valuation/engines/canonical_comparables.py').read_text(encoding='utf-8')
+output={}
+for label,code in [('before',old),('after',new)]:
+ exec(compile(code,'<isolated-'+label+'>','exec'),engine.__dict__)
+ target,listings=_fixture()
+ r=engine.ComparablesCanonicalEngine(name='comparables_canonical_outliers',variant='outliers').valuate(EngineRequest(),EngineContext(target=target,candidates=listings,uf_to_clp=UF))
+ assert r.status=='ok',r.error_message
+ d=r.diagnostics['result']
+ scored=[(Score(1),listings[0])];duplicate=[(Score(1),replace(listings[0],price=Price(clp=listings[0].price.clp*2)))]
+ args=(UF,) if label=='after' else ()
+ output[label]={'fixture_estimated_uf':r.estimated_price_uf,'fixture_ppm2_base':d['base_estimated_price_clp']/float(UF)/82,'fixture_selected_n':r.comparables_used,'surface_factor':r.estimated_price_clp/d['base_estimated_price_clp'],'synthetic_original_ppm2':float(engine._weighted_mean_ppm2(scored,*args)/UF),'synthetic_duplicated_clp_ppm2':float(engine._weighted_mean_ppm2(duplicate,*args)/UF)}
+Path('../canonical-fixture-comparison.json').write_text(json.dumps(output,indent=2,default=str),encoding='utf-8');print(json.dumps(output,default=str))
+

@@ -1,0 +1,88 @@
+"""Models have access only to issued training labels and price-free target DTOs."""
+from lab import *
+import numpy as np
+from dataclasses import asdict
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OneHotEncoder,StandardScaler,SplineTransformer
+from sklearn.linear_model import Ridge
+from sklearn.ensemble import HistGradientBoostingRegressor
+from threadpoolctl import threadpool_limits
+sys.path[:0]=[str(RUNTIME),str(RUNTIME/'frozen_a')]
+from avm01.isolation import require_batch
+from avm01.data import InvalidExperiment
+
+def matrix(rows,source=False):
+ out=[]
+ for r in rows:
+  f=r.features;v=[f['log_area']]+[np.nan if f[k] is None else f[k] for k in ['bedrooms','bathrooms','parking']]
+  v += [int(f[k] is None) for k in ['bedrooms','bathrooms','parking']]+[f['comuna']]
+  if source:v+=[f['source']]
+  out.append(v)
+ return np.array(out,dtype=object)
+def make_pipeline(kind,source=False):
+ numeric=Pipeline([('impute',SimpleImputer(strategy='median',keep_empty_features=True)),('scale',StandardScaler())])
+ if kind=='Flex':
+  transformers=[('area',Pipeline([('spline',SplineTransformer(n_knots=4,degree=3,include_bias=False,extrapolation='linear')),('scale',StandardScaler())]),[0]),('numeric',numeric,list(range(1,7)))]
+ else:transformers=[('numeric',numeric,list(range(7)))]
+ transformers+=[('cat',OneHotEncoder(handle_unknown='ignore',sparse_output=False),[7,8] if source else [7])]
+ prep=ColumnTransformer(transformers,sparse_threshold=0)
+ model=HistGradientBoostingRegressor(max_iter=100,learning_rate=.05,max_leaf_nodes=7,max_depth=3,min_samples_leaf=20,l2_regularization=10,early_stopping=False,random_state=20261011) if kind=='Trees' else Ridge(alpha=10.)
+ return Pipeline([('preprocess',prep),('model',model)])
+class Model:
+ def __init__(self,batch,kind,source=False):
+  self.batch=require_batch(batch);self.kind=kind;self.source=source
+  self.targets={t.row_id:digest(asdict(t)) for t in batch.targets};self.rows=list(batch.rows)
+  self.pipeline=make_pipeline(kind,source)
+  with threadpool_limits(limits=1):self.pipeline.fit(matrix(self.rows,source),np.log([r.price_uf for r in self.rows]))
+ def predict_log(self,targets):
+  if any(self.targets.get(t.row_id)!=digest(asdict(t)) for t in targets):raise InvalidExperiment('Unissued/modified inference')
+  with threadpool_limits(limits=1):return self.pipeline.predict(matrix(targets,self.source))
+ def train_log(self):
+  with threadpool_limits(limits=1):return self.pipeline.predict(matrix(self.rows,self.source))
+ def physical(self,rows):
+  # Remove category effects by transporting within the same reference categories.
+  # Same source flag in source-free models; only physical contrasts are used.
+  with threadpool_limits(limits=1):return self.pipeline.predict(matrix(rows,self.source))
+
+def adjusted(a,target,training,log_t,log_train):
+ if a['prediction'] is None:return None,None,0.
+ ids=a['selected_ids'];rows=[training[i] for i in ids]
+ # Recompute exact native scores (price-free) and weighted UF/m2 terms.
+ from avm01.canonical_io import listing_from_payload,target_from_payload
+ from domain.valuation.scoring import similarity_score
+ t=target_from_payload(target.canonical_target)
+ scores=np.array([similarity_score(t,listing_from_payload(r.canonical_listing)).value for r in rows]);scores/=scores.sum()
+ unit=np.array([r.price_uf/math.exp(r.features['log_area']) for r in rows]);base=unit*scores
+ delta=np.array([log_t-log_train[r.row_id]-(target.features['log_area']-r.features['log_area']) for r in rows])
+ # Same-commune A comps -> categorical effects cancel. No source used in R0.
+ delta=np.clip(delta,-math.log(1.25),math.log(1.25));factor=float(np.sum(base*np.exp(delta))/np.sum(base))
+ return a['prediction']*factor,a['pre']*factor,factor
+
+def local_residual(target,train,residual,components):
+ if target.latitude is None or target.longitude is None:return 0.,0
+ from avm01.canonical_io import target_from_payload,listing_from_payload
+ from domain.geocoding.quality import normalized_precision_for
+ assess=module('discovery_geo_quality',ROOT/'research/portal_geo_am_v0_20261010/integration/domain/geocoding/source_quality.py').assess
+ # Do not silently promote a pin to exact; repeated pins guarded training-only.
+ pins=Counter((round(r.latitude,7),round(r.longitude,7)) for r in train if r.latitude is not None)
+ def usable(r):
+  if r.latitude is None or r.longitude is None:return False
+  q=assess(r.latitude,r.longitude,precision=r.canonical_target.get('geocode_precision') if hasattr(r,'canonical_target') else r.canonical_listing.get('geocode_precision'),repeated=pins[(round(r.latitude,7),round(r.longitude,7))]>=5)
+  return q['status']=='USABLE' or q['status']=='UNCERTAIN' and q.get('local_eligible',False)
+ if not usable(target):return 0.,0
+ selected=[];t=target_from_payload(target.canonical_target)
+ for r in train:
+  if not usable(r) or abs(math.exp(r.features['log_area']-target.features['log_area'])-1)>.3:continue
+  if any(r.features[k] is None or target.features[k] is None or abs(r.features[k]-target.features[k])>1 for k in ['bedrooms','bathrooms','parking']):continue
+  l=listing_from_payload(r.canonical_listing);d=t.coordinates.distance_km(l.coordinates)
+  if d<=2:selected.append((d,r))
+ seen=set();unique=[]
+ for d,r in sorted(selected,key=lambda x:(x[0],x[1].row_id)):
+  g=components[r.row_id]
+  if g not in seen:seen.add(g);unique.append((d,r))
+ if len(unique)<5:return 0.,len(unique)
+ w=np.array([math.exp(-d) for d,r in unique]);v=np.array([residual[r.row_id] for d,r in unique]);order=np.argsort(v)
+ med=float(v[order][np.searchsorted(np.cumsum(w[order]),.5*w.sum())]);neff=w.sum()**2/(w@w)
+ return float(np.clip(med,-math.log(1.25),math.log(1.25))*neff/(neff+20)),len(unique)

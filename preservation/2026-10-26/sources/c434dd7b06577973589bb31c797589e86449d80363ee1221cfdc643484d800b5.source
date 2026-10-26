@@ -1,0 +1,14 @@
+import sys,json
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent/'valoria'))
+from scripts.validate_sii_closing import connect
+with connect('postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55432/valoria_sii_local') as c:
+    c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    for sql in ["SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema='sii' AND table_name IN ('transferencia','predio','linea_construccion') ORDER BY table_name,ordinal_position",
+        "SELECT extract(year FROM fecha) AS year,count(*) AS n,count(monto_uf) AS amounts FROM sii.transferencia WHERE comuna=15160 AND tipo='casa' GROUP BY 1 ORDER BY 1",
+        "SELECT min(date),max(date),count(*) FROM public.ingestion_uf_calendar",
+        "SELECT * FROM sii.predio WHERE source_file_id=9 AND manzana=1261 AND predio IN (6,7)",
+        "SELECT destino,material,anio,m2,abierta FROM sii.linea_construccion WHERE source_file_id=20 AND manzana=1261 AND predio=6"]:
+        try:print(json.dumps(c.execute(sql).fetchall(),default=str))
+        except Exception as e:print(str(e));break
+    c.rollback()

@@ -1,0 +1,29 @@
+"use client";
+import {useCallback,useEffect,useRef,useState} from "react";
+import {alertsApi} from "@/lib/api/alerts";
+import {summaryApi} from "@/lib/api/summary";
+import {getAccessToken,setAccessToken} from "@/lib/auth/token";
+import {ApiError} from "@/lib/api/client";
+import type {AlertItem} from "@/types/alerts";
+import type {PatrimonyAlert} from "@/types/summary";
+import type {AlertView} from "./view-model";
+export function alertError(e:unknown){if(e instanceof ApiError){if(e.status===401||e.status===403)return "Inicia sesión con una cuenta autorizada para ver tus alertas.";return e.message;}return "No pudimos actualizar tus alertas. Intenta nuevamente.";}
+export function useAlerts(){
+ const [watchlist,setWatchlist]=useState<AlertItem[]>([]),[patrimony,setPatrimony]=useState<PatrimonyAlert[]>([]),[loading,setLoading]=useState(true),[errors,setErrors]=useState<{watchlist:string;patrimony:string}>({watchlist:"",patrimony:""}),[actionError,setActionError]=useState(""),[message,setMessage]=useState("");
+ const [auth,setAuth]=useState(false),[user,setUser]=useState("tu espacio"),[marking,setMarking]=useState<string|null>(null);
+ const controller=useRef<AbortController|null>(null),lock=useRef(false);
+ const load=useCallback(async()=>{controller.current?.abort();const abort=new AbortController();controller.current=abort;setLoading(true);setErrors({watchlist:"",patrimony:""});
+ if(!getAccessToken()){setWatchlist([]);setPatrimony([]);setAuth(true);setLoading(false);return;}
+ const results=await Promise.allSettled([summaryApi.alerts({signal:abort.signal}),summaryApi.patrimonyAlerts({signal:abort.signal}),summaryApi.user({signal:abort.signal})]);if(abort.signal.aborted)return;
+ const [w,p,u]=results;
+ if(w.status==="fulfilled")setWatchlist(w.value);else setWatchlist([]);
+ if(p.status==="fulfilled")setPatrimony(p.value.items.filter(a=>!a.dismissed_at));else setPatrimony([]);
+ setErrors({watchlist:w.status==="rejected"?alertError(w.reason):"",patrimony:p.status==="rejected"?alertError(p.reason):""});
+ if(u.status==="fulfilled"){setUser(u.value.email.split("@")[0]);setAuth(false);}else if(u.reason instanceof ApiError&&(u.reason.status===401||u.reason.status===403))setAuth(true);
+ setLoading(false);
+ },[]);
+ useEffect(()=>{void load();return()=>controller.current?.abort();},[load]);
+ async function login(email:string,password:string){const value=await summaryApi.login(email,password);setAccessToken(value.access_token);setAuth(false);await load();}
+ async function read(a:AlertView){if(lock.current||a.read)return;lock.current=true;setMarking(a.key);setActionError("");setMessage("");try{if(a.source==="watchlist"){await alertsApi.readWatchlist(a.id);setWatchlist(values=>values.filter(v=>v.id!==a.id));}else{const updated=await alertsApi.readPatrimony(a.id);setPatrimony(values=>values.map(v=>v.id===a.id?updated:v));}setMessage("Alerta marcada como leída.");}catch(e){setActionError(alertError(e));}finally{lock.current=false;setMarking(null);}}
+ return {watchlist,patrimony,loading,errors,actionError,message,auth,user,marking,load,login,read};
+}

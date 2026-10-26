@@ -1,0 +1,75 @@
+import os
+os.environ.setdefault('DATABASE_URL','sqlite+aiosqlite:///:memory:')
+os.environ.setdefault('SYNC_DATABASE_URL','sqlite:///:memory:')
+os.environ.setdefault('JWT_SECRET_KEY','offline-performance-key-32-characters')
+import asyncio
+from datetime import UTC, datetime
+import json
+from pathlib import Path
+import statistics
+import uuid
+from time import perf_counter
+
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from infrastructure.db.base import Base
+from infrastructure.db.models import ListingORM
+from infrastructure.thumbnails.pipeline import Store, Context, work_one
+from infrastructure.thumbnails.security import Download
+from infrastructure.thumbnails.normalize import normalize
+from services import thumbnails
+
+
+async def main():
+    folder=Path('validation/thumbnail_lab/fixtures')
+    manifest=json.loads((folder/'manifest.json').read_text())
+    sizes=[len(normalize((folder/m['file']).read_bytes(),m['mime']).data) for m in manifest]
+    root=Path('validation/performance-state')/uuid.uuid4().hex
+    store=Store(root)
+    thumbnails.get_store=lambda:store
+    engine=create_async_engine('sqlite+aiosqlite:///:memory:')
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory=async_sessionmaker(engine,expire_on_commit=False)
+    async with factory() as session:
+        listings=[]
+        for lid in range(1,21):
+            m=manifest[(lid-1)%len(manifest)]
+            item=ListingORM(id=lid,source='yapo',external_id=str(lid),title='Performance',comuna='nunoa',m2=72,
+                bedrooms=2,bathrooms=2,parking=1,price_clp=150000000,status='active',fingerprint=f'perf-{lid}',
+                scraped_at=datetime.now(UTC),last_seen_at=datetime.now(UTC),raw_metadata={'main_image_url':m['url']})
+            session.add(item);listings.append(item)
+        await session.commit()
+        miss_start=perf_counter()
+        misses=await thumbnails.resolve(session,range(1,21),owner=1,surface='radar')
+        miss_ms=(perf_counter()-miss_start)*1000
+        downloads=0
+        def provider(url):
+            nonlocal downloads
+            downloads+=1
+            m=next(item for item in manifest if item['url']==url)
+            return Download((folder/m['file']).read_bytes(),m['mime'],'fixture',0)
+        while work_one(store,provider):pass
+        measurements={}
+        for surface,loaded in [('radar',None),('watchlist',listings)]:
+            times=[]
+            for _ in range(100):
+                start=perf_counter()
+                refs=await thumbnails.resolve(session,range(1,21),owner=1,surface=surface,listings=loaded)
+                times.append((perf_counter()-start)*1000)
+            assert all(refs.values())
+            measurements[surface]={'median_ms':statistics.median(times),'p95_ms':sorted(times)[94],
+                'source_queries_per_batch':1 if loaded is None else 0,'cache_selects_per_batch':1,'cache_transactions_per_batch':1}
+        payload=[dict(listing_id=lid,thumbnail=refs[lid].model_dump()) for lid in refs]
+        added=len(json.dumps(payload,separators=(',',':')))-len(json.dumps([dict(listing_id=lid) for lid in refs],separators=(',',':')))
+        result={'sample_images':5,'webp_bytes':sizes,'median_webp_bytes':statistics.median(sizes),
+            'cold_batch_20_ms':miss_ms,'cold_refs_null':all(ref is None for ref in misses.values()),
+            'warm_batches':measurements,'downloads_during_200_warm_batches':0,
+            'initial_jobs_processed':downloads,'deduplicated_assets':len(list(store.assets.glob('*.webp'))),
+            'json_added_bytes_for_20':added,'json_added_bytes_per_listing':added/20,
+            'environment':'Windows x64, Pillow 12.3.0, local SQLite; excludes remote PostgreSQL latency'}
+        Path('validation/performance-results.json').write_text(json.dumps(result,indent=2))
+        print(json.dumps(result,indent=2))
+    store.close();await engine.dispose()
+
+
+if __name__=='__main__':asyncio.run(main())

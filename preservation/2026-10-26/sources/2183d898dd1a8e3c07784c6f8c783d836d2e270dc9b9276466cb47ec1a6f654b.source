@@ -1,0 +1,208 @@
+"""Synthetic negative controls plus immutable real lineage; no real model fits.
+Run after prepare and again after analysis. Results contain no row-level prices.
+"""
+import copy
+from dataclasses import replace
+import json
+import math
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+import pilot as p
+
+sys.path[:0]=[str(p.RUNTIME),str(p.RUNTIME/'frozen_a')]
+from avm01.data import InvalidExperiment,RealExecutionBlocked
+from avm01.fixtures import synthetic
+from avm01.engines import LearnedEngine,FrozenA
+from avm01.isolation import LabelCustody,prepare_batch,dependency_components
+from avm01.splits import make_plan,validate_split,inner_folds,Split
+from avm01.harness import CONFIG
+from avm01.pilot_authorization import authorize_dataset,authorize_config
+
+def example(i,a=110.,c=105.,source='yapo',group=None):
+    r=dict(observation_id=str(i),listing_id=str(i),dependency_group=group or str(i),source=source,
+        observed_price_uf=100.,prediction_A_uf=a,prediction_C1_uf=c,
+        status_A='ok' if p.valid(a) else 'insufficient_data',reason_A=None,status_C1='ok',reason_C1=None,
+        training_pool_sha256='train',selected_comparables_sha256='selected')
+    for name,value in [('A',a),('C1',c)]:
+        e=100*(value/100-1) if p.valid(value) else None
+        r.update({f'APE_{name}_pct':abs(e) if e is not None else None,f'SPE_{name}_pct':e,
+                  f'log_error_{name}':math.log(value/100) if p.valid(value) else None})
+    return r
+
+class Protocol(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.config=p.verify_lock();cls.datasets,cls.cohort,cls.maps,cls.identity=p.load_datasets()
+    def test_original_hashes(self):self.assertEqual(p.original_checks(),self.config['original_input_sha256'])
+    def test_registered_before_real_outputs(self):
+        for f in p.HERE.glob('*-audit.json'):
+            self.assertLessEqual(p.CONFIG.stat().st_mtime,f.stat().st_mtime)
+    def test_primary_group_counts(self):
+        from collections import Counter
+        counts=Counter(r.group_id for r in self.datasets['G3'].records)
+        self.assertEqual((len(counts),sum(v==1 for v in counts.values()),sum(v>1 for v in counts.values()),max(counts.values())),(781,772,9,3))
+    def test_identity_indeterminate_trace(self):
+        self.assertEqual((self.identity['original_pairs'],self.identity['indeterminate'],self.identity['plausible_original_edges'],self.identity['generic_only_unlinked']),(28,25,9,16))
+        self.assertEqual(self.maps['G3'][4211],self.maps['G3'][4486])
+    def test_source_counts(self):
+        from collections import Counter
+        self.assertEqual(Counter(r.features['source'] for r in self.datasets['G3'].records),{'portalinmobiliario':406,'yapo':385})
+    def test_all_three_dataset_hashes(self):
+        for name,ds in self.datasets.items():
+            authorize_dataset(ds);self.assertEqual(ds.hash(),self.config['authorized_dataset_sha256'][name])
+    def test_other_dataset_blocked(self):
+        with self.assertRaises(RealExecutionBlocked):authorize_dataset(replace(synthetic(),origin='real_retrospective_snapshot_candidate'))
+    def test_mutated_real_data_blocked(self):
+        ds=self.datasets['G3'];r=ds.records[0]
+        with self.assertRaises(RealExecutionBlocked):authorize_dataset(replace(ds,records=(replace(r,price_uf=r.price_uf*1.001),)+ds.records[1:]))
+    def test_real_config(self):authorize_config(p.engine_config(self.config,20261009,10.,['A','C1']))
+    def test_unauthorized_model_blocked(self):
+        for model in ['C2','C1-flex','C3']:
+            with self.assertRaises(InvalidExperiment):authorize_config(p.engine_config(self.config,20261009,10.,[model]))
+    def test_unauthorized_grid_seed_target_blocked(self):
+        good=p.engine_config(self.config,20261009,10.,['A','C1'])
+        for change in [dict(seed=1),dict(target='log_uf_m2'),dict(geo_ablation=True),dict(parameters={'C1':{'alpha':100}}),dict(real_execution_enabled=None),dict(pilot_protocol_sha256='wrong')]:
+            with self.assertRaises(InvalidExperiment):authorize_config(dict(good,**change))
+    def test_complete_outer_oof_group_disjoint(self):
+        for g,ds in self.datasets.items():
+            plan=p.create_plan(ds,self.cohort,self.maps[g],20261009);seen=[];components=dependency_components(ds)
+            self.assertEqual(plan.holdout,())
+            for f in plan.folds:
+                self.assertFalse({components[i] for i in f.train}&{components[i] for i in f.test});seen.extend(f.test)
+            self.assertEqual(len(seen),791);self.assertEqual(len(set(seen)),791)
+    def test_real_inner_containment(self):
+        ds=self.datasets['G3'];plan=p.create_plan(ds,self.cohort,self.maps['G3'],20261009)
+        for outer in plan.folds:
+            for inner in inner_folds(ds,outer,20261009,n_folds=3,reserved_holdout=()):
+                self.assertTrue((set(inner.train)|set(inner.test))<=set(outer.train))
+                self.assertFalse((set(inner.train)|set(inner.test))&set(outer.test))
+    def test_G1_G2_verified_identical(self):
+        self.assertTrue(all(self.maps['G1'][i]==self.maps['G2'][i] for i in self.cohort))
+        for seed in p.SEEDS:
+            self.assertEqual(p.create_plan(self.datasets['G1'],self.cohort,self.maps['G1'],seed).folds[0].test,
+                             p.create_plan(self.datasets['G2'],self.cohort,self.maps['G2'],seed).folds[0].test)
+    def test_targets_price_free(self):
+        for r in self.datasets['G3'].records:
+            t=r.inference();self.assertFalse(hasattr(t,'price_uf'));self.assertFalse(any(k.startswith('price') for k in t.canonical_target))
+    def test_estimator_files_byte_identical(self):
+        cert=p.read(p.ORIGINAL/'certification.json')['code_sha256']
+        for name,h in self.config['runtime_certified_code_sha256'].items():
+            if name.startswith('frozen_a/') or name=='avm01/engines.py':self.assertEqual(h,cert[name])
+
+class SyntheticIsolation(unittest.TestCase):
+    def setUp(self):
+        self.ds=synthetic();self.plan=make_plan(self.ds);self.outer=self.plan.folds[0]
+        self.config=copy.deepcopy(CONFIG);self.custody=LabelCustody(self.ds,self.plan.holdout)
+        self.batch=self.custody.issue(self.ds,self.outer,self.config,self.plan.holdout)
+    def test_labels_sealed_until_receipt(self):
+        predictions={name:{i:None for i in self.outer.test} for name in self.config['engines']}
+        with self.assertRaises(InvalidExperiment):self.custody.complete(predictions,self.outer.test)
+        self.custody.record_predictions(self.batch,predictions)
+        self.assertEqual(set(self.custody.complete(predictions,self.outer.test)),set(self.outer.test))
+    def test_incomplete_receipt_blocked(self):
+        with self.assertRaises(InvalidExperiment):self.custody.record_predictions(self.batch,{'C1':{}})
+    def test_changed_prediction_receipt_blocked(self):
+        predictions={name:{i:None for i in self.outer.test} for name in self.config['engines']}
+        self.custody.record_predictions(self.batch,predictions)
+        next(iter(predictions.values()))[self.outer.test[0]]=10.
+        with self.assertRaises(InvalidExperiment):self.custody.complete(predictions,self.outer.test)
+    def test_forged_batch_blocked(self):
+        with self.assertRaises(InvalidExperiment):replace(self.batch,rows=self.batch.rows[:-1]).validate()
+    def test_retained_target_feature_mutation_blocked(self):
+        target=self.batch.target(self.outer.test[0]);target.features['parking']=100
+        with self.assertRaises(InvalidExperiment):self.batch.validate_target(target)
+    def test_cross_group_negative_control(self):
+        with self.assertRaises(InvalidExperiment):validate_split(self.ds,Split(('fixture-000-0',),('fixture-000-1',)))
+    def test_inner_outer_injection_negative_control(self):
+        f=inner_folds(self.ds,self.outer,reserved_holdout=self.plan.holdout)[0]
+        with self.assertRaises(InvalidExperiment):validate_split(self.ds,replace(f,train=f.train+(self.outer.test[0],)),self.plan.holdout,outer=self.outer)
+    def test_preprocessing_train_only(self):
+        import numpy as np
+        from avm01.engines import matrix
+        c=dict(self.config,engines=['C1'])
+        batch=prepare_batch(self.ds,self.outer,c,self.plan.holdout)
+        model=LearnedEngine('C1').fit(batch)
+        scale=model.preprocess.named_transformers_['numeric'].named_steps['scale']
+        expected=np.array(matrix(list(batch.rows))[:,:7],dtype=float)
+        np.testing.assert_allclose(scale.mean_,np.nanmean(expected,axis=0),rtol=1e-12)
+        self.assertEqual(set(model.fit_trace['training_ids']),set(self.outer.train))
+    def test_A_pool_and_observer_transparent(self):
+        a=p.ObservedA(self.batch,self.ds.indexed());native=FrozenA().fit(self.batch)
+        t=self.batch.target(self.outer.test[0]);result,counts=a.predict(t);reference=native.predict(t)
+        self.assertEqual(result.status,reference.status);self.assertEqual(result.value_uf,reference.value_uf)
+        self.assertEqual(set(result.trace['available_pool_ids']),set(self.outer.train))
+        self.assertEqual(counts['used'],len(result.trace['selected_ids']))
+    def test_outer_training_only_audit(self):
+        result=p.fit_audit_record(None,self.batch,self.outer)
+        self.assertEqual(result['train_n'],len(self.outer.train))
+        with self.assertRaises(ValueError):p.fit_audit_record(None,self.batch,self.outer,self.outer.train)
+    def test_source_is_in_certified_predictors(self):
+        from avm01.data import CORE
+        self.assertIn('source',CORE);self.assertEqual(set(CORE),{'log_area','bedrooms','bathrooms','parking','comuna','source'})
+
+class Evaluation(unittest.TestCase):
+    def test_invalid_predictions(self):
+        for v in [None,0,-1,float('nan'),float('inf'),True]:self.assertFalse(p.valid(v))
+    def test_known_metrics(self):
+        rows=[example(1,100,100),example(2,150,125)];a=p.metric(rows,'A')
+        self.assertAlmostEqual(a['MdAPE'],25);self.assertAlmostEqual(a['MAPE'],25)
+        self.assertAlmostEqual(a['P90'],45);self.assertAlmostEqual(a['P95'],47.5)
+        self.assertAlmostEqual(a['MAE_log'],math.log(1.5)/2)
+    def test_paired_and_full_denominators(self):
+        rows=[example(1),example(2,None,120)];values=p.compare_view(rows,'Global')
+        self.assertEqual([r['metric_n'] for r in values],[1,2,1,1])
+        self.assertEqual([r['coverage_full'] for r in values],[.5,1.,.5,1.])
+        self.assertEqual(rows[1]['APE_A_pct'],None)
+    def test_delta_sign_and_relative_units(self):
+        d=p.deltas([example(1,120,110)])
+        self.assertAlmostEqual(d['delta_MdAPE_pp'],-10);self.assertAlmostEqual(d['relative_MdAPE_reduction_pct'],50)
+    def test_empty_support(self):self.assertIsNone(p.deltas([example(1,None,None)])['delta_MdAPE_pp'])
+    def test_same_oof_source_views(self):
+        rows=[example(1,source='portalinmobiliario'),example(2)]
+        views=dict(p.source_views(rows));self.assertIs(views['Portal'][0],rows[0]);self.assertIs(views['Global'],rows)
+    def test_group_bootstrap_reproducible(self):
+        rows=[example(1),example(2,120,120)]
+        self.assertEqual(p.bootstrap(rows,10,42),p.bootstrap(rows,10,42))
+    def test_cross_source_bootstrap_joint_unit(self):
+        rows=[example(1,120,110,source='portalinmobiliario',group='joint'),example(2,120,110,group='joint')]
+        out=p.bootstrap(rows,10,42)
+        for r in out:self.assertEqual(r['paired_n'],2 if r['view']=='Global' else 1);self.assertEqual(r['unique_groups'],1)
+    def test_reproduction_negative_controls(self):
+        rows=[example(1)];self.assertEqual(p.reproduce_check(rows,copy.deepcopy(rows))['status'],'PASS')
+        changed=copy.deepcopy(rows);changed[0]['prediction_C1_uf']+=1
+        with self.assertRaises(ValueError):p.reproduce_check(rows,changed)
+        changed=copy.deepcopy(rows);changed[0]['selected_comparables_sha256']='drift'
+        with self.assertRaises(ValueError):p.reproduce_check(rows,changed)
+
+@unittest.skipUnless((p.HERE/'results_summary.json').exists(),'Post-execution output checks')
+class OutputChecks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):cls.rows=p.numeric_rows(p.HERE/'oof_predictions.csv')
+    def test_unique_complete(self):self.assertEqual(len(self.rows),791);self.assertEqual(len({r['observation_id'] for r in self.rows}),791)
+    def test_metric_counts_and_values(self):
+        for view,rows in p.source_views(self.rows):
+            actual=p.csv_read(p.HERE/('metrics_'+view.lower()+'.csv'));expected=p.compare_view(rows,view)
+            for a,b in zip(actual,expected):
+                for k in ('metric_n','eligible_n','predicted_n_full','abstentions_full'):self.assertEqual(int(a[k]),b[k])
+                for k in ('MdAPE','MAPE','MAE_log','coverage_full'):self.assertAlmostEqual(float(a[k]),b[k],places=10)
+    def test_abstentions_never_have_errors(self):
+        for r in self.rows:
+            for engine in ('A','C1'):
+                if not p.valid(r[f'prediction_{engine}_uf']):self.assertIsNone(r[f'APE_{engine}_pct']);self.assertIsNone(r[f'log_error_{engine}'])
+    def test_reproduction(self):self.assertEqual(p.reproduce_check(self.rows,p.numeric_rows(p.HERE/'reproduction.csv'))['status'],'PASS')
+    def test_bootstrap_and_sensitivity_counts(self):
+        self.assertEqual(len(p.csv_read(p.HERE/'bootstrap_differences.csv')),6000)
+        self.assertEqual(len(p.csv_read(p.HERE/'grouping_sensitivity.csv')),27)
+    def test_all_fold_audits(self):
+        for path in p.HERE.glob('*-audit.json'):
+            audit=p.read(path);self.assertTrue(audit['original_inputs_unchanged']);self.assertEqual(audit['A_pool_checks'],791)
+            self.assertTrue(all(r['group_overlap']==0 and r['outer_containment'] for r in audit['fit_audits']))
+
+if __name__=='__main__':
+    suite=unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
+    result=unittest.TextTestRunner(verbosity=1).run(suite)
+    p.json_write(p.HERE/'methodology_tests.json',dict(tests=result.testsRun,passed=result.testsRun-len(result.failures)-len(result.errors)-len(result.skipped),
+        skipped=len(result.skipped),failures=len(result.failures),errors=len(result.errors),post_execution=(p.HERE/'results_summary.json').exists()))
+    raise SystemExit(0 if result.wasSuccessful() else 1)

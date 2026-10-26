@@ -1,0 +1,83 @@
+"""Read-only comparison; output only geographic evidence, never full metadata."""
+from pathlib import Path
+import subprocess,json,sys
+HERE=Path(__file__).resolve().parent
+REMOTE=r'''
+import asyncio,json,math,collections
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+def pairs(v,path='$'):
+ out=[]
+ if isinstance(v,dict):
+  for a,b in [('lat','lon'),('lat','lng'),('latitude','longitude')]:
+   try:
+    x,y=float(v[a]),float(v[b])
+    if math.isfinite(x+y) and -90<=x<=90 and -180<=y<=180:out.append({'path':path+'.'+a+'/'+b,'lat':x,'lon':y})
+   except (KeyError,TypeError,ValueError):pass
+  for k,z in v.items():out.extend(pairs(z,path+'.'+k))
+ elif isinstance(v,list):
+  for i,z in enumerate(v):out.extend(pairs(z,path+'['+str(i)+']'))
+ return out
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  await s.execute(text("SET LOCAL statement_timeout='20s'"))
+  await s.execute(text("SET LOCAL lock_timeout='1s'"))
+  assert (await s.execute(text('SHOW transaction_read_only'))).scalar()=='on'
+  q="""SELECT l.id,l.external_id,l.source,l.url,l.title,l.status,l.property_type,l.lat,l.lon,l.geocode_precision,l.raw_metadata,p.lat AS property_lat,p.lon AS property_lon FROM listings l LEFT JOIN properties p ON p.id=l.property_id WHERE l.source='portalinmobiliario' ORDER BY l.id LIMIT 2001"""
+  rows=[dict(r) for r in (await s.execute(text(q))).mappings()];assert len(rows)<=2000
+  meta_checks=collections.Counter()
+  text_checks=collections.Counter()
+  normalized_points=[]
+  for r in rows:
+   m=r.pop('raw_metadata') or {};r['metadata_coordinates']=pairs(m)
+   if r['status']=='active' and r['property_type']=='apartment':
+    for k in ('lat','lon','latitude','longitude','coordinates','location','location_text'):
+     if k in m:meta_checks[k+':'+('null' if m[k] is None else type(m[k]).__name__)]+=1
+    if 'lat' in m or 'lon' in m:
+     for k in ('lat','lon'):
+      v=str(m.get(k,'')).strip()
+      if v.lower() in ('','none','null','nan','undefined','n/a','-'):kind='empty_or_null_token'
+      else:
+       try:
+        z=float(v.replace(',','.'));kind='finite_numeric_with_comma_normalization' if math.isfinite(z) else 'nonfinite'
+       except ValueError:kind='unparsed_text'
+      text_checks[k+':'+kind]+=1
+     try:
+      x,y=float(str(m['lat']).replace(',','.')),float(str(m['lon']).replace(',','.'))
+      if math.isfinite(x+y):normalized_points.append((x,y,r['id']))
+     except (KeyError,ValueError,TypeError):pass
+   r['geo_metadata_keys']=[k for k in m if any(z in k.lower() for z in ['locat','geoc','coord','lat','lon','map','address'])]
+  counts=collections.Counter()
+  for r in rows:
+   if r['status']=='active' and r['property_type']=='apartment':
+    counts['active_apartments']+=1
+    counts['column_coordinates']+=int(r['lat'] is not None and r['lon'] is not None)
+    counts['metadata_coordinates']+=bool(r['metadata_coordinates'])
+    counts['property_coordinates']+=int(r['property_lat'] is not None and r['property_lon'] is not None)
+  result={'read_only':True,'coverage':dict(counts),'portal_geo_rows':rows}
+  if AGGREGATE_ONLY:
+   result={'read_only':True,'coverage':dict(counts),'geo_metadata_value_types':dict(meta_checks),'metadata_text_coordinates':dict(text_checks),'geo_metadata_key_counts':dict(collections.Counter(k for r in rows if r['status']=='active' and r['property_type']=='apartment' for k in r['geo_metadata_keys']))}
+   chile=[(x,y,i) for x,y,i in normalized_points if -56<=x<=-17 and -76<=y<=-66]
+   result['normalized_metadata_coverage']={'numeric_pairs':len(normalized_points),'valid_global':sum(-90<=x<=90 and -180<=y<=180 for x,y,i in normalized_points),'chile':len(chile),'zero_pairs':sum(x==0 and y==0 for x,y,i in normalized_points),'unique_chile_pairs':len({(x,y) for x,y,i in chile})}
+   if chile:
+    x,y,i=chile[0];r=next(z for z in rows if z['id']==i)
+    result['single_geographic_candidate']={k:r[k] for k in ('id','external_id','source','url','status','property_type','lat','lon','geocode_precision')}
+    result['single_geographic_candidate']['metadata_comma_normalized_coordinates']={'lat':x,'lon':y}
+   from pathlib import Path
+   result['deployed_code_geo_lines']={}
+   for path,terms in [('services/radar.py',['lat=o.listing','lon=o.listing','geocode_precision=o.listing']),('infrastructure/db/mappers.py',['_coords_from(orm.lat','coordinates=coords']),('api/deps.py',['def get_listing_repo','return SqlAlchemyListingRepository']),('infrastructure/db/repositories.py',['async def list_active','listing_from_orm'])]:
+    f=Path(path)
+    if f.exists():result['deployed_code_geo_lines'][path]=[{'line':i,'code':line.strip()} for i,line in enumerate(f.read_text().splitlines(),1) if any(t in line for t in terms)]
+  print(json.dumps(result,default=str))
+asyncio.run(main())
+'''
+if __name__=='__main__':
+ mode=sys.argv[1]
+ cmd=['docker','exec','-i','valoria-v2-dev-api-1','python','-B','-'] if mode=='dev' else [r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','docker exec -i valoria_oracle_beta-api-1 python -B -']
+ code='AGGREGATE_ONLY='+repr(mode=='oracle')+'\n'+REMOTE
+ p=subprocess.run(cmd,input=code.encode(),capture_output=True,timeout=65)
+ if p.returncode:raise RuntimeError('Read-only probe failed; raw diagnostics withheld')
+ d=json.loads(p.stdout);assert d['read_only']
+ (HERE/('radar_geo_'+mode+'.json')).write_text(json.dumps(d,indent=2),encoding='utf-8')
+ print(json.dumps({k:v for k,v in d.items() if k!='portal_geo_rows'}))

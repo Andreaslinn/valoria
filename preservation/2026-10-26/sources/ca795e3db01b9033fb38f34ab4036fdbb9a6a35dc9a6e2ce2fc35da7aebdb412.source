@@ -1,0 +1,31 @@
+"""Human-readable labels for public valuation engine identifiers."""
+from __future__ import annotations
+
+from typing import Any
+
+_ENGINE_LABELS = {
+    "valoria_consensus_v1": "Consenso Valoria",
+    "valoria_consensus_v1_min_two_families": "Consenso Valoria",
+    "consensus_v1": "Consenso Valoria",
+    "comparables_canonical_outliers": "Comparables Valoria",
+    "comparables_canonical": "Comparables canonicos",
+    "canonical_outliers_v1": "Comparables Valoria",
+    "canonical_v1": "Comparables canonicos",
+    "comparables_legacy": "Comparables Valoria",
+    "legacy": "Comparables Valoria",
+    "current": "Comparables Valoria",
+    "current_valuation": "Comparables Valoria",
+    "current_engine_fallback": "Comparables Valoria",
+    "comparables_quality_v2": "Comparables Valoria",
+    "quality_v2_guarded_challenger_v1": "Comparables Valoria",
+    "hedonic_baseline_v1": "Modelo hedonico",
+    "microzone_geo_v1": "Modelo territorial",
+    "land_building_v1": "Suelo y construccion",
+    "market_trends_v1": "Tendencia de mercado",
+}
+
+
+def valuation_engine_label(identifier: Any) -> str:
+    """Return a safe product label without exposing implementation identifiers."""
+    normalized = str(identifier or "").strip().lower()
+    return _ENGINE_LABELS.get(normalized, "Modelo Valoria")

@@ -1,0 +1,10 @@
+from pathlib import Path
+source=Path('work/published_shadow_reference.py').read_text(encoding='utf8')
+start=source.index('paths=')
+end=source.index('sources=',start)
+paths=['infrastructure/scrapers/discovery_fields.py','workers/discovery_admission.py','infrastructure/scrapers/portalinmobiliario.py','workers/portal_geo_enrichment.py','services/ingestion_state.py','workers/scraper_job.py','scripts/portal_card_first.py','infrastructure/scrapers/yapo_modern.py']
+source=source[:start]+'paths='+repr(paths)+'\n'+source[end:]
+source=source.replace("{'domain.ingestion.location_evidence','domain.ingestion.published_fields','infrastructure.scrapers.published_fields'}", "{'infrastructure.scrapers.discovery_fields','workers.discovery_admission'}")
+source=source.replace('SELECT value_clp FROM uf_rates WHERE date=CURRENT_DATE', "SELECT COALESCE((SELECT value FROM ingestion_uf_calendar WHERE date=CURRENT_DATE),(SELECT value_clp FROM uf_rates WHERE date<=CURRENT_DATE ORDER BY date DESC LIMIT 1))")
+source=source.replace('outputs/published-fields/reference-same-snapshot.json','outputs/discovery-same-day/reference-same-snapshot.json')
+exec(compile(source,__file__,'exec'))

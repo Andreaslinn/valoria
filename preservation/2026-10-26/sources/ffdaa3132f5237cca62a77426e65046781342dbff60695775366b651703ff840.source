@@ -1,0 +1,69 @@
+"""Local experimental shadow and auditable price trace; no automatic promotion."""
+import json,os,sqlite3
+from functools import lru_cache
+from pathlib import Path
+from services.sii.geographic_opinion import _sha,_valuation_geography
+from services.sii.geographic_knn import historical_filter,usable
+from services.sii.geocoding import distance
+from services.sii.micromarket import MicromarketKNN,load_land,precise
+
+@lru_cache(maxsize=2)
+def _bundle(root,experiment,stamps):
+    root,experiment=Path(root),Path(experiment)
+    seal=json.loads((experiment/'sealed.json').read_text())
+    for name in ['closings.json','geography.sqlite','historical-controls.json','address-index.sqlite','address-details.sqlite']:
+        if _sha(root/name)!=seal['hashes'][name]:raise ValueError('unvalidated_micromarket_data')
+    for name in ['micromarket.py','closing_knn.py']:
+        if _sha(Path(__file__).parent/name)!=seal['hashes'][name]:raise ValueError('unvalidated_micromarket_code')
+    if _sha(experiment/'protocol.json')!=seal['hashes']['protocol']:raise ValueError('unvalidated_micromarket_protocol')
+    controls=json.loads((root/'historical-controls.json').read_text())['controls']
+    rows=historical_filter(json.loads((root/'closings.json').read_text()),controls)
+    return rows,_valuation_geography(root),load_land(root),seal
+
+@lru_cache(maxsize=32)
+def _subject_model(root,experiment,stamps,rol,as_of,kind):
+    rows,geo,land,seal=_bundle(root,experiment,stamps)
+    available=[r for r in rows if r['rol']!=rol and r['date']<as_of and r['fi']<as_of]
+    return MicromarketKNN(available,geo,land,seal['selection'][kind]['radius_m']),available,geo,land
+
+def explain_prediction(target,prediction,root):
+    experiment=os.getenv('SII_MICROMARKET_DIR')
+    if not experiment:return {}
+    root=Path(root);exp=Path(experiment)
+    paths=[root/f for f in ['closings.json','geography.sqlite','historical-controls.json','address-index.sqlite','address-details.sqlite']]
+    paths += [exp/'sealed.json',exp/'protocol.json',Path(__file__),Path(__file__).with_name('micromarket.py')]
+    try:
+        stamps=tuple((p.stat().st_mtime_ns,p.stat().st_size) for p in paths)
+        model,available,geo,land=_subject_model(str(root.resolve()),str(exp.resolve()),stamps,
+            target['rol'],target['date'],target['kind'])
+        shadow=model.estimate(target);sg=geo.get(target['rol']);by_id={str(r['raw_id']):r for r in available}
+        def project(cs):
+            result=[];total=sum(c['similarity'] for c in cs)
+            for c in cs:
+                r=by_id[str(c['raw_id'])];g=geo.get(c['rol']);meters=None
+                if precise(sg) and precise(g):meters=distance((sg['lat'],sg['lon']),(g['lat'],g['lon']))
+                uncertainty=sg['precision_m']+g['precision_m'] if meters is not None else None
+                result.append({'raw_id':str(c['raw_id']),'uf':r['uf'],'m2':r['area'],
+                    'land_area_m2':land.get(r['rol']),'fecha':r['date'],'year':r['year'],
+                    'weight_share':c['similarity']/total if total else 0.,'score':c['similarity'],
+                    'distance_m':round(meters,1) if meters is not None else None,
+                    'distance_bounds_m':[round(max(0,meters-uncertainty),1),round(meters+uncertainty,1)] if meters is not None else None,
+                    'geo_quality':g['quality'] if g else 'unlocated','precision_m':g['precision_m'] if g else None,
+                    'adjusted_value_uf':c.get('adjusted_value_uf'),'adjustment_factor':c.get('adjustment_factor')})
+            return result
+        baseline_comps=prediction.get('comparables',[])
+        return {'valuation_trace':{'model':'baseline','distance_changes_published_price':False,
+            'formula':'area_cerrada_SII * mediana_ponderada(UF_compraventa / area_cerrada_comparable)',
+            'weights':{'area':.3,'building_block_commune':.3,'age':.3,'date':.1},
+            'location_scores':{'building':1,'block':.7,'commune':.2},
+            'land_used':False,'land_area_m2':land.get(target['rol']),
+            'subject_precise_for_micromarket':precise(sg),'comparables':project(baseline_comps)},
+            'micromarket_candidate':{'status':shadow['status'],'experimental':True,'promoted':False,
+                'value_uf':shadow.get('value_uf') if shadow.get('model_used')=='micromarket' else None,
+                'reason':shadow.get('geographic_reason'),'eligible_local_count':shadow.get('local_count',0),
+                'comparable_count':len(shadow.get('comparables',[])) if shadow.get('model_used')=='micromarket' else 0,
+                'coefficients':shadow.get('adjustment_coefficients'),
+                'comparables':project(shadow.get('comparables',[])) if shadow.get('model_used')=='micromarket' else [],
+                'notice':'Experimental: no sustituye al baseline. Evaluación 2026 previamente expuesta; pendiente validación temporal nueva.'}}
+    except (OSError,ValueError,KeyError,TypeError,sqlite3.Error):
+        return {'micromarket_candidate':{'status':'unavailable','reason':'unvalidated_experiment','promoted':False}}

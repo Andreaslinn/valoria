@@ -1,0 +1,42 @@
+"""Only new source-restricted predictions; mixed spatial predictions are reused."""
+from support import *
+import sys
+def run(seed):
+ c=integrity();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];idx=ds.indexed();plan=p.create_plan(ds,cohort,maps['G3'],seed)
+ tag='primary-v2' if seed==20261009 else 'second-seed-v2';prior={r['row_id']:r for r in decrypt(PARENT/(tag+'.json.dpapi'))}
+ out=HERE/f'yapo-{seed}.json.dpapi';assert not out.exists(),'No result overwrite'
+ custody=LabelCustody(ds,());rows=[];native_checks=0;local_equal=0;names=['A','AY','MY','MM']
+ for fold,split in enumerate(plan.folds):
+  print(json.dumps({'seed':seed,'fold':fold,'phase':'Yapo-only'}),flush=True)
+  batch=custody.issue(ds,split,config(c,seed,names),());model=YapoModel(batch,c['uf_reference']['value']);native=FrozenA().fit(batch)
+  native.rows=[r for r in native.rows if r.features['source']=='yapo']
+  vals={n:{} for n in names};traces={}
+  for i in split.test:
+   assert prior[i]['fold']==fold
+   if idx[i].features['source']!='yapo':
+    for n in names:vals[n][i]=None
+    continue
+   t=batch.target(i);b=model.bundle(t);ay=b.predict(BASE);my=b.predict(ADAPT)
+   mm=prior[i]['predictions']['AM-adaptive'];am=prior[i]['predictions']['A']
+   verify_trace(ay,batch,t,'yapo');verify_trace(my,batch,t,'yapo');verify_trace(mm,batch,t)
+   clear_price_surface_cache();expected=native.predict(t)
+   assert ay['prediction']==expected.value_uf,'Yapo native A parity'
+   assert sorted(ay['selected_ids'])==sorted(expected.trace['selected_ids']);native_checks+=1
+   if not my['fallback']:
+    assert my==mm,'Local pools should coincide: benchmark Portal has no usable geography';local_equal+=1
+   traces[i]={'A':am,'AY':ay,'MY':my,'MM':mm}
+   for n in names:vals[n][i]=traces[i][n]['prediction']
+  custody.record_predictions(batch,vals);truth=custody.complete(vals,split.test)
+  for i in traces:rows.append({'row_id':i,'group':batch.components[i],'fold':fold,'source':'yapo',
+    'coordinates_present':prior[i]['coordinates_present'],'target_uf':truth[i],'predictions':traces[i]})
+ assert len(rows)==385 and native_checks==385
+ summary={'seed':seed,'n':385,'native_A_Yapo_parity':native_checks,'nonfallback_local_exactly_equal_to_mixed':local_equal,
+  'mixed_execution_reused':tag,'target_ids_sha256':digest(sorted(r['row_id'] for r in rows)),
+  'full':{n:metric(rows,n) for n in names},'strata':{},'pairs':{}}
+ for label,subset in [('all',rows),('geolocated',[r for r in rows if r['coordinates_present']]),('without_geo',[r for r in rows if not r['coordinates_present']])]:
+  summary['strata'][label]={'n':len(subset),'metrics':{n:metric(subset,n) for n in names},
+   'fallbacks':{n:sum(r['predictions'][n]['fallback'] for r in subset) for n in ['MY','MM']}}
+  summary['pairs'][label]={a+'__'+b:interval(subset,a,b) for a,b in [('AY','MY'),('AY','MM'),('MY','MM'),('A','AY')]}
+ summary['predictions_plaintext_sha256']=encrypt(out,rows);write(HERE/f'yapo-{seed}-summary.json',summary)
+ print(json.dumps({'seed':seed,'complete':True,'full':summary['full'],'paired_AY_MY':summary['pairs']['all']['AY__MY']}),flush=True)
+if __name__=='__main__':run(int(sys.argv[1]))

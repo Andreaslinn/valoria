@@ -1,0 +1,62 @@
+"""Aggregate delivery; no new predictions, tuning, network or production calls."""
+from support import *
+import platform,datetime
+def main():
+ c=integrity();table=[];yapo={};a1={}
+ native=read(HERE/'a1_native_validation.json');assert native['passed'] and native['checked']==1582
+ for seed in [20261009,20261010]:
+  y=read(HERE/f'yapo-{seed}-summary.json');rows=decrypt(HERE/f'yapo-{seed}.json.dpapi')
+  assert y['native_A_Yapo_parity']==385 and len(rows)==385
+  y['common_three_way']={}
+  for label,subset in [('all',rows),('geolocated',[r for r in rows if r['coordinates_present']]),('without_geo',[r for r in rows if not r['coordinates_present']])]:
+   same=[r for r in subset if all(r['predictions'][n]['prediction'] is not None for n in ['AY','MY','MM'])]
+   y['common_three_way'][label]={'n':len(same),'metrics':{n:metric(same,n) for n in ['AY','MY','MM']}}
+   for n in ['AY','MY','MM']:
+    full=metric(subset,n);paired=metric(same,n)
+    table.append({'experiment':'Yapo-only','seed':seed,'stratum':label,'variant':n,
+     'paired_n':len(same),'MdAPE':paired.get('MdAPE'),'MAPE':paired.get('MAPE'),'MAE_log':paired.get('MAE_log'),
+     'P90':paired.get('P90'),'P95':paired.get('P95'),'coverage_pct':full['coverage_pct'],
+     'abstentions':full['abstentions'],'K_median':paired.get('K_median'),'Neff_median':paired.get('Neff_median'),
+     'distance_km_median':paired.get('distance_km_median'),
+     'fallback_count':sum(r['predictions'][n]['fallback'] for r in subset)})
+  y['fold_metrics']={}
+  for f in range(3):
+   subset=[r for r in rows if r['fold']==f];same=[r for r in subset if all(r['predictions'][n]['prediction'] is not None for n in ['AY','MY','MM'])]
+   y['fold_metrics'][str(f)]={'n':len(same),'metrics':{n:metric(same,n) for n in ['AY','MY','MM']}}
+  yapo[str(seed)]=y
+  a=read(HERE/f'a1-{seed}-summary.json');arows=decrypt(HERE/f'a1-{seed}.json.dpapi')
+  assert len(arows)==791
+  for source in ['global','yapo','portalinmobiliario']:
+   subset=[r for r in arows if source=='global' or r['source']==source]
+   same=[r for r in subset if all(r['predictions'][n]['prediction'] is not None for n in ['A','w0'])]
+   for n in ['A','w0']:
+    full=metric(subset,n);paired=metric(same,n)
+    table.append({'experiment':'A1','seed':seed,'stratum':source,'variant':n,
+     'paired_n':len(same),'MdAPE':paired.get('MdAPE'),'MAPE':paired.get('MAPE'),'MAE_log':paired.get('MAE_log'),
+     'P90':paired.get('P90'),'P95':paired.get('P95'),'coverage_pct':full['coverage_pct'],
+     'abstentions':full['abstentions'],'K_median':paired.get('K_median'),'Neff_median':paired.get('Neff_median'),
+     'distance_km_median':paired.get('distance_km_median'),'fallback_count':0})
+  a['fold_metrics']={str(f):{n:metric([r for r in arows if r['fold']==f],n) for n in ['A','w0']} for f in range(3)}
+  a1[str(seed)]=a
+ assert yapo['20261009']['target_ids_sha256']==yapo['20261010']['target_ids_sha256']
+ write(HERE/'results.json',{'status':'EXPLORATORY_COMPLETED','Yapo':yapo,'A1':a1,
+   'Oracle_readonly':read(HERE/'oracle_status.json'),'Portal_entrypoint':read(HERE/'portal_entrypoint.json'),
+   'previous_experiments_reused':True,'confirmatory_holdout_consumed':False,'production_changes':False,
+   'uncertainty':'2000 paired dependency-component bootstrap replicates; conditional exploratory CI95, not prospective validation',
+   'limitations':['Previously studied asking-price cohort; no new independent validation data.',
+    'Zero Portal geography in the benchmark: both spatial pools use Yapo for local branches; source filtering changes fallback.',
+    'Coordinates-present stratum includes uncertain precision; it is not a source-certified-address cohort.',
+    'All three-way error metrics use identical supported targets; coverage and abstentions use full stratum.',
+    'A1 tunes canonical communal mixed-source A, not spatial A-M; finite search does not establish global optimal weights.',
+    'Grouped intervals do not repair unknown physical duplicates, monetary label limitations or repeated analyst use.']})
+ csvwrite(HERE/'metrics.csv',table)
+ artifacts={str(p.relative_to(HERE)):sha(p) for p in HERE.rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.name not in ['delivery_manifest.json','validation.json']}
+ write(HERE/'delivery_manifest.json',artifacts)
+ write(HERE/'validation.json',{'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+  'python':platform.python_version(),'original_inputs_unchanged':len(c['immutable_inputs']),
+  'followup_tests_passed':41,'followup_tests_failed':0,'Yapo_A_native_parity':770,'weight_vectors_native_parity':31,
+  'weight_native_prediction_checks':62,'A1_outer_native_validation':native,'previous_experiments_rerun':False,'old_15_weights_original':True,
+  'production_changes':False,'holdout_consumed':False,'individual_outputs':'DPAPI CurrentUser encrypted',
+  'results_sha256':sha(HERE/'results.json')})
+ print(json.dumps({'complete':True,'original_inputs_verified':len(c['immutable_inputs']),'artifacts':len(artifacts)}))
+if __name__=='__main__':main()

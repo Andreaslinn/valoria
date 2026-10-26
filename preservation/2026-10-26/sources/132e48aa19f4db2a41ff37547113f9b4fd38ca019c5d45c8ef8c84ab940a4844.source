@@ -1,0 +1,38 @@
+# Risk Report real case fixes latest
+
+Fecha: 2026-06-18
+
+## Casos revisados
+
+- Investment Intelligence Report generado desde datos extraidos de publicacion.
+- Listing Risk / Opportunity Report con precio publicado, descuento, URL/source/listing_id y superficie disponible.
+
+## Problemas corregidos
+
+- Investment desde listing ya no se presenta como "Tasacion manual"; ahora usa contexto de datos extraidos desde publicacion.
+- Footer/disclaimer separado por tipo de reporte: investment habla de tasacion AVM, comparables y senales de mercado; listing habla de precio publicado y datos de publicacion.
+- Faltante de superficie dejo de ser generico: si falta, se etiqueta como "superficie construida".
+- Data Reliability se renombro a Data Completeness y la card interna a "Completitud de datos".
+- Score Breakdown usa los bloques definidos para Investment y Listing, sin duplicar Market Context / Market Support como bloques de score.
+- Labels fuertes como "Strong Candidate" fueron reemplazados por copy beta-safe.
+- Legal/normativo ahora aparece como validacion externa "No integrada" con pill "NO INTEGRADO".
+- Se removio de Risks el ruido "Sin senales cualitativas adicionales disponibles".
+- Limitaciones ahora muestra resumen corto; el detalle queda en Risks.
+- Raw warning codes principales siguen ocultos en HTML.
+
+## Archivos modificados
+
+- `ui/components/risk_report_html.py`
+- `ui/components/risk_report_contract.py`
+- `tests/unit/test_risk_report_html.py`
+- `risk_report_real_case_fixes_latest.md`
+- `risk_report_real_case_fixes_latest.json`
+
+## Tests ejecutados
+
+- `python -m pytest tests/unit/test_risk_report_contract.py tests/unit/test_risk_report_html.py tests/unit/test_tasar_playground_adapter.py` -> 31 passed.
+- `python -m ruff check ui/components/risk_report_contract.py ui/components/risk_report_html.py tests/unit/test_risk_report_contract.py tests/unit/test_risk_report_html.py` -> passed.
+
+## Pendientes
+
+- No se regeneraron HTML reales porque los archivos `investment_intelligence_report_las_condes_20260618.html` y `listing_risk_report_las_condes_20260618.html` no aparecen en el workspace.

@@ -1,0 +1,36 @@
+"""Append-only, transactional history. Disabled until migration is approved/applied."""
+
+from __future__ import annotations
+from datetime import datetime
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from config import get_settings
+from infrastructure.db.models import ListingObservationORM
+
+
+async def append_observation(session, document, *, enabled: bool | None = None):
+    if enabled is None:
+        enabled = get_settings().ingestion_observation_history_enabled
+    if not enabled:
+        return
+    dialect = session.get_bind().dialect.name
+    insert = (
+        pg_insert if dialect == "postgresql" else sqlite_insert if dialect == "sqlite" else None
+    )
+    if insert is None:
+        raise RuntimeError("Observation history supports PostgreSQL/SQLite only")
+    stmt = (
+        insert(ListingObservationORM)
+        .values(
+            observation_id=document["observation_id"],
+            listing_id=document["listing_id"],
+            source=document["source"],
+            external_id=document["external_id"],
+            observed_at=datetime.fromisoformat(document["observed_at"]),
+            event_kind=document["event_kind"],
+            document=document,
+        )
+        .on_conflict_do_nothing(index_elements=["observation_id"])
+    )
+    await session.execute(stmt)
+    # No commit: history and listing succeed or roll back in the caller transaction.

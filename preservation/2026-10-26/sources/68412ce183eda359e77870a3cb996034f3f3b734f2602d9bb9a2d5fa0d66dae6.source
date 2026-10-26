@@ -1,0 +1,19 @@
+from pathlib import Path
+import json,hashlib
+from .data import InvalidExperiment
+ROOT=Path(__file__).resolve().parents[2]
+def protocols():
+ out=[]
+ for stem in ['protocol','temporal_protocol','kernel_protocol','manual_protocol','text_protocol','aggregation_protocol','quality_protocol','blend_protocol','fresh_protocol','contracts_protocol']:
+  p=ROOT/(stem+'.json')
+  if not p.exists():continue
+  h=hashlib.sha256(p.read_bytes()).hexdigest()
+  if h!=(ROOT/(stem+'.sha256')).read_text().strip():raise InvalidExperiment('Protocol changed')
+  out.append((h,json.loads(p.read_text())))
+ return out
+def authorize_dataset(ds):
+ if not any(ds.hash() in p['dataset_sha256'].values() for h,p in protocols()):raise InvalidExperiment('Unregistered dataset')
+def authorize_config(c):
+ for h,p in protocols():
+  if c.get('experiment_protocol_sha256')==h and c.get('real_execution_enabled') is True and set(c.get('engines',[]))<=set(p['allowed_engines']):return
+ raise InvalidExperiment('Wrong boundary')

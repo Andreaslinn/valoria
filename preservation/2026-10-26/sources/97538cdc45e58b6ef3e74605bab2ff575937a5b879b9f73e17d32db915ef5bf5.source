@@ -1,0 +1,30 @@
+import subprocess,json,pathlib,hashlib,datetime
+ROOT=pathlib.Path('/home/ubuntu/apps/valoria')
+B=ROOT/'private/discovery-final-redeploy-20261016';B.mkdir(mode=0o700,exist_ok=True)
+def run(args):
+ r=subprocess.run(args,capture_output=True,text=True,timeout=60)
+ if r.returncode:raise RuntimeError('preflight failed: '+args[0])
+ return r.stdout
+api=json.loads(run(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+(B/'api-before-private.json').write_text(json.dumps(api));(B/'api-before-private.json').chmod(0o600)
+assert api['Config']['Labels']['org.opencontainers.image.revision'].startswith('80bd8a9')
+timers={}
+for name in ['uf-calendar','yapo-discovery','portal-discovery']:
+ unit='valoria-'+name
+ timers[name]=dict(line.split('=',1) for line in run(['systemctl','show',unit+'.timer','--property=LastTriggerUSec,NextElapseUSecRealtime,ActiveState']).splitlines() if '=' in line)
+ assert timers[name]['ActiveState']=='active'
+ service=run(['systemctl','show',unit+'.service','--property=ActiveState'])
+ assert 'ActiveState=inactive' in service or (name=='portal-discovery' and 'ActiveState=failed' in service)
+ content=run(['systemctl','cat',unit+'.service',unit+'.timer'])
+ (B/(name+'-units-before.txt')).write_text(content)
+health=json.loads(run(['docker','exec','valoria_oracle_beta-api-1','python','-B','-c',"import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"]))
+assert health['status']=='ok' or (health['sources']['yapo']['status']=='ok' and health['sources']['portalinmobiliario']['last_run']['finished_at'] is None and not health['sources']['portalinmobiliario']['last_run']['errors']), 'Unexpected baseline health failure'
+images=json.loads(run(['docker','image','inspect',api['Image']]))
+(B/'rollback-image.json').write_text(json.dumps({'image_id':api['Image'],'image_name':api['Config']['Image'],'commit':api['Config']['Labels']['org.opencontainers.image.revision']}))
+proof={'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'commit':api['Config']['Labels']['org.opencontainers.image.revision'],'rollback_image':api['Image'],'resources':{k:api['HostConfig'][k] for k in ['Memory','MemorySwap','NanoCpus','PidsLimit','ReadonlyRootfs']},'timers':timers,'health':health['status'],'free_memory_kib':int(next(l.split()[1] for l in pathlib.Path('/proc/meminfo').read_text().splitlines() if l.startswith('MemAvailable:')))}
+(B/'preflight.json').write_text(json.dumps(proof,indent=2))
+import shutil
+proof['disk_free_bytes']=shutil.disk_usage(ROOT).free
+assert proof['disk_free_bytes']>10_000_000_000
+(B/'preflight.json').write_text(json.dumps(proof,indent=2))
+print(json.dumps(proof))

@@ -1,0 +1,109 @@
+"""Validate real canonical DTOs against certified contracts. NEVER fit/predict.
+
+Decryption stays in memory. Only aggregate checks, hashes and dated UF-context
+metadata may be written. No dataset runner/engines/model imports.
+"""
+import csv
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import build as b
+
+
+def check(run):
+    run=Path(run).resolve()
+    harness=b.ROOT/b.POLICY['harness']
+    b.verify_harness()
+    sys.path[:0]=[str(harness),str(harness/'frozen_a')]
+    from avm01.data import Record, Dataset, RealExecutionBlocked
+    from avm01.canonical_io import listing_from_payload, target_from_payload, uf_reference
+    # Ensure that contract imports really come from the corrected harness.
+    import avm01.data
+    if Path(avm01.data.__file__).resolve()!=harness/'avm01/data.py':
+        raise ValueError('Wrong harness import')
+    snapshot=b.read(b.ROOT/b.POLICY['snapshot'])
+    prov=snapshot['provenance']; encrypted=b.ROOT/prov['canonical_DTO_encrypted_path']
+    if b.filehash(encrypted)!=prov['canonical_DTO_ciphertext_sha256']:
+        raise ValueError('Canonical ciphertext changed')
+    spec=importlib.util.spec_from_file_location('cohort_contract_dpapi',b.ROOT/'private-ingestion-production-20261004/recovery_tools.py')
+    dpapi=importlib.util.module_from_spec(spec);spec.loader.exec_module(dpapi)
+    plain=dpapi.unprotect(encrypted.read_bytes())
+    if dpapi.sha(plain)!=prov['canonical_DTO_plaintext_sha256']:
+        raise ValueError('Canonical plaintext changed')
+    canonical={str(r['id']):r for r in json.loads(plain)}
+    del plain
+    with (run/'cohort_candidate.csv').open(encoding='utf-8',newline='') as f:cohort=list(csv.DictReader(f))
+    rows=[]; counts={'fingerprint_present':0,'price_free_target':0,'canonical_roundtrip':0}
+    references=[]
+    for row in cohort:
+        dto=canonical[row['listing_id']]
+        # A target has no sale price or publication metadata. It is a physical,
+        # price-free projection of attributes known at the state capture cutoff.
+        p={k:dto.get(k) for k in ['id','comuna','m2','bedrooms','bathrooms','parking','property_type',
+             'built_area_m2','usable_area_m2','land_area_m2','coordinates','geocode_precision']}
+        m=dto.get('raw_metadata') or {}
+        p['raw_metadata']={k:b.identity.sanitize(v) for k,v in dict(m,title=dto['title']).items()
+             if k in ['title','description','highlight','address_label','street_hint','location_text']
+             and isinstance(v,str)}
+        features={k:float(row[k]) if row[k] else None for k in ['log_area','bedrooms','bathrooms','parking']}
+        features.update(comuna=row['comuna'],source=row['source'])
+        r=Record(row_id=row['observation_id'],publication_id=row['external_id'],listing_id=row['listing_id'],
+            observation_id=row['observation_id'],group_id=row['G2'],identity_status='cv_group_reviewed',
+            features=features,price_uf=float(row['price_uf']),observed_at=row['observed_at'],
+            available_at=row['available_at'],prediction_at=row['available_at'],price_available_at=row['available_at'],
+            canonical_url=dto['url'],latitude=dto['coordinates']['lat'] if dto['coordinates'] else None,
+            longitude=dto['coordinates']['lon'] if dto['coordinates'] else None,
+            canonical_listing=dto,canonical_target=p)
+        r.validate()
+        original=b.digest(dto)
+        listing=listing_from_payload(dto);target=target_from_payload(p)
+        if b.digest(dto)!=original or float(listing.price_uf)!=r.price_uf:
+            raise ValueError('Lossless canonical/target alignment failed')
+        counts['canonical_roundtrip']+=1
+        counts['fingerprint_present']+=bool(listing.fingerprint)
+        counts['price_free_target']+=not hasattr(target,'price')
+        rows.append(r)
+        if (m.get('uf_rate_source')=='mindicador.cl' and b.positive(m.get('uf_rate_used'))
+              and m.get('uf_rate_date') and not m.get('uf_rate_stale')
+              and b.timestamp(dto['scraped_at'])<=b.timestamp(snapshot['captured_at'])
+              and m['uf_rate_date']<=snapshot['captured_at'][:10]):
+            references.append((m['uf_rate_date'],str(m['uf_rate_used']),dto['scraped_at'],str(dto['id'])))
+    ds=Dataset(tuple(rows),'real_retrospective_snapshot_candidate',b.POLICY['snapshot_sha256'],
+          'dependency-candidate-v1:G2',b.filehash(run/'dependency_pair_evidence.csv'),
+          index_policy=b.POLICY['index_policy'])
+    ds.validate()
+    try:
+        ds.require_synthetic()
+    except RealExecutionBlocked:
+        blocked=True
+    else:raise ValueError('Real execution guard unexpectedly disabled')
+    uf=None
+    if references:
+        last_date=max(r[0] for r in references)
+        same=[r for r in references if r[0]==last_date]
+        rates={r[1] for r in same}
+        if len(rates)==1:
+            available=max((b.timestamp(r[2]) for r in same)).isoformat()
+            uf=dict(value=next(iter(rates)),effective_date=last_date,available_at=available,
+                    source='mindicador.cl as preserved in archived listing metadata')
+            uf_reference({'uf_reference':uf},b.timestamp(snapshot['captured_at']))
+    return dict(status='PASS',rows=len(rows),**counts,Dataset_validate=True,
+          grouping_status_scope='Reviewed rule policy, NOT human-confirmed physical identities; sample remains unreviewed',
+          real_execution_blocked=blocked,models_imported=False,fit=False,predict=False,
+          candidate_dataset_sha256=ds.hash(),canonical_ciphertext_sha256=b.filehash(encrypted),
+          canonical_plaintext_sha256=prov['canonical_DTO_plaintext_sha256'],
+          uf_context=uf,UF_context_contract_valid=uf is not None,
+          UF_context_provenance_limit='Archived dated operational metadata only; provider RAW response not independently certified; no live provider access.',
+          uf_context_source_rows=len(same) if references else 0,
+          code_sha256=b.filehash(__file__))
+
+
+if __name__=='__main__':
+    if len(sys.argv)!=3:raise SystemExit('check_contract.py RUN_DIRECTORY NEW_OUTPUT_JSON')
+    try:
+        result=check(sys.argv[1]);b.json_write(Path(sys.argv[2]),result)
+        print(json.dumps({k:result[k] for k in ['status','rows','Dataset_validate','real_execution_blocked','UF_context_contract_valid']}))
+    except Exception as exc:
+        print(json.dumps(dict(status='FAIL',error_type=type(exc).__name__,details='withheld to avoid private canonical data exposure')))
+        raise SystemExit(1)

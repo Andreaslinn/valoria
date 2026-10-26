@@ -1,0 +1,60 @@
+"""Conservative publication identity, never inferred from property attributes."""
+from urllib.parse import urlsplit
+import re
+
+
+def canonical_publication_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value.strip())
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        if parsed.scheme not in {"http", "https"} or not host or parsed.username or parsed.password:
+            return None
+        if parsed.port not in {None, 80, 443}:
+            return None
+    except ValueError:
+        return None
+    path = parsed.path.rstrip("/")
+    if not path:
+        return None
+    # Portal slugs and tracking fragments may change while the MLC ID stays stable.
+    if host == "portalinmobiliario.com":
+        match = re.search(r"(?:^|/)MLC-?(\d+)(?:[-_/]|$)", path, re.I)
+        if match:
+            return f"{host}/MLC-{match.group(1)}"
+    return f"{host}{path}"
+
+
+def publication_keys(listing) -> set[tuple[str, ...]]:
+    keys: set[tuple[str, ...]] = set()
+    source = (listing.source or "").strip().lower()
+    external_id = str(listing.external_id or "").strip()
+    if source and external_id:
+        keys.add(("source", source, external_id))
+    url = canonical_publication_url(listing.url)
+    if url:
+        keys.add(("url", url))
+    return keys
+
+
+def source_identity_from_url(value: str) -> tuple[str, str] | None:
+    canonical = canonical_publication_url(value)
+    if not canonical:
+        return None
+    if canonical.startswith("portalinmobiliario.com/MLC-"):
+        return "portalinmobiliario", canonical.rsplit("/", 1)[1]
+    if canonical.startswith("yapo.cl/"):
+        terminal = canonical.rsplit("/", 1)[1]
+        if terminal.isdigit():
+            return "yapo", terminal
+    return None
+
+
+def same_publication(a, b) -> bool:
+    if a.id is not None and a.id == b.id:
+        return True
+    if publication_keys(a).intersection(publication_keys(b)):
+        return True
+    # Existing in-memory entities use fingerprints as identity before persistence.
+    return (a.id is None or b.id is None) and bool(a.fingerprint) and a.fingerprint == b.fingerprint

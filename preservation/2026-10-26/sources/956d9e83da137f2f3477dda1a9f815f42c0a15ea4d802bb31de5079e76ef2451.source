@@ -1,0 +1,28 @@
+"""Validation only: compare new A1 outputs with the actual canonical A engine."""
+from support import *
+from a1 import WEIGHTS,choose
+from config.constants import SCORE_WEIGHTS
+def main():
+ c=integrity();p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];total=0;new_native=0;baseline_reused=0
+ for seed in [20261009,20261010]:
+  summary=read(HERE/f'a1-{seed}-summary.json');rows={r['row_id']:r for r in decrypt(HERE/f'a1-{seed}.json.dpapi')};plan=p.create_plan(ds,cohort,maps['G3'],seed)
+  for split,selected in zip(plan.folds,summary['selected_per_fold']):
+   j,obj=choose(selected['inner_losses']);assert j==selected['selected_index'] and obj==selected['regularized_objectives']
+   w=selected['weights'];assert list(WEIGHTS[j])==w
+   if tuple(w)==W0:
+    for i in split.test:
+     assert rows[i]['predictions']['w0']==rows[i]['predictions']['A']
+     baseline_reused+=1;total+=1
+    continue
+   for key,value in zip(['m2','distance','bedrooms','bathrooms','parking'],w):SCORE_WEIGHTS[key]=value
+   batch=LabelCustody(ds,()).issue(ds,split,config(c,seed,['A']),());native=FrozenA().fit(batch)
+   for i in split.test:
+    clear_price_surface_cache();expected=native.predict(batch.target(i));actual=rows[i]['predictions']['w0']
+    assert actual['prediction']==expected.value_uf,'A1 native value mismatch'
+    assert sorted(actual['selected_ids'])==sorted(expected.trace['selected_ids']),'A1 native selected pool mismatch'
+    new_native+=1;total+=1
+ for key,value in zip(['m2','distance','bedrooms','bathrooms','parking'],W0):SCORE_WEIGHTS[key]=value
+ assert total==1582
+ write(HERE/'a1_native_validation.json',{'checked':total,'new_native_changed_weights':new_native,'baseline_equal_to_certified_previous_A':baseline_reused,'inner_selection_recomputed_exactly':True,'passed':True})
+ print(json.dumps({'A1_validation':'PASS','checked':total,'new_native_changed_weights':new_native,'original_A_reused':baseline_reused}))
+if __name__=='__main__':main()

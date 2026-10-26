@@ -1,0 +1,29 @@
+from pathlib import Path
+import json
+p=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled\core\assessment\warning_definitions.json');d=json.loads(p.read_text(encoding='utf-8'))
+texts={
+'comuna_level_fallback':'No hay evidencia suficiente de microzona; se utiliza una referencia comunal menos específica.',
+'consensus_extreme_disagreement':'Los modelos discrepan de forma extrema. El consenso no ofrece respaldo suficiente para una decisión automática.',
+'consensus_missing_calibrated_weights':'No hay ponderaciones calibradas disponibles para este consenso; revisa el método de respaldo utilizado.',
+'engine_not_registered':'Un modelo no está disponible en esta instalación y no interviene en la estimación.',
+'estimate_differs_from_price_surface':'La estimación difiere de la referencia territorial de precios. Revisa ubicación, superficie y comparables.',
+'extreme_price_m2_dispersion':'La dispersión de precios por metro cuadrado es extrema y reduce la fiabilidad de la estimación.',
+'fallback_used':'Se utilizó un método de respaldo. Revisa qué modelo produjo la estimación y sus limitaciones.',
+'high_attribute_dispersion':'Los comparables tienen atributos físicos diversos. La estimación requiere mayor cautela.',
+'high_land_building_dispersion':'La evidencia de suelo y construcción presenta mucha variación. Revisa por separado sus superficies.',
+'high_microzone_dispersion':'Los precios de la microzona son dispersos. La ubicación por sí sola ofrece soporte limitado.',
+'high_trend_volatility':'La tendencia de precios es volátil y no respalda una extrapolación estable.',
+'insufficient_microzone_depth':'Hay pocos comparables en la microzona. La estimación depende de una cobertura geográfica más amplia.',
+'outlier_land_ratio':'La relación entre terreno y construcción es atípica. Revisa las superficies antes de usar el resultado.',
+'price_surface_insufficient_data':'No hay datos suficientes para construir una referencia territorial de precios.',
+'stale_market_data':'Los datos de mercado tienen antigüedad relevante. La estimación puede no reflejar las condiciones actuales.',
+'surface_adjustment_historical_win_rate_not_strong':'La validación histórica no respalda con fuerza el ajuste por superficie. Interpreta el ajuste con cautela.',
+'unexpected_engine_exception':'Un modelo no pudo completar el cálculo. Revisa el método de respaldo y no supongas un consenso completo.',
+'unexpected_error':'El cálculo encontró un error y su cobertura puede estar incompleta. Reintenta o revisa los datos.',
+'weak_geocoding':'La ubicación tiene precisión limitada y reduce el respaldo territorial de la estimación.',
+'weak_price_provenance':'El origen del precio no tiene suficiente respaldo. Verifica la moneda y la fuente del dato.',
+'weak_structural_signal':'La relación entre atributos físicos y precios ofrece una señal débil para este inmueble.',
+'publication_history_missing':'No hay historia suficiente de la publicación para evaluar sus cambios en el tiempo.',
+}
+for code,text in texts.items():d[code]={'category':'datos','label':code.replace('_',' ').capitalize(),'description':text,'severity':'risk' if code in ['consensus_extreme_disagreement','extreme_price_m2_dispersion'] else 'warning'}
+p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

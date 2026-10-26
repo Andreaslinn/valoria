@@ -1,0 +1,17 @@
+from pathlib import Path
+import json
+from netlify_bridge import netlify_client
+SITE='346587ad-56cc-4a1c-afd3-218d750a2183';BRANCH='release/valoria-legacy-entrypoints-20261012'
+with netlify_client() as c:
+ v=c.get('/sites/0af3d12f-a75b-494e-b75a-333a6165db68');v.raise_for_status();v=v.json()['published_deploy'];assert v['state']=='ready' and v['commit_ref']=='bc07ef321bfd39a3cae986667a4c9920c8be65d9'
+ evidence=json.loads(Path('work/entrypoints-preview/results.json').read_text());assert not evidence['errors'] and len(evidence['layouts'])==4
+ checks=json.loads(Path('work/legacy-entrypoints-preview-check.json').read_text());assert len(checks)==5
+ d=c.get('/deploys/6acd2fd227faf690392cfaa1');d.raise_for_status();d=d.json();assert d['state']=='ready' and d['commit_ref']=='a2a9045cadbfc90ebd9694f6f5f6ea6f61c86b62'
+ old=c.get('/sites/'+SITE);old.raise_for_status();old=old.json();b=old['build_settings']
+ rollback={'site_id':SITE,'previous_deploy_id':old['published_deploy']['id'],'previous_branch':b['repo_branch'],'previous_sha':old['published_deploy']['commit_ref'],'new_branch':BRANCH,'new_sha':d['commit_ref'],'authorized_routes':['/','/login'],'unmodified_legacy_routes':['/app','/app/tasar','/register']}
+ assert rollback['previous_deploy_id']=='6a61ec59082af70008237760'
+ Path('work/legacy-entrypoints-rollback.json').write_text(json.dumps(rollback,indent=2))
+ repo={k:b[k] for k in ['provider','repo_path','repo_url','installation_id','base','dir','cmd'] if k in b}
+ repo.update({'repo_branch':BRANCH,'public_repo':False,'private_logs':True,'base_rel_dir':True,'allowed_branches':[BRANCH],'stop_builds':False})
+ r=c.patch('/sites/'+SITE,json={'repo':repo});r.raise_for_status();assert r.json()['build_settings']['repo_branch']==BRANCH
+ print(json.dumps({'configured':True,'rollback':rollback,'production_build':'automatically triggered by Netlify repository update'},indent=2))

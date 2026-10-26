@@ -1,0 +1,377 @@
+# Investment Score Model Latest
+
+Fecha: 2026-06-18  
+Producto: Valoria  
+Contextos: `PROPERTY_VALUATION` y `LISTING_ANALYSIS`
+
+Este documento disena el modelo conceptual del Investment Score. No implementa score, no cambia UI, no modifica codigo productivo, no genera commits y no toca base de datos, scrapers ni migraciones.
+
+Fuentes leidas:
+
+- `signals_inventory_latest.md`
+- `signals_inventory_latest.json`
+
+## Resumen Ejecutivo
+
+Valoria debe tener dos scores conceptualmente distintos:
+
+- `investment_score` para `PROPERTY_VALUATION`: mide que tan atractiva parece una propiedad como inversion usando tasacion, mercado, ubicacion, microzona, profundidad de datos y perfil fisico. No debe depender de precio publicado, URL, listing_id, watchlist ni historial de publicacion.
+- `listing_opportunity_score` para `LISTING_ANALYSIS`: mide que tan atractiva parece una publicacion concreta como oportunidad de compra/inversion, usando precio publicado, discount, soporte de mercado, evidencia de listing, watchlist, price history y alertas.
+
+La regla central: no mezclar ausencia de datos de publicacion con riesgo de tasacion manual. En `PROPERTY_VALUATION`, la falta de precio publicado, URL, listing_id, watchlist, historial o actividad de publicacion no penaliza. En `LISTING_ANALYSIS`, esas senales si pueden ser relevantes.
+
+La arquitectura recomendada separa:
+
+- Score de atractivo: `investment_score` o `listing_opportunity_score`.
+- Score de confianza: `valuation_confidence_score`.
+- Contexto de mercado: `market_context_score`.
+- Calidad contextual de datos: `data_quality_score`.
+- Provenance tecnica: oculta o traducida.
+
+## Nombres Recomendados
+
+| Nombre | Contexto | Que mide | Que NO mide |
+|---|---|---|---|
+| `investment_score` | `PROPERTY_VALUATION` | Atractivo estimado de una propiedad como inversion con evidencia disponible. | No mide discount de publicacion, certeza legal, rentabilidad, financiamiento ni recomendacion de compra. |
+| `listing_opportunity_score` | `LISTING_ANALYSIS` | Atractivo de una publicacion concreta como oportunidad, centrado en precio vs AVM y evidencia de listing. | No garantiza negociacion, aceptacion de oferta, seguridad legal ni apreciacion futura. |
+| `valuation_confidence_score` | Ambos | Confiabilidad de la tasacion: confidence, comparables, rango, dispersion, geocoding y beta scope. | No mide si el activo es atractivo. Mide cuanto confiar en la estimacion. |
+| `market_context_score` | Ambos | Soporte local de mercado: comuna, microzona, profundidad, bucket m2, price surface. | No mide descuento ni riesgo legal. |
+| `listing_evidence_score` | `LISTING_ANALYSIS` | Completitud/evidencia de publicacion: identidad, precio, URL, historial y alertas. | No mide confianza AVM ni atractivo de mercado por si solo. |
+| `data_quality_score` | Ambos | Completitud de datos requeridos para el contexto activo. | No debe penalizar `PROPERTY_VALUATION` por datos solo aplicables a listings. |
+
+Evitar nombres ambiguos como `score`. Si existe por compatibilidad, traducirlo internamente a `opportunity_score` o `risk_report_score`.
+
+## Modelo Para PROPERTY_VALUATION
+
+Pregunta que responde:
+
+> Que tan atractiva parece esta propiedad como inversion, considerando ubicacion, mercado, liquidez proxy, microzona, profundidad de datos y calidad de tasacion?
+
+### Pesos Iniciales
+
+Los pesos suman 100 y usan solo senales disponibles o parcialmente disponibles hoy.
+
+| Bloque | Peso | Senales | Efecto |
+|---|---:|---|---|
+| Valuation Confidence | 30 | `confidence_contract`, `comparable_count`, `valuation_range`, `comparable_quality_level`, `comparable_quality_flags`, `price_per_m2_dispersion`, `geo_quality_ratio`, `beta_scope` | Afecta directamente el score y limita la confianza del score. |
+| Location / Market Context | 25 | `target_location_comuna`, `microzone_match_ratio`, `textual_microzone_signals`, `price_surface_context`, `price_m2` | Afecta directamente el atractivo por contexto local. |
+| Segment Depth / Liquidity Proxy | 20 | `segment_depth`, `m2_bucket_coverage`, `source_diversity`, `radar_market_depth` | Proxy actual de liquidez/profundidad; no usar liquidez futura aun. |
+| Asset Fit / Physical Profile | 15 | `property_type`, `area_profile`, `physical_attributes`, `property_type_consistency`, `house_land_area_share` | Evalua coherencia del activo dentro del segmento comparable. |
+| Contextual Data Completeness | 10 | `data_quality_warnings`, `risk_report_reliability_fields` | Penaliza solo faltantes necesarios para tasacion manual. |
+
+### Senales Directas
+
+- `confidence_contract`
+- `comparable_count`
+- `valuation_range`
+- `comparable_quality_level`
+- `price_per_m2_dispersion`
+- `geo_quality_ratio`
+- `target_location_comuna`
+- `microzone_match_ratio`
+- `segment_depth`
+- `m2_bucket_coverage`
+- `property_type`
+- `area_profile`
+- `data_quality_warnings`
+
+### Senales Solo De Confianza
+
+Estas reducen `valuation_confidence_score` y pueden limitar el techo del `investment_score`, pero no siempre reducen atractivo directamente:
+
+- `valuation_range`
+- `comparable_quality_flags`
+- `near_duplicate_share`
+- `source_diversity`
+- `geocode_precision`
+- `beta_scope`
+- `price_per_m2_dispersion`
+- `geo_quality_ratio`
+
+### Senales Solo De Contexto
+
+- `estimated_value`
+- `price_m2`
+- `target_location_comuna`
+- `textual_microzone_signals`
+- `price_surface_context`
+- `risk_report_catalysts_risks`
+
+### No Aplicables A PROPERTY_VALUATION
+
+No deben penalizar ni aparecer como riesgo:
+
+- `published_price`
+- `discount_pct`
+- `listing_identity`
+- `watchlist_state`
+- `price_history_series`
+- `price_drop_event`
+- `alert_state`
+- `days_on_market`
+- `listing_url_lookup_status`
+- falta de URL
+- falta de listing_id
+- falta de actividad de publicacion
+
+### Futuras Sin Peso Real
+
+| Senal futura | Peso candidato futuro | Nota |
+|---|---:|---|
+| `liquidity` | 10 | Reasignar desde `segment_depth_liquidity_proxy` cuando exista dato real. |
+| `legal_external_risk` | 10 | Conviene como `risk_score` separado o reasignado desde data/asset fit. |
+| `geographic_microzone` | 5 | Reasignar desde location cuando haya cobertura suficiente. |
+
+## Modelo Para LISTING_ANALYSIS
+
+Pregunta que responde:
+
+> Que tan atractiva parece esta publicacion como oportunidad de compra o inversion, considerando precio publicado, descuento/sobreprecio, soporte de mercado, historial y calidad de evidencia?
+
+### Pesos Iniciales
+
+| Bloque | Peso | Senales | Efecto |
+|---|---:|---|---|
+| Price Opportunity | 35 | `published_price`, `discount_pct`, `estimated_value`, `price_m2`, `opportunity_score` | Nucleo de oportunidad. Un descuento alto debe ser moderado por confianza. |
+| Valuation Confidence | 25 | `confidence_contract`, `comparable_count`, `valuation_range`, `comparable_quality_level`, `price_per_m2_dispersion`, `geo_quality_ratio`, `beta_scope` | Soporte de la estimacion que sustenta el discount. |
+| Listing Evidence | 15 | `listing_identity`, `listing_status_freshness`, `listing_url_lookup_status`, `canonical_price_basis`, `data_quality_warnings` | Calidad de evidencia de la publicacion y del precio. |
+| Market Context | 15 | `target_location_comuna`, `property_type`, `area_profile`, `microzone_match_ratio`, `segment_depth`, `price_surface_context` | Contexto local para interpretar la oportunidad. |
+| Alert / Watchlist / Price History Signals | 10 | `watchlist_state`, `price_history_series`, `price_drop_event`, `alert_state` | Senales de seguimiento real e historial disponible. |
+
+### Separaciones Conceptuales
+
+| Grupo | Senales | Uso |
+|---|---|---|
+| Oportunidad de precio | `published_price`, `discount_pct`, `estimated_value`, `price_m2` | Principal driver del `listing_opportunity_score`. |
+| Confianza de tasacion | `confidence_contract`, `comparable_count`, `valuation_range`, `comparable_quality_level`, `beta_scope` | Modula y limita el score. |
+| Senales de publicacion | `listing_identity`, `listing_status_freshness`, `listing_url_lookup_status`, `canonical_price_basis`, `data_quality_warnings` | Evalua si el listing es usable y confiable. |
+| Senales de mercado | `microzone_match_ratio`, `segment_depth`, `price_surface_context`, `target_location_comuna` | Contexto de soporte. |
+| Tracking/historial | `watchlist_state`, `price_history_series`, `price_drop_event`, `alert_state` | Movimiento y evidencia temporal. |
+
+### Futuras Sin Peso Real
+
+| Senal futura | Peso candidato futuro | Nota |
+|---|---:|---|
+| `days_on_market` | 7 | Reasignar desde Listing Evidence e historial cuando sea real. |
+| `liquidity` | 8 | Reasignar desde Market Context. |
+| `legal_external_risk` | 10 | Idealmente score de riesgo separado. |
+| `market_map_heat_zones` | 5 | Reasignar desde Market Context cuando deje de ser demo. |
+
+## Reglas De No Aplicabilidad
+
+| Senal | PROPERTY_VALUATION | LISTING_ANALYSIS | Regla |
+|---|---|---|---|
+| `published_price` | No aplicable | Directa | Nunca penalizar tasacion manual si falta. |
+| `discount_pct` | No aplicable | Directa | Requiere precio publicado. |
+| `listing_identity` | No aplicable | Evidencia/contexto | URL/listing_id solo importan en listing flow. |
+| `watchlist_state` | No aplicable | Directa/contexto | Senal de seguimiento de usuario. |
+| `price_history_series` | No aplicable | Directa/contexto | Historial solo aplica a publicacion. |
+| `price_drop_event` | No aplicable | Directa | Puede reforzar oportunidad si el precio es confiable. |
+| `days_on_market` | Futura | Futura | Hoy no tiene peso real. |
+| `confidence_contract` | Confianza + directa | Confianza + directa | Core AVM. |
+| `comparable_count` | Confianza + directa | Confianza + directa | Soporte de mercado. |
+| `valuation_range` | Confianza | Confianza | Rango amplio reduce confianza, no necesariamente atractivo. |
+| `microzone_match_ratio` | Directa + contexto | Directa + contexto | Microzona textual usable hoy. |
+| `segment_depth` | Directa | Directa | Proxy de profundidad/liquidez. |
+| `price_surface_context` | Parcial, directa/contexto | Parcial, directa/contexto | Usar como soporte local, no como raw diagnostics. |
+| `surface_adjustment` | Tecnica/contexto | Tecnica/contexto | Traducir; no mostrar weight/reason. |
+| `engine_results` | Tecnica | Tecnica | Ocultar al usuario. |
+| `consensus_summary` | Tecnica | Tecnica | Ocultar o traducir a "modelo combinado". |
+| `canonical_price_basis` | No aplicable/tecnica | Evidencia de listing + tecnica | Raw provenance oculto; usar label humano. |
+
+## Niveles De Interpretacion
+
+Lenguaje beta-safe, sin absolutos:
+
+| Rango | Label | Mensaje |
+|---:|---|---|
+| 80-100 | Muy atractivo con evidencia beta | Senal fuerte; requiere revision humana. |
+| 65-79 | Atractivo con observaciones | Buena senal inicial; revisar limitaciones. |
+| 50-64 | Neutral o requiere mas analisis | Evidencia insuficiente para tesis clara. |
+| 35-49 | Debil o incierto | Senal limitada o evidencia incompleta. |
+| 0-34 | No recomendable con la evidencia actual | No afirmar que es mal activo; decir que Valoria no tiene evidencia suficiente o favorable. |
+
+Para `valuation_confidence_score`:
+
+| Rango | Label |
+|---:|---|
+| 75-100 | Confianza alta |
+| 55-74 | Confianza media |
+| 35-54 | Confianza baja |
+| 0-34 | Confianza insuficiente |
+
+## Como Afectan Los Warnings
+
+| Warning/codigo | Efecto | Contexto | Manejo usuario |
+|---|---|---|---|
+| `low_comparable_count` | Reduce `valuation_confidence_score`; puede limitar score final. | Ambos | "Pocos comparables disponibles." |
+| `single_source_comparables` | Reduce confianza. | Ambos | "Evidencia concentrada en una fuente." |
+| `poor_geocoding_comparables` | Reduce confianza. | Ambos | "Precision geografica limitada." |
+| `high_price_m2_dispersion` | Reduce confianza; si es alta, reduce score por incertidumbre. | Ambos | "Alta dispersion de precios/m2." |
+| `extreme_price_m2_dispersion` | Reduce fuertemente confianza. | Ambos | Mostrar como limitacion fuerte, no como riesgo legal. |
+| `near_duplicate_comparables` | Reduce confianza. | Ambos | "Comparables poco diversos." |
+| `house_land_area_weak` | Reduce confianza y Asset Fit para casas. | Ambos | "Evidencia de terreno limitada." |
+| `weak_microzone` | Reduce Market Context y confianza leve. | Ambos | "Microzona poco soportada." |
+| `sparse_m2_bucket` | Reduce Segment Depth. | Ambos | "Segmento de superficie con poca muestra." |
+| `limited_segment_sample` | Reduce Segment Depth. | Ambos | "Mercado local con muestra limitada." |
+| `published_price_not_provided` | No aplica a `PROPERTY_VALUATION`; reduce Listing Evidence solo en `LISTING_ANALYSIS`. | Listing only | Ocultar en tasacion manual. |
+| `url_missing`, `listing_id_missing` | No aplica a `PROPERTY_VALUATION`; reduce Listing Evidence si se esperaba listing. | Listing only | Ocultar en tasacion manual. |
+| `watchlist_unavailable`, `publication_history_missing`, `listing_activity_missing` | No aplica a `PROPERTY_VALUATION`; nota o reduccion leve en listing. | Listing only | "Historial de publicacion limitado." |
+| `surface_adjustment_unavailable`, `surface_adjustment_low_sample` | Nota o reduccion pequena de Market Context. | Ambos | Traducir; no mostrar raw code. |
+| `engine_not_registered`, `unexpected_error`, `artifact_version_mismatch` | Ocultar al usuario; solo tecnico. | Ambos | Generico si hace falta: "diagnostico interno limitado." |
+| `legacy_uf_missing_price_uf`, `estimated_uf_not_strong`, `low_confidence_uf_not_strong` | Bloquea/reduce discount en `LISTING_ANALYSIS`; no aplica a manual. | Listing only | "Calidad del precio publicado limitada." |
+
+Regla general: no todos los warnings bajan `investment_score`. Primero clasificarlos:
+
+- reducen `valuation_confidence_score`;
+- reducen `investment_score` o `listing_opportunity_score`;
+- son nota contextual;
+- se ocultan por tecnicos;
+- aplican solo a `LISTING_ANALYSIS`.
+
+## Contrato JSON Conceptual
+
+Ejemplo para `PROPERTY_VALUATION`:
+
+```json
+{
+  "analysis_context": "PROPERTY_VALUATION",
+  "investment_score": {
+    "value": 72,
+    "label": "Atractivo con observaciones",
+    "confidence_limited": true,
+    "components": [
+      {
+        "code": "valuation_confidence",
+        "weight": 30,
+        "score": 68,
+        "evidence": ["confidence_contract", "comparable_count", "valuation_range"]
+      },
+      {
+        "code": "location_market_context",
+        "weight": 25,
+        "score": 74,
+        "evidence": ["target_location_comuna", "microzone_match_ratio", "price_surface_context"]
+      }
+    ]
+  },
+  "valuation_confidence_score": {
+    "value": 64,
+    "label": "Confianza media",
+    "main_limitations": ["low_comparable_count", "weak_microzone"]
+  },
+  "not_applicable": [
+    "published_price",
+    "discount_pct",
+    "listing_identity",
+    "watchlist_state",
+    "price_history_series",
+    "price_drop_event",
+    "days_on_market"
+  ],
+  "technical_hidden": [
+    "engine_results",
+    "consensus_summary",
+    "surface_adjustment",
+    "canonical_price_basis"
+  ]
+}
+```
+
+Ejemplo para `LISTING_ANALYSIS`:
+
+```json
+{
+  "analysis_context": "LISTING_ANALYSIS",
+  "listing_opportunity_score": {
+    "value": 78,
+    "label": "Atractivo con observaciones",
+    "confidence_limited": true,
+    "components": [
+      {
+        "code": "price_opportunity",
+        "weight": 35,
+        "score": 86,
+        "evidence": ["published_price", "discount_pct", "estimated_value"]
+      },
+      {
+        "code": "valuation_confidence",
+        "weight": 25,
+        "score": 68,
+        "evidence": ["confidence_contract", "comparable_count", "valuation_range"]
+      }
+    ]
+  },
+  "valuation_confidence_score": {
+    "value": 68,
+    "label": "Confianza media",
+    "main_limitations": ["price_per_m2_dispersion"]
+  },
+  "future_excluded_from_score": [
+    "days_on_market",
+    "liquidity",
+    "legal_external_risk",
+    "market_map_heat_zones"
+  ],
+  "technical_hidden": [
+    "engine_results",
+    "consensus_summary",
+    "surface_adjustment",
+    "raw canonical_price_basis fields"
+  ]
+}
+```
+
+La version estructurada completa esta en `investment_score_model_latest.json`.
+
+## Estrategia Beta-Safe
+
+Puede hacerse ahora:
+
+- Normalizar senales existentes en una capa conceptual antes de implementar scoring.
+- Separar estrictamente `PROPERTY_VALUATION` y `LISTING_ANALYSIS`.
+- Usar `confidence_contract`, `comparable_count`, `valuation_range`, `comparable_quality`, `beta_scope`, `microzone_match_ratio`, `segment_depth`, `published_price`, `discount_pct`, `watchlist_state`, `price_history_series` y `price_drop_event` segun contexto.
+- Traducir warnings raw a limitaciones humanas.
+- Mostrar labels como "con evidencia beta", "con observaciones", "requiere revision".
+
+Debe quedar como `coming soon`:
+
+- `days_on_market`
+- `liquidity`
+- `legal_external_risk`
+- `market_map_heat_zones`
+- `portfolio_avm_delta`
+- `geographic_microzone` hasta tener cobertura suficiente
+
+No debe mostrarse al usuario:
+
+- `engine_results` crudo
+- `consensus_summary` crudo
+- `surface_adjustment_weight/reason`
+- provenance raw de `canonical_price_basis`
+- artifacts de price history
+- codigos raw de warnings
+
+No debe afectar el score todavia:
+
+- `days_on_market`
+- `liquidity`
+- `legal_external_risk`
+- `market_map_heat_zones`
+- `portfolio_avm_delta`
+- `geographic_microzone`
+- cualquier fixture demo/lab
+
+## Proximos Pasos Tecnicos
+
+1. Crear una capa conceptual de normalizacion de senales antes de implementar scoring.
+2. Definir enums canonicos para `analysis_context`, `score_component`, `signal_category` y `warning_effect`.
+3. Mapear raw warnings a `evidence_flags` con `code`, `source`, `severity`, `category` y copy user-facing.
+4. Disenar funciones puras de scoring despues de validar el contrato, desacopladas de UI.
+5. Agregar golden JSON contract tests para `PROPERTY_VALUATION` y `LISTING_ANALYSIS`.
+6. Activar primero en shadow mode con feature flag.
+7. No usar campos demo/futuros como inputs reales.
+
+## Decision Clave
+
+El `investment_score` no debe ser una version maquillada de `confidence`. La confianza dice "cuanto creemos en la tasacion"; el investment score dice "que tan atractiva parece la propiedad con la evidencia disponible". En beta, ambos deben mostrarse juntos para evitar sobreinterpretacion.

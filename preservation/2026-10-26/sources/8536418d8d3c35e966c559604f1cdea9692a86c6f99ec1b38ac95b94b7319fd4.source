@@ -1,0 +1,41 @@
+from pathlib import Path
+import json,hashlib,zipfile,subprocess
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+readme='''# Expediente privado de auditoría
+
+Abrir INFORME.html o INFORME.md. Los CSV principales están en la raíz.
+Todo este expediente es solo local; contiene roles y direcciones de comparables.
+
+No se modificó el repositorio del producto, parámetros, algoritmos ni datos de origen.
+No se accedió a producción, no se actualizó el PR ni se ejecutó merge o deploy.
+
+La distancia geográfica no está disponible. El entorno es textual, no un radio
+geográfico. Las direcciones/URLs originales de publicaciones no están en la
+captura del demo; se exportan vacías con marca de calidad y trazabilidad por ID.
+
+Los scripts en reproducir/ documentan lo ejecutado desde el directorio work/
+original. Orden: target, sources, canonical, http, analyse, verify_files,
+build_report, verify_audit. Las dependencias y snapshots se conservan en work/.
+Para una repetición independiente configurar en todos ellos una carpeta de salida
+nueva. El replay del API usa la fecha del sistema; este expediente corresponde
+al 20/10/2026. La reproducción offline del kNN fija expresamente esa fecha.
+El código de rebuild es evidencia de la lógica de origen; NO se ejecutó.
+
+MANIFEST.sha256 permite comprobar los archivos del paquete. Las fuentes completas
+permanecen en su ubicación local original y sus hashes constan en el manifiesto
+de ejecución y la verificación física de las fuentes.
+'''
+(OUT/'LEEME.md').write_text(readme,encoding='utf8')
+checks=json.loads((OUT/'CONTROLES.json').read_text(encoding='utf8'))
+assert len(checks)==36 and all(r['status']=='PASS' for r in checks)
+manifest=[]
+for p in sorted(OUT.rglob('*')):
+    if p.is_file() and p.name!='MANIFEST.sha256':manifest.append(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.relative_to(OUT).as_posix())
+(OUT/'MANIFEST.sha256').write_text('\n'.join(manifest)+'\n',encoding='utf8')
+dest=ROOT.parent/'outputs/AUDITORIA_VITACURA_1261-6.zip'
+with zipfile.ZipFile(dest,'w',compression=zipfile.ZIP_DEFLATED) as z:
+    for p in sorted(OUT.rglob('*')):
+        if p.is_file():z.write(p,arcname='auditoria-vitacura-1261-6/'+p.relative_to(OUT).as_posix())
+with zipfile.ZipFile(dest) as z:assert z.testzip() is None
+assert not subprocess.check_output(['git','status','--porcelain'],cwd=ROOT/'valoria',text=True).strip()
+print(json.dumps({'files':len(manifest)+1,'zip_bytes':dest.stat().st_size,'zip_valid':True,'audit_controls':36,'product_worktree_clean':True}))

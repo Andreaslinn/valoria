@@ -1,0 +1,24 @@
+services:
+  api:
+    image: valoria-thumbnails:shared-v2-20261008
+    environment:
+      THUMBNAIL_STORAGE_ROOT: /app/thumbnail-data
+    volumes:
+      - thumbnails_data:/app/thumbnail-data
+  thumbnails:
+    image: valoria-thumbnails:shared-v2-20261008
+    restart: unless-stopped
+    command: ["python", "-m", "workers.thumbnails"]
+    env_file:
+      - ${VALORIA_ENV_FILE:-deploy/oracle.env}
+    environment:
+      THUMBNAIL_STORAGE_ROOT: /app/thumbnail-data
+    volumes:
+      - thumbnails_data:/app/thumbnail-data
+    networks:
+      - valoria_internal
+    mem_limit: 768m
+    cpus: 0.5
+    stop_grace_period: 30s
+volumes:
+  thumbnails_data:

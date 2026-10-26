@@ -1,0 +1,261 @@
+# Risk Report Contract Shadow Implementation Latest
+
+Fecha: 2026-06-18  
+Modo: beta-safe shadow mode  
+Resultado: capa pura de normalizacion creada y testeada, sin cambiar el HTML visual del Risk Report.
+
+## Resumen
+
+Se implemento una primera capa interna para normalizar inputs/outputs del Risk Report por contexto:
+
+- `PROPERTY_VALUATION` -> `Investment Intelligence Report`
+- `LISTING_ANALYSIS` -> `Listing Opportunity Report`
+
+La implementacion queda aislada en shadow mode. No reemplaza `build_risk_report_html`, no cambia layout, no cambia estilos, no modifica endpoints publicos y no toca DB/scrapers/migraciones.
+
+## Inspeccion Previa
+
+Archivos relevantes encontrados:
+
+- `ui/components/risk_report_html.py`
+- `ui/redesign/tasar_playground_adapter.py`
+- `ui/redesign/tasar_playground.py`
+- `ui/pages/tasacion.py`
+- `tests/unit/test_risk_report_html.py`
+- `tests/unit/test_tasar_playground_adapter.py`
+
+Funciones actuales que alimentan el Risk Report:
+
+- `build_risk_report_html`
+- `build_valuation_risk_report_data`
+- `build_radar_risk_report_data`
+- `_valuation_analysis_context`
+- `_valuation_contextual_warnings`
+- `_valuation_available_fields`
+- `_valuation_missing_fields`
+- `_catalysts`
+- `_risks`
+- `_bottom_line`
+- `build_tasar_risk_report_contract`
+
+Punto minimo y seguro de insercion: un modulo puro bajo `ui/components`, consumible por tests y por futuros adapters, sin acoplarlo aun al HTML final. Por eso se creo `ui/components/risk_report_contract.py`.
+
+## Archivos Creados
+
+- `ui/components/risk_report_contract.py`
+- `tests/unit/test_risk_report_contract.py`
+- `risk_report_contract_shadow_implementation_latest.md`
+- `risk_report_contract_shadow_implementation_latest.json`
+
+No se modifico `ui/components/risk_report_html.py` ni ningun archivo de UI visual.
+
+## Tipos Nuevos
+
+En `ui/components/risk_report_contract.py`:
+
+- `AnalysisContext`
+- `EvidenceFlag`
+- `RiskReportInput`
+- `RiskReportOutput`
+- `ScoreSummary`
+- `ReportSection`
+- `ContextualMissingField`
+- `NotApplicableField`
+- `TechnicalHidden`
+- `EvidenceNormalizationResult`
+
+Son estructuras puras, sin Streamlit, red, DB ni dependencias de infraestructura.
+
+## Funciones Nuevas
+
+| Funcion | Proposito |
+|---|---|
+| `normalize_analysis_context` | Normaliza strings/enums de contexto. |
+| `normalize_evidence_flags` | Mapea warnings crudos a `evidence_flags`, `not_applicable` y `technical_hidden`. |
+| `build_risk_report_contract_shadow` | Construye un `RiskReportOutput` normalizado desde inputs actuales, sin tocar el HTML. |
+
+## Warning Taxonomy Mapping
+
+La implementacion usa como fuente conceptual `warning_taxonomy_latest.*`. La cobertura inicial incluye los codigos obligatorios:
+
+- `house_land_area_weak`
+- `poor_geocoding_comparables`
+- `single_source_comparables`
+- `weak_geolocation`
+- `weak_geocode_quality`
+- `weak_microzone`
+- `beta_scope_exploratory`
+- `price_surface_low_confidence`
+- `price_surface_high_dispersion`
+- `surface_adjustment_risk_comuna`
+- `low_comparable_count`
+- `high_price_m2_dispersion`
+- `extreme_price_m2_dispersion`
+- `near_duplicate_comparables`
+- `sparse_m2_bucket`
+- `limited_segment_sample`
+- `published_price_not_provided`
+- `url_missing`
+- `listing_url_missing`
+- `listing_id_missing`
+- `watchlist_unavailable`
+- `publication_history_missing`
+- `listing_activity_missing`
+- `price_history_missing`
+- `legacy_uf_missing_price_uf`
+- `estimated_uf_not_strong`
+- `low_confidence_uf_not_strong`
+- `engine_not_registered`
+- `unexpected_error`
+- `validation_error`
+- `consensus_missing_calibrated_weights`
+
+Ejemplo de deduplicacion implementada:
+
+- `poor_geocoding_comparables`
+- `weak_geolocation`
+- `weak_geocode_quality`
+
+se agrupan como:
+
+- `limited_geographic_precision`
+
+## Shadow Mode
+
+Quedo en shadow mode:
+
+- el contrato `RiskReportOutput`;
+- la normalizacion de warnings;
+- la separacion `evidence_flags` / `not_applicable` / `technical_hidden`;
+- la diferenciacion conceptual entre `investment_score` y `listing_opportunity_score`.
+
+No queda activado visualmente:
+
+- ningun cambio en cards;
+- ningun cambio en secciones;
+- ningun cambio de CSS;
+- ningun reemplazo de raw warnings en el HTML actual;
+- ningun calculo nuevo de score visible.
+
+## Comportamiento Por Contexto
+
+### PROPERTY_VALUATION
+
+Produce:
+
+- `report_type`: `Investment Intelligence Report`
+- `headline_score_name`: `investment_score`
+- `listing_context`: `null`
+- `listing_evidence`: `null`
+- `price_opportunity`: `null`
+
+Clasifica como `not_applicable`:
+
+- `published_price`
+- `discount_pct`
+- `listing_id`
+- `url`
+- `source`
+- `watchlist_state`
+- `price_history_series`
+- `price_drop_event`
+- `alert_state`
+- `days_on_market`
+- `listing_url_lookup_status`
+
+La falta de esos campos no entra en:
+
+- `contextual_missing_fields`
+- `evidence_flags`
+- score conceptual
+
+### LISTING_ANALYSIS
+
+Produce:
+
+- `report_type`: `Listing Opportunity Report`
+- `headline_score_name`: `listing_opportunity_score`
+- `listing_context`
+- `listing_evidence`
+- `price_opportunity`
+
+Puede usar:
+
+- `published_price`
+- `discount_pct`
+- `url`
+- `source`
+- `listing_id`
+- `canonical_price_basis` traducido a label humano
+- `price_history_series`
+- `watchlist_state`
+- warnings de listing como `evidence_flags`
+
+## Technical Hidden
+
+El contrato nuevo separa explicitamente estas senales:
+
+- raw `engine_results`
+- raw `consensus_summary`
+- `surface_adjustment_weight`
+- `surface_adjustment_reason`
+- raw `canonical_price_basis`
+- `price_history_artifact`
+- `uf_rate_source`
+- `uf_rate_is_fallback`
+- raw error messages
+- engine names/versiones
+
+No se borran datos del sistema; solo quedan clasificados como no user-facing en el contrato shadow.
+
+## Como Se Asegura Que No Cambia El Layout
+
+- No se modifico `build_risk_report_html`.
+- No se modifico `build_valuation_risk_report_data`.
+- No se modifico `build_radar_risk_report_data`.
+- No se modifico `ui/redesign/tasar_playground.py`.
+- No se modifico CSS ni templates HTML.
+- Los tests existentes de Risk Report y Tasar Playground siguen pasando.
+
+## Tests Ejecutados
+
+| Comando | Resultado |
+|---|---|
+| `python -m pytest tests/unit/test_risk_report_contract.py tests/unit/test_risk_report_html.py tests/unit/test_tasar_playground_adapter.py` | 28 passed |
+| `python -m ruff check ui/components/risk_report_contract.py tests/unit/test_risk_report_contract.py` | All checks passed |
+
+## Casos Cubiertos
+
+- `PROPERTY_VALUATION` manual sin listing no penaliza precio publicado, URL, listing id, watchlist ni historial faltantes.
+- `LISTING_ANALYSIS` desde URL usa precio publicado, descuento, URL, source y listing id.
+- Deduplicacion geografica: varios raw codes -> `limited_geographic_precision`.
+- Warnings tecnicos -> `technical_hidden`, no `evidence_flags`.
+- Senales demo/futuras no afectan score y quedan en `future_excluded_from_score`.
+
+## Que NO Se Cambio
+
+- Layout.
+- Estilos.
+- HTML base.
+- Boton del reporte.
+- Integracion visual de Tasar Playground.
+- Endpoints publicos.
+- Base de datos.
+- Scrapers.
+- Migraciones.
+- Deploy.
+
+## Riesgos O Pendientes
+
+- El mapeo cubre el primer set beta-safe obligatorio; no es aun un registry completo de toda la taxonomia.
+- La capa shadow no esta conectada al builder actual.
+- No se activo calculo de score; `score_summary.value` queda `None`.
+- Antes de activar cambios visibles, conviene comparar `RiskReportOutput` contra `report_data` actual en shadow mode.
+
+## Proximos Pasos Recomendados
+
+1. Agregar golden JSON fixtures para `PROPERTY_VALUATION` y `LISTING_ANALYSIS`.
+2. Generar el contrato shadow junto a `build_valuation_risk_report_data` detras de feature flag o metadata interna.
+3. Expandir gradualmente el coverage de `warning_taxonomy_latest.json`.
+4. Agregar asercion de no raw warnings antes de mostrar `evidence_flags`.
+5. Mapear `RiskReportOutput` al shape HTML actual solo cuando shadow mode sea estable.

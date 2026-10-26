@@ -1,0 +1,31 @@
+from test_integration import detail,portal_detail_to_raw,TARGET,UF,clean_listing,create_async_engine,Base,async_sessionmaker,asyncio,SimpleNamespace,pytest
+from geo_recovery import plan_for,apply_to_copy
+def test_backfill_idempotent_and_preserves_stronger_point():
+ async def check():
+  engine=create_async_engine('sqlite+aiosqlite:///:memory:')
+  async with engine.begin() as c:await c.run_sync(Base.metadata.create_all)
+  async with async_sessionmaker(engine,expire_on_commit=False)() as s:
+   d=detail();raw=portal_detail_to_raw(d,TARGET,uf_info=UF);c=clean_listing(raw)
+   from core.entities.listing import Listing
+   from infrastructure.db.mappers import listing_to_orm
+   l=Listing(id=None,source=c.source,external_id=c.external_id,title=c.title,comuna=c.comuna,m2=c.m2,
+    bedrooms=c.bedrooms,bathrooms=c.bathrooms,parking=c.parking,property_type=c.property_type,price=c.price,
+    fingerprint='offline-geo-test',scraped_at=c.scraped_at,last_seen_at=c.scraped_at,url=c.url,
+    geocode_precision='comuna',raw_metadata={},status='active')
+   orm=listing_to_orm(l);s.add(orm);await s.flush()
+   row={'id':orm.id,'source':orm.source,'external_id':orm.external_id,'lat':None,'lon':None}
+   plan=[plan_for(row,d['raw_metadata']['coordinates_evidence'])]
+   assert await apply_to_copy(s,plan)==1
+   assert await apply_to_copy(s,plan)==0
+   assert orm.lat==-33.4569685
+   assert plan_for({**row,'lat':-33.4,'lon':-70.5},plan[0]['evidence']) is None
+  await engine.dispose()
+ asyncio.run(check())
+def test_backfill_rejects_wrong_listing():
+ d=detail();ev=d['raw_metadata']['coordinates_evidence']
+ with pytest.raises(ValueError,match='MLC'):
+  plan_for({'source':'portalinmobiliario','external_id':'MLC-999','id':9},ev)
+def test_backfill_cannot_write_postgres():
+ class Session:
+  def get_bind(self):return SimpleNamespace(dialect=SimpleNamespace(name='postgresql'))
+ with pytest.raises(RuntimeError,match='only writes to SQLite'):asyncio.run(apply_to_copy(Session(),[]))

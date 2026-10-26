@@ -1,0 +1,66 @@
+import ast
+from pathlib import Path
+
+root = Path('outputs/valoria')
+src = Path('work/reference-local/hoja_vida.py').read_text(encoding='utf-8')
+tree = ast.parse(src)
+functions = {n.name: ast.get_source_segment(src, n) for n in tree.body if isinstance(n, ast.FunctionDef)}
+constants = ['ANIOS_CASAS', 'VIDA_MEDIA', 'PESO_VECINA', 'UF_AVALUO_DATE', 'AVALUO_VENTANA_ANIOS', 'MAX_AUX', 'USABLE_CASA', 'USABLE_DEPTO', 'COMUNAS', 'UNIT_ALIASES', 'AUX']
+parts = ['"""Pure local property-life engine ported from the supplied reference.\n\nAll dates and data are injected. No database, network, globals or file cache.\n"""\nimport re, unicodedata\nimport pandas as pd\nimport numpy as np\n']
+parts += [ast.get_source_segment(src, n) for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id in constants for t in n.targets)]
+for name in ['norm', 'parse_addr', 'to_uf', 'ventas', 'm2_a_la_fecha', 'manzanas_vecinas', 'wquant', 'marcar_atipicas']:
+    code = functions[name]
+    if name == 'parse_addr':
+        code = code.replace('raise SystemExit', 'raise ValueError')
+    if name == 'ventas':
+        code = code.replace('L=None):', 'L=None, *, today=None):').replace('pd.Timestamp.today()', 'pd.Timestamp(today) if today is not None else pd.Timestamp.now(tz="America/Santiago").tz_localize(None)')
+        # Parenthesize the injectable clock expression before subtracting the window.
+        code = code.replace('V.fecha >= pd.Timestamp(today) if today is not None else pd.Timestamp.now(tz="America/Santiago").tz_localize(None) - pd.DateOffset', 'V.fecha >= (pd.Timestamp(today) if today is not None else pd.Timestamp.now(tz="America/Santiago").tz_localize(None)) - pd.DateOffset')
+        code = code.replace('V = pd.DataFrame(out)', "V = pd.DataFrame(out, columns=['mz', 'pr', 'dir', 'tipo', 'fecha', 'uf_principal', 'uf_total', 'clp', 'm2', 'supter', 'anio', 'avaluo_uf', 'confianza', 'n_aux'])")
+        code = code.replace('if V.empty:\n        return V', "if V.empty:\n        for name in ['m2_hoy', 'precio_avaluo', 'ufm2']:\n            V[name] = pd.Series(dtype=float)\n        V['usable'] = pd.Series(dtype=bool)\n        return V")
+    parts.append(code)
+idx = functions['indice_casas']
+idx = idx[idx.index("    C = V["):idx.index('    out.to_csv(fn)')]
+idx = idx.replace('    yfe, m = fit(C)', "    if C.empty:\n        return pd.Series(dtype=float)\n    yfe, m = fit(C)")
+idx = idx.replace('    yfe, _ = fit(C)', "    if C.empty:\n        return pd.Series(dtype=float)\n    yfe, _ = fit(C)")
+parts.append('def house_index(V):\n' + idx + '    return out.indice\n')
+main = functions['main']
+start = main.index('    edif = N[')
+end = main.index('    if as_json:')
+report = main[start:end]
+report = report.replace('raise SystemExit', 'raise ValueError').replace('args[1]', 'comuna')
+report = report.replace('    uf = load_uf()\n', '')
+report = report.replace('    F = to_uf(load_f2890(f_nombre, mzs | vecinas), uf)', '    F = to_uf(F[F.mz.isin(mzs | vecinas)].copy(), uf)')
+report = report.replace('ventas(F, N[N.mz.isin(mzs | vecinas)], uf_av, L)', 'ventas(F, N[N.mz.isin(mzs | vecinas)], uf_av, L, today=today)')
+report = report.replace('indice_casas(cod, f_nombre, N, L, uf, uf_av)', 'index if index is not None else pd.Series(dtype=float)')
+report = report.replace('pd.Timestamp.today()', 'pd.Timestamp(today)')
+report = report.replace("        pool['indice'] =", "        if idx.empty and not pool.empty:\n            raise ValueError('No hay índice de casas calculable para esta comuna')\n        pool['indice'] =")
+report = report.replace("idx.iloc[-1]", "(idx.iloc[-1] if not idx.empty else 100.0)")
+report = report.replace("    # comparables\n", "    if V.empty:\n        res.update(historial=[], comparables=[], ventas_todas=[], confianza_conteo={})\n        return clean_json(res)\n    # comparables\n")
+header = '''def report(direccion, comuna, N, L, F, uf, *, today, index=None):
+    calle, num, unit = parse_addr(direccion)
+    kc = norm(comuna)
+    if kc not in COMUNAS:
+        raise ValueError(f'Comuna sin catastro cargado: {comuna}')
+    cod, f_nombre = COMUNAS[kc]
+'''
+parts.append(header + report + '    return clean_json(res)\n')
+parts.append('''def clean_json(value):
+    """Golden files contain NaN; HTTP JSON must encode missing numbers as null."""
+    if isinstance(value, dict):
+        return {str(k): clean_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [clean_json(v) for v in value]
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, np.generic):
+        return clean_json(value.item())
+    if value is None or isinstance(value, (float, int)) and pd.isna(value):
+        return None
+    return value
+''')
+target = root / 'domain/property_life'
+target.mkdir(parents=True, exist_ok=True)
+(target / '__init__.py').write_text('', encoding='utf-8')
+(target / 'engine.py').write_text('\n\n\n'.join(parts) + '\n', encoding='utf-8')
+print('Ported pure engine from reference source.')

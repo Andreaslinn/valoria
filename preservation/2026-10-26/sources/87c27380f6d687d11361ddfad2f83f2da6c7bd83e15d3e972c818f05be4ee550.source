@@ -1,0 +1,56 @@
+"""Explicitly bounded acquisition: <=6 existing references; never scrape a page."""
+from pathlib import Path
+import hashlib
+import json
+import re
+from .security import fetch, Rejected
+from .normalize import normalize
+
+
+def acquire():
+    fixtures = Path('tests/fixtures')
+    contract = json.loads((fixtures/'ingestion_parser_contract_v1.json').read_text(encoding='utf-8'))
+    urls = []
+    for rows in contract.values():
+        if not isinstance(rows,list):
+            continue
+        for row in rows:
+            if not isinstance(row,dict):
+                continue
+            url = (row.get('raw_metadata') or {}).get('main_image_url', '')
+            if re.search(r'_[a-f0-9]{32}-\d+$',url) and url not in urls:
+                urls.append(url)
+    urls = urls[:4]
+    for name in ('portal_detail_real_1_sanitized.html','portal_detail_real_2_sanitized.html'):
+        html = (fixtures/name).read_text(encoding='utf-8')
+        match = re.search(r'<meta content="(https://http2.mlstatic.com/[^"<>]+)" property="og:image"',html)
+        if match and match[1] not in urls:
+            urls.append(match[1])
+    folder = Path('thumbnail_lab/fixtures')
+    folder.mkdir(exist_ok=True)
+    previous = json.loads((folder/'manifest.json').read_text()) if (folder/'manifest.json').exists() else []
+    manifest = []
+    for i,url in enumerate(urls[:6]):
+        item = {'listing_id':i+1,'source':'yapo' if 'encuentra24' in url else 'portal',
+                'url':url,'provenance':'existing sanitized parser fixture', 'status':'failed'}
+        cached = next((x for x in previous if x['url']==url and x['status']=='ok'),None)
+        if cached:
+            manifest.append(cached)
+            continue
+        try:
+            result = fetch(url)
+            thumb = normalize(result.body,result.mime)
+            filename = f'source-{i+1}.bin'
+            (folder/filename).write_bytes(result.body)
+            item.update(status='ok',file=filename,mime=result.mime,original_bytes=len(result.body),
+                        source_sha256=hashlib.sha256(result.body).hexdigest(),
+                        download_ms=result.elapsed_ms,thumbnail_bytes=len(thumb.data))
+        except Rejected as exc:
+            item['failure'] = str(exc)
+        manifest.append(item)
+        print(json.dumps({k:v for k,v in item.items() if k != 'url'}),flush=True)
+    (folder/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+
+
+if __name__ == '__main__':
+    acquire()

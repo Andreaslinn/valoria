@@ -1,0 +1,37 @@
+from common import *
+from datetime import datetime,timezone
+SOURCE=ROOT/'research/tasar_local_optimization_20261010T182745Z'
+assert not (HERE/'protocol.json').exists(),'Refuse protocol overwrite'
+p,(datasets,cohort,maps,identity)=load()
+old=read(SOURCE/'protocol.json');inputs=old['immutable_inputs']
+inputs.update(read(HERE/'source_manifest.json'))
+for path in (RUNTIME/'frozen_a').rglob('*.py'):inputs[str(path)]=sha(path)
+config={'version':'portal-geo-AM-v0','registered_at':datetime.now(timezone.utc).isoformat(),
+ 'authorization_sha256':sha(Path('C:/Users/heiko/.codex/attachments/c46ddead-4977-46e4-8c01-4e929d9fbb19/Texto pegado.txt')),
+ 'dataset_sha256':{g:d.hash() for g,d in datasets.items()},'immutable_inputs':inputs,
+ 'uf_reference':old['uf_reference'],'cohort':{'n':791,'Portal':406,'Yapo':385,'snapshot':'2026-10-04','status':'previously researched development; exploratory only'},
+ 'validation':'G3 grouped nested 3x3 CV seeds20261009,20261010; G1 sensitivity seed20261009; primary fresh reproduction; no confirmatory holdout',
+ 'weights':[.4,.25,.15,.1,.1],'minimum_native_A':5,'maximum_native_A':20,
+ 'search':'Finite spatial/K grid; no weight optimization or outer feedback. Inner paired source-balanced MAE-log (Portal .6/Yapo .4); full coverage noninferiority to A; baseline wins ties.',
+ 'geo_policy':'USABLE plus separately flagged UNCERTAIN with valid non-centroid numeric point; no source precision certification inferred. Training repeated coords >=5 excluded; no target-price use.',
+ 'geometry_recovery':'Archived details only; no historical feature backdating into the certified Oct4 cohort; no source requests.',
+ 'holdout_consumed':False,'allowed_engines':['A','AM-local','AM-adaptive','AM-tuned','AM-frozen']+['g'+str(i) for i in range(30)],
+ 'privacy':'Individual outputs DPAPI CurrentUser; aggregate reports only; NTFS ACL change rejected, no ACL modifications.'}
+write(HERE/'protocol.json',config);(HERE/'protocol.sha256').write_text(sha(HERE/'protocol.json'))
+auth='''from pathlib import Path
+import json,hashlib
+from .data import InvalidExperiment
+ROOT=Path(__file__).resolve().parents[2]
+def locked():
+ p=ROOT/'protocol.json'
+ if hashlib.sha256(p.read_bytes()).hexdigest()!=(ROOT/'protocol.sha256').read_text().strip():raise InvalidExperiment('Protocol changed')
+ return json.loads(p.read_text())
+def authorize_dataset(ds):
+ if ds.hash() not in locked()['dataset_sha256'].values():raise InvalidExperiment('Unregistered dataset')
+def authorize_config(c):
+ p=locked()
+ if c.get('real_execution_enabled') is not True or not set(c.get('engines',[]))<=set(p['allowed_engines']):raise InvalidExperiment('Wrong boundary')
+ if c.get('experiment_protocol_sha256')!=(ROOT/'protocol.sha256').read_text().strip():raise InvalidExperiment('Wrong protocol')
+'''
+(RUNTIME/'avm01/pilot_authorization.py').write_text(auth)
+print(json.dumps({'registered':True,'dataset_n':791,'protocol':sha(HERE/'protocol.json')}))

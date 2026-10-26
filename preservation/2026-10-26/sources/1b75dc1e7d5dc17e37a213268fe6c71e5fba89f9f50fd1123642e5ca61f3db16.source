@@ -1,0 +1,131 @@
+# Discovery Yapo audit latest
+
+Fecha: 2026-06-23
+
+Alcance: solo discovery del scraper Yapo. No se ejecuto scraper job, refresh job, scheduler, valuation, Radar ni comparables. La comprobacion externa fue limitada a GETs de paginas de busqueda y parsing en memoria.
+
+## Resumen ejecutivo
+
+Discovery por comuna no esta roto en el parser ni en el HTML actual de Yapo. Las URLs comunales construidas con el formato actual (`/searchresult/...?...q=keyword.departamentos venta <comuna>`) devuelven HTML SSR con cards y el parser local extrae resultados.
+
+Lo que si esta roto/inactivo para el pipeline actual es la ruta operativa de discovery:
+
+- `workers/scheduler.py` tiene `DEFAULT_ENABLE_DISCOVERY = False`, por lo que el scheduler actual corre 0% discovery y 100% refresh dentro de jobs de scraping agendados.
+- Cuando discovery scheduler se habilita, instancia `YapoScraper(start_urls=_YAPO_URLS)`, o sea solo la busqueda general heredada, no `YAPO_TARGETS` por comuna.
+- El CLI local `workers.scraper_job.run_yapo_once()` si usa `targets=_targets_for_run(...)`, que expande `YAPO_TARGETS`.
+
+## Evidencia de codigo
+
+Construccion de URLs:
+
+- Base departamentos: `config/constants.py:68`
+- Base casas: `config/constants.py:69`
+- Targets de departamentos, incluyendo `general` y comunas RM: `config/constants.py:70`
+- Expansion final `YAPO_TARGETS` departamentos + casas: `config/constants.py:188`
+- `build_target_url()` toma el `search_base_url` y reemplaza/inyecta `q`: `infrastructure/scrapers/yapo.py:1015`
+- `build_page_url()` pagina agregando sufijo de path `.2`, `.3`, etc.: `infrastructure/scrapers/yapo.py:1005`
+- El loop usa `build_page_url(build_target_url(target), page)`: `infrastructure/scrapers/yapo.py:191`
+
+Selectores/parser:
+
+- Selector de cards: `div.d3-ad-tile`: `infrastructure/scrapers/yapo.py:304`
+- Titulo: `.d3-ad-tile__title`: `infrastructure/scrapers/yapo.py:329`
+- Ubicacion: `.d3-ad-tile__location span`: `infrastructure/scrapers/yapo.py:330`
+- Precio: `.d3-ad-tile__price`: `infrastructure/scrapers/yapo.py:333`
+- Link: `a.d3-ad-tile__description`: `infrastructure/scrapers/yapo.py:334`
+- Detalles: `li.d3-ad-tile__details-item`: `infrastructure/scrapers/yapo.py:350`
+
+Ruta scheduler vs CLI:
+
+- Scheduler discovery default apagado: `workers/scheduler.py:67`
+- Scheduler refresh cron activo por defecto: `workers/scheduler.py:62`
+- Scheduler discovery cron existe pero solo se agenda si `enable_discovery`: `workers/scheduler.py:488`
+- Scheduler discovery usa `start_urls=_YAPO_URLS`: `workers/scheduler.py:624` y `workers/scheduler.py:627`
+- `_YAPO_URLS` contiene solo busqueda general: `workers/scheduler.py:53`
+- CLI local usa `targets=_targets_for_run(max_pages=max_pages)`: `workers/scraper_job.py:274`
+- `_targets_for_run()` devuelve `YAPO_TARGETS`: `workers/scraper_job.py:632`
+
+## Medicion en vivo de HTML y parser
+
+User-Agent usado: el mismo `SCRAPER_USER_AGENT` configurado localmente.
+
+| Caso | URL construida | HTTP final | Bytes HTML | Resultados parser |
+|---|---|---:|---:|---:|
+| general_apartments | `/searchresult/bienes-raices-venta-de-propiedades-apartamentos?q=keyword.departamentos%20venta` | 200 | 743085 | 23 |
+| providencia_apartments | `/searchresult/bienes-raices-venta-de-propiedades-apartamentos?q=keyword.departamentos%20venta%20Providencia` | 200 | 416696 | 27 |
+| nunoa_apartments | `/searchresult/bienes-raices-venta-de-propiedades-apartamentos?q=keyword.departamentos%20venta%20nunoa` | 200 | 495759 | 18 |
+| providencia_houses | `/searchresult/bienes-raices-venta-de-propiedades-casas?q=keyword.casa%20venta%20Providencia` | 200 | 401761 | 25 |
+
+Primeras comunas observadas:
+
+- General departamentos: Recoleta, Las Condes, Santiago, Las Condes, Nunoa.
+- Providencia departamentos: Providencia en los primeros 5.
+- Nunoa departamentos: Nunoa en los primeros 5.
+- Providencia casas: Providencia en los primeros 5.
+
+## Redirecciones
+
+En discovery actual no se reprodujo 308.
+
+Pruebas sin seguir redirects:
+
+| Caso | Status | Location |
+|---|---:|---|
+| HTTPS canonical searchresult general | 200 | vacio |
+| HTTPS canonical searchresult Providencia con `+` | 200 | vacio |
+| HTTPS canonical searchresult Providencia pagina `.2` | 200 | vacio |
+| HTTP canonical searchresult general | 301 | `https://www.yapo.cl/searchresult/...` |
+| HTTPS sin `www` | 301 | `https://www.yapo.cl/searchresult/...` |
+| Legacy `/search?category=...` | 200 | vacio, HTML pequeno |
+
+Interpretacion: si se estan viendo 308, probablemente pertenecen al flujo de refresh/detail URLs o a una variante legacy no usada por `build_target_url()` actual. Para discovery, el path canonical vigente sigue siendo `/searchresult/bienes-raices-venta-de-propiedades-{apartamentos|casas}`.
+
+## Diferencia HTML: general vs comuna
+
+No hay evidencia de cambio de render que deje las comunas vacias:
+
+- General devuelve HTML grande con `d3-ad-tile` y parsea 23 resultados.
+- Providencia devuelve HTML grande con `d3-ad-tile` y parsea 27 resultados.
+- Nunoa devuelve HTML grande con `d3-ad-tile` y parsea 18 resultados.
+- No aparece `__NEXT_DATA__`; el scraper sigue dependiendo de HTML SSR/selectores CSS, y esos selectores siguen presentes.
+
+## Hipotesis revisadas
+
+- Cambio de parametro `q`: no confirmado. `q=keyword.departamentos venta <comuna>` funciona hoy.
+- Cambio de path: no confirmado para el path actual. `/searchresult/...` funciona. El path legacy `/search?category=...` no debe usarse como base de discovery.
+- Cambio de selector CSS: no confirmado. `div.d3-ad-tile` y subselectores siguen parseando.
+- Cambio de paginacion: no confirmado. El sufijo `.2` sobre el path canonical devuelve 200.
+- Cambio de renderizado: no confirmado. Hay HTML SSR suficiente, sin depender de `__NEXT_DATA__`.
+
+## Respuestas solicitadas
+
+1. Discovery realmente esta roto?
+
+No en el parser/HTML actual. Si alguien corre `YapoScraper` con `YAPO_TARGETS`, las busquedas por comuna retornan resultados. Lo roto en la operacion actual es que el scheduler no corre discovery por defecto y, si se habilita, usa una sola URL general heredada en vez de los targets comunales.
+
+2. Desde cuando?
+
+Con evidencia local, desde al menos el baseline recuperado `6a4e8e3` del 2026-06-12: los targets comunales y la ruta scheduler heredada ya estaban asi. El scheduler de data operations aparece en `4221065` del 2026-06-16, manteniendo discovery deshabilitado por defecto. No hay logs locales de corridas discovery recientes que permitan fechar un quiebre externo de Yapo; la prueba en vivo del 2026-06-23 funciona.
+
+3. Que porcentaje del pipeline actual es refresh vs discovery?
+
+En la configuracion actual del scheduler: 100% refresh y 0% discovery para jobs de scraping agendados. Discovery solo corre si se setea `SCHEDULER_ENABLE_DISCOVERY=true` o si se ejecuta manualmente el CLI.
+
+4. Cuantos listings nuevos por corrida se estan descubriendo realmente?
+
+En el pipeline scheduler actual: 0 nuevos por corrida, porque discovery no esta agendado. En la prueba controlada de HTML/parser no se persistio nada; solo se midieron candidatos parseables: 23 general, 27 Providencia departamentos, 18 Nunoa departamentos, 25 Providencia casas. Sin ejecutar persistencia ni consultar una corrida discovery real, no se puede afirmar cuantos serian insertados nuevos vs ya existentes.
+
+5. Correccion minima para volver a descubrir propiedades?
+
+Correccion minima operativa:
+
+- Habilitar discovery solo cuando se quiera correrlo: `SCHEDULER_ENABLE_DISCOVERY=true`.
+- Cambiar la instanciacion scheduler de Yapo para usar `targets=YAPO_TARGETS` (o `_targets_for_run`) en vez de `start_urls=_YAPO_URLS`.
+- Mantener el path canonical `/searchresult/bienes-raices-venta-de-propiedades-apartamentos` y `/searchresult/bienes-raices-venta-de-propiedades-casas`.
+- No cambiar valuation, Radar, refresh ni comparables.
+
+Correccion minima de seguridad/observabilidad:
+
+- Loggear por target `raw_count`, `unique_count` e `inserted` en discovery scheduler.
+- Alertar si todos los targets RM dan `raw_count=0` pero general da `>0`.
+

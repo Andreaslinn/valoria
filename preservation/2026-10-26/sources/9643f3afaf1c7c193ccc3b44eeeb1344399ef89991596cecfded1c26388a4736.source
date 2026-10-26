@@ -1,0 +1,11 @@
+import json
+from pathlib import Path
+from github_bridge import github_client
+with github_client() as c:
+ out={}
+ for name,path in [('actions_secrets','actions/secrets'),('deployments','deployments?per_page=5')]:
+  res=c.get('/repos/Andreaslinn/valoria/'+path)
+  if res.status_code!=200:out[name]={'status':res.status_code};continue
+  data=res.json()
+  out[name]=[x['name'] for x in data.get('secrets',[])] if name=='actions_secrets' else [{k:x.get(k) for k in ['id','environment','ref','sha','created_at']} for x in data]
+ Path(__file__).with_name('github-existing-integrations.json').write_text(json.dumps(out,indent=2));print(json.dumps(out,indent=2))

@@ -1,0 +1,45 @@
+# AVM readiness — revisión independiente y evaluación local
+
+Veredicto inicial **MODIFY acotado**, en `independent_review.md`, emitido antes de implementar. Este sandbox no cambia producción, el repositorio principal, AVM-01, ingesta, History, timers ni fuentes. No contiene comandos SSH ni queries ejecutables contra Oracle. No entrena motores ni crea particiones reales.
+
+## Reproducción exacta
+
+Python 3.13.4; stdlib para el evaluador, matcher histórico congelado dentro de este directorio. Las pruebas de límites del harness reutilizan imports del virtualenv aislado AVM-01. No instalar paquetes globales.
+
+```powershell
+Set-Location -LiteralPath 'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\research\tasar_readiness_20261008T214645Z'
+& 'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\work\avm-01-20261008\.venv-repro\Scripts\python.exe' -B -m unittest discover -s tests -v
+& 'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\work\avm-01-20261008\.venv-repro\Scripts\python.exe' -B run_readiness.py
+```
+
+Salida inmutable: `runs/<hash_inputs_codigo>/`. Una repetición valida hashes y retorna el mismo run sin sobrescribirlo. Cada nuevo input/código genera otra carpeta. Inputs originales se leen sin modificaciones ni copias de RAW al informe. `output_manifest.csv` incluye tamaños/hashes y explica información no generada. Su propio checksum se verifica externamente, porque un archivo no puede contener su SHA-256 completo de forma autorreferente.
+
+Un nuevo snapshot **local**, previamente exportado con aprobación independiente, puede suministrarse así:
+
+```powershell
+& 'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\work\avm-01-20261008\.venv-repro\Scripts\python.exe' -B run_readiness.py --observations 'C:\ruta-local-autorizada\observations.json'
+```
+
+Para ΔR entre ciclos, añade `--previous-run 'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\research\tasar_readiness_20261008T214645Z\runs\<hash_anterior>'`. Se verifican hashes del run previo y thresholds iguales; se comparan acumulación, cobertura observable, perfiles target/source×comuna, diagnósticos y gates. Sin export completo, targets recuperados, address/unit y contradicciones actuales quedan desconocidos. Los perfiles no acreditan elegibilidad ni recuperación de labels. No interpretar scopes de extracción distintos como crecimiento neto.
+
+El esquema es `{captured_at, observations, cycles, expected_cycles?}`. `observations` admite documentos del schema productivo listing_observation_v2, o wrappers `{cycle_id, document}`. `cycles` exige cycle_id único, completed, normal_pipeline, unexpected_errors; incluir start/end/duración/relación con invocation y asignación verificable en la exportación. No deducir ciclo por cada timestamp de card ni declarar normalidad sin journal. El evaluador valida IDs y catálogo; la veracidad de asignación se debe auditar con evidencia de origen. Sin cycle_id completo, no puede pasar el gate de reobservación en tres ciclos.
+
+`parsed_state` conserva la observación de entrada; no se sustituye por `persisted_state` que puede contener metadata heredada. `refresh_result` es un evento de estado, no una nueva etiqueta de precio. Observation_id repetido idéntico cuenta una vez; payload divergente con el mismo ID rechaza el snapshot. PUBLICATION=source/external_id; LISTING=listing_id; PHYSICAL=desconocido salvo evidencia revisada. Componentes del lineage expresan dependencia, no identidad física.
+
+## Interpretación de gates y límites
+
+- 7 ciclos, 500 publicaciones en tres ciclos, 99% identidad/URL y 95% imágenes se conservan exactamente. Su origen es AVM-01 sección 3 y el trigger operativo del cierre History, no una fórmula de potencia.
+- El input cached contiene cobertura por observations. No se declara gate completo READY sin ratificar por publicaciones y verificar scope/ciclos. El evaluator puede analizar un nuevo export sin conocer Oracle.
+- No existe un umbral aprobado de contaminación residual, potencia o mejora material. No se inventa. Identidad/leakage quedan NOT_READY hasta una política y adjudicación respaldadas; fuentes/features/splits permanecen CONDITIONAL mientras faltan decisiones.
+- El resultado global se deriva de los gates; READY no depende solo de N. Los contratos faltantes de A real y reserva del holdout son bloqueos reales, no una condición temporal que desaparecerá con más ciclos.
+- Los tests que documentan aceptación indebida de reservas relacionadas/outer inválido **pasan al reproducir el defecto existente**. No son tests que acrediten haberlo corregido. No se modificó el harness anterior.
+- Históricos G1/G2/G3 se reutilizan como censo y sensibilidad; no se generan nuevos groupings físicos modernos. La revisión de pares es ciega al precio y usa frames, no performance ni muestreo representativo del mercado.
+- Scripts de readiness no cargan resultados predictivos. Cargar metadata/hash del manifiesto AVM no utiliza sus scores.
+
+## Qué contienen los outputs
+
+Informe independiente, resumen/gates, acumulación, identidad, sensibilidad G, target/features, source×comuna, capacidad aritmética K=3/4/5, revisión de contratos, delta, propuesta condicionada de freeze, muestra ciega y manifest. Datos faltantes actuales no se sustituyen por el snapshot del 2 de octubre.
+
+`group_stratum_capacity.csv` conserva los grupos históricos aprobados solo como diagnóstico, por fuente×comuna, con concentración, tamaños y capacidad nominal K=3/4/5. No crea nuevos grupos ni folds. Los conteos de observations `listing_seen` y de eventos de estado se separan en snapshots nuevos.
+
+El informe `freeze_recommendation.md` especifica la exportación controlada necesaria y criterios de parada. No se ejecuta ese procedimiento, no se programa una automatización y READY futuro tampoco inicia entrenamiento sin aprobación.

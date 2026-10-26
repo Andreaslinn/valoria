@@ -1,0 +1,16 @@
+"""Offline deterministic replay of the locked candidate, without new evaluation choices."""
+from fresh_run import *
+
+def main():
+ verify();d=read(HERE/'fresh_design.json');c=read(HERE/'fresh_protocol.json');ds,train,test,_=data();assert ds.hash()==c['dataset_sha256']['fresh'];assert sha(HERE/'fresh_history.json.dpapi')==read(HERE/'fresh_history_manifest.json')['ciphertext_sha256']
+ seed=20261009;s=Split(train,test,'temporal',seed,ds.hash(),dependency_hash(ds));custody=LabelCustody(ds,());config={'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'fresh_protocol.json')};batch=custody.issue(ds,s,config,());tm=TextModel(batch,**d['text']);tv=np.exp(tm.predict_log(batch.targets));am=FrozenA().fit(batch);vals={n:{} for n in NAMES}
+ for t,b in zip(batch.targets,tv):
+  clear_price_surface_cache();a=am.predict(t).value_uf;b=float(b);v=mixed(a,b,d['blend_text_weight']);vals['A'][t.row_id]=a;vals['Text'][t.row_id]=b;vals['Blend'][t.row_id]=v if a is not None else None;vals['BlendSupported'][t.row_id]=v if a is not None or supported(t,batch.rows) else None
+ custody.record_predictions(batch,vals);truth=custody.complete(vals,test)
+ expected=decrypt(HERE/'fresh_predictions.json.dpapi')
+ for r in expected:
+  assert r['target_uf']==truth[r['row_id']]
+  for n,v in r['predictions'].items():assert vals[n][r['row_id']]==v,(r['row_id'],n)
+ result={'timestamp':datetime.now(timezone.utc).isoformat(),'rows_exact':len(expected),'predictions_exact':len(expected)*len(NAMES),'native_A':True,'read_only_archive_replay':True,'network_calls':0,'fresh_results_unchanged':True,'original_inputs_verified':len(verify()['immutable_inputs'])};write(HERE/'replay_validation.json',result);print(json.dumps(result))
+
+if __name__=='__main__':main()

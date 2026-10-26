@@ -1,0 +1,17 @@
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent/"valoria"))
+from services.sii.jobs import connect
+from services.sii.settings import Settings
+
+sql=(Path(__file__).parent/"valoria/services/sii/rebuild.sql").read_text()
+begin=sql.index("CREATE TEMP TABLE active_catastro")
+first=sql.index("UPDATE sii.predio p SET anio_min")
+second=sql.index("UPDATE sii.predio p SET anio_min=NULL")
+end=sql.index("CREATE TEMP TABLE current_predio")
+with connect(Settings.load()) as conn,conn.transaction():
+    conn.execute("SET LOCAL work_mem='64MB'")
+    conn.execute(sql[begin:first],prepare=False)
+    conn.execute("ANALYZE active_catastro")
+    for query in (sql[first:second],sql[second:end]):
+        print('\n'.join(r[0] for r in conn.execute("EXPLAIN "+query).fetchall()),flush=True)

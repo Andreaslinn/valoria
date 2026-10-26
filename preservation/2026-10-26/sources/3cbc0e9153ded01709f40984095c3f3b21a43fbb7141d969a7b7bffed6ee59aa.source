@@ -1,0 +1,52 @@
+# Modelo de seguridad
+
+## Límites implementados
+
+| Capa | Límite |
+|---|---|
+| Procedencia | Hosts exactos photos.encuentra24.com / http2.mlstatic.com |
+| URL | HTTPS:443 únicamente; sin userinfo, query, fragment ni controles; <=2048 chars |
+| Candidatos | Hasta 3 referencias válidas por listing; para al primer éxito |
+| DNS | Rechaza todas las respuestas si alguna IP no es global; IPv4-mapped incluido |
+| Conexión | IP numérica validada fijada al socket; SNI/certificado del hostname |
+| Redirects | Máximo 2; revalida URL y DNS en cada salto; nunca propaga auth |
+| Fetch | 3s por IO, 12s deadline incluyendo el tiempo DNS una vez que retorna |
+| Supervisor | 20s por job, incluyendo DNS bloqueado, redirects y decode; lease 30s |
+| Download | 5 MiB máximo declarado y real; read1 chunks <=64 KiB |
+| MIME | JPEG/PNG/WebP/AVIF; Content-Encoding identity; firma debe coincidir |
+| Decode | <=16.000.000 píxeles y <=8192px por dimensión; no animación |
+| Linux worker | RLIMIT_AS 512 MiB y RLIMIT_CPU 15s; medido/testeado supervisor Windows |
+| Storage | 2 GiB payload activo deduplicado; rebasa → fallback storage_budget |
+
+La API de producto no recibe URLs arbitrarias ni confía en context del navegador.
+La selección/autoridad deben venir del servidor después de los filtros de superficie.
+Context del prototipo es un contrato interno; la API fixture solo conoce un catálogo
+local y se escucha exclusivamente en 127.0.0.1. No sustituye auth productiva.
+
+No se siguen proxies de entorno, cookies, auth headers, archivos locales ni
+protocolos alternativos. Redirects privados y DNS mixto son rechazados. La
+conexión pinneada evita una segunda resolución DNS vulnerable a rebinding.
+Resolver no tiene timeout propio: el supervisor mata el proceso completo a 20s.
+`fetch` directo es una primitive interna; un worker remoto siempre debe usar el
+supervisor. Los retries también son limitados y no multiplican concurrencia.
+
+La firma MIME se valida al abrir y dimensiones antes de image.load. HTML con
+Content-Type image/jpeg termina en rechazo. Corruptos/formatos extraños tienen
+fallback; no se intenta renderizar SVG ni documentos. EXIF orientation se aplica
+antes de copiar píxeles a una nueva imagen, sin EXIF/ICC/XMP/comments de salida.
+
+Nombres del asset: SHA256 hexadecimal + .webp, sin partes de URL. Se comprueba
+integridad al leer. Referencias públicas no contienen la URL fuente. Los únicos
+headers salientes son Accept/User-Agent/Accept-Encoding; no se almacenan en el asset.
+Fallos persistidos son códigos estables, sin error remoto ni secretos. URLs con
+query se rechazan conservadoramente: si una futura fuente necesita URLs firmadas,
+hará falta un proveedor efímero de referencias, sin persistir el token.
+
+Serving local: nosniff, WebP, Content-Length, ETag SHA256, cache privado 24h;
+If-None-Match retorna 304. El patrón de nombre bloquea traversal. En producción
+el proxy/handler debe validar permisos del listing mediante sesión/cookie y
+mantener Cache-Control private; un hash no constituye autorización.
+
+Las pruebas de red usan transport/resolver fake deterministas. La suite principal
+no requiere internet. La adquisición opcional ocurrió una sola vez para cinco
+URLs ya preservadas; sus cuerpos forman ahora fixtures offline.

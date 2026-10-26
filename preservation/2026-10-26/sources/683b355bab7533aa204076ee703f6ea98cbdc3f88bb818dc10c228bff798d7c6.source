@@ -1,0 +1,27 @@
+import subprocess
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+code='''import subprocess,json
+pg='valoria-portal-release-restore-check'
+def run(args):
+ p=subprocess.run(args,capture_output=True,text=True,timeout=50)
+ assert p.returncode==0,'Isolated rehearsal failed: '+p.stderr[-1600:]
+ return p.stdout
+sql="SELECT 'listings',count(*)::text FROM listings UNION ALL SELECT 'observations',count(*)::text FROM listing_observations UNION ALL SELECT 'users',count(*)::text FROM users;"
+def query(q):return run(['docker','exec',pg,'psql','-U','restore_test','-d','restore_check','-At','-c',q])
+before=query(sql)
+env=['--network','container:'+pg,'--memory','256m','--cpus','1','-e','DATABASE_URL=postgresql+asyncpg://restore_test@127.0.0.1:5432/restore_check','-e','SYNC_DATABASE_URL=postgresql+psycopg://restore_test@127.0.0.1:5432/restore_check','-e','JWT_SECRET_KEY=isolated-restored-database-check-key']
+out=run(['docker','run','--rm']+env+['--entrypoint','python','valoria-remediation:candidate-20261012-v5','-B','-m','alembic','upgrade','head'])
+assert before==query(sql),'History/user/listing counts changed'
+assert query('SELECT version_num FROM alembic_version').strip()=='0022'
+assert query("SELECT to_regclass('public.alert_reads')").strip()=='alert_reads'
+for action in ['UPDATE listing_observations SET document=document','DELETE FROM listing_observations','TRUNCATE listing_observations']:
+ p=subprocess.run(['docker','exec',pg,'psql','-v','ON_ERROR_STOP=1','-U','restore_test','-d','restore_check','-c',action],capture_output=True,text=True)
+ assert p.returncode!=0 and 'append-only' in p.stderr,'History immutability not enforced'
+check=chr(10).join(['import asyncio','from infrastructure.db.database import get_session_factory','from infrastructure.db.repositories import SqlAlchemyAlertRepository','async def main():',' async with get_session_factory()() as s:','  assert await SqlAlchemyAlertRepository(s).get_unread_alerts_for_user_saved_listings(user_id=-1)==[]','asyncio.run(main())',"print('application_read_compatible')"])
+compat={}
+for image in ['valoria-remediation-rollback:20261012','valoria-remediation:candidate-20261012-v5']:
+ compat[image]=run(['docker','run','--rm']+env+['--entrypoint','python',image,'-B','-c',check]).strip()
+print(json.dumps({'migration':'0021->0022','counts_unchanged':before,'append_only_update_delete_truncate':'enforced','application_rollback_preserving_additive_table':compat},indent=2))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=120);Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\portal-release-migration-rehearsal.json').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);print(r.stderr if r.returncode else '');r.check_returncode()

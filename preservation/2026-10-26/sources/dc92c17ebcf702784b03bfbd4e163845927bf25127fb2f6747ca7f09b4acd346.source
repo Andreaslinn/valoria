@@ -1,0 +1,19 @@
+import subprocess
+from pathlib import Path
+exec(Path(__file__).with_name('portal_runtime_inventory.py').read_text().split('inner=')[0])
+code='''import subprocess,json,os,time
+name='valoria_oracle_beta-api-1';x=json.loads(subprocess.check_output(['docker','inspect',name]))[0]
+assert x['Image']=='sha256:76839409d18f17752334fac007215225a7c2d5c8462e52316f31f353722db672'
+files=[p for p in x['Config']['Labels']['com.docker.compose.project.config_files'].split(',') if not p.endswith('/remediation-portal-active.override.yml')];assert len(files)==5
+args=['docker','compose','--project-name','valoria_oracle_beta','--env-file','/home/ubuntu/apps/valoria/deploy/oracle.env']
+for f in files:args+=['-f',f]
+env=dict(os.environ,PORTAL_GEO_RELEASE_IMAGE='valoria-portal-geo:0ceeb1e-20261011')
+r=subprocess.run(args+['up','-d','--no-deps','--no-build','api'],env=env,capture_output=True,timeout=100);assert r.returncode==0,'API rollback failed'
+for _ in range(30):
+ x=json.loads(subprocess.check_output(['docker','inspect',name]))[0]
+ if x['State'].get('Health',{}).get('Status')=='healthy':break
+ time.sleep(2)
+assert x['Image']=='sha256:3342a667c071319097e6c6aed23bfd03ec231f6bf44cd17434d6a0de13187f15' and x['State']['Health']['Status']=='healthy'
+print(json.dumps({'rollback':'healthy_previous_api_restored','additive0022_retained':True,'reason':'confirmed_candidate_radar_identity_overhead','only_api_recreated':True}))
+'''
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=180);Path(__file__).with_name('portal-radar-safety-rollback.json').write_text(r.stdout+r.stderr,encoding='utf-8');print(r.stdout);r.check_returncode()

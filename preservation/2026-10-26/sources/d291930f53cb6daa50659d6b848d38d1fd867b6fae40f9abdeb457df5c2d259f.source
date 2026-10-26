@@ -1,0 +1,58 @@
+"""Start only an isolated API/Caddy pair; refuses production networks and URLs."""
+from pathlib import Path
+from urllib.parse import urlsplit
+import argparse
+import json
+import subprocess
+import time
+
+def call(args):
+    p = subprocess.run(args, capture_output=True, text=True)
+    if p.returncode:
+        raise RuntimeError('Docker operation failed (diagnostic withheld to protect environment values)')
+    return p.stdout.strip()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--env-file', type=Path, required=True)
+    parser.add_argument('--network', default='valoria-reconcile-20260925-internal')
+    args = parser.parse_args()
+    assert args.network.startswith('valoria-reconcile-')
+    network = json.loads(call(['docker', 'network', 'inspect', args.network]))[0]
+    assert network['Internal']
+    env = dict(line.split('=', 1) for line in args.env_file.read_text().splitlines() if '=' in line)
+    for key in ['DATABASE_URL', 'SYNC_DATABASE_URL']:
+        assert urlsplit(env[key]).hostname == 'reconcile-db'
+    assert urlsplit(env['REDIS_URL']).hostname == 'reconcile-redis'
+    for key in ['UF_API_URL', 'NOMINATIM_URL']:
+        assert urlsplit(env[key]).hostname == 'reconcile-fixtures'
+    for key in ['SCHEDULER_ENABLED', 'WORKERS_ENABLED', 'PORTAL_HTTP_ENABLED',
+                'VALUATION_FEEDBACK_ENABLED', 'PORTFOLIO_SNAPSHOT_WRITE_ENABLED',
+                'LISTING_ON_DEMAND_REFRESH_ENABLED', 'PRODUCT_ANALYTICS_ENABLED',
+                'NOTIFICATIONS_ENABLED', 'WEBHOOKS_ENABLED']:
+        assert env[key].lower() == 'false', key
+    assert not env.get('ADMIN_EMAIL') and not env.get('ADMIN_PASSWORD')
+    name = args.network.removesuffix('-internal') + '-reconciled'
+    assert subprocess.run(['docker', 'inspect', name], capture_output=True).returncode != 0, 'Refusing to overwrite existing container'
+    call(['docker', 'run', '-d', '--pull=never', '--platform=linux/arm64', '--name', name,
+          '--network', args.network, '--network-alias', 'reconcile-api',
+          '--label', 'valoria.task=reconciliation-20260925', '--env-file', str(args.env_file.resolve()),
+          'valoria-reconciled:20260926'])
+    for _ in range(45):
+        p = subprocess.run(['docker', 'exec', name, 'python', '-B', '-c',
+              'import urllib.request; assert urllib.request.urlopen("http://127.0.0.1:8000/health",timeout=3).status==200'],capture_output=True)
+        if p.returncode == 0: break
+        time.sleep(2)
+    else: raise RuntimeError('Isolated API health check failed')
+    caddy_name = args.network.removesuffix('-internal') + '-caddy'
+    config = Path(__file__).resolve().parents[1] / 'deploy/reconciliation/Caddyfile.isolated'
+    call(['docker', 'run', '-d', '--pull=never', '--platform=linux/arm64', '--name', caddy_name,
+          '--network', args.network, '--network-alias', 'reconcile-caddy',
+          '--label', 'valoria.task=reconciliation-20260925',
+          '--mount', f'type=bind,source={config},target=/etc/caddy/Caddyfile,readonly',
+          'sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648'])
+    for container in [name, caddy_name]:
+        state = json.loads(call(['docker', 'inspect', container]))[0]
+        assert not state['HostConfig']['PortBindings']
+        assert set(state['NetworkSettings']['Networks']) == {args.network}
+    print('Reconciled API and preserved Caddy started; no published ports or production services')

@@ -1,0 +1,153 @@
+"""Render the fixed offline result JSON as a compact reviewable Markdown report."""
+import argparse
+import json
+from collections import Counter
+from pathlib import Path
+
+
+def number(value):
+    return '—' if value is None else f'{value:.2f}'
+
+
+def render(result):
+    cases = result['cases']
+    variants = ('A', 'A+', 'B', 'B-frozen')
+    lines = ['# Experimento espacial de Valoria — 2026-10-02', '',
+        f"Snapshot SHA256: `{result['snapshot_sha256']}`.",
+        f"Implementación SHA256: `{result['implementation_sha256']}`.",
+        f"Corte: {result['cutoff']}. Casos: {len(cases)}.", '',
+        'Referencia: precio publicado CLP almacenado, no transacción. UF fija de benchmark: '
+        f"{result['config']['uf_rate']} (respuesta real archivada del 2026-09-28; no UF vigente).",
+        'Snapshot local de anuncios activos, no backtest histórico. Los errores pueden reflejar deuda '
+        'monetaria del dataset. No se accedió a Oracle.', '',
+        '**Consensus está desactivado en este dev. Sus resultados aquí son contrafactuales offline.**', '',
+        '## Familia comparable: universo completo', '',
+        '| Variante | MdAPE pre | MdAPE post | MAPE post | Sesgo % | P90 | >20% | >30% | Cobertura con fallback | Cobertura nativa |',
+        '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+    for variant in variants:
+        s = result['summary'][variant]['estimate']
+        pre = result['summary'][variant]['pre_adjustment']['MdAPE']
+        lines.append('| '+variant+' | '+' | '.join(number(v) for v in
+            (pre,s['MdAPE'],s['MAPE'],s['signed_error_pct'],s['P90'],s['over20_pct'],
+             s['over30_pct'],s['coverage_including_fallback_pct'],s['native_coverage_pct']))+' |')
+    native = [c for c in cases if not c['variants']['B']['fallback_to_A']]
+    geo = [c for c in cases if c['geo_eligible']]
+    gates = Counter(c['variants']['A']['service_base_gate'] or 'pasa' for c in cases)
+    radii = Counter(c['variants']['B']['radius_km'] for c in native)
+    reasons = Counter(c['variants']['B']['fallback_reason'] for c in cases)
+    max_support = max((a['evident_independent_candidates'] for c in cases
+                       for a in c['variants']['B']['radius_attempts']),default=0)
+    lines += ['', f'Objetivos con etiqueta address y coordenadas: {len(geo)}. '
+              f'B con selección espacial efectiva: {len(native)}. Radios: {dict(radii)}.',
+              f'Puerta del cálculo base antes de Consensus: {dict(gates)}.', '',
+        f'Motivos de fallback B: {dict(reasons)}. Máximo soporte aparente por radio '
+        f'(antes de filtros físicos/precio): {max_support}.', '',
+        'La etiqueta address es elegibilidad de código, no verificación física de ubicación. '
+        'Independencia: coincidencias evidentes controladas; property_id no se considera confiable.', '',
+        '## Consensus contrafactual', '',
+        '| Variante | MdAPE controlado | MdAPE mezcla real | MAPE real | Cobertura real % |',
+        '|---|---:|---:|---:|---:|']
+    for variant in variants:
+        controlled = result['summary'][variant]['consensus_controlled']
+        real = result['summary'][variant]['consensus_real']
+        lines.append(f"| {variant} | {number(controlled['MdAPE'])} | {number(real['MdAPE'])} | "
+                     f"{number(real['MAPE'])} | {number(real['coverage_including_fallback_pct'])} |")
+    lines += ['', 'Estas coberturas son del combinador aislado. Los casos que no pasan la puerta '
+        'base no representan una respuesta posible del servicio actual.', '',
+        '## Comparables frente a Consensus en los mismos casos', '',
+        '| Variante | N pareado | MdAPE comparable | MdAPE consenso |', '|---|---:|---:|---:|']
+    for variant in variants:
+        s = result['consensus_common_summary'][variant]
+        lines.append(f"| {variant} | {s['estimate']['successful']} | {number(s['estimate']['MdAPE'])} | "
+                     f"{number(s['consensus_real']['MdAPE'])} |")
+    lines += ['',
+        '## Casos comunes', '',
+        '| Variante | N común | MdAPE post | MAPE post |', '|---|---:|---:|---:|']
+    for variant in variants:
+        s = result['common_summary'][variant]['estimate']
+        lines.append(f"| {variant} | {s['successful']} | {number(s['MdAPE'])} | {number(s['MAPE'])} |")
+    lines += ['', '## Segmentos', '']
+    for dimension, buckets in result['segments'].items():
+        lines += [f'### {dimension}', '', '| Segmento | N | MdAPE A | MdAPE A+ | MdAPE B | B nativo % |',
+                  '|---|---:|---:|---:|---:|---:|']
+        for name, values in buckets.items():
+            lines.append(f"| {name} | {values['A']['cases']} | {number(values['A']['MdAPE'])} | "
+                f"{number(values['A+']['MdAPE'])} | {number(values['B']['MdAPE'])} | "
+                f"{number(values['B']['native_coverage_pct'])} |")
+        lines.append('')
+    lines += ['## Atribución pre/post y ejemplos', '',
+        f"Interacciones: {dict(Counter(i['attribution'] for i in result['surface_interactions']))}.", '',
+        '| ID | Comuna | Referencia CLP | A pre | A post | A+ post | B pre | B post | Frozen post | Radio km |',
+        '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+    for case in native:
+        a,p,b,f = (case['variants'][label] for label in variants)
+        lines.append(f"| {case['id']} | {case['comuna']} | {number(case['reference_clp'])} | "+
+            ' | '.join(number(v) for v in (a['trace'].get('pre_adjustment'),a['estimate'],p['estimate'],
+                b['trace'].get('pre_adjustment'),b['estimate'],f['estimate'],b['radius_km']))+' |')
+    if not native:
+        lines += ['', '**No hay casos B nativos. B-frozen no tuvo casos aplicables; sus cifras son '
+                  'únicamente el fallback A. No se inventan ejemplos de victoria/derrota espacial.**']
+    support = result.get('support_analysis')
+    if support:
+        rows = support['rows']
+        lines += ['', '### Por qué B no consigue soporte', '',
+            f"Hasta {max(i['nearby5km'] for i in rows)} candidatos geográficos a 5 km; "
+            f"hasta {max(i['physical'] for i in rows)} cumplen filtros físicos; "
+            f"como máximo {max(i['usable_price'] for i in rows)} tiene precio canónico utilizable.",
+            'La restricción no es solo cobertura de coordenadas: los anuncios cercanos heredados '
+            'incluyen UF sin precio UF recuperable. No se relajó esta protección ni se repararon datos.',
+            f"Evaluaciones candidato-objetivo por procedencia monetaria: {support['price_reasons']}. "
+            'Estos conteos incluyen el mismo anuncio en diferentes objetivos; no son anuncios únicos.', '']
+    plus_changes = [c for c in cases if c['variants']['A']['estimate'] is not None
+                    and c['variants']['A+']['estimate'] is not None
+                    and c['variants']['A']['estimate'] != c['variants']['A+']['estimate']]
+    lines += ['', '### Casos que sí cambian en A+', '',
+        '| ID | Comuna | Referencia CLP | A post | A+ post | Error A % | Error A+ % |',
+        '|---|---|---:|---:|---:|---:|---:|']
+    for c in plus_changes:
+        a,p = c['variants']['A']['estimate'],c['variants']['A+']['estimate']
+        lines.append(f"| {c['id']} | {c['comuna']} | {number(c['reference_clp'])} | {number(a)} | "
+            f"{number(p)} | {number(abs(100*(a/c['reference_clp']-1)))} | "
+            f"{number(abs(100*(p/c['reference_clp']-1)))} |")
+    conflicts = result['comparable_wins_consensus_loses']
+    lines += ['', '## Comparable mejora pero Consensus empeora', '', f'Casos: {len(conflicts)}.', '']
+    for case in conflicts:
+        b = case['variants']['B']
+        lines += [f"### ID {case['id']} — referencia {number(case['reference_clp'])} CLP", '',
+            f"A comparable {number(case['variants']['A']['estimate'])}; B comparable {number(b['estimate'])}; "
+            f"A consenso {number(case['variants']['A']['consensus_real']['estimate'])}; "
+            f"B consenso {number(b['consensus_real']['estimate'])}.",
+            f"Estrategia: {b['consensus_real'].get('strategy')}. Pesos reales: {b['consensus_real'].get('weights')}.",
+            '', '| Familia | Estimación CLP | Error firmado % | Confianza | Penalización desacuerdo |',
+            '|---|---:|---:|---:|---:|']
+        audits = {i['engine_name']:i for i in b['consensus_real']['audit']}
+        for family in b['families']:
+            lines.append(f"| {family['name']} | {number(family['estimate'])} | {number(family['signed_error_pct'])} | "
+                f"{number(family['confidence'])} | {number(audits[family['name']]['disagreement_modifier'])} |")
+        lines += ['', 'Comparar penalización, confianza y cambio de estrategia con la mezcla controlada; '
+            'el JSON conserva todos los modificadores. La divergencia entre familias no prueba por sí sola '
+            'que B sea correcta ni que las demás señales sean independientes.', '']
+    lines += ['## Recomendación', '',
+        '**Mantener A en producto.** Este snapshot tiene cobertura geográfica insuficiente para justificar '
+        'activación global. A+ y B necesitan más objetivos con ubicación confiable y soporte independiente '
+        'antes de decidir por segmentos. Una falta de ganancia con pocos casos no descarta la hipótesis.', '',
+        'B-frozen es una ablación de atribución. Nunca se registra como familia nueva ni arquitectura propuesta.', '',
+        '## Validación y alcance', '',
+        'Tests de parity A, transmisión de coordenadas, comunas vecinas, radios/fallback, grupos transitivos, '
+        'roundtrip, congelación/procedencia, pesos realmente usados y determinismo. Suite focalizada de '
+        'comparables, scoring, superficie y Consensus. No corresponde build frontend: no se tocó UI.', '',
+        'Artefactos detallados: snapshot y resultado JSON en .local, ignorados por Git; script, tests y '
+        'documentación separados del producto. No hubo migraciones, deploy ni escritura en bases de datos.']
+    return '\n'.join(lines)+'\n'
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('input')
+    parser.add_argument('output')
+    parser.add_argument('--support')
+    args = parser.parse_args()
+    result = json.loads(Path(args.input).read_text(encoding='utf-8-sig'))
+    if args.support:
+        result['support_analysis'] = json.loads(Path(args.support).read_text(encoding='utf-8'))
+    Path(args.output).write_text(render(result), encoding='utf-8')

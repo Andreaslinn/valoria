@@ -1,0 +1,14 @@
+# Ingesta experimental identity-aware
+Implementado exclusivamente en sandbox: `ingestion.py`, `replay.py`, `private/fixture_replay_v2/observations.jsonl` y blob RAW direccionado por SHA256. 20 cards modernas Yapo, 48 cards Portal y 2 detalles Portal reproducidos con parsers actuales. `fixture_replay/` es una revisión preliminar obsoleta: NO usar para cobertura (en v2 cada imagen de Portal se atribuye a su card, nunca a toda la página).
+
+Cada observación conserva source, external_id, URL de solicitud, URL parser, timestamp, etapa card/detail, hash del cuerpo, build parser, salida original del parser y evidencia adicional RAW+PARSED. No se llama clean_listing, mapper, microzonas, motor AVM, repo de escritura ni Redis. No se modifica property_id. Una nueva revisión de parser puede reutilizar el mismo blob sin solicitar fuente.
+
+Yapo: conservar item completo, images/principalImage, orden, sufijos remotos, location completa incluyendo zoom, square/lotSize/usableArea raw y precio/moneda originales. No llamar square «útil» ni lotSize «total» sin confirmar semántica. Campos adicionales seller/address/date solo cuando existen: no inventarlos. El retorno temprano del detalle estructurado puede omitir description/meta; el HTML queda preservado para resolverlo con evidencia futura.
+
+Portal cards: conservar imagen vinculada al external_id y atributos raw. Detalle: guardar JSON-LD/Nordic, gallery.pictures[].id (19 y 23 en fixtures), picture_config, technical_specs, bookmark attrs, quotable_models, location.content_rows y description. No seguir acciones de contacto ni solicitar APIs privadas. No se descargan imágenes.
+
+Pérdida adicional: portal_detail_to_raw entrega description/location en top-level y omite seller; clean_listing no los incorpora a raw_metadata, salvo usos auxiliares en extracción. Por eso preservar esos campos antes del adapter. UNIT_NAME/MODEL_NAME/UNIT_FLOOR en publicaciones de proyecto NO prueban número de departamento ni vivienda única. `priceValidUntil` NO es publicación. id=seller_profile NO es seller ID. Los mapas tampoco prueban precisión address-grade.
+
+Patch propuesto `proposed_yapo_capture.patch`: solo agrega copia profunda del item original y campos RAW a metadata en adapt_item. Validado en 20 items con igualdad exacta del resto de salida. NO aplicado a producto. No agrega historia ni resuelve pérdidas de Portal; la integración completa requeriría aprobar por separado el almacén de evidencia y un hook previo a normalización. El archivo `proposed_parser/yapo_modern.py` es la copia parcheada aislada.
+
+Prioridad: captura antes de acumular; nuevo historial; preservar distinción proyecto/unidad y área declarada/genérica; luego adquisición por fuentes operativas respetando pausa Portal. Nombres/textos/ubicación/URLs quedan en private/, no en informes compartibles. No publicar ese directorio; controles de acceso y retención deben definirse antes de integrar el almacén.

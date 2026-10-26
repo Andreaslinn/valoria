@@ -1,0 +1,15 @@
+# Factibilidad de validación — sin asignaciones
+
+`split_capacity.csv` contiene aritmética de grupos declarados para K=3/4/5 y inner=3. No genera membresías, IDs de folds ni reserva un 20%. Los 1.178 grupos conservadores no son 1.178 unidades físicas demostradas. El escenario 635 está documentado como inválido físicamente; no se recomienda volver a usarlo.
+
+Preferiría K=3 para un piloto inicial aprobado: bloques test más amplios y menor costo, aceptando menos train y un pool A menor. K=4 es compromiso; K=5 preserva más train pero reduce grupos por test/estrato. No fijaría K confirmatorio hasta conocer grupos respaldados y precisión deseada. No hay potencia identificable sin un tamaño de efecto preregistrado y dependencia estimable; no inferirla de N publicaciones o de la desviación entre folds.
+
+Grouped CV: CONDITIONAL para explorar, NOT_READY para certificar. Comunas históricas de baja representación y source×comuna muy concentrado impiden claims por estrato aunque el N global parezca grande. `source_comuna_coverage.csv` publica el censo descriptivo; no se exige artificialmente cada comuna en cada fold.
+
+Spatial stress: técnicamente diseñable dejando comunas fuera, pero evalúa extrapolación y puede provocar abstención de A por diseño. No sustituye la validación principal en comunas conocidas, ni elimina republicaciones con coordenadas imprecisas. Bloques finos requieren precisión geo adecuada y política sin precios; no se dibujaron microzonas.
+
+Temporal: NOT_READY con los snapshots legacy mutables. History ya registra raw/parsed/persisted, pero los agregados no permiten demostrar availability de cada campo/label. Una cohorte prospectiva nueva necesita purga de grupos/republicaciones; dividir por fecha solamente no basta. No reactivar detail refresh ni Portal para obtenerla aquí.
+
+Holdout: no congelado. ~20% es proporción propuesta de grupos/unidades de evaluación, no de inmuebles certificados. Histórico ya explorado no puede producir un holdout virgen retrospectivo. Aprobar universo/grupos/cutoff/criterios y custodia de labels antes de abrir una reserva prospectiva. La reserva no se ha creado.
+
+Censo moderno del 2 octubre (892, población distinta): fuentes {"yapo": 447, "portalinmobiliario": 445}, comunas con menor presencia [["la_cisterna", 1], ["pudahuel", 1], ["quinta_normal", 2], ["renca", 2], ["san_joaquin", 2]], mayor presencia [["estacion_central", 236], ["macul", 122], ["santiago", 116], ["nunoa", 82], ["independencia", 54]]. La baja presencia es descriptiva; no se inventa un corte universal de suficiencia. `group_stratum_capacity.csv` detalla grupos históricos por fuente×comuna, singleton/concentración y aritmética K; no certifica potencia ni grupos físicos actuales.

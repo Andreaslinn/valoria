@@ -1,0 +1,17 @@
+import pathlib,subprocess,datetime,json,hashlib
+root=pathlib.Path('/home/ubuntu/apps/valoria')
+runtime=root/'scripts/portal_session_runtime'
+runner=root/'scripts/run_portal_discovery_service.sh'
+backup=runtime/'run_portal_discovery_service.before.sh'
+expected='#!/usr/bin/env bash\nset -Eeuo pipefail\ncd /home/ubuntu/apps/valoria\nexec docker compose --env-file deploy/oracle.env -f docker-compose.oracle.yml exec -T -e PORTAL_HTTP_ENABLED=true api python scripts/portal_card_first.py --apply --max-pages 1 --max-details 5 --pause-s 3\n'
+assert runner.read_text()==expected,'Runner changed concurrently; refusing overwrite'
+assert not backup.exists(),'Activation already applied'
+backup.write_bytes(runner.read_bytes());backup.chmod(0o700)
+replacement='#!/usr/bin/env bash\nset -Eeuo pipefail\ncd /home/ubuntu/apps/valoria\nexec /usr/bin/python3 -B scripts/portal_session_runtime/run_portal_session.py\n'
+temp=runner.with_suffix('.new');temp.write_text(replacement);temp.chmod(0o755);temp.replace(runner)
+rollback=runtime/'rollback.sh'
+rollback.write_text('#!/usr/bin/env bash\nset -Eeuo pipefail\nsudo systemctl disable --now valoria-portal-discovery.timer\ncp /home/ubuntu/apps/valoria/scripts/portal_session_runtime/run_portal_discovery_service.before.sh /home/ubuntu/apps/valoria/scripts/run_portal_discovery_service.sh\nchmod 755 /home/ubuntu/apps/valoria/scripts/run_portal_discovery_service.sh\n')
+rollback.chmod(0o700)
+# Start one real production run while the recurring timer remains disabled.
+r=subprocess.run(['sudo','-n','systemctl','start','--no-block','valoria-portal-discovery.service'],capture_output=True,text=True,check=True)
+print(json.dumps({'runner_installed':True,'rollback_available':True,'full_run_started':True,'timer_still_disabled':True,'api_restarts':False}))

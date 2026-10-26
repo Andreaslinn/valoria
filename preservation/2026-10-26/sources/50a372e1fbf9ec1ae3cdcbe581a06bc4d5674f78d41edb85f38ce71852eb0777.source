@@ -1,0 +1,203 @@
+import unittest,copy,json,hashlib,sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from readiness_core import *
+from run_readiness import build,read_json,HERE,read_csv,execute
+
+def row(i,**values):
+    return dict({'id':i,'source':'yapo','external_id':str(i),'listing_id':i,'title':'Departamento luminoso UF 2500',
+       'url':f'https://fixture.invalid/{i}','comuna':'santiago','property_type':'apartment','m2':70,'built_area_m2':70,
+       'bedrooms':2,'bathrooms':2,'parking':1,'price_uf':2500,'uf_rate_used':40000,
+       'lat':-33.45,'lon':-70.65,'geocode_precision':'address'},**values)
+
+def document(i,pub,cycle,**attrs):
+    p=row(i);p.update(attrs)
+    return {'cycle_id':cycle,'document':{'observation_id':f'obs-{i}','event_kind':'listing_seen','source':'yapo','external_id':pub,
+      'listing_id':1 if pub=='p1' else 2,'observed_at':f'2026-10-0{cycle}T06:00:00+00:00','parsed_state':p,'raw_state':{},'provenance':{}}}
+
+def snapshot():
+    return {'captured_at':'2026-10-05T00:00:00+00:00','cycles':[{'cycle_id':i,'normal_pipeline':True,'completed':True,'unexpected_errors':0} for i in [1,2,3]],
+       'observations':[document(1,'p1',1),document(2,'p1',2),document(3,'p1',3),document(4,'p2',1)]}
+
+class IdentityTests(unittest.TestCase):
+    def test_price_and_UF_rate_invariance(self):
+        rows=[row(1),row(2)];rows[1]['listing_id']=1
+        before=dependency_components(rows);signals=identity_signals(rows)
+        for r in rows:r['price_uf']=99999;r['uf_rate_used']=12345;r['title']='Departamento luminoso UF 99999'
+        self.assertEqual(before,dependency_components(rows));self.assertEqual(signals,identity_signals(rows))
+    def test_money_text_neutralized(self):
+        for x in ['UF2500','UF: 2.500','CLP 100000000','$ 100.000.000','2500 UF','precio: 2500 UF']:
+            self.assertNotRegex(sanitize('Departamento '+x),r'\d')
+    def test_property_id_and_fingerprint_ignored(self):
+        a=row(1);b=row(2);a['property_id']=b['property_id']=1;a['fingerprint']=b['fingerprint']='same'
+        self.assertEqual(len(set(dependency_components([a,b]).values())),2)
+        self.assertNotIn('old_property_id',identity_signals([a])[0])
+    def test_transitive_dependencies_preserved(self):
+        a=row(1);b=row(2);c=row(3);b['listing_id']=a['listing_id'];c['url']=b['url']
+        self.assertEqual(len(set(dependency_components([c,a,b]).values())),1)
+    def test_source_namespaces_independent(self):
+        a=row(1);b=row(2);b.update(source='portal',external_id='1')
+        self.assertEqual(len(set(dependency_components([a,b]).values())),2)
+    def test_same_building_does_not_auto_group(self):
+        a=row(1);b=row(2);a['raw_metadata']=b['raw_metadata']={'address_label':'calle segura 100'}
+        self.assertEqual(len(set(dependency_components([a,b]).values())),2)
+    def test_verified_geographic_contradiction(self):
+        a=row(1);b=row(2);b.update(lat=-33.46,geo_precision_verified=True);a['geo_precision_verified']=True;b['listing_id']=1
+        d=geographic_conflicts([a,b],dependency_components([a,b]))
+        self.assertEqual(d['hard_verified_geo_pairs'],1)
+    def test_unverified_pin_not_hard_contradiction(self):
+        a=row(1);b=row(2);b['lat']=-33.46;b['listing_id']=1
+        d=geographic_conflicts([a,b],dependency_components([a,b]))
+        self.assertEqual(d['hard_verified_geo_pairs'],0);self.assertEqual(d['unverified_geo_jump_pairs'],1)
+    def test_duplicate_identifiers_rejected(self):
+        with self.assertRaises(InvalidSnapshot):dependency_components([row(1),row(1)])
+
+class ObservationTests(unittest.TestCase):
+    def test_observation_listing_physical_separation(self):
+        r=observation_diagnostics(snapshot());self.assertEqual(r['counts']['observations'],4)
+        self.assertEqual(r['counts']['publications'],2);self.assertEqual(r['counts']['canonical_listings'],2)
+        self.assertIsNone(r['counts']['physical_units']);self.assertEqual(r['repeat_observations'],2)
+    def test_three_distinct_valid_cycles(self):
+        d=snapshot();r=observation_diagnostics(d);self.assertEqual(r['publications_in_three_valid_cycles'],1)
+        d['cycles'][2]['unexpected_errors']=1
+        self.assertEqual(observation_diagnostics(d)['publications_in_three_valid_cycles'],0)
+    def test_same_cycle_repetitions_do_not_count_three(self):
+        d=snapshot()
+        for o in d['observations']:o['cycle_id']=1
+        self.assertEqual(observation_diagnostics(d)['publications_in_three_valid_cycles'],0)
+    def test_duplicate_observation_not_inflated(self):
+        d=snapshot();d['observations'].append(copy.deepcopy(d['observations'][0]));r=observation_diagnostics(d)
+        self.assertEqual(r['counts']['observations'],4);self.assertEqual(r['counts']['duplicate_observations_ignored'],1)
+    def test_conflicting_observation_id_rejected(self):
+        d=snapshot();v=copy.deepcopy(d['observations'][0]);v['document']['parsed_state']['price_uf']=1;d['observations'].append(v)
+        with self.assertRaises(InvalidSnapshot):observation_diagnostics(d)
+    def test_duplicate_ID_cycle_assignment_conflict_rejected(self):
+        d=snapshot();v=copy.deepcopy(d['observations'][0]);v['cycle_id']=2;d['observations'].append(v)
+        with self.assertRaises(InvalidSnapshot):observation_diagnostics(d)
+    def test_unknown_cycle_rejected(self):
+        d=snapshot();d['observations'][0]['cycle_id']=99
+        with self.assertRaises(InvalidSnapshot):observation_diagnostics(d)
+    def test_missing_cycle_assignment_not_certified(self):
+        d=snapshot();d['observations'][0]['cycle_id']=None
+        self.assertFalse(observation_diagnostics(d)['cycle_assignment_complete'])
+    def test_future_observation_rejected(self):
+        d=snapshot();d['observations'][0]['document']['observed_at']='2026-11-01T00:00:00+00:00'
+        with self.assertRaises(InvalidSnapshot):observation_diagnostics(d)
+    def test_status_events_not_labels(self):
+        d=snapshot();d['observations'].append({'document':{'observation_id':'status','event_kind':'refresh_result','parsed_state':{'status':'inactive'}}})
+        r=observation_diagnostics(d);self.assertEqual(r['counts']['observations'],5);self.assertEqual(r['counts']['listing_seen_unique'],4);self.assertEqual(r['counts']['status_events'],1)
+    def test_input_not_modified(self):
+        d=snapshot();before=copy.deepcopy(d);observation_diagnostics(d);self.assertEqual(d,before)
+    def test_numeric_price_changes_not_identity(self):
+        d=snapshot();r,_=normalize_observations(d);g=dependency_components(r)
+        for o in d['observations']:o['document']['parsed_state']['price_uf']=123
+        p,_=normalize_observations(d);self.assertEqual(g,dependency_components(p))
+    def test_deterministic_diagnostics(self):self.assertEqual(observation_diagnostics(snapshot()),observation_diagnostics(snapshot()))
+    def test_invalid_coordinates_are_not_missing(self):
+        _,f,_=quality([row(1,lat='invalid',lon='NaN')],'fixture')
+        xy=next(r for r in f if r['feature']=='coordinates')
+        self.assertEqual(xy['present_n'],1);self.assertEqual(xy['invalid_coordinates_n'],1);self.assertEqual(xy['missing_n'],0)
+    def test_invalid_features_explicit(self):
+        _,f,_=quality([row(1,m2='infinity',parking='bad')],'fixture')
+        self.assertEqual(next(r for r in f if r['feature']=='m2')['invalid_numeric_n'],1)
+    def test_run_delta_does_not_infer_physical_units(self):
+        r=run_delta({'latest_history':{'publications':10,'physical_units':None}}, {'latest_history':{'publications':20,'physical_units':None}})
+        self.assertEqual(r['changes']['publications']['delta'],10);self.assertNotIn('physical_units',r['changes'])
+
+class IntegrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):cls.config=read_json(HERE/'inputs.json');cls.files,cls.result=build(cls.config)
+    def test_no_READY_from_observation_quantity(self):
+        a=copy.deepcopy(read_json(Path(__file__).resolve().parents[3]/self.config['files']['latest_accumulation']['path']))
+        a['natural_cycle_journal']['cycles']*=3;a['publications_at_least_3_UTC_days']=900
+        r=evaluate_gates(a,self.config['thresholds'],identity_results={},harness_findings={})
+        self.assertNotEqual(r['global'],'READY');self.assertEqual(r['gates']['G_IDENTITY']['state'],'NOT_READY')
+    def test_required_states_and_evidence(self):
+        for g in self.result['gates'].values():
+            self.assertIn(g['state'],['READY','CONDITIONAL','NOT_READY'])
+            for k in ['evidence','metrics','thresholds','threshold_provenance','limitations','blockers','recommended_action']:self.assertIn(k,g)
+    def test_thresholds_unchanged(self):
+        self.assertEqual(self.config['thresholds'],{'normal_cycles':7,'publications_in_three_cycles':500,'identity_URL_coverage':.99,'origin_images_coverage':.95})
+    def test_reports_consistent(self):
+        g=json.loads(self.files['readiness_gates.json']);text=self.files['readiness_summary.md'].decode()
+        self.assertIn('AVM_NOT_READY',text)
+        for name,value in g['gates'].items():self.assertIn(f"| {name} | {value['state']} |",text)
+        import io,csv
+        rows=list(csv.DictReader(io.StringIO(self.files['accumulation_status.csv'].decode())))
+        n=next(r['value'] for r in rows if r.get('metric')=='observations');self.assertIn(n+' observations',text)
+    def test_historical_quality_denominators(self):
+        import io,csv
+        rows=list(csv.DictReader(io.StringIO(self.files['target_quality.csv'].decode())))
+        for scope,n in [('historical_1179_20261002',1179),('modern_892_20261002',892)]:self.assertEqual(sum(int(r['n']) for r in rows if r['scope']==scope),n)
+    def test_sample_price_blind_and_deterministic(self):
+        d=json.loads(self.files['blind_adjudication_sample.json'])
+        for p in d['pairs']:
+            for side in ['left','right']:
+                self.assertFalse(any('price' in k or 'uf' in k for k in p[side]));self.assertNotRegex(p[side]['title'],r'\d')
+        files,_=build(self.config);self.assertEqual(files['blind_adjudication_sample.json'],self.files['blind_adjudication_sample.json'])
+    def test_original_hashes_match(self):
+        from run_readiness import WORKSPACE,file_sha
+        for f in self.config['files'].values():self.assertEqual(file_sha(WORKSPACE/f['path']),f['sha256'])
+    def test_missing_current_targets_explicit(self):self.assertFalse(self.result['gates']['G_TARGET']['metrics']['current_row_level_targets_available'])
+    def test_new_export_keeps_status_and_price_events_separate(self):
+        d=snapshot();d['observations'].append({'document':{'observation_id':'status','event_kind':'refresh_result'}})
+        files,r=build(self.config,d)
+        counts=json.loads(files['population_counts.json'])['latest_history']
+        self.assertEqual(counts['observations'],4);self.assertEqual(counts['all_event_observations'],5)
+        self.assertEqual(counts['repeat_observations'],2);self.assertEqual(counts['status_events'],1)
+        self.assertTrue(r['gates']['G_TARGET']['metrics']['current_row_level_targets_available'])
+        self.assertEqual(r['global'],'NOT_READY')
+    def test_no_predictive_results_used(self):
+        text=(HERE/'readiness_core.py').read_text(encoding='utf-8')+(HERE/'run_readiness.py').read_text(encoding='utf-8')
+        self.assertNotIn('synthetic-results.json',text);self.assertNotIn('MAPE',text);self.assertNotIn('model.fit(',text)
+    def test_scoped_stratum_counts_conserve_rows(self):
+        import io,csv
+        rows=list(csv.DictReader(io.StringIO(self.files['group_stratum_capacity.csv'].decode())))
+        for g in ['G1','G2','G3']:self.assertEqual(sum(int(r['publication_rows']) for r in rows if r['scenario']==g),1179)
+    def test_feature_strata_match_population_denominators(self):
+        import io,csv
+        rows=list(csv.DictReader(io.StringIO(self.files['feature_source_comuna_quality.csv'].decode())))
+        for scope,n in [('historical_1179_20261002',1179),('modern_892_20261002',892)]:
+            self.assertEqual(sum(int(r['n']) for r in rows if r['scope']==scope and r['feature']=='parking'),n)
+    def test_immutable_execution_and_previous_delta(self):
+        import shutil,uuid
+        from unittest.mock import patch
+        import run_readiness
+        root=HERE/('test-fixture-'+uuid.uuid4().hex)
+        root.mkdir()
+        try:
+            (root/'tests').mkdir()
+            for name in ['inputs.json','readiness_core.py','run_readiness.py','frozen_identity.py','independent_review.md','README.md','tests/test_readiness.py']:
+                shutil.copyfile(HERE/name,root/name)
+            with patch.object(run_readiness,'HERE',root):
+                out,_,created=execute();self.assertTrue(created)
+                before={p.name:(p.read_bytes(),p.stat().st_mtime_ns) for p in out.iterdir()}
+                repeated,_,created=execute();self.assertFalse(created);self.assertEqual(out,repeated)
+                self.assertEqual(before,{p.name:(p.read_bytes(),p.stat().st_mtime_ns) for p in out.iterdir()})
+                later,_,created=execute(previous_run=out);self.assertTrue(created);self.assertNotEqual(out,later)
+                d=read_json(later/'readiness_delta.json');self.assertEqual(d['changes'],{});self.assertEqual(d['gate_changes'],{})
+                (out/'readiness_summary.md').write_text('altered',encoding='utf-8')
+                with self.assertRaises(InvalidSnapshot):execute()
+        finally:
+            self.assertTrue(root.resolve().is_relative_to(HERE.resolve()))
+            shutil.rmtree(root)
+
+class KnownHarnessLimits(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0,str(HERE.parents[1]/'work/avm-01-20261008'))
+        from avm01.fixtures import synthetic
+        self.ds=synthetic()
+    def test_reserved_related_row_not_detected_by_old_validator(self):
+        from avm01.splits import Split,validate_split
+        # 000-1 is related to the reserved 000-0 but reserved row is not in test.
+        # Existing validator accepts: documents a concrete missing contract, does not approve it.
+        validate_split(self.ds,Split(('fixture-000-1',),('fixture-001-0',)),('fixture-000-0',))
+    def test_inner_entry_does_not_validate_outer(self):
+        from avm01.splits import Split,inner_folds
+        train=('fixture-000-1',)+tuple(r.row_id for r in self.ds.records[2:14])
+        outer=Split(train,('fixture-000-0',))
+        # Existing public function constructs inner folds although outer shares a physical group.
+        folds=inner_folds(self.ds,outer)
+        self.assertEqual(len(folds),3)
+
+if __name__=='__main__':unittest.main()

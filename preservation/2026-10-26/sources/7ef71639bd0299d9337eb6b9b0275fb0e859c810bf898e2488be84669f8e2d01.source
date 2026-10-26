@@ -1,0 +1,51 @@
+from support import *
+from a1 import WEIGHTS,choose,LAMBDA
+from dataclasses import replace
+import pytest
+@pytest.fixture(scope='module')
+def setup():
+ c=verify();p,(ds,cohort,maps,_)=load();dataset=ds['G3'];plan=p.create_plan(dataset,cohort,maps['G3'],20261009)
+ custody=LabelCustody(dataset,());batch=custody.issue(dataset,plan.folds[0],config(c,20261009,['A']),())
+ return dataset,plan,custody,batch,YapoModel(batch,c['uf_reference']['value'])
+def test_original_fifteen_weights():
+ grid=read(PARENT/'configurations.json')
+ assert len(grid)==15 and all(tuple(g['weights'])==W0 for g in grid)
+def test_simplex_and_regularization():
+ assert len(WEIGHTS)==31 and WEIGHTS[0]==W0
+ assert all(min(w)>=0 and abs(sum(w)-1)<1e-12 for w in WEIGHTS)
+ j,obj=choose([.2]*31);assert j==0 and all(x>=obj[0] for x in obj)
+ losses=[.2]*31;losses[1]=.1;assert choose(losses)[0]==1
+def test_price_blind_and_signature(setup):
+ _,_,_,batch,model=setup;t=batch.targets[0]
+ assert not any('price' in k for k in t.canonical_target)
+ with pytest.raises(Exception):model.bundle(replace(t,canonical_target={**t.canonical_target,'price':123}))
+def test_source_only_train_and_groups(setup):
+ _,_,_,batch,model=setup
+ assert model.canonical and all(l.source=='yapo' for l in model.canonical)
+ for t in [t for t in batch.targets if t.features['source']=='yapo'][:8]:
+  result=model.bundle(t).predict(ADAPT);verify_trace(result,batch,t,'yapo')
+def test_native_A_parity_and_exact_fallback(setup):
+ _,_,_,batch,model=setup;native=FrozenA().fit(batch);native.rows=[r for r in native.rows if r.features['source']=='yapo']
+ targets=[t for t in batch.targets if t.features['source']=='yapo'][:8]
+ for t in targets:
+  b=model.bundle(t);a=b.predict(BASE);clear_price_surface_cache();expected=native.predict(t)
+  assert a['prediction']==expected.value_uf
+  m=b.predict(override(ADAPT,'forced',min_neff=1e6));assert m['fallback'] and m['prediction']==a['prediction'] and m['selected_ids']==a['selected_ids']
+def test_labels_sealed(setup):
+ _,plan,custody,_,_=setup
+ with pytest.raises(Exception):custody.complete({'A':{}},plan.folds[0].test)
+def test_inner_outer_groups(setup):
+ ds,plan,_,_,_=setup;components=dependency_components(ds)
+ for outer in plan.folds:
+  assert not {components[i] for i in outer.train}&{components[i] for i in outer.test}
+  for inner in inner_folds(ds,outer,20261009,n_folds=3,reserved_holdout=()):
+   assert set(inner.train)|set(inner.test)<=set(outer.train)
+   assert not {components[i] for i in inner.train}&{components[i] for i in inner.test}
+def test_determinism(setup):
+ _,_,_,batch,model=setup;fresh=YapoModel(batch,model.rate)
+ for t in batch.targets[:2]:assert model.bundle(t).predict(ADAPT)==fresh.bundle(t).predict(ADAPT)
+def test_bootstrap_identical():
+ z={'prediction':10,'used':5,'neff':5,'median_distance':1}
+ rows=[{'group':str(i),'target_uf':11,'predictions':{'A':z,'B':z}} for i in range(5)]
+ out=interval(rows,'A','B');assert out['MAPE_CI95']==[0.,0.] and out['MdAPE_CI95']==[0.,0.]
+def test_original_integrity():assert verify()['holdout_consumed'] is False

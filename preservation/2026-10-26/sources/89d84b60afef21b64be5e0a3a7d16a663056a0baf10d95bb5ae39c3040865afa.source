@@ -1,0 +1,48 @@
+import subprocess,json,pathlib,datetime
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/published-fields-deploy-20261016')
+code=r'''
+import asyncio,json,math
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+async def main():
+ async with get_session_factory()() as s:
+  await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+  sql="""SELECT source,comuna,COUNT(*) AS active,
+  COUNT(*) FILTER(WHERE raw_metadata #>> '{published_fields,version}'='1') AS published_fields,
+  COUNT(*) FILTER(WHERE raw_metadata #>> '{published_fields,stage}' IN ('detail','merged')) AS detail_observations,
+  COUNT(*) FILTER(WHERE raw_metadata #>> '{published_fields,latitude}' IS NOT NULL AND raw_metadata #>> '{published_fields,longitude}' IS NOT NULL) AS coordinates,
+  COUNT(*) FILTER(WHERE raw_metadata #>> '{published_fields,useful_area_m2}' IS NOT NULL) AS useful_area,
+  COUNT(*) FILTER(WHERE raw_metadata #>> '{published_fields,total_area_m2}' IS NOT NULL) AS total_area,
+  COUNT(*) FILTER(WHERE COALESCE(raw_metadata #>> '{published_fields,age_years}',raw_metadata #>> '{published_fields,construction_year}',raw_metadata #>> '{published_fields,construction_year_description}') IS NOT NULL) AS age_year,
+  COUNT(*) FILTER(WHERE raw_metadata #>> '{published_fields,floor}' IS NOT NULL) AS floor,
+  COUNT(*) FILTER(WHERE raw_metadata #>> '{published_fields,address_type}'='exact' AND raw_metadata #>> '{published_fields,street}' IS NOT NULL AND raw_metadata #>> '{published_fields,address_number}' NOT IN ('0','')) AS exact_address
+  FROM listings WHERE status='active' AND property_type='apartment' AND source IN ('yapo','portalinmobiliario') GROUP BY source,comuna ORDER BY source,comuna"""
+  all_rows=[dict(r) for r in (await s.execute(text(sql))).mappings().all()]
+  communes={'providencia','vitacura','la_florida','estacion_central','san_miguel','santiago','nunoa','las_condes'}
+  selected=[r for r in all_rows if r['comuna'] in communes]
+  sources=[]
+  for source in ['yapo','portalinmobiliario']:
+   rows=[r for r in selected if r['source']==source]
+   summary={k:sum(r[k] for r in rows) for k in ['active','published_fields','detail_observations','coordinates','useful_area','total_area','age_year','floor','exact_address']}
+   summary['source']=source
+   summary['percent_of_active']={k:round(100*summary[k]/summary['active'],2) if summary['active'] else None for k in ['coordinates','useful_area','total_area','age_year','floor','exact_address']}
+   summary['remaining_8_communes']=summary['active']-summary['detail_observations']
+   summary['minimum_days_fixed_stock_at_5_per_day']=math.ceil(summary['remaining_8_communes']/5)
+   summary['global_active_apartment_queue']=sum(r['active'] for r in all_rows if r['source']==source)
+   summary['days_global_fixed_queue_at_5_per_day']=math.ceil(summary['global_active_apartment_queue']/5)
+   sources.append(summary)
+  runs=[dict(r) for r in (await s.execute(text("SELECT source,started_at,finished_at,successful,counters,errors FROM ingestion_runs ORDER BY started_at DESC LIMIT 6"))).mappings().all()]
+  await s.rollback()
+ print(json.dumps({'sources':sources,'by_commune':selected,'latest_runs':runs,'read_only':True,'scope':'active apartments in 8 communes','percent_denominator':'all active apartments per source; only published_fields values counted'},default=str))
+asyncio.run(main())
+'''
+r=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input=code,text=True,capture_output=True,timeout=120)
+if r.returncode:raise RuntimeError('Read-only coverage query failed')
+proof=json.loads(r.stdout)
+proof['checked_at']=datetime.datetime.now(datetime.timezone.utc).isoformat()
+proof['normal_cycles_after_deploy_complete']=False
+for source in ['valoria-yapo-discovery','valoria-portal-discovery']:
+ result=subprocess.run(['systemctl','show',source+'.timer','--property=NextElapseUSecRealtime,LastTriggerUSec,ActiveState'],text=True,capture_output=True,check=True)
+ proof[source]=dict(l.split('=',1) for l in result.stdout.splitlines() if '=' in l)
+(B/'coverage-current.json').write_text(json.dumps(proof,indent=2))
+print(json.dumps(proof))

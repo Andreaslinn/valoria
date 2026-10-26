@@ -1,0 +1,4 @@
+import subprocess
+root='/home/ubuntu/apps/valoria/scripts/portal_session_runtime/'
+r=subprocess.run(['python3','-B',root+'run_portal_session.py','--max-targets','1','--max-pages','1','--max-details','0','--max-geo-details','0'],capture_output=True,text=True,timeout=180)
+print(r.stdout);print(r.stderr[-2000:]);raise SystemExit(r.returncode)

@@ -1,0 +1,4 @@
+import subprocess,json
+for name in ['uf-calendar','portal-discovery','yapo-discovery']:
+ r=subprocess.run(['systemctl','show','valoria-'+name+'.timer','--property=ActiveState,SubState,LastTriggerUSec,NextElapseUSecRealtime'],capture_output=True,text=True)
+ print(json.dumps({'unit':name,'state':r.stdout}))

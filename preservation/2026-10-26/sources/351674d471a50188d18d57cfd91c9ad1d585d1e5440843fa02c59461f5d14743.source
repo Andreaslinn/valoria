@@ -1,0 +1,155 @@
+"""One partition boundary. Adapters receive signed training-only value objects.
+
+Not an adversarial Python security sandbox: the controller/source snapshots are
+trusted. No dataset, vault or retained labels are reachable from a FitBatch.
+"""
+from dataclasses import dataclass,asdict,field
+from collections import defaultdict
+from copy import deepcopy
+import hashlib,hmac,secrets
+from .data import InvalidExperiment,Inference,digest,timepoint
+
+_ISSUER=secrets.token_bytes(32)  # process-local custody capability; never serialized
+
+def dependency_components(ds):
+    ds.validate();parent={r.row_id:r.row_id for r in ds.records};keys={}
+    def find(i):
+        while parent[i]!=i:parent[i]=parent[parent[i]];i=parent[i]
+        return i
+    def union(a,b):
+        a,b=find(a),find(b)
+        if a!=b:parent[max(a,b)]=min(a,b)
+    for r in sorted(ds.records,key=lambda r:r.row_id):
+        for key in r.keys()|{('declared_group',r.group_id)}:
+            if key in keys:union(r.row_id,keys[key])
+            else:keys[key]=r.row_id
+    for a,b in ds.dependency_links:union(a,b)
+    return {i:find(i) for i in sorted(parent)}
+
+def dependency_hash(ds):
+    return digest({'policy':ds.grouping_policy,'evidence':ds.grouping_evidence_hash,'components':dependency_components(ds)})
+
+def index_ids(ds):
+    ds.validate();publications=defaultdict(list)
+    for r in ds.records:publications[(r.features['source'],r.publication_id)].append(r)
+    select=min if ds.index_policy=='first_observation_v1' else max
+    return tuple(sorted(select(rows,key=lambda r:(timepoint(r.observed_at),r.observation_id,r.row_id)).row_id for rows in publications.values()))
+
+def validate_config(config):
+    if config.get('real_execution_enabled') is not False:raise InvalidExperiment('Real execution flag must remain false')
+    if not isinstance(config.get('seed'),int) or isinstance(config['seed'],bool):raise InvalidExperiment('Integer seed required')
+    if config.get('target') not in ['log_uf_total','log_uf_m2']:raise InvalidExperiment('Unknown target definition')
+    if not isinstance(config.get('geo_ablation'),bool):raise InvalidExperiment('Explicit geo ablation required')
+    engines=config.get('engines')
+    if not isinstance(engines,list) or not engines or len(set(engines))!=len(engines):raise InvalidExperiment('Unique engine names required')
+    if config.get('index_policy') not in ['first_observation_v1','last_observation_v1']:raise InvalidExperiment('Index policy must be part of locked config')
+    digest(config)
+
+@dataclass(frozen=True)
+class TrainingRow:
+    row_id:str
+    features:dict
+    price_uf:float
+    latitude:float|None
+    longitude:float|None
+    canonical_listing:dict
+    observed_at:str
+    available_at:str
+    price_available_at:str
+    feature_available_at:dict
+
+@dataclass(frozen=True)
+class FitBatch:
+    rows:tuple[TrainingRow,...]
+    targets:tuple[Inference,...]
+    components:dict
+    reserved_components:tuple[str,...]
+    snapshot_id:str
+    snapshot_hash:str
+    dependency_hash:str
+    config:dict
+    stage:str
+    _signature:str=field(repr=False,compare=False)
+
+    def payload(self):
+        p=asdict(self);p.pop('_signature');return p
+    def validate(self):
+        signature=hmac.new(_ISSUER,digest(self.payload()).encode(),hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature,self._signature):raise InvalidExperiment('Unissued or modified training partition')
+        train={r.row_id for r in self.rows};test={r.row_id for r in self.targets}
+        if not train or not test or train&test:raise InvalidExperiment('Invalid authorized batch')
+        if {self.components[i] for i in train}&{self.components[i] for i in test}:raise InvalidExperiment('Dependency crosses authorized batch')
+        if {self.components[i] for i in train|test}&set(self.reserved_components):raise InvalidExperiment('Protected dependency in authorized batch')
+        return self
+    def target(self,row_id):
+        self.validate()
+        for r in self.targets:
+            if r.row_id==row_id:return deepcopy(r)
+        raise InvalidExperiment('Prediction outside authorized evaluation universe')
+    def validate_target(self,target):
+        if not isinstance(target,Inference) or digest(asdict(target))!=digest(asdict(self.target(target.row_id))):raise InvalidExperiment('Unaligned/modified prediction features or ID')
+
+class LabelCustody:
+    """Held by evaluator only, never delivered to engines or transforms."""
+    def __init__(self,ds,reserved=()):
+        self.__ds=deepcopy(ds);self.__binding=ds.hash();self.__components=dependency_components(ds)
+        idx=ds.indexed()
+        if set(reserved)-idx.keys():raise InvalidExperiment('Unknown reserved observation')
+        self.__reserved={self.__components[i] for i in reserved};self.__issued=[];self.__completed={};self.audit=[]
+    def _unchanged(self,ds):
+        if ds.hash()!=self.__binding:raise InvalidExperiment('Snapshot/dependency changed; rebuild experiment under reviewed policy')
+    def issue(self,ds,split,config,reserved=(),outer=None):
+        from .splits import validate_split
+        ds.require_synthetic();self._unchanged(ds);validate_config(config)
+        if config['index_policy']!=ds.index_policy:raise InvalidExperiment('Dataset/config index policy mismatch')
+        if split.seed is not None and split.seed!=config['seed']:raise InvalidExperiment('Split/config seed mismatch')
+        components=dependency_components(ds)
+        if set(reserved)-components.keys():raise InvalidExperiment('Unknown reserved observation')
+        if {components[i] for i in reserved}!=self.__reserved:raise InvalidExperiment('Holdout reservation changed within custody')
+        validate_split(ds,split,reserved,outer=outer)
+        if split.stage=='final_holdout':raise InvalidExperiment('Final holdout execution disabled in this experimental task')
+        idx=ds.indexed();rows=[]
+        for i in sorted(split.train):
+            r=idx[i];rows.append(TrainingRow(i,deepcopy(r.features),r.price_uf,r.latitude,r.longitude,deepcopy(r.canonical_listing),
+                r.observed_at,r.available_at,r.price_available_at,deepcopy(r.feature_available_at)))
+        targets=tuple(idx[i].inference() for i in split.test)
+        values=dict(rows=tuple(rows),targets=targets,components={i:components[i] for i in set(split.train)|set(split.test)},
+            reserved_components=tuple(sorted(self.__reserved)),snapshot_id=ds.snapshot_id,snapshot_hash=self.__binding,
+            dependency_hash=dependency_hash(ds),config=deepcopy(config),stage=split.stage)
+        provisional=FitBatch(**values,_signature='')
+        signed=hmac.new(_ISSUER,digest(provisional.payload()).encode(),hashlib.sha256).hexdigest()
+        batch=FitBatch(**values,_signature=signed).validate()
+        self.__issued.append((set(split.test),tuple(config['engines']),split.stage,digest(batch.payload())))
+        self.audit.append({'phase':'training_release','ids':sorted(split.train),'retained_label_release':False,'stage':split.stage})
+        return batch
+    def record_predictions(self,batch,predictions):
+        batch.validate();key=digest(batch.payload())
+        issued=next((x for x in self.__issued if x[3]==key),None)
+        if issued is None:raise InvalidExperiment('Predictions for foreign custody partition')
+        if set(predictions)!=set(issued[1]) or any(set(p)!=issued[0] for p in predictions.values()):raise InvalidExperiment('Incomplete prediction receipt')
+        self.__completed[key]=deepcopy(predictions)
+    def complete(self,predictions,ids):
+        ids=set(ids)
+        if not ids:raise InvalidExperiment('Empty evaluation universe')
+        applicable=[x for x in self.__issued if x[0]<=ids]
+        if not applicable or set().union(*(x[0] for x in applicable))!=ids:raise InvalidExperiment('Labels requested before authorized evaluation')
+        if any(x[3] not in self.__completed for x in applicable):raise InvalidExperiment('Labels sealed until predictions have completed')
+        engines=applicable[0][1]
+        if any(x[1]!=engines for x in applicable):raise InvalidExperiment('Config/engine mismatch across evaluation partitions')
+        if set(predictions)!=set(engines) or any(set(p)!=ids for p in predictions.values()):raise InvalidExperiment('Incomplete or foreign predictions; labels remain sealed')
+        for name,values in predictions.items():
+            for i,value in values.items():
+                receipts=[self.__completed[x[3]][name][i] for x in applicable if i in x[0]]
+                if not receipts or any(v!=value for v in receipts):raise InvalidExperiment('Predictions differ from completed evaluation receipt')
+        idx=self.__ds.indexed()
+        if {self.__components[i] for i in ids}&self.__reserved:raise InvalidExperiment('Final holdout labels remain sealed')
+        self.audit.append({'phase':'metric_evaluation','ids':sorted(ids),'stages':sorted({x[2] for x in applicable}),'holdout_release':False})
+        # Only evaluator code receives this copy, after complete aligned predictions.
+        return {i:idx[i].price_uf for i in sorted(ids)}
+
+def prepare_batch(ds,split,config,reserved=(),outer=None):
+    return LabelCustody(ds,reserved).issue(ds,split,config,reserved,outer)
+
+def require_batch(batch,legacy=()):
+    if legacy or not isinstance(batch,FitBatch):raise InvalidExperiment('fit requires an authorized training-only FitBatch; Dataset fit is forbidden')
+    return batch.validate()

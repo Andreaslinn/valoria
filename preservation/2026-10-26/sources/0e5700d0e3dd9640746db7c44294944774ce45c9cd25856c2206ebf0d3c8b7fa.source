@@ -1,0 +1,47 @@
+import sys,json,sqlite3,asyncio,hashlib,csv,math
+from pathlib import Path
+from datetime import date,datetime,timezone
+from dataclasses import asdict
+ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT/'valoria'))
+OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+OUT.mkdir(exist_ok=True)
+def save(name,obj):
+    (OUT/name).write_text(json.dumps(obj,ensure_ascii=False,indent=2,default=str),encoding='utf8')
+from services.sii.address_details import address_details
+from services.sii.closing_address import AddressIndex
+from services.sii.role_lookup import resolve_role
+from services.sii.closing_knn import ClosingKNN
+from services.sii.closing_opinion import build_opinion
+DATA=ROOT/'closing-validation-final'
+index=AddressIndex(DATA/'address-index.sqlite')
+resolution=resolve_role(index,15160,'1261-6')
+facts=address_details(rol='1261-6',comuna='vitacura',data_dir=str(DATA))
+save('target.json',{'resolution':resolution,'facts':facts})
+role=resolution['role']
+target={'rol':role['rol'],'comuna':15160,'block':role['block'],'kind':role['kind'],'date':date.today().isoformat(),'area':role['area'],'year':role['year'],'building':'|'.join(map(str,resolution['building']))}
+rows=json.loads((DATA/'closings.json').read_text(encoding='utf8'))
+model=ClosingKNN(rows)
+pred=model.estimate(target)
+save('sii-target-prediction.json',{'target':target,'prediction':pred,'opinion':build_opinion(address='',rol='1261-6',comuna='vitacura',property_type='house',area=role['area'],data_dir=str(DATA))})
+print('TARGET',json.dumps({'fields':facts['fields'],'role':role,'sii_value':pred.get('value_uf')},ensure_ascii=False))
+from scripts.validate_sii_closing import connect
+from services.sii.settings import value
+with connect(value('SII_DATABASE_URL', 'postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55432/valoria_sii_local')) as c:
+    c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    c.execute("SET LOCAL statement_timeout='120s'")
+    assert c.execute('SHOW transaction_read_only').fetchone()['transaction_read_only']=='on'
+    schema=c.execute("SELECT table_schema,table_name,column_name,data_type FROM information_schema.columns WHERE table_schema='sii' OR (table_schema='public' AND table_name='ingestion_uf_calendar') ORDER BY table_schema,table_name,ordinal_position").fetchall()
+    save('source-schema.json',schema)
+    print('TABLES',sorted(set(r['table_name'] for r in schema)))
+    c.rollback()
+
+async def main():
+    from tasar_demo import service
+    from services.valuation import ValuationInput
+    baseline=ValuationInput(comuna='vitacura',property_type='house',m2=role['area'],built_area_m2=role['area'],land_area_m2=facts['fields'].get('land_area_m2'))
+    result=await service.valuate_property(baseline,valuation_strategy='canonical_only')
+    save('canonical-result.json',result.to_payload())
+    print('CANONICAL',result.estimated_price_uf,'comparables',len(result.comparables))
+asyncio.run(main())
+

@@ -1,0 +1,75 @@
+"""Inner-only joint selection of text regularization and an A/text log blend."""
+from lab import *
+from text_models import *
+from text_run import GRID
+from temporal_run import supported
+from avm01.isolation import LabelCustody,dependency_hash
+from avm01.splits import inner_folds,Split
+from avm01.engines import FrozenA
+from domain.valuation.price_surface import clear_price_surface_cache
+from analyze import metrics,interval
+LAM=[0.,.25,.5,.75,1.]
+OPTIONS=[(g,l) for g in range(len(GRID)) for l in LAM]
+NAMES=['A','Blend','BlendSupported','TextSelected']
+
+def mixed(a,b,weight):
+ return b if a is None else a if weight==0 else math.exp((1-weight)*math.log(a)+weight*math.log(b))
+
+def config(c,seed,names=NAMES):
+ return {'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':names,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'blend_protocol.json')}
+
+def native(batch):
+ m=FrozenA().fit(batch);out={}
+ for t in batch.targets:
+  clear_price_surface_cache();p=m.predict(t)
+  assert set(p.trace.get('selected_ids',[]))<={r.row_id for r in batch.rows}
+  out[t.row_id]=p.value_uf
+ return out
+
+def choose(ds,outer,c,seed):
+ custody=LabelCustody(ds,());errs=[defaultdict(list) for _ in OPTIONS];support=[]
+ for k,s in enumerate(inner_folds(ds,outer,seed=seed)):
+  names=[f'BlendGrid{j}' for j in range(len(OPTIONS))];batch=custody.issue(ds,s,config(c,seed,['A']+names),(),outer=outer);ts=list(batch.targets)
+  a=native(batch);vv=[np.exp(TextModel(batch,**g).predict_log(ts)) for g in GRID]
+  valid={t.row_id:a[t.row_id] is not None or supported(t,batch.rows) for t in ts}
+  iv={n:{t.row_id:mixed(a[t.row_id],float(vv[gi][i]),weight) if valid[t.row_id] else None for i,t in enumerate(ts)} for n,(gi,weight) in zip(names,OPTIONS)}
+  iv['A']=a;custody.record_predictions(batch,iv);truth=custody.complete(iv,s.test)
+  for j,n in enumerate(names):
+   for t in ts:
+    v=iv[n][t.row_id]
+    if v is not None:errs[j][t.features['source']].append(abs(math.log(v/truth[t.row_id])))
+  support.append({'fold':k,'eligible':len(ts),'scored':sum(valid.values()),'native_A':sum(v is not None for v in a.values())})
+ scores=[sum(w*np.mean(e[source]) for source,w in [('portalinmobiliario',.6),('yapo',.4)] if e[source]) for e in errs]
+ # More regularization and less deviation from A win exact ties. No outer labels here.
+ j=min(range(len(OPTIONS)),key=lambda j:(scores[j],OPTIONS[j][1],-GRID[OPTIONS[j][0]]['alpha'],j))
+ return j,scores,support
+
+def predict(batch,j,old):
+ gi,weight=OPTIONS[j];ts=list(batch.targets);v=np.exp(TextModel(batch,**GRID[gi]).predict_log(ts));vals={n:{} for n in NAMES}
+ for t,b in zip(ts,v):
+  a=old[t.row_id];b=float(b);val=mixed(a,b,weight)
+  vals['A'][t.row_id]=a;vals['TextSelected'][t.row_id]=b
+  vals['Blend'][t.row_id]=val if a is not None else None
+  vals['BlendSupported'][t.row_id]=val if a is not None or supported(t,batch.rows) else None
+ return vals
+
+def evaluate(rows):
+ return {label:{'n':len(ss),'full':{n:metrics(ss,n) for n in NAMES},'paired':{n:interval(ss,'A',n) for n in NAMES if n!='A'}} for label,ss in [('all',rows),('Portal',[r for r in rows if r['source']=='portalinmobiliario']),('Yapo',[r for r in rows if r['source']=='yapo']),('A_abstentions',[r for r in rows if r['predictions']['A'] is None])]}
+
+def run(seed):
+ c=read(HERE/'blend_protocol.json');p,(datasets,cohort,maps,_)=load();ds=datasets['G3'];plan=p.create_plan(ds,cohort,maps['G3'],seed);old={r['row_id']:r['predictions']['A']['prediction'] for r in prior(seed)};out=HERE/f'blend-{seed}.json.dpapi';assert not out.exists();custody=LabelCustody(ds,());rows=[];tuning=[]
+ for k,s in enumerate(plan.folds):
+  print(json.dumps({'blend_seed':seed,'fold':k}),flush=True);j,scores,support=choose(ds,s,c,seed);batch=custody.issue(ds,s,config(c,seed),());vals=predict(batch,j,old);custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test);gi,weight=OPTIONS[j];tuning.append({'fold':k,'text':GRID[gi],'text_weight':weight,'scores':scores,'support':support})
+  for t in batch.targets:rows.append({'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'comuna':t.features['comuna'],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}})
+ encrypt(out,rows);summary=evaluate(rows);summary['tuning']=tuning;write(HERE/f'blend-{seed}-summary.json',summary);print(json.dumps(summary['all']['full']))
+
+def temporal():
+ from temporal_prepare import temporal_data
+ c=read(HERE/'blend_protocol.json');ds,train,test,_=temporal_data();seed=20261009;s=Split(train,test,'temporal',seed,ds.hash(),dependency_hash(ds));j,scores,support=choose(ds,s,c,seed);custody=LabelCustody(ds,());batch=custody.issue(ds,s,config(c,seed),());old={r['row_id']:r['predictions']['A'] for r in decrypt(HERE/'temporal_predictions.json.dpapi')};vals=predict(batch,j,old);custody.record_predictions(batch,vals);truth=custody.complete(vals,s.test)
+ rows=[{'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'comuna':t.features['comuna'],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES}} for t in batch.targets];out=HERE/'blend-temporal.json.dpapi';assert not out.exists();encrypt(out,rows);summary=evaluate(rows);gi,weight=OPTIONS[j];summary['tuning']={'text':GRID[gi],'text_weight':weight,'scores':scores,'support':support};write(HERE/'blend-temporal-summary.json',summary);print(json.dumps(summary['all']['full']))
+
+def prepare():
+ c=verify();t=read(HERE/'temporal_protocol.json');v={'registered_at':datetime.now(timezone.utc).isoformat(),'dataset_sha256':{**c['dataset_sha256'],**t['dataset_sha256']},'allowed_engines':NAMES+[f'BlendGrid{j}' for j in range(len(OPTIONS))],'uf_reference':c['uf_reference'],'text_grid':GRID,'text_weight_grid':LAM,'selection':'Joint grid inner grouped3 only, source-balanced .6Portal/.4Yapo absolute log error. All combinations evaluated on identical supported inner targets. Ties prefer lower blend weight and higher ridge alpha. No outer selection.','hypothesis':'A and price-free lexical information may be complementary; shrink text toward immutable A to avoid full replacement. Blend requires A. BlendSupported adds text only on price-blind commune/area support, separately evaluated.','status':'Reused original cohort and already-consumed 149 temporal targets: exploratory, not confirmatory or product approval. Fixed grid, no follow-up outer-test tuning.','code_sha256':{n:sha(HERE/n) for n in ['blend_run.py','text_models.py']}}
+ assert not (HERE/'blend_protocol.json').exists();write(HERE/'blend_protocol.json',v);(HERE/'blend_protocol.sha256').write_text(sha(HERE/'blend_protocol.json'));path=RUNTIME/'avm01/pilot_authorization.py';path.write_text(path.read_text().replace("'quality_protocol']","'quality_protocol','blend_protocol']"));seal=read(HERE/'temporal_code_seal.json');seal['runtime/avm01/pilot_authorization.py']=sha(path);write(HERE/'temporal_code_seal.json',seal)
+
+if __name__=='__main__':prepare() if sys.argv[1]=='prepare' else temporal() if sys.argv[1]=='temporal' else run(int(sys.argv[1]))

@@ -1,0 +1,93 @@
+# Portal geography + A-M v0 — sandbox
+
+Implementation and exploratory evaluation only. No deployment, schema change,
+network requests, production writes or confirmatory holdout use.
+
+## Contents
+
+- `portal_coordinates.patch`: four-file integration candidate against the archived
+  Oct 8 production source; not applied outside this sandbox.
+- `integration/`: runnable candidate parser, adapter and ingestion pipeline.
+- `geo_recovery.py`: archived-detail inventory and encrypted fill-missing plan;
+  its writer explicitly accepts SQLite copies only and is idempotent.
+- `experimental.py`: local selector using the frozen native A primitives.
+- `configurations.json`: fixed 15-profile search; weights remain 40/25/15/10/10.
+- `results.json`, `metrics.csv`, `fold_metrics.csv`: aggregate results.
+- `*-v2.json.dpapi`: individual predictions and adjustment traces, encrypted for
+  the current Windows user. Decrypt in memory using `run.decrypt`; do not export
+  plaintext. `backfill_plan.json.dpapi` uses the same protection.
+
+## Geography contract
+
+`Portal map_info.location → MLC-bound raw evidence → existing adapter/cleaner →
+Listing coordinates + raw_metadata → repository → Radar / valuation listing`
+
+The existing detail extractor is reused. An already acquired map point can also
+be attached with `attach_map_point`; that helper makes no request. Normal cards
+without a point remain unchanged. Evidence contains original and normalized
+values, publication MLC, source component, parser version, observation timestamp
+when supplied, and precision. Unknown acquisition time stays null.
+
+USABLE requires explicit source precision and publication-bound provenance.
+UNCERTAIN includes valid unknown/approximate points; these can participate in the
+separately flagged experiment. INVALID covers invalid pairs and known conflicts;
+MISSING covers no pair. Centroids and coordinates repeated at least five times
+are held out of local selection, not deleted. Repetition is measured within
+training only in CV. It can also flag a real building; it is a conservative
+sensitivity control, not an identity matcher. No source currently establishes
+certified exact-address precision. No meter accuracy or polygon validation is
+invented. Source publication IDs establish listing association, not physical
+property identity.
+
+The SQLite regression verifies ingestion, reobservation, repository mapping and
+preservation of a stronger stored point and its provenance. Radar and valuation
+repositories share this canonical listing mapping. The production manual Tasar
+request/UI does not gain coordinate inputs here: the offline selector receives
+the certified target coordinates directly. Frontend-v2 still needs a later
+precision-aware display integration; no frontend change is included.
+
+## Experimental protocol
+
+The Oct 4 cohort has 791 targets (406 Portal, 385 Yapo); zero Portal targets have
+timely geography in it. Two recoverable archived Portal points are not backdated
+into that cohort. Current inventory coverage and benchmark coverage are distinct.
+Targets are asking prices, not verified transactions; this previously studied
+development cohort yields exploratory evidence only.
+
+G3 grouped nested 3×3 CV uses two seeds; G1 is a grouping sensitivity. The grid
+is tuned only in inner folds, with coverage at least A per source. Outer labels
+are opened after all predictions. Errors use paired support; full coverage and
+abstentions are separate. Portal falls back identically to A, so inner spatial
+selection is effectively driven by Yapo despite the registered source weights.
+
+A uses its original minimum 5 / maximum 20. Local profiles additionally limit
+each reviewed dependency component to one training observation. This is an
+experimental independence safeguard, not productive identity resolution; its
+effect is bundled with spatial retrieval. Adaptive radii are .5/1/2/3/5 km,
+with native physical filters, optional layout bands and native scoring/outliers.
+Insufficient count or Neff returns exact A including its selected IDs.
+
+Pre/post estimates, surface reference, contributing pool, adjustment magnitude,
+direction and reason are retained. AM-frozen is attribution-only. If A lacks a
+surface reference, that ablation abstains explicitly. The V2 amendment fixes that
+mechanical case without changing the grid; failed V1 executions produced no
+valid results. No weight optimization A1 was attempted.
+
+## Reproduction (PowerShell, workspace root)
+
+```powershell
+$avmPython = 'work/avm-01-20261008/.venv-repro/Scripts/python.exe'
+& $avmPython -B research/portal_geo_am_v0_20261010/run.py G3 20261009 fresh-reproduction --native-check
+& $avmPython -B -c "import sys;sys.path.insert(0,'research/portal_geo_am_v0_20261010');from run import decrypt,HERE;assert decrypt(HERE/'fresh-reproduction.json.dpapi')==decrypt(HERE/'primary-v2.json.dpapi')"
+& $avmPython -B research/portal_geo_am_v0_20261010/summarize.py
+python -B -m pytest -c research/portal_geo_am_v0_20261010/pytest.ini research/portal_geo_am_v0_20261010/test_integration.py research/portal_geo_am_v0_20261010/test_recovery.py research/portal_geo_am_v0_20261010/legacy_tests -q -p no:cacheprovider
+python -B -c "import sys;sys.path.insert(0,'work/avm-01-20261008/.venv-repro/Lib/site-packages');import pytest;raise SystemExit(pytest.main(['research/portal_geo_am_v0_20261010/test_am.py','-q','-p','no:cacheprovider']))"
+```
+
+Original runs and inputs must be present. Choose a fresh run tag; overwriting
+predictions is refused. `summarize.py` checks the archived primary A, all 791
+native predictions, the independent V2 repetition and immutable hashes.
+`protocol.json` and `execution_seal_v2.json` lock original inputs and executables.
+
+The patch requires review and integration approval. No production-ready claim
+can be made for Portal spatial accuracy before a prospective geolocated cohort.

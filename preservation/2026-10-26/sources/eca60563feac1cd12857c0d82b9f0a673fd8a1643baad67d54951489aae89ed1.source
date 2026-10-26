@@ -1,0 +1,17 @@
+from pathlib import Path
+import subprocess
+r=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled')
+check=(r/'services/v2_contract.py').read_text(encoding='utf-8').split('def v2_capabilities()')[0]
+code=check+'''\nimport asyncio,httpx,json
+async def main():
+ async with httpx.AsyncClient() as c:
+  schema=(await c.get('http://127.0.0.1:8000/openapi.json')).json()
+  response=await c.get('http://127.0.0.1:8000/api/v1/health/capabilities')
+  capabilities=response.json() if response.status_code==200 else {}
+  print(json.dumps({'capability_status':response.status_code,'failures':check_v2_contract(schema,capabilities)},indent=2))
+asyncio.run(main())
+'''
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+remote="import subprocess,sys\np=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(code)+",text=True,capture_output=True,timeout=35)\nprint(p.stdout)\nprint(p.stderr if p.returncode else '')\nsys.exit(p.returncode)"
+result=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=50)
+p=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work\oracle-contract-gate.txt');p.write_text(result.stdout+result.stderr,encoding='utf-8');print(result.stdout);print(result.stderr if result.returncode else '')

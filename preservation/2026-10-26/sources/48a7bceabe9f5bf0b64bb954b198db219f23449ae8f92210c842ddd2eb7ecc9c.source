@@ -1,0 +1,10 @@
+import { apiClient } from "./client";
+import { downloadAuthenticatedReport } from "./download";
+import type { ListingLookupResponse, ListingAnalysisResponse, ListingFreshnessMetadata } from "@/types/listing";
+
+export const listingUrlApi = {
+  lookup: (url: string, signal?: AbortSignal) => apiClient.post<ListingLookupResponse>("/api/v1/listings/lookup-url", {url}, {signal, timeoutMs:120000}),
+  analyze: (url: string, signal?: AbortSignal) => apiClient.post<ListingAnalysisResponse>("/api/v1/listings/analyze-url", {url}, {signal, timeoutMs:120000}),
+  save: (id: number) => apiClient.post<ListingFreshnessMetadata>(`/api/v1/watchlist/${id}`),
+  report: (analysis: ListingAnalysisResponse) => downloadAuthenticatedReport({endpoint:"/api/v1/reports/listing-analysis?format=html",fallbackFilename:"valoria-analisis-publicacion.html",body:{analysis}}),
+};

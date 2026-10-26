@@ -1,0 +1,93 @@
+from pathlib import Path
+import json, zipfile, hashlib, re, os
+from datetime import datetime, timezone
+from reconstruct_valoria import TASK, CODEX, BASE, sanitize, logical_hash
+
+def sha(x): return hashlib.sha256(x).hexdigest()
+def safe(rel):
+    p=Path(rel)
+    return not any(x in {'.cursor','.agents'} for x in p.parts) and not (p.name.lower().startswith(('secrets.','credentials.')) or p.name.lower() in {'auth.json','storage.json','storage-state.json'})
+def stronger(data):
+    data,_=sanitize(data)
+    try: s=data.decode('utf-8')
+    except UnicodeError: return data
+    pat=r'''(?im)(\b(?:password|passwd|jwt_secret_key|secret_key|client_secret|api_key|apikey|access_token|refresh_token|admin_password|postgres_password|netlify_auth_token|github_token|token)\b["']?\s*(?::[^=\r\n"']{0,20})?\s*[=:]\s*)(["'])([^"'\r\n]{3,})\2'''
+    def fn(m):
+        if any(x in m[3] for x in ['${','[REDACTED]','[PASSWORD]','getenv','environ']): return m[0]
+        return m[1]+m[2]+'[REDACTED]'+m[2]
+    return re.sub(pat,fn,s).encode('utf-8')
+
+def run():
+    zp=TASK/'outputs/CAMBIOS_DESDE_RECONCILED.zip'
+    with zipfile.ZipFile(zp) as z:
+        items={n:z.read(n) for n in z.namelist()}
+    m=json.loads(items.pop('MANIFIESTO.json'))
+    changes=[r for r in m['changes'] if safe(r['relative_path'])]
+    used={r['stored_at'] for r in changes}
+    for name in list(items):
+        if name.startswith(('experimental/','development_or_uncertain/','historical_or_intermediate/','release_or_operational_evidence/')) and name not in used:
+            del items[name]
+    # Preserve top-level helpers in Valoria task workspaces; the unchanged source roots are already in the package.
+    taskroots=set()
+    for s in m['sources']:
+        p=Path(s['path'])
+        if p.is_relative_to(CODEX):
+            parts=p.relative_to(CODEX).parts
+            if len(parts)>=2 and re.match(r'2026-\d\d-\d\d',parts[0]): taskroots.add(CODEX/parts[0]/parts[1])
+    seen={(r['relative_path'],r['packaged_sha256']):r['stored_at'] for r in changes}
+    for no,task in enumerate(sorted(taskroots,key=str)):
+        src={'id':f'aux-{no:02d}','path':str(task),'kind':'auxiliary_scripts','head':'filesystem; date and content hash per file','change_records':0,'eligible_files':0}
+        candidates=list(task.glob('*.py'))
+        work=task/'work'
+        if work.is_dir(): candidates += [p for p in work.iterdir() if p.is_file() and p.suffix in {'.py','.ps1','.sh','.sql'}]
+        for p in candidates:
+            if p.name in {'reconstruct_valoria.py','supplement_reconstruction.py'} or p.stat().st_size>1_000_000: continue
+            # mtime is only a scope hint, not a claimed creation date.
+            if datetime.fromtimestamp(p.stat().st_mtime,timezone.utc).date().isoformat()<'2026-09-29': continue
+            rel=p.relative_to(task).as_posix(); original=p.read_bytes(); data=stronger(original); key=(rel,sha(data))
+            where=seen.get(key)
+            if where is None:
+                where=f'experimental/{src["id"]}/{rel}'; items[where]=data; seen[key]=where
+            changes.append({'source':src['id'],'relative_path':rel,'kind':'auxiliary_new_to_package','original_sha256':sha(original),'logical_sha256':logical_hash(original),'packaged_sha256':sha(data),'stored_at':where,'file_date':datetime.fromtimestamp(p.stat().st_mtime,timezone.utc).isoformat(),'source_version':'uncommitted filesystem; chronology inferred only from mtime','category':'experimental','sanitized_copy':data!=original.replace(b'\r\n',b'\n')})
+            src['change_records']+=1
+        if src['change_records']: m['sources'].append(src)
+    for group,names in [
+      ('micromarkets',['LEEME.md','manifest.json','protocol.json','diagnosis.json','development.json','evaluation.json','strict-coverage.json','latency.json']),
+      ('integrated',['LEEME.md','manifest.json','evidence-summary.json','latency.json']),
+      ('integrated/vitacura',['geographic-policy.json','geography-audit.json'])]:
+        for n in names:
+            p=TASK/'outputs'/group/n
+            if p.is_file() and p.stat().st_size<1_000_000:
+                original=p.read_bytes(); data=stronger(original); dest='evidence/'+group+'/'+n; items[dest]=data
+                m['evidence'].append({'original_path':str(p),'stored_at':dest,'sha256_original':sha(original),'sha256_packaged':sha(data),'status':'pre-existing local model/geography evidence; no new tests'})
+    # Strengthen redaction for all copied source, evidence and patches, never original files.
+    for n in items:
+        if n not in {'ELIMINACIONES.json','ESTADO_VALORIA.md'}: items[n]=stronger(items[n])
+    for r in changes:
+        data=items[r['stored_at']]; r['packaged_sha256']=sha(data)
+        r['sanitized_copy']=r['sanitized_copy'] or r['packaged_sha256']!=r['logical_sha256']
+    m['changes']=changes
+    paths={r['relative_path'] for r in changes}
+    variants={p:len({r['logical_sha256'] for r in changes if r['relative_path']==p}) for p in paths}
+    variants={p:v for p,v in variants.items() if v>1}
+    m['multiple_versions']=variants
+    c=m['counts']; c.update(source_snapshots_compared=len(m['sources']),unique_changed_relative_paths=len(paths),provenance_change_records=len(changes),deduplicated_file_versions=len({r['stored_at'] for r in changes}),paths_with_multiple_versions=len(variants),sanitized_file_versions=len({r['stored_at'] for r in changes if r['sanitized_copy']}))
+    m['security']+=' Tool configurations (.cursor/.agents) and credential stores excluded; packaged text redaction covers quoted JSON keys as well.'
+    state=(TASK/'outputs/ESTADO_VALORIA.md').read_text(encoding='utf-8')
+    state=re.sub(r'\d+ rutas con diferencias, \d+ versiones de archivo sin duplicados de contenido/ruta, \d+ rutas con variantes',f'{c["unique_changed_relative_paths"]} rutas con diferencias, {c["deduplicated_file_versions"]} versiones de archivo sin duplicados de contenido/ruta, {c["paths_with_multiple_versions"]} rutas con variantes',state)
+    state=state.replace('Se localizaron '+str(c['sources_examined'])+' árboles/copiados y se compararon ', 'Se localizaron '+str(c['sources_examined'])+' árboles/copiados y se compararon ')
+    state=re.sub(r'se compararon \d+ snapshots',f'se compararon {len(m["sources"])} snapshots',state)
+    state=state.replace('Los scripts auxiliares de lotes y validación se preservan fuera del árbol principal bajo su procedencia original.','Los scripts auxiliares de lotes, migración, exportación y validación se preservan fuera del árbol principal bajo su procedencia original.')
+    (TASK/'outputs/ESTADO_VALORIA.md').write_text(state,encoding='utf-8')
+    items['ESTADO_VALORIA.md']=state.encode(); items['MANIFIESTO.json']=json.dumps(m,ensure_ascii=False,indent=2).encode()
+    temp=TASK/'work/reconstruction-final.zip'
+    with zipfile.ZipFile(temp,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+        for n,data in sorted(items.items()): z.writestr(n,data)
+    with zipfile.ZipFile(temp) as z:
+        assert z.testzip() is None
+        for r in changes: assert sha(z.read(r['stored_at']))==r['packaged_sha256']
+        assert not any('/node_modules/' in n or '/.git/' in n for n in z.namelist())
+    os.replace(temp,zp)
+    print(json.dumps({'counts':c,'zip_bytes':zp.stat().st_size,'state_bytes':(TASK/'outputs/ESTADO_VALORIA.md').stat().st_size,'integrity':'CRC and every manifest file hash verified'},ensure_ascii=False,indent=2))
+
+if __name__=='__main__':run()

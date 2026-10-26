@@ -1,0 +1,173 @@
+import json
+import sqlite3
+from copy import deepcopy
+
+import httpx
+import pytest
+
+from scripts import backfill_published_fields as job
+
+
+def row(identity="123", source="yapo"):
+    return {"id": int(identity), "source": source, "external_id": identity,
+            "url": f"https://www.yapo.cl/bienes-raices-venta-de-propiedades-apartamentos/{identity}",
+            "comuna": "Santiago", "status": "active", "property_type": "apartment"}
+
+
+def fields(r):
+    return {"version": 1, "source": r["source"], "external_id": r["external_id"],
+            "stage": "detail", "street": "Portugal", "address_number": "564",
+            "address_type": "exact", "address_raw": "Portugal 564 Depto 12",
+            "provenance": {"address": "yapo:exactAddress"}}
+
+
+@pytest.fixture
+def ledger(tmp_path):
+    db = job.open_ledger(tmp_path / "backfill.sqlite")
+    yield db
+    db.close()
+
+
+def run(db, handler, **kwargs):
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        return job.execute(db, client, sleep=lambda _: None, **kwargs)
+
+
+def test_disabled_does_not_open_network_database_or_read_arguments(monkeypatch, capsys):
+    monkeypatch.delenv("SII_PUBLISHED_BACKFILL_ENABLED", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://production/not_allowed")
+    job.main()
+    assert '"status": "disabled"' in capsys.readouterr().out
+
+
+def test_only_missing_active_apartments_are_enqueued_and_original_is_unchanged(ledger):
+    r = row()
+    observed = {**row("124"), "published_fields": fields(row("124"))}
+    inactive = {**row("125"), "status": "inactive"}
+    house = {**row("126"), "property_type": "house"}
+    original = deepcopy(r)
+    assert job.enqueue(ledger, [r, observed, inactive, house]) == 1
+    assert job.enqueue(ledger, [r]) == 0
+    assert r == original
+
+
+def test_success_persists_only_local_facts_and_replay_makes_zero_requests(ledger):
+    r = row()
+    job.enqueue(ledger, [r])
+    def handler(_):
+        return httpx.Response(200, text="detail")
+    def parser(_html, item):
+        return ("detail", fields(item))
+    assert run(ledger, handler, parser=parser) == {"requests_this_run": 1, "new_captures_this_run": 1}
+    saved = ledger.execute("SELECT * FROM tasks").fetchone()
+    assert json.loads(saved["fields_json"])["street"] == "Portugal"
+    assert json.loads(saved["row_json"]) == r
+    assert job.summary(ledger)["yapo"]["location"] == 1
+    assert run(ledger, lambda _: pytest.fail("replay must not fetch"), parser=parser)["requests_this_run"] == 0
+
+
+@pytest.mark.parametrize("code", [403, 429, 503])
+def test_access_denial_and_server_error_stop_source_and_resume_does_not_retry(ledger, code):
+    job.enqueue(ledger, [row(), row("124")])
+    assert run(ledger, lambda _: httpx.Response(code, headers={"retry-after": "3600"}))["requests_this_run"] == 1
+    assert ledger.execute("SELECT count(*) FROM tasks WHERE status='pending'").fetchone()[0] == 1
+    assert run(ledger, lambda _: pytest.fail("stopped source must not fetch"))["requests_this_run"] == 0
+    assert ledger.execute("SELECT count(*) FROM source_stops").fetchone()[0] == 1
+
+
+def test_timeout_stops_source_without_claiming_source_does_not_publish(ledger):
+    job.enqueue(ledger, [row(), row("124")])
+    def fail(request):
+        raise httpx.ReadTimeout("timeout", request=request)
+    run(ledger, fail)
+    assert ledger.execute("SELECT status FROM tasks ORDER BY external_id").fetchone()[0] == "fetch_error"
+    assert job.summary(ledger)["yapo"]["attempted"] == 1
+
+
+def test_challenge_with_http_200_stops_source_and_cannot_store_fields(ledger):
+    job.enqueue(ledger, [row(), row("124")])
+    run(ledger, lambda _: httpx.Response(200, text="challenge"),
+        parser=lambda _h, item: ("challenge", fields(item)))
+    assert ledger.execute("SELECT fields_json FROM tasks WHERE status='blocked'").fetchone()[0] is None
+    assert job.summary(ledger)["yapo"]["attempted"] == 1
+
+
+def test_recommendation_or_wrong_publication_is_never_stored(ledger):
+    job.enqueue(ledger, [row()])
+    run(ledger, lambda _: httpx.Response(200, text="other listing"),
+        parser=lambda _h, _r: ("detail", fields(row("999"))))
+    assert ledger.execute("SELECT status,fields_json FROM tasks").fetchone()[:] == ("identity_mismatch", None)
+
+
+def test_pauses_apply_to_initial_fetch_canonical_redirect_and_next_listing(ledger):
+    job.enqueue(ledger, [row(), row("124")])
+    calls, pauses = [], []
+    def handler(request):
+        calls.append(str(request.url))
+        if len(calls) == 1:
+            return httpx.Response(301, headers={"location": "/canonical/123"})
+        return httpx.Response(200, text="detail")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        job.execute(ledger, client, sleep=pauses.append, monotonic=lambda: 0,
+                    parser=lambda _h, r: ("detail", fields(r)))
+    assert len(calls) == 3
+    assert pauses == [5, 5, 5]
+
+
+@pytest.mark.parametrize("destination", ["https://evil.invalid/123", "https://www.yapo.cl/ficha/999",
+                                         "http://www.yapo.cl/ficha/123"])
+def test_redirect_cannot_change_host_identity_or_https(ledger, destination):
+    job.enqueue(ledger, [row()])
+    result = run(ledger, lambda _: httpx.Response(302, headers={"location": destination}))
+    assert result["requests_this_run"] == 1
+    assert job.summary(ledger)["yapo"]["states"] == {"redirect": 1}
+
+
+def test_interruption_resumes_pending_rows_without_duplicate_captures(tmp_path):
+    path = tmp_path / "resumable.sqlite"
+    with job.open_ledger(path) as db:
+        job.enqueue(db, [row(), row("124")])
+        result = run(db, lambda _: httpx.Response(200, text="detail"), limit=1,
+                     parser=lambda _h, r: ("detail", fields(r)))
+        assert result["new_captures_this_run"] == 1
+    db.close()
+    with job.open_ledger(path) as db:
+        assert job.enqueue(db, [row(), row("124")]) == 0
+        result = run(db, lambda _: httpx.Response(200, text="detail"),
+                     parser=lambda _h, r: ("detail", fields(r)))
+        assert result["requests_this_run"] == 1
+        assert job.summary(db)["yapo"]["states"] == {"captured": 2}
+    db.close()
+
+
+@pytest.mark.parametrize("path", ["postgresql://localhost/backfill", "postgresql://prod/listings",
+                                  "file://host/share/file.sqlite", "//server/share/db.sqlite", ":memory:"])
+def test_rejects_network_database_or_file_uri(path):
+    with pytest.raises(ValueError, match="dedicated_local"):
+        job.open_ledger(path)
+
+
+def test_rejects_unrelated_database_and_second_concurrent_writer(tmp_path):
+    path = tmp_path / "unrelated.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE listings(id INTEGER)")
+    with pytest.raises(ValueError, match="not_a_backfill"):
+        job.open_ledger(path)
+    path = tmp_path / "backfill.sqlite"
+    first = job.open_ledger(path)
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            job.open_ledger(path)
+    finally:
+        first.close()
+
+
+def test_yapo_parser_extracts_target_only_without_price_conversion():
+    item = {"id": 123, "link": "/ficha/123", "location": {"latitude": -33.45, "longitude": -70.65},
+            "price": {}, "exactAddress": "Portugal 564", "usableArea": 54}
+    html = '<script>self.__next_f.push([1,' + json.dumps('0:' + json.dumps(item) + '\n') + ']);</script>'
+    state, f = job.parse_fields(html, row())
+    assert state == "detail"
+    assert f["external_id"] == "123" and f["useful_area_m2"] == 54
+    state, f = job.parse_fields(html, row("999"))
+    assert f is None

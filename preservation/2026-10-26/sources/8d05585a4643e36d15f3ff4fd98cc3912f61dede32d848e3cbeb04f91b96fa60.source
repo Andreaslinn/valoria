@@ -1,0 +1,44 @@
+import json,socket
+from pathlib import Path
+import pytest
+from services.sii.pure_valuation import sii_valuation
+from services.sii.closing_knn import weighted_quantile
+from services.sii.micromarket_opinion import _subject_model
+
+ROOT=Path(__file__).resolve().parents[4];DATA=ROOT/'outputs/integrated/vitacura';EXP=ROOT/'outputs/micromarkets'
+
+@pytest.fixture
+def active(monkeypatch):
+    if not (EXP/'sealed.json').is_file():pytest.skip('Frozen local experiment required')
+    monkeypatch.setenv('SII_GEOGRAPHY_DATA_DIR',str(DATA));monkeypatch.setenv('SII_MICROMARKET_DIR',str(EXP))
+    monkeypatch.setattr(socket,'create_connection',lambda *a,**k:pytest.fail('Network request'))
+
+def test_real_address_role_shadow_equivalence_and_weighted_price(active):
+    a=sii_valuation(rol='1261-6',data_dir=DATA);b=sii_valuation(address='Laura Tromben 5631',data_dir=DATA)
+    assert a['micromarket_candidate']==b['micromarket_candidate']
+    assert a['value_uf']==b['value_uf']==pytest.approx(28118.303571428572)
+    assert a['micromarket_candidate']['promoted'] is False
+    assert a['valuation_trace']['distance_changes_published_price'] is False
+    assert a['valuation_trace']['land_area_m2']==850
+    cs=a['valuation_trace']['comparables']
+    value=221*weighted_quantile([c['uf']/c['m2'] for c in cs],[c['weight_share'] for c in cs],.5)
+    assert a['value_uf']==value
+    assert sum(c['weight_share'] for c in cs)==pytest.approx(1)
+    for c in a['micromarket_candidate']['comparables']:
+        assert 'rol' not in c and c['distance_bounds_m'][1]<=1000.1
+    assert _subject_model.cache_info().hits>=1
+
+def test_fixed_evaluation_same_sales_and_frozen_data(active):
+    p=json.loads((EXP/'predictions.json').read_text());sealed=json.loads((EXP/'sealed.json').read_text())
+    assert len(p['baseline'])==776
+    for key in ['candidate','attributes','shuffled']:
+        assert [r['raw_id'] for r in p[key]]==[r['raw_id'] for r in p['baseline']]
+        for r in p[key]:
+            assert all(c['rol']!=r['rol'] and c['fecha']<r['date'] for c in r['prediction'].get('comparables',[]))
+    assert 'closing_knn.py' in sealed['hashes']
+
+def test_invalid_experiment_does_not_change_estimate(active,monkeypatch,tmp_path):
+    monkeypatch.setenv('SII_MICROMARKET_DIR',str(tmp_path))
+    r=sii_valuation(rol='1261-6',data_dir=DATA)
+    assert r['value_uf']==pytest.approx(28118.303571428572)
+    assert r['micromarket_candidate']['reason']=='unvalidated_experiment'

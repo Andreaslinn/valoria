@@ -1,0 +1,215 @@
+"""Produce narrative and path manifest from measured audit outputs."""
+from pathlib import Path
+import json, hashlib
+import pandas as pd
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+H=Path(__file__).resolve().parent
+r=json.loads((H/'results.json').read_text(encoding='utf-8'))
+d=pd.read_csv(H/'candidate_dataset_with_group_id.csv')
+gs=pd.read_csv(H/'group_summary.csv')
+num=pd.read_csv(H/'numeric_statistics.csv')
+miss=pd.read_csv(H/'feature_coverage.csv')
+times=pd.read_csv(H/'temporal_summary.csv')
+before=json.loads((H/'integrity_before.json').read_text(encoding='utf-8'))
+
+def write(name,text): (H/name).write_text(text,encoding='utf-8')
+def table(frame):
+    cols=list(frame.columns)
+    return '| '+' | '.join(cols)+' |\n| '+' | '.join(['---']*len(cols))+' |\n'+''.join('| '+' | '.join(str(x) for x in row)+' |\n' for row in frame.itertuples(index=False,name=None))
+
+group_source_counts=table(pd.DataFrame([dict(source=k,listings=r['source_counts'][k],observed_groups=r['groups_by_source'][k]) for k in r['source_counts']]))
+stats=num.loc[(num.population=='all_candidates') & num.feature.isin(['price_uf_canonical','uf_m2','log_price_uf','log_uf_m2','area_m2']),
+              ['feature','min','median','P95','max','skewness','excess_kurtosis']].round(4)
+date_table=pd.DataFrame(r['date_summary'])[['feature','N','missing','first','last','span_days']]
+comuna_groups=d.groupby('comuna').group_id.nunique().sort_values()
+sparse=', '.join(f'{c} ({n})' for c,n in comuna_groups.items() if n<10)
+weeks=times.loc[(times.feature=='scraped_at') & (times.frequency=='W') & (times.axis=='all')].period.nunique()
+months=times.loc[(times.feature=='scraped_at') & (times.frequency=='M') & (times.axis=='all')].period.nunique()
+out=pd.read_csv(H/'anomaly_flags.csv')
+parking_zero_source=d.groupby('source').parking.apply(lambda s:int(s.eq(0).sum()))
+
+write('README.md',f'''# Auditoría reproducible del universo AVM
+
+Auditoría cuantitativa offline de dependencias, cobertura, geografía, temporalidad y leakage. No se entrena A/C1/C1-flex/C2. No se llaman motores de valoración, bases de datos, red ni Oracle durante esta fase. Todo lo creado está en esta carpeta experimental, fuera del checkout productivo.
+
+## Bases y procedencia
+
+- Código inspeccionado: `{H.parents[1]/'valoria-reconciled'}`.
+- HEAD: `{r['code_commit']}`. El checkout contiene cambios previos: **{len(before['status'].splitlines())} entradas de status**. HEAD solo no representa el código analizado. `integrity_before.json` conserva status y SHA-256 de **{len(before['hashes'])} archivos** rastreados/no ignorados; `integrity_after.json` coincide.
+- Fuente de observaciones: snapshot read-only previo `{H.parents[1]/'work/spatial-readiness-20261002/oracle-snapshot.json'}`, no resultados de benchmarks.
+- Copia inmutable para esta auditoría: `input_snapshot.json`, capturado `{r['captured_at']}`, SHA-256 `{r['input_sha256']}`, schema `0020`.
+- Query original: `SELECT * FROM listings WHERE status = 'active' ORDER BY id`, mediante ListingORM y listing_from_orm, transacción `REPEATABLE READ, READ ONLY`. El extractor original se conserva en `source_extract.py` como evidencia; **no hace falta ejecutarlo**.
+- No se mezclan datos del snapshot local anterior. Las reglas se interpretan desde el checkout reconciliado local y la observación es el snapshot Oracle ya existente.
+- No se exportaron rows de `properties` ni `price_history`; sí `listings.property_id`. No se puede reconstruir el histórico ni los anchors originales de matching desde esta fotografía. Metadata original de seller/contacto no fue exportada. El inventario de nombres de metadata se preserva sin esos valores.
+
+## Reproducir
+
+PowerShell, desde `{H.parents[1]}`:
+
+```powershell
+python -B research/tasar_avm_audit_20261002/audit.py
+python -B research/tasar_avm_audit_20261002/test_audit.py
+python -B research/tasar_avm_audit_20261002/report.py
+```
+
+Entorno usado: Python {r['python_version']}, NumPy {r['numpy_version']}, pandas {r['pandas_version']}; dependencias de dominio ya disponibles en el host. El Python bundled carecía de pydantic_settings y matplotlib; no se instalaron paquetes. SVG producidos con histogramas NumPy y primitivas SVG, sin servicios externos. No se autoran workbooks Excel.
+
+Debe conservarse el código cuyos hashes figuran en `integrity_before.json`. Si se reproduce con otra versión, es una auditoría de otro código aunque el snapshot sea igual. `audit.py` verifica que el checkout no cambió entre inicio/fin de cada ejecución. Seed {20261002}; cuantiles pandas con interpolación lineal; std muestral; skew/kurtosis ajustadas pandas, kurtosis de exceso. Spearman = Pearson de ranks medios. No imputación, winsorización ni filtros por error/performance. Los ceros se preservan. Los bins de precio sirven únicamente para missingness/EDA.
+
+## Grupos y privacidad
+
+`group_id` es componente conexa de **dependencia observada**, no ID físico certificado. Usa publicaciones exactas y property_id almacenado a través de los 4.908 nodos activos, incluidos posibles nodos puente fuera del universo candidato. `publication_group_id` excluye property_id. No se consultan precios para agregar aristas. Los grupos weak no se transforman en supuesta confianza alta.
+
+Artefactos derivados no incluyen nombres de corredores, contactos, direcciones completas ni textos libres: se entregan hashes de dirección/título y URLs públicas para revisión. `input_snapshot.json` es evidencia local de acceso restringido, no material para publicar; conservarla en privado. No se guarda ningún fold/holdout oficial. El manifest enumera rutas absolutas y hashes de los entregables.
+''')
+
+write('split_feasibility.md',f'''# Factibilidad, sin definir el experimento
+
+## Conclusión
+
+**No se certifica todavía un split independiente por inmueble físico.** Hay {r['groups']} componentes observadas, pero el matcher almacenado es débil y agrupa ubicaciones distantes. Reducir K no arregla identidades falsas ni fugas entre componentes diferentes. Los cálculos siguientes evalúan capacidad numérica, no validez estadística de esa independencia.
+
+## Grouped K-fold / estratificación aproximada
+
+Se asignan grupos enteros transitoriamente, sin precios ni resultados de modelos. Estratos comuna × conjunto de fuentes; balance primero por cantidad de grupos del estrato, después total grupos. No se guardan asignaciones.
+
+{table(pd.read_csv(H/'split_feasibility_counts.csv'))}
+
+K=5: 127 grupos de test y 508 de train por fold, 226–249 listings de test. Hay tamaño global para comparación pequeña; no para prometer precisión por comuna rara. K=4: 158–159 grupos de test. K=3: 211–212. Ninguna opción resuelve categorías de 1–4 grupos. Comunas <10 grupos: {sparse}. En K=5, esas seis comunas no pueden figurar en todos los folds; el resto tiene ≥30 grupos. La simulación tiene 14–19 comunas por fold y usa solo metadata.
+
+## Holdout ~20%
+
+127 grupos reservados / 508 train, aproximadamente 236 publicaciones si la distribución fuese uniforme. La asignación simulada equivalente a un fold deja 226–249. Es materialmente posible pero **no certificable aún como holdout físico independiente**. Comunas con 1 grupo no pueden aparecer simultáneamente en train/test; con 2–4 la evaluación territorial no es estable. No se seleccionó ni guardó holdout.
+
+Este snapshot y muchos casos ya fueron examinados en experimentos anteriores: reservarlo ahora no lo convierte en un final holdout nunca observado. Un futuro conjunto prospectivo debería separarse antes de inspeccionar resultados.
+
+## Stress espacial
+
+Solo {r['geo_usable']} listings con etiqueta address tras guardrails ({r['geo_pct']:.2f}%), todos Yapo; Portal tiene 0. `spatial_stress_feasibility.csv` describe {r['spatial_cells']} celdas fijas de 0,02 grados (~2 km norte-sur, no H3 ni microzonas aprendidas). Para cada celda el test incluiría TODOS los miembros de sus grupos observados, aunque parte no tenga coordenadas. No se dejan miembros de esos mismos grupos en train. Las celdas no redefinen identidad. No es un stress representativo del universo completo: geografía y fuente están confundidas, hay {r['geo_far_from_santiago']} coordenadas >100 km de referencia Santiago que requieren revisión.
+
+## Temporal
+
+No se propone split temporal. Scraped/last_seen son la última observación, created_at la inserción, no la publicación. Solo hay fotografía vigente de listings activos, no histórico as-of. Price_history existe en schema pero no fue extraído. Sin reconstrucción histórica, un corte por created_at con atributos/precios posteriores puede tener leakage.
+''')
+
+write('audit_summary.md',f'''# Auditoría del dataset AVM — 2 octubre 2026
+
+## Hallazgo principal
+
+Hay **1.179 publicaciones candidatas**, **1.179 componentes de publicación** y **635 componentes de dependencia observada** incorporando property_id. **N de inmuebles físicos aproximadamente independientes sigue sin identificarse de forma fiable.** No son 635 propiedades verificadas ni 1.179 observaciones independientes. No se plantea entrenamiento ni split oficial hasta resolver conceptualmente esa amenaza.
+
+Los identificadores almacenados sobreagrupan: **29 de 44 grupos con ≥2 coordenadas abarcan >1 km; 3 >5 km**; máximo 7,18 km. La etiqueta de dirección no prueba precisión física, pero esa extensión es incompatible con asumir sin revisión una única unidad. También hay **795 pares no agrupados** compatibles con el matcher estructural actual: son evidencia de insuficiencia de las reglas, **no 795 duplicados físicos confirmados**. No se repara ni inventa identidad.
+
+## Universo y precio
+
+{table(pd.read_csv(H/'dataset_counts.csv'))}
+
+Precio canónico del helper `domain/valuation/canonical_price.py::valuation_price_basis`: UF nativa preservada y confianza/provenance admisible; CLP positivo convertido con UF fija 41.040,82; moneda desconocida, fallback o UF débil/ausente se excluyen conforme al helper. 864 targets UF nativa, 315 CLP convertidos. Se conserva uf_rate_date/uf_rate_used cuando está presente, pero no una serie UF proveedor solicitada/efectiva que permita certificar todas las conversiones históricas: esta conversión fija es reproducible, **no conversión histórica certificada**. El campo estructurado price_uf aparece en 812 filas; metadata puede aportar UF al helper (ver numeric_statistics y price_basis).
+
+Los 1.147 departamentos excluidos por `legacy_uf_missing_price_uf` son Yapo. Eso introduce selección monetaria diferencial por fuente, no un mero missing completamente aleatorio. No se recuperan ni inventan precios. Las etiquetas son precios pedidos, no transacciones ni verdad de mercado verificada. El universo es active-only; no describe ventas cerradas ni publicaciones eliminadas/inactivas.
+
+Área de target = built_area_m2 or usable_area_m2 or m2, igual que el experimento anterior. Se conservan todos los valores positivos: **1.178** están dentro de los límites de ingesta existentes 10–1.000; uno no. Los límites son diagnóstico, no nuevo filtro. `anomaly_flags.csv` registra un área **2.025 m² frente a m2=25** y un parking **45**, sin reparar. El precio/m² mínimo 0,74 deriva del área anómala. Hay un total de {r['anomaly_listing_count']} filas señaladas por estos criterios.
+
+No se ejecuta Tasar: filtros productivos target-específicos (comuna, tipo, ±30% superficie, exclusión del objetivo, mínimo 5, etc.) no son filtros del universo global candidato. El engine canonical tiene protecciones adicionales `_strict_price_exclusion`; la validez del helper no equivale a disponibilidad automática como comparable para todos los targets. No se usa performance para elegir el universo.
+
+Contraste explícito, sin cambiar el universo: calidad `scraped` 799, `recovered_high_confidence` 13, `canonical_clp` 315 y genérica `canonical_uf` **52**. La protección existente `_strict_price_exclusion` marca **15 de los 1.179 como `legacy_unrecoverable`** por provenance de metadata, aunque el helper los admite; **1.164** pasan ese control diagnóstico. No se excluyen esas 15 del candidato ni se equipara el resto a verdad de mercado. El artefacto conserva tanto el motivo como la procedencia monetaria para que un futuro diseño declare su criterio de fiabilidad antes de medir performance.
+
+## Identidad: reglas realmente existentes
+
+- `domain/ingestion/deduplication.py:13`: completos → SHA1 de comuna, m2 redondeado, dormitorios, baños, parking y tokens de título normalizados/ordenados. Incompletos → source/external_id/url/comuna/título. No incluye precio estructurado, geografía, dirección ni unidad. Ignora property_type en fingerprint completo. Un título genérico puede colisionar entre distintas unidades del mismo segmento, y un título modificado puede romper la coincidencia.
+- `domain/ingestion/pipeline.py:54`: lookup source+external_id primero, fingerprint después. Actualiza una sola fila existente; puede sobrescribir source/external_id al coincidir cross-source. La unicidad de fingerprint en ORM explica que una fotografía pueda no conservar múltiples publicaciones que ya fueron colapsadas. No recuperamos ese histórico.
+- `infrastructure/db/repositories/property_repo.py:48`: mismo tipo cuando suministrado, comuna, habitaciones/baños/parking exactos, m2 ±1 y built/m2 ±1; para casas tolerancia de terreno. `limit(1)` sin orden; no verifica edificio, dirección, unidad, lat/lon ni distancia. Reutilizado por `_find_or_create_property` en pipeline. No expone confidence calibrada.
+- Fingerprint invariante ante alterar price/price_uf en **2.326** replays, pero **9 fingerprints almacenados difieren del replay** de los campos actuales: causa histórica no demostrada. Además **27 títulos**, **17 candidatos**, tienen patrones monetarios explícitos. Los tokens numéricos del título **sí pueden introducir precio indirectamente en el fingerprint**. No se certifica que el fingerprint histórico sea target-free. En esta fotografía no hay aristas por fingerprint duplicado; el riesgo principal observado de los 635 grupos viene del matching estructural/property_id.
+- Grafo sobre 4.908 listings activos por ID, source+external_id, URL, fingerprint y property_id. Componentes conexas transitivas antes de restringir a candidatos; no se crean aristas con UF ni UF/m². Evidencia de publicación y weak property_id se exportan por separado. No se ejecuta un matcher nuevo ni clustering de precio.
+
+Distribución: 463 singletons (72,91% de grupos; 39,27% de publicaciones), 82 tamaño 2, 32 tamaño 3, 21 tamaño 4, 37 tamaño ≥5, máximo 28. Ratio listings/grupo=1,857. **42 grupos cross-source**, **170 con repetición de al menos una misma fuente**. **163/172 grupos múltiples tienen precios distintos**; rango relativo mediano **26,42%**, P95 **75,38%**, máximo **425,83%** respecto a mediana interna. Superficie: rango mediano 1 m², máximo 2. Sin diferencias de dormitorios/baños/parking en estos grupos, algo esperado porque esos campos definen el matcher: no constituye validación independiente del matching.
+
+No hay duplicados de publicación simultáneos detectados entre candidatos (todos singleton por IDs/URL/fingerprint). **No hay grupos físicos de confianza alta certificados.** Weak: 172 componentes múltiples con property_id. Singleton ≠ inmueble independiente. `manual_group_review.csv`: 10 grupos de 2 + 10 de ≥3, elegidos por hash y seed; `suspicious_ungrouped_pairs.csv`: 10 de 795 pares, selección sin precio. Son muestras para revisar, no adjudicaciones de verdad física. No se visitan URLs ni se añaden PII.
+
+## Fuentes, comunas y concentración
+
+{group_source_counts}
+
+Los grupos por fuente se solapan en 42 componentes; 548+129−42=635. `source_comuna_summary.csv` incluye cobertura, medianas y ceros por celda. 20 comunas. Top 5 por publicaciones: Estación Central 264; Santiago 156; Macul 133; Ñuñoa 105; Independencia 78. Comunas <10 grupos: {sparse}. No se fusionan ni eliminan comunas.
+
+HHI territorial por listings={r['hhi_listings']:.6f}, número efectivo de comunas={r['effective_comunas_listings']:.2f}; por componentes observadas HHI={r['hhi']:.6f}, efectivo={r['effective_comunas']:.2f}. La diferencia depende del sobreagrupamiento, no demuestra mayor diversidad física.
+
+## Geografía
+
+357 candidatos tienen lat/lon válidos globalmente; 338 address antes de guardrails, 19 otras precisiones, 822 sin coordenadas. Aplicando la regla existente de coordenadas repetidas ≥5 **sobre todo el snapshot activo o todos los departamentos**, quedan **336 address (28,50%)**. Aplicada solo a candidatos monetariamente válidos, serían **337**. El 338 anterior era raw: el ámbito del pool cambia la calidad; no se oculta esa diferencia.
+
+Se llaman utilizables **según las etiquetas/guardrails actuales**, no direcciones verificadas. **6 de esos 336 address están >100 km de una referencia fija Santiago**; latitud mínima −36,82168, máxima −29,920282, longitud mínima −73,04387. Conservados y señalados en geo_location_flags.csv; no se confunde rango global válido con geografía coherente. 330 quedan si se resta esa alerta, pero **no se adoptó ese filtro** ni se certificaron los restantes como exactos.
+
+Todos los 449 Portal carecen de coordenadas; en Yapo 357/730 tienen coordenadas y 336/730 address guarded. `repeated_coordinates.csv` describe clusters idénticos y precisión. Centroides son etiquetas existentes y repetición sospechosa, no se valida contra una cartografía externa ni se geocodifica. Los edificios pueden contener distintas unidades: coordenadas idénticas no se convierten en arista de identidad.
+
+## Missingness y atributos
+
+Superficie seleccionada, comuna, habitaciones/baños/parking y timestamps principales están poblados en 100% de candidatos. **No significa calidad 100%**: parking=0 en **858 (72,77%)**, incluidos los **449 Portal** y **409 Yapo**; baños=0 en 7, dormitorios=0 en 6. No se convierte cero a missing ni se asume que siempre representa ausencia real. Lat/lon faltan en 822 (69,72%). Tipo/fuente de coordenadas y dirección se informan por separado en feature_coverage; cobertura estructurada de atributos de edificio/antigüedad y publicación original no está disponible en el snapshot. El inventario agregado de claves original no tiene año/antigüedad estructurados; no se infiere ausencia de toda señal textual.
+
+Missingness por source, comuna, bins fijos de UF y área en `missingness_summary.csv`; correlaciones phi entre indicadores (incluido usable_geo y parking_zero separados) en `missingness_associations.csv`. Constantes producen correlaciones indefinidas, no ceros artificiales. Tener coordenadas y el cero de estacionamientos son proxies claros de fuente; por eso no se justifica asumir missing aleatorio. No se imputan datos.
+
+## Fechas y representatividad temporal
+
+{table(date_table)}
+
+Scraped/last_seen cubren **{weeks} semanas con observaciones y {months} meses calendario**; rango de última observación 143,91 días. Created_at cubre 147,44 días, sin garantizar primera aparición. No hay first_seen/publication_date certificados. `price_history.observed_at` existe en schema y almacena precios anteriores, pero no fue exportado: no se inventan episodios/republicaciones. `group_temporal_spans.csv` compara fechas entre listings weak; no confirma que sean republicaciones de una misma unidad. Un snapshot active-only y campos actualizados no permiten un backtest temporal as-of fiable por sí solos.
+
+## Target y EDA
+
+{table(stats)}
+
+Histogramas de P, Q, log(P), log(Q) y superficie y cuatro scatterplots, sin recortes. Precio pedido mediano 2.700 UF; área mediana 48 m²; Q mediano 57,62 UF/m². Log(P) reduce skew de 3,88 a 0,96; log(Q) conserva cola problemática (kurtosis 10,32) influida por la superficie anómala. No se usa normalidad para filtrar.
+
+Pearson corr(log área, log precio)=**0,75705**. EDA log(P)=a+b log(A): a={r['eda']['a']:.4f}, b=**{r['eda']['b']:.4f}**, SE HC1=0,0525; IC normal descriptivo 95% [0,8067;1,0126]; bootstrap por grupos weak, 1.000 réplicas seed fijo: **[0,7915;1,0097]**. Elasticidad bruta confundida por fuente/comuna/segmento y errores de atributos; incertidumbre condicionada a grupos no certificados. **No es C1 entrenado, ni evaluación predictiva, ni criterio para elegir filtros.**
+
+## Leakage y decisión de diseño
+
+Tabla explícita en `leakage_audit.csv`: atributos físicos pre-tasación SAFE con semántica; agregados de precio/superficie territorial/encodings/imputación/scaling/selección FOLD-LOCAL; precios y derivados, provenance de precio, scores, valoraciones y metadatos posteriores UNSAFE para features; geografía/fecha/source/textos/identidad UNKNOWN cuando disponibilidad o calidad no está demostrada. Precio, mediana comunal o superficie de precios usados por A deben también ser fold-local para comparar justamente con C1/C2. Ninguna familia del consenso puede ver targets retenidos indirectamente a través del pool.
+
+Grave amenaza: no hay grouping físico validado, más precio textual posible en fingerprint. No se arregla silenciosamente. Próxima decisión necesaria: revisión/adjudicación de identidad exclusivamente offline y sin target, y confirmar qué puede reconstruirse con dirección/unidad o datos históricos. Por ahora sólo se sostiene **factibilidad numérica provisional**; no una evaluación sin leakage certificada. Grouped 5-fold tendría 127 grupos por test; 20% holdout 127/508, sujeto a identidad, rareza y snapshot ya explorado. `split_feasibility.md` contiene las simulaciones sin guardar asignaciones oficiales.
+
+## Verificación y límites
+
+7 tests metodológicos pasan (transitividad/puentes, independencia de claves de precio, namespace de fuente, distancia, conciliación de outputs, sensibilidad del fingerprint al precio textual e histogramas/SVG). Conteos y componentes concilian; antes/después coinciden en {len(before['hashes'])} hashes y status. Oracle no se accedió durante esta tarea; producto, datos persistentes, configuración, timers y servicios intactos. No se entrenaron motores, no se ejecutaron migraciones, no se hizo commit.
+
+Se cuantifica lo observable, no se inventa N físico ni confianza. Limitaciones restantes: histórico de propiedades y precios no exportado, unicidad de fingerprint puede ocultar publicaciones previamente colapsadas, as-of incompleto, precio pedido, deuda monetaria diferencial, variables faltantes, coordenadas sin verificación y snapshot preanalizado. El snapshot local anterior no se usa para inflar el universo.
+
+Metadata geográfica existente: nearby_metro está poblado en **84 candidatos**; geo_microzone_tokens tiene **0 valores no vacíos**; microzone_confidence está presente en todos pero vale 0 en **1.008**. El módulo microzones calcula confianza desde pistas textuales/geográficas, no mediana de precios. No se confunde ese score de geografía con un score de valoración. `geocode_score` aparece en 13 rows del inventario total activo, pero sus valores no fueron exportados y quedan UNKNOWN. No se asume soporte de microzona completo por presencia de claves vacías.
+''')
+
+original=H.parents[1]/'work/spatial-readiness-20261002/extract.py'
+(H/'source_extract.py').write_bytes(original.read_bytes())
+# Contact sheet for visual verification, generated directly from measured arrays.
+image=Image.new('RGB',(1200,960),'white'); draw=ImageDraw.Draw(image)
+font=ImageFont.truetype('C:/Windows/Fonts/segoeui.ttf',18)
+small=ImageFont.truetype('C:/Windows/Fonts/segoeui.ttf',13)
+plots=[('price_uf_canonical','Precio UF'),('area_m2','Superficie m²'),('uf_m2','UF por m²'),
+       ('log_price_uf','log Precio UF'),('log_uf_m2','log UF por m²')]
+for idx,(col,title) in enumerate(plots):
+    ox=(idx%2)*600; oy=(idx//2)*320
+    counts,bins=np.histogram(d[col],bins=35)
+    draw.text((ox+40,oy+12),title,fill='black',font=font)
+    draw.line((ox+40,oy+45,ox+40,oy+260,ox+560,oy+260),fill='black')
+    for j,c in enumerate(counts):
+        x=ox+40+j*520/len(counts); height=200*c/max(counts)
+        draw.rectangle((x,oy+260-height,x+520/len(counts)-1,oy+260),fill='#206080')
+    draw.text((ox+40,oy+268),f'{bins[0]:.2f}',fill='black',font=small)
+    draw.text((ox+480,oy+268),f'{bins[-1]:.2f}',fill='black',font=small)
+    draw.text((ox+40,oy+290),f'N=1179; máximo bin={max(counts)}; sin recortes',fill='black',font=small)
+ox,oy=600,640
+draw.text((ox+40,oy+12),'log precio UF vs log superficie',fill='black',font=font)
+x=d.log_area.to_numpy(); y=d.log_price_uf.to_numpy()
+draw.line((ox+40,oy+45,ox+40,oy+260,ox+560,oy+260),fill='black')
+for a,b in zip(x,y):
+    px=ox+40+520*(a-x.min())/(x.max()-x.min()); py=oy+260-200*(b-y.min())/(y.max()-y.min())
+    draw.ellipse((px-1.5,py-1.5,px+1.5,py+1.5),fill='#206080')
+draw.text((ox+40,oy+280),'Pearson 0,757; b EDA 0,910; todos los datos',fill='black',font=small)
+image.save(H/'eda_overview.png')
+manifest=[]
+for p in sorted(H.iterdir()):
+    if p.is_file() and p.name!='output_manifest.csv':
+        manifest.append(dict(name=p.name,absolute_path=str(p),bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest()))
+pd.DataFrame(manifest).to_csv(H/'output_manifest.csv',index=False,encoding='utf-8')
+print('reports written;',len(manifest)+1,'files in experimental folder')

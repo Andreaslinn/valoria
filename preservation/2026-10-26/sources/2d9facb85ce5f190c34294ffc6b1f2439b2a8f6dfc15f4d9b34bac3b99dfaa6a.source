@@ -1,0 +1,23 @@
+# Identity readiness — decisión: IMPROVE_INGESTION
+Secundario: IDENTITY_LIMITED. No READY ni groupings certificados.
+
+892 candidatos modernos: 447 Yapo +445 Portal. Identidad se calcula con proyección allowlist de la metodología previa, sin precio/UF/m², property_id ni fingerprint. Cambio explícito de evidencia: se desactiva trusted_geo cuando solo hay pin de origen o etiqueta productiva address sin verificación; no se ajustan radios ni reglas para fabricar grupos.
+
+| Señal | Yapo N=447 | Portal N=445 |
+|---|---:|---:|
+| Coordenadas válidas, precisión no certificada | 337 (75,39%) | 0 |
+| Imagen principal persistida | 447 (100%) | 0 |
+| Descripción persistida | 12 (2,68%) | 0 |
+| ID estable vendedor | 0 | 0 |
+| Fecha de publicación verificable | 0 | 0 |
+| >=2 familias identity útiles | 12 (2,68%) | 0 |
+
+La última métrica solo cuenta dirección raw con número, unidad explícita, imágenes, seller ID, descripción sustantiva, o geo address verificada. Atributos físicos, precio y pin no verificado no cuentan. Es densidad de evidencia, NO probabilidad de identity correcta. La cobertura de campos estructurados street_number/unit es 0; leyendo títulos/hints conservadoramente aparecen 9 números de calle y 11 unidades, pero 0 con dirección completa+unidad juntas. No se completa dirección adivinando.
+
+Se evaluaron 1387 pares candidatos (bloqueo por publicación, dirección/imagen exacta o comuna+pin <=1km; ubicación solo sirve para investigar, no acepta links). 1066 incompatibilidades físicas/textuales; no son bugs de identidad ni vínculos previamente confirmados. 0 strong links, 1 candidato medium por dirección (no certificado), 0 matches de imágenes, 0 links cross-source confirmados, 0 vínculos de seller/proyecto acreditados, 0 republicaciones acreditadas temporalmente. Las familias se mantienen separadas: coincidencia de edificio no equivale a unidad.
+
+No hay componentes físicos certificados: tamaños/transitividad/absurdidad geográfica son NO EVALUABLES, no «cero riesgo». Publicaciones observadas serían 100% singletons si solo se aceptara evidencia cierta; NO implica viviendas independientes. No se producen G_liberal/G_preferred/G_conservative porque solo variar etiquetas singleton daría una falsa garantía para CV. `identity_pair_evidence.csv` y `identity_cannot_links.csv` permiten revisar candidatos sin precios.
+
+Adquisición: primer intento aislado falló en conexión del sandbox; única solicitud efectiva a Yapo devolvió 403. Se detuvo sin retry de fuente ni evasión. N_new=0, N_reobserved=0 y cobertura de nueva adquisición indefinida (denominador 0, no 0%). Portal: 0 solicitudes, timer disabled/inactive confirmado en lectura. Fixtures no son nuevas observaciones de mercado y no inflan N.
+
+Conclusión: mejorar preservación antes de aumentar volumen; luego adquirir datos por el pipeline autorizado y volver a medir identidad. No puede afirmarse todavía si la fuente ofrece suficientes unidades/direcciones porque detalle Yapo quedó sin acceso y los 2 detalles Portal son proyectos, no muestra general de reventa. IDENTITY_LIMITED es provisional, no prueba que los datos útiles no existan en origen. Las 892 filas son candidatos monetarios/físicos, no dataset/targets ni groupings congelados. Nada se entrenó o comparó por performance.

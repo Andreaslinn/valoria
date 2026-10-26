@@ -1,0 +1,102 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.venv-win/
+venv/
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+users.json
+.pycache_compile/
+
+# Testing
+.pytest_cache/
+.pytest-basetemp*/
+.pytest-tmp/
+.pytest_tmp*/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
+# Runtime artifacts
+.local/
+.local/portal_browser_profile/
+.local/portal_chrome_profile/
+.local/portal_storage_state.json
+portal.env
+*storage_state*.json
+*cookie*.json
+audit_export/
+releases/
+reports/*
+!reports/valuation_engine_rebuild/
+!reports/valuation_engine_rebuild/*.md
+!reports/valuation_engine_rebuild/*.json
+reports/valuation_engine_rebuild/backups/
+!reports/valuation_engine_benchmark/
+!reports/valuation_engine_benchmark/**
+!reports/valuation_engine_canonical/
+!reports/valuation_engine_canonical/**
+!reports/hedonic_viability/
+!reports/hedonic_viability/**
+!reports/model_strategy/
+!reports/model_strategy/**
+logs/
+!logs/.gitkeep
+*.log
+*.zip
+*.sha256
+*.tar
+*.tar.gz
+*.bak
+*.backup
+*.tmp
+
+exports/
+
+# Generated research and benchmark artifacts
+/*_latest.json
+/*_latest.md
+reports/valuation_engine_benchmark/current_multiengine_audit/
+reports/valuation_engine_benchmark/experimental_consensus_lab/
+# Generated research / benchmark artifacts
+reports/valuation_engine_benchmark/**/*.json
+reports/valuation_engine_benchmark/**/*.csv
+reports/valuation_engine_benchmark/**/*.html
+reports/experimental_consensus_lab/**/*.json
+reports/experimental_consensus_lab/**/*.csv
+reports/experimental_consensus_lab/**/*.html
+reports/**/*_latest.json
+
+# Local backup / dump artifacts
+*.dump
+
+# Local frontend/deployment/runtime material
+**/node_modules/
+**/.next/
+**/.next-dev/
+**/.netlify/
+*.tsbuildinfo
+*.dump
+*.pem
+*.key
+*.pfx
+*storage_state*.json
+*cookie*.json
+private/

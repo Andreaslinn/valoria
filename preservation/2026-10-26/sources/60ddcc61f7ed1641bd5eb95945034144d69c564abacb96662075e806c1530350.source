@@ -1,0 +1,16 @@
+import subprocess,json,pathlib
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -']
+code='''import subprocess,json,pathlib
+root=pathlib.Path('/home/ubuntu/apps/valoria/private/ingestion-deploy-20261015')
+for name in ['backup-proof.json','rollback-proof.json','reference-comparison.json']:
+ print(json.dumps({'file':name,'data':json.loads((root/name).read_text())}))
+api=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+print(json.dumps({'production':{'image':api['Image'],'id':api['Id'],'started_at':api['State']['StartedAt'],'health':api['State'].get('Health',{}).get('Status')}}))
+for unit in ['valoria-uf-calendar.timer','valoria-portal-discovery.timer','valoria-yapo-discovery.timer']:
+ r=subprocess.run(['systemctl','is-active',unit],capture_output=True,text=True)
+ print(json.dumps({'unit':unit,'active':r.stdout.strip()}))
+'''
+r=subprocess.run(ssh,input=code,text=True,capture_output=True,timeout=45)
+if r.returncode:raise SystemExit('Preflight evidence capture failed')
+pathlib.Path('outputs/oracle-resilience-20261015/deploy-preflight.jsonl').write_text(r.stdout,encoding='utf-8')
+print(r.stdout)

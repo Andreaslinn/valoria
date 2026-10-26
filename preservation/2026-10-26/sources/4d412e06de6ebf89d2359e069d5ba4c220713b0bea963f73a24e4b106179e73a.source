@@ -1,0 +1,38 @@
+"""Archive integrity, paired cohorts, replay receipts and unchanged baselines."""
+from contracts import *
+def main():
+ verify();ev=read(HERE/'oracle_runtime.json')
+ for rel,h in ev['hashes'].items():assert sha(HERE/'deployed_runtime'/rel)==h,rel
+ for rel,h in read(HERE/'code_seal.json').items():
+  if rel=='test_contracts.py':
+   ext=read(HERE/'test_extension.json');assert ext['before']==h and ext['after']==sha(HERE/rel)
+  else:assert sha(HERE/rel)==h,rel
+ checks={};total=0
+ for label,file in [('20261009','contracts-20261009.json.dpapi'),('20261010','contracts-20261010.json.dpapi'),('temporal','contracts-temporal.json.dpapi'),('catalog','catalog-temporal.json.dpapi')]:
+  rows=decrypt(HERE/file);by={m:{r['row_id']:r for r in rows if r['mode']==m} for m in MODES};assert all(set(by[m])==set(by['manual']) for m in MODES)
+  for i in by['manual']:
+   a=by['manual'][i]
+   assert all((by[m][i]['target_uf'],by[m][i]['group'],by[m][i]['fold'])==(a['target_uf'],a['group'],a['fold']) for m in MODES)
+   assert a['predictions']['A']==a['predictions']['AM'],'Missing geo must fallback exactly'
+  for r in rows:
+   a=r['predictions']['A'];d=r['predictions']['DeployedA'];assert (a is None)==(d is None) and (a is None or abs(a-d)<.011)
+  if label!='catalog':
+   checkpoint=[]
+   for p in sorted(HERE.glob(f'checkpoint-{label}-*.json.dpapi')):checkpoint.extend(decrypt(p))
+  else:
+   checkpoint=[]
+   for mode in MODES:checkpoint.extend(decrypt(HERE/f'catalog-checkpoint-{mode}.json.dpapi'))
+  key=lambda r:(r['fold'],r['mode'],r['row_id'])
+  assert digest(sorted(rows,key=key))==digest(sorted(checkpoint,key=key))
+  revised=decrypt(HERE/file.replace('.json.dpapi','-v2.json.dpapi'))
+  before={(r['mode'],r['row_id']):r for r in rows};after={m:{r['row_id']:r for r in revised if r['mode']==m} for m in MODES}
+  for r in revised:
+   old=before[(r['mode'],r['row_id'])]
+   assert all(r[k]==old[k] for k in ['row_id','group','fold','target_uf','source','comuna'])
+   assert all(r['predictions'][n]==old['predictions'][n] for n in ['A','AM','AMcross','Learned','Blend'])
+   if r['mode']!='located' or r['geo_original']:assert digest(r)==digest(old)
+   else:assert r['predictions']==after['manual'][r['row_id']]['predictions']
+  checks[label]={'target_rows_per_mode':len(by['manual']),'receipt_rows':len(rows),'same_targets_folds_labels_groups':True,'native_A_vs_deployed_parity':True,'checkpoint_roundtrip':True};total+=len(rows)
+ result={'verified_at':datetime.now(timezone.utc).isoformat(),'checks':checks,'paired_receipt_rows':total,'v2_only_missing_geo_service_outputs_recomputed':True,'immutable_prior_files_verified':len(read(HERE/'protocol.json')['immutable_inputs']),'deployed_copied_files_verified':len(ev['hashes']),'source_code_seal_verified':True,'protected_holdout_evaluated':False,'remote_write_commands':0}
+ write(HERE/'verification.json',result);print(json.dumps(result))
+if __name__=='__main__':main()

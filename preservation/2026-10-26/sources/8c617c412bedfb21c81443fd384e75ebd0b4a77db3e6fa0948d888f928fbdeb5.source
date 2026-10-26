@@ -1,0 +1,113 @@
+"""Loopback-only validation of real API routers and v2, no external services."""
+import os
+os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///validation/ui.sqlite3'
+os.environ['SYNC_DATABASE_URL'] = 'sqlite:///validation/ui.sqlite3'
+os.environ['JWT_SECRET_KEY'] = 'offline-thumbnail-validation-key-32'
+os.environ['THUMBNAIL_STORAGE_ROOT'] = 'validation/ui-thumbnails-validated'
+os.environ['REDIS_ENABLED'] = 'false'
+os.environ['RATE_LIMIT_ENABLED'] = 'false'
+
+import json
+from pathlib import Path
+from datetime import UTC, datetime
+from decimal import Decimal
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from api.deps import _resolve_current_user, get_radar_service, get_uf_service
+from api.v1 import watchlist, radar, listings, thumbnails as assets
+from core.entities.user import User
+from core.ports.uf_service import UFService
+from infrastructure.db.base import Base
+from infrastructure.db.database import get_db
+from infrastructure.db.models import ListingORM, SavedListingORM, UserORM
+from infrastructure.thumbnails.pipeline import Context, work_one
+from infrastructure.thumbnails.security import Download
+from services.thumbnails import get_store
+from services.listing_url_lookup import ListingUrlLookupResult
+
+engine = create_async_engine(os.environ['DATABASE_URL'])
+factory = async_sessionmaker(engine, expire_on_commit=False)
+user = User(1, 'offline@example.test')
+
+
+class UF(UFService):
+    async def get_current_rate(self):
+        return Decimal(39000)
+
+
+async def db():
+    async with factory() as session:
+        yield session
+
+
+@asynccontextmanager
+async def lifespan(app):
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
+        await connection.run_sync(Base.metadata.create_all)
+    folder = Path('validation/thumbnail_lab/fixtures')
+    manifest = json.loads((folder/'manifest.json').read_text())
+    async with factory() as session:
+        session.add(UserORM(id=1,email=user.email,password_hash='offline',role='beta_user',is_active=True))
+        for lid in range(1,5):
+            source = manifest[lid-1]
+            metadata = {'main_image_url':source['url']} if lid != 2 else {}
+            session.add(ListingORM(id=lid,source='yapo',external_id=str(lid),title=f'Propiedad offline {lid}',
+                comuna='nunoa',property_type='apartment',m2=72,bedrooms=2,bathrooms=2,parking=1,
+                price_clp=150000000,price_uf=4000,price_currency='UF',status='active',fingerprint=f'offline-{lid}',
+                scraped_at=datetime.now(UTC),last_seen_at=datetime.now(UTC),raw_metadata=metadata,
+                url=f'https://www.yapo.cl/offline/{lid}'))
+            session.add(SavedListingORM(id=lid,user_id=1,listing_id=lid,saved_price_clp=150000000,
+                saved_price_uf=4000,status='active',saved_at=datetime.now(UTC)))
+            if lid != 2:
+                get_store().request({'listing_id':lid,'source':'yapo','raw_metadata':metadata},Context('detail',True,True,'1'))
+                work_one(get_store(), lambda _, item=source:Download((folder/item['file']).read_bytes(),item['mime'],'offline',0))
+        await session.commit()
+    yield
+    get_store().close()
+    await engine.dispose()
+
+
+app = FastAPI(lifespan=lifespan)
+for module in (watchlist,radar,listings,assets):
+    app.include_router(module.router, prefix='/api/v1')
+app.dependency_overrides[_resolve_current_user] = lambda:user
+app.dependency_overrides[get_db] = db
+app.dependency_overrides[get_uf_service] = lambda:UF()
+
+
+def opportunities():
+    return [radar.OpportunityOut(listing_id=lid,title=f'Propiedad offline {lid}',comuna='nunoa',source='yapo',
+        price_uf=4000,price_clp=150000000,m2=72,bedrooms=2,bathrooms=2,estimated_price_uf=4500,
+        discount_pct=11,score=70,confidence='medium',confidence_label='Media',comparables_used=10,
+        url=f'https://www.yapo.cl/offline/{lid}',warnings=[],radar_verdict='review',radar_verdict_message='Revisar') for lid in range(1,5)]
+
+
+app.dependency_overrides[get_radar_service] = lambda:SimpleNamespace(opportunities=AsyncMock(return_value=opportunities()))
+listings._maybe_ensure_lookup_freshness = AsyncMock(return_value=None)
+listings.lookup_listing_url = AsyncMock(return_value=ListingUrlLookupResult('found_existing',
+    {'listing_id':1,'title':'Propiedad offline 1','comuna':'nunoa','source':'yapo','property_type':'apartment',
+     'precio_publicado_uf':4000,'precio_publicado_clp':150000000,'m2':72,'dormitorios':2,'banos':2,'estacionamientos':1},
+    [],'yapo','https://www.yapo.cl/offline/1'))
+
+
+@app.get('/api/v1/users/me')
+async def me():
+    return dict(id=1,email=user.email,role='beta_user',is_active=True)
+
+
+@app.get('/api/v1/market/uf')
+async def uf():
+    return dict(rate_clp=39000,source='offline',is_fallback=False,is_stale=False,observed_at=datetime.now(UTC).isoformat())
+
+
+@app.get('/api/v1/portfolio/summary')
+async def portfolio():
+    capability=dict(status='unavailable',available=False)
+    return dict(user_id=1,tracked_properties=4,unread_alert_count=0,items=[],
+        history={**capability,'points':[]},average_avm_variation={**capability,'variation_pct':None,'observation_window_days':None},
+        upside={**capability,'total_upside_uf':None,'average_delta_pct':None})

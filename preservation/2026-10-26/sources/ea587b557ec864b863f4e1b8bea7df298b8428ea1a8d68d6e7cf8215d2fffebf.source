@@ -1,0 +1,29 @@
+"""One-time local validation bootstrap: replay cached official HTML via repo parser.
+This is a work artifact, not a new runtime source or scheduled UF fetcher.
+"""
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent / "valoria"))
+from sqlalchemy import create_engine
+from services.sii.settings import Settings
+from services.sii.jobs import connect
+from services.ingestion_uf import parse_calendar
+from infrastructure.db.ingestion_models import IngestionUFCalendar
+
+settings = Settings.load()
+engine = create_engine(settings.url)
+IngestionUFCalendar.__table__.create(engine, checkfirst=True)
+directory = Path(r"C:\Users\heiko\Documents\Codex\2026-10-16\uf-error-reintentar-x20\work\sii-data\sii_fuentes\uf")
+with connect(settings) as conn, conn.transaction():
+    count = 0
+    for path in sorted(directory.glob("uf*.htm")):
+        year = int(path.stem[2:])
+        if year < 2013:
+            continue  # the existing repository parser supports the modern official layout
+        for date, value in parse_calendar(path.read_text(encoding="utf8", errors="strict"), year).items():
+            conn.execute("""INSERT INTO public.ingestion_uf_calendar(date,value,source,fetched_at)
+                VALUES(%s,%s,'sii.cl',%s) ON CONFLICT(date) DO NOTHING""", (date,value,datetime.now(UTC)))
+            count += 1
+    print({"calendar_days_replayed": count, "source": "cached official SII HTML, existing repo parser/table"})

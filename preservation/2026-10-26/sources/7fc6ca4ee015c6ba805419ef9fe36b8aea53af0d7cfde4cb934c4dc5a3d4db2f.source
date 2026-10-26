@@ -1,0 +1,11 @@
+from pathlib import Path
+import subprocess,json
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+paths=['services/valuation.py','api/v1/valuations.py','services/reports.py','api/v1/reports.py','domain/valuation/engines/canonical_comparables.py','domain/valuation/engines/consensus_orchestrator.py','domain/valuation/engines/experimental_lab.py','domain/valuation/comparables.py','domain/valuation/price_surface.py','services/v2_contract.py','domain/valuation/engines/registry.py','domain/valuation/engines/hedonic_baseline/engine.py','domain/valuation/engines/microzone_geo/engine.py','domain/valuation/engines/market_trends/engine.py','config/valuation_flags.py']
+inner="import json,pathlib,os\npaths="+repr(paths)+"\nprint(json.dumps({'files':{p:pathlib.Path('/app',p).read_text() for p in paths},'flags':{k:os.environ.get(k) for k in ['VALORIA_USE_CONSENSUS','VALUATION_CANONICAL_PRICE_ENABLED','VALORIA_EXPERIMENTAL_ENGINE_LAB_ENABLED','VALUATION_QUALITY_V2_APPLY_MODE']}}))"
+remote="import subprocess,json\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=30)\nassert r.returncode==0,r.stderr\nd=json.loads(r.stdout);c=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0];d['container']={'image_id':c['Image'],'image_tag':c['Config']['Image'],'started_at':c['State']['StartedAt'],'revision':c['Config']['Labels'].get('org.opencontainers.image.revision')};print(json.dumps(d))"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,capture_output=True,timeout=50);r.check_returncode();data=json.loads(r.stdout)
+root=Path('work/production-trace-source');root.mkdir(exist_ok=True)
+for p,s in data.pop('files').items():
+ q=root/p;q.parent.mkdir(parents=True,exist_ok=True);q.write_text(s,encoding='utf-8')
+Path('work/production-trace-inventory.json').write_text(json.dumps(data,indent=2),encoding='utf-8');print(json.dumps(data))

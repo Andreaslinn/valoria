@@ -1,0 +1,12 @@
+"""Standalone local smoke server; does not start existing app services."""
+
+from fastapi import FastAPI
+
+from services.property_life_config import enabled, local_url
+
+app = FastAPI(title="Valoria — Hoja de vida local")
+if enabled():
+    local_url()  # Fail before accepting requests if an external host is configured.
+    from api.property_life import router
+
+    app.include_router(router)

@@ -1,0 +1,10 @@
+import pathlib,subprocess,sys,json
+ROOT=pathlib.Path('outputs/discovery-deploy-20261016');ROOT.mkdir(exist_ok=True,parents=True)
+SSH=['C:/Windows/System32/OpenSSH/ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=20','-i','C:/Users/heiko/Downloads/ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245','python3 -B -']
+name=sys.argv[1]
+source=pathlib.Path('work/'+name).read_text(encoding='utf8')
+r=subprocess.run(SSH,input=source,text=True,encoding='utf8',capture_output=True,timeout=1800)
+(ROOT/(name+'.private.log')).write_text(r.stdout+r.stderr,encoding='utf8')
+print(r.stdout[-16000:])
+if r.returncode:print('Remote operation failed; full private diagnostic retained locally')
+raise SystemExit(r.returncode)

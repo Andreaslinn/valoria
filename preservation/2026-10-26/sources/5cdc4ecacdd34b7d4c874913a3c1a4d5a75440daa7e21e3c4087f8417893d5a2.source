@@ -1,0 +1,48 @@
+"""Standalone local package with code, unchanged data and reproducible evidence."""
+import json,hashlib,zipfile,difflib,xml.etree.ElementTree as ET
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent.parent;OUT=ROOT/'outputs/micromarkets'
+PREVIOUS=ROOT/'outputs/integrated/Valoria_Tasar_SII_integrado.zip'
+def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+extra=['services/sii/micromarket.py','services/sii/micromarket_opinion.py','scripts/validate_micromarket.py',
+       'tests/unit/test_micromarket.py','tests/unit/test_micromarket_integration.py']
+changed=['services/sii/closing_opinion.py','api/sii_closing_contract.py','frontend-v2/src/features/valuation/sii-geographic-estimate.tsx']
+patch=[]
+with zipfile.ZipFile(PREVIOUS) as previous:
+    for file in extra+changed:
+        name='work/valoria/'+file
+        before=previous.read(name).decode() if name in previous.namelist() else ''
+        after=(ROOT/name).read_text(encoding='utf8')
+        patch.extend(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile='a/'+file if before else '/dev/null',tofile='b/'+file))
+    assert sha(ROOT/'work/valoria/services/sii/closing_knn.py')==hashlib.sha256(previous.read('work/valoria/services/sii/closing_knn.py')).hexdigest()
+(OUT/'changes.patch').write_text(''.join(patch),encoding='utf8')
+tests=ET.parse(OUT/'final-tests.xml').getroot().find('testsuite')
+evaluation=json.loads((OUT/'evaluation.json').read_text())
+manifest={'version':'vitacura-micromarket-v3','previous_package_sha':sha(PREVIOUS),
+    'models':{f:sha(ROOT/'work/valoria'/f) for f in extra+changed},'input_hashes':evaluation['hashes'],
+    'artifacts':{p.name:sha(p) for p in OUT.iterdir() if p.is_file() and p.name not in ['manifest.json','package-sha256.json'] and p.suffix!='.zip'},
+    'tests':{k:tests.attrib[k] for k in ['tests','failures','errors','skipped']},'typescript':'tsc --noEmit passed',
+    'runtime_equivalence':json.loads((OUT/'runtime-equivalence.json').read_text()),
+    'selection':{'casa':'baseline','depto':'baseline'},'new_independent_holdout':False,
+    'constraints':{'no_production':True,'no_deploy':True,'no_external_geography_calls':True,
+        'no_f2890_rejoin':True,'no_georeferencing_rebuild':True,'sii_prices_and_attributes_only':True,'scope':'Vitacura'},
+    'limitations':json.loads((OUT/'diagnosis.json').read_text())['limitations']}
+(OUT/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf8')
+archive=OUT/'Valoria_micromercados.zip'
+with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+    names=set()
+    with zipfile.ZipFile(PREVIOUS) as previous:
+        for name in previous.namelist():
+            if name.endswith('/'):continue
+            current=ROOT/name
+            # Keep v2 evidence immutable; replace only source and demo helper.
+            if name.startswith('work/') and current.is_file():z.write(current,name)
+            else:z.writestr(name,previous.read(name))
+            names.add(name)
+    for relative in ['work/valoria/'+p for p in extra]+['work/diagnose_micromarket.py','work/benchmark_micromarket.py','work/package_micromarket.py']:
+        if relative not in names:z.write(ROOT/relative,relative)
+    for path in OUT.rglob('*'):
+        if path.is_file() and path.suffix!='.zip' and path.name!='package-sha256.json':z.write(path,path.relative_to(ROOT).as_posix())
+with zipfile.ZipFile(archive) as z:assert z.testzip() is None
+proof={'file':archive.name,'bytes':archive.stat().st_size,'sha256':sha(archive)}
+(OUT/'package-sha256.json').write_text(json.dumps(proof,indent=2),encoding='utf8');print(json.dumps(proof))

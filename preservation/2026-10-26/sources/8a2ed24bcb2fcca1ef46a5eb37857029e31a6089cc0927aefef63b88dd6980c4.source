@@ -1,0 +1,328 @@
+"""Manual local readiness. Writes immutable runs only below this sandbox."""
+from pathlib import Path
+from collections import Counter,defaultdict
+from itertools import combinations
+import json,csv,hashlib,argparse,math,re,shutil,sys,platform
+from readiness_core import *
+
+HERE=Path(__file__).resolve().parent
+WORKSPACE=HERE.parents[1]
+def read_json(p):return json.loads(Path(p).read_text(encoding='utf-8-sig'))
+def read_csv(p):
+    with Path(p).open(encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
+def file_sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+def truth(v):return str(v).lower()=='true'
+def csv_bytes(rows):
+    import io
+    if not rows:raise InvalidSnapshot('No empty placeholder CSV artifacts')
+    stream=io.StringIO(newline='');keys=list(dict.fromkeys(k for r in rows for k in r));w=csv.DictWriter(stream,fieldnames=keys);w.writeheader();w.writerows(rows)
+    return stream.getvalue().encode('utf-8')
+def blind(r):
+    s=identity_signals([r])[0]
+    return {'source':r.get('source'),'comuna':r.get('comuna'),'area':s.get('area'),'bedrooms':s.get('bedrooms'),'bathrooms':s.get('bathrooms'),'parking':s.get('parking'),
+            'title':re.sub(r'\d+(?:[.,]\d+)*','[n]',sanitize(s.get('title_sanitized'))),
+            'street_number_present':bool(s.get('street_number')),'unit_present':bool(s.get('unit')),
+            'address_equivalence':sha([s.get('address_key')])[:16] if s.get('address_key') else None,
+            'unit_equivalence':sha([s.get('address_key'),s.get('unit')])[:16] if s.get('address_key') and s.get('unit') else None,
+            'coordinates_available':s.get('lat') is not None,'coordinates_verified':s.get('trusted_geo')}
+
+def audit_sample(rows,pairs,contradiction_rows):
+    idx={int(r['id']):r for r in rows};frames=defaultdict(list)
+    for p in pairs:
+        a,b=int(p['id_a']),int(p['id_b'])
+        if a not in idx or b not in idx:continue
+        if idx[a]['source']!=idx[b]['source']:frames['cross_source_candidates'].append((a,b,p))
+        if p['category']=='weak' and truth(p['tight_structure']):frames['similar_structure_not_grouped'].append((a,b,p))
+        if truth(p['same_address_number']) and not truth(p['same_unit']):frames['same_building_or_anchor_not_same_unit'].append((a,b,p))
+    for p in contradiction_rows:
+        if p['scope']=='old_property_id':frames['old_group_contradictions'].append((int(p['id_a']),int(p['id_b']),p))
+    result=[];stats=[]
+    for frame in ['similar_structure_not_grouped','cross_source_candidates','old_group_contradictions','same_building_or_anchor_not_same_unit','republications_modern']:
+        unique={(min(a,b),max(a,b)):(a,b,p) for a,b,p in frames[frame] if a in idx and b in idx}
+        ordered=sorted(unique.values(),key=lambda x:sha(['readiness-v1',frame,min(x[0],x[1]),max(x[0],x[1])]))[:12]
+        stats.append({'frame':frame,'candidate_pairs':len(unique),'sampled_pairs':len(ordered),'sampling':'fixed hash order; 12 is review workload, not acceptance threshold','limitation':'historical blocked candidate frame; not random sample of all market pairs' if frame!='republications_modern' else 'current row-level history unavailable; no fabricated pairs'})
+        for a,b,p in ordered:
+            result.append({'frame':frame,'pair_key':sha(['historical',min(a,b),max(a,b)])[:20],'left':blind(idx[a]),'right':blind(idx[b]),
+                           'adjudication':{'same_publication':None,'same_unit':None,'same_building':None,'dependent_for_validation':None,'evidence_sufficiency':None,'notes':None}})
+    return result,stats
+
+def build(config,observation_snapshot=None,previous_populations=None,previous_gates=None):
+    paths={k:WORKSPACE/v['path'] for k,v in config['files'].items()}
+    for k,p in paths.items():
+        if file_sha(p)!=config['files'][k]['sha256']:raise InvalidSnapshot('Input hash changed: '+k)
+    hist=read_csv(paths['historic_candidates']);modern_snapshot=read_json(paths['modern_snapshot']);membership=read_csv(paths['modern_membership'])
+    ids={int(r['id']) for r in membership if r['property_type']=='apartment' and truth(r['modern_avm_usable'])}
+    modern=[r for r in modern_snapshot['listings'] if int(r['id']) in ids]
+    if len(modern)!=892 or len(hist)!=1179:raise InvalidSnapshot('Historical universe mismatch; no silent reselection')
+    # Historical identity review gets raw rows but only an allowlisted, monetary-sanitized projection leaves it.
+    historical_rows=[r for r in read_json(paths['historic_snapshot'])['listings'] if int(r['id']) in {int(x['id']) for x in hist}]
+    hidentity=read_json(paths['historical_identity_results']);midentity=read_json(paths['modern_identity_results'])
+    agg=read_json(paths['latest_accumulation']);trial=read_json(paths['history_final']);current=read_json(paths['history_quality']);full_rows=None;obs_diagnostics=None
+    if observation_snapshot is not None:
+        obs_diagnostics=observation_diagnostics(observation_snapshot);full_rows,_=normalize_observations(observation_snapshot)
+        # Explicit cycle metadata is mandatory; unknown assignment cannot satisfy the operational gate.
+        cycles=observation_snapshot.get('cycles',[]);coverage=defaultdict(Counter)
+        for r in full_rows:
+            for key in ['source','external_id','url']:
+                if r.get(key):coverage[r['source']][key+':available_preserved']+=1
+            if r['image_present']:coverage[r['source']]['images:available_preserved']+=1
+        agg={'at_utc':observation_snapshot['captured_at'],'total_observations':obs_diagnostics['counts']['listing_seen_unique'],'distinct_publications':obs_diagnostics['counts']['publications'],
+             'listing_seen_scanned':len(full_rows),'publications_at_least_2_timestamps':obs_diagnostics['reobserved_publications'],
+             'publications_at_least_3_UTC_days':obs_diagnostics['publications_in_three_valid_cycles'] if obs_diagnostics['cycle_assignment_complete'] else None,
+             'coverage_by_source':dict(coverage),'canonical_listing_multiple_publications':obs_diagnostics['listing_multiple_publications'],
+             'publication_URL_variants_gt1':None,'natural_cycle_journal':{'cycles':[{'started_at':c.get('started_at'),'finished_at':c.get('finished_at') if c.get('completed') else None,'errores_inesperados':c.get('unexpected_errors') if c.get('normal_pipeline') else None,'invocation_id':c['cycle_id']} for c in cycles]}}
+    findings={'A_scope':'frozen canonical outliers family; not complete productive Consensus','synthetic_contract_tested':True,
+              'real_A_input_parity':False,'real_input_mapping_preserves_provenance':False,'related_holdout_groups_reserved_by_key':False,
+              'outer_partition_validated_inside_inner_folds':False,'sealed_label_custody':False,'single_index_observation_enforced':False,
+              'fit_requires_synthetic':True,'preprocessing_fold_local':True,'surface_fold_local_in_synthetic_A':True}
+    result=evaluate_gates(agg,config['thresholds'],identity_results={'historical_supported':0,'historical_ambiguous':133,'historical_contradicted':39,
+                         'modern_certified_components':False},harness_findings=findings,full_observations=full_rows)
+    tq,fq,sc=quality(hist,'historical_1179_20261002');t,f,c=quality(modern,'modern_892_20261002');tq+=t;fq+=f;sc+=c
+    feature_strata=[]
+    for population,scope in [(hist,'historical_1179_20261002'),(modern,'modern_892_20261002')]+([(full_rows,'new_local_observations_not_frozen_candidates')] if full_rows is not None else []):
+        for comuna in sorted({r.get('comuna') or 'unknown' for r in population}):
+            pool=[r for r in population if (r.get('comuna') or 'unknown')==comuna]
+            _,profiles,_=quality(pool,scope)
+            feature_strata.extend(dict(p,comuna=comuna) for p in profiles)
+    if full_rows is not None:
+        t,f,c=quality(full_rows,'new_local_observations_not_frozen_candidates');tq+=t;fq+=f;sc+=c
+    result['gates']['G_TARGET']['metrics']['profiles_by_scope']=tq
+    result['gates']['G_FEATURES']['metrics']['profiles_by_scope']=fq
+    result['gates']['G_IDENTITY']['metrics']['current_observation_diagnostics']=obs_diagnostics
+    if full_rows is not None:
+        result['gates']['G_TARGET']['limitations']=['local observed target values available; dated RAW conversion lineage and eligible index still require certification','published prices, not closing prices']
+        result['gates']['G_FEATURES']['limitations']=['local observed revisions available; useful/total area and zero semantics still require review']
+    samples,sampleframes=audit_sample(historical_rows,read_csv(paths['pair_evidence']),read_csv(paths['historic_contradictions']))
+    groupstats=read_csv(paths['grouping_summary']);sens=[];capacity=[];strata=[]
+    historical_index={int(r['id']):r for r in hist}
+    for r in groupstats:
+        sens.append(dict(r,scope='historical_1179_only',certified_physical='false',certified_current_CV='false',reused_unchanged='true',
+                         limitation='G2/G3 used address label guard, not verified pin; not transferable to modern cohort'))
+        groups=int(r['N_groups']);dev=math.floor(.8*groups)
+        for k in [3,4,5]:capacity.append({'scenario':r['scenario'],'scope':'historical arithmetic, no assignments','declared_groups':groups,'K':k,
+             'development_groups_approx':dev,'outer_test_groups_approx':dev/k,'outer_train_groups_approx':dev*(k-1)/k,
+             'inner_test_groups_approx_3fold':dev*(k-1)/k/3,'certified_units':None,'power':'not estimable from these groups alone'})
+        grouped=read_csv(paths[r['scenario']]);sizes=Counter(x['group_id'] for x in grouped)
+        buckets=defaultdict(list)
+        for x in grouped:
+            original=historical_index[int(x['id'])]
+            buckets[(original['source'],original['comuna'])].append(x)
+        for (source,comuna),members in sorted(buckets.items()):
+            counts=Counter(x['group_id'] for x in members)
+            strata.append({'scenario':r['scenario'],'scope':'historical_1179_only','source':source,'comuna':comuna,
+                'publication_rows':len(members),'declared_groups':len(counts),'max_group_rows_in_stratum':max(counts.values()),
+                'singleton_groups_in_stratum':sum(n==1 for n in counts.values()),'share_of_all_rows':len(members)/len(hist),
+                'max_global_group_size':max(sizes.values()),'global_group_fraction_size_5plus':sum(n>=5 for n in sizes.values())/len(sizes),
+                'group_HHI_in_stratum':sum((n/len(members))**2 for n in counts.values()),
+                'K3_test_groups_nominal_after_20pct_reserve':.8*len(counts)/3,
+                'K4_test_groups_nominal_after_20pct_reserve':.8*len(counts)/4,
+                'K5_test_groups_nominal_after_20pct_reserve':.8*len(counts)/5,
+                'certified_physical_units':None,'limitation':'descriptive arithmetic, groups can span strata; no allocation, power or physical independence certified'})
+    sens.append({'scenario':'modern_no_certified_physical_policy','scope':'modern_892_20261002','N_listings':892,'N_groups':None,'singletons':None,
+                 'certified_physical':'false','reused_unchanged':'false','limitation':'modern audit did not build groups; do not fabricate 892 independent singletons'})
+    cycles=agg['natural_cycle_journal']['cycles'];acc=[]
+    for j,c in enumerate(cycles):acc.append({'scope':'latest_cached_history' if observation_snapshot is None else 'local_observation_export','cycle':j+1,'started_at_utc':c.get('started_at'),
+           'finished_at_utc':c.get('finished_at'),'duration_seconds':c.get('duration_sec'),'processed_observations':c.get('validos'),'new_listings_pipeline':c.get('insertados'),
+           'updated_listings_pipeline':c.get('actualizados'),'unchanged_processing_events':c.get('duplicados/saltados'),'validation_rejections':c.get('errores_validacion'),
+           'unexpected_errors':c.get('errores_inesperados'),'completed':bool(c.get('finished_at')),'normal_valid':c.get('errores_inesperados')==0 and bool(c.get('finished_at'))})
+    latest_metrics={'expected_cycles_by_cached_cutoff':3 if observation_snapshot is None else observation_snapshot.get('expected_cycles'),'completed_cycles':sum(bool(c.get('finished_at')) for c in cycles),'valid_cycles':result['gates']['G_ACCUMULATION']['metrics']['normal_cycles'],
+        'observations':obs_diagnostics['counts']['listing_seen_unique'] if obs_diagnostics else agg['total_observations'],
+        'all_event_observations':obs_diagnostics['counts']['observations'] if obs_diagnostics else agg['total_observations'],
+        'status_events':obs_diagnostics['counts']['status_events'] if obs_diagnostics else 0,
+        'publications':agg['distinct_publications'],'canonical_listings':obs_diagnostics['counts']['canonical_listings'] if obs_diagnostics else None,
+        'physical_units':None,'publications_reobserved':agg.get('publications_at_least_2_timestamps'),'repeat_observations':len(full_rows)-agg['distinct_publications'] if full_rows is not None else agg['total_observations']-agg['distinct_publications'],
+        'reobservation_coverage':agg.get('publications_at_least_2_timestamps')/agg['distinct_publications'] if agg['distinct_publications'] else None,
+        'publications_in_three_cycles':agg.get('publications_at_least_3_UTC_days'),'new_publications_vs_trial_net':agg['distinct_publications']-trial['observed']['distinct_publications'],
+        'net_growth_eligible_candidates':None,'listing_multiple_publications':agg.get('canonical_listing_multiple_publications'),'url_variants_publications':agg.get('publication_URL_variants_gt1')}
+    for key,value in latest_metrics.items():acc.append({'scope':'latest_cached_summary' if observation_snapshot is None else 'local_export_summary','metric':key,'value':value,'as_of_utc':agg['at_utc'],
+        'evidence_status':'unknown' if value is None else 'estimated_from_documented_daily_pattern' if key=='expected_cycles_by_cached_cutoff' else 'observed_in_local_artifact','limitation':'counts are not physical units; no live access'})
+    old={'cycles':trial['observed']['cycles'],'observations':trial['observed']['observations'],'publications':trial['observed']['distinct_publications'],
+         'reobserved_publications':trial['observed']['reobserved_publications'],'shared_listing_multiple_publications':trial['observed']['shared_listing_multiple_publications']}
+    new={'cycles':len(cycles),'observations':agg['total_observations'],'publications':agg['distinct_publications'],'reobserved_publications':agg.get('publications_at_least_2_timestamps'),
+         'shared_listing_multiple_publications':agg.get('canonical_listing_multiple_publications')}
+    d=delta(old,new)
+    native_basis=Counter(r['price_basis'] for r in hist);modern_currencies=Counter(r.get('price_currency') for r in modern)
+    populations={'historical':{'rows':1179,'publication_keys':len({(r['source'],r['external_id']) for r in hist}),'canonical_listings':1179,'weak_property_components':635,'physical_units':None,'basis':dict(native_basis)},
+                 'modern_2oct':{'rows':892,'publication_keys':len({(r['source'],r['external_id']) for r in modern}),'canonical_listings':892,'physical_units':None,'currencies':dict(modern_currencies)},'latest_history':latest_metrics}
+    populations['current_diagnostics']=obs_diagnostics
+    populations['current_signal_coverage']=dict(agg.get('coverage_by_source') or {})
+    populations['current_target_profile']=[r for r in tq if r['scope']=='new_local_observations_not_frozen_candidates'] if full_rows is not None else None
+    populations['current_source_comuna_profile']=[r for r in sc if r['scope']=='new_local_observations_not_frozen_candidates'] if full_rows is not None else None
+    if previous_populations is not None:
+        d=run_delta(previous_populations,populations)
+        d['gate_changes']={k:{'previous':previous_gates['gates'][k]['state'],'current':v['state']} for k,v in result['gates'].items() if previous_gates['gates'][k]['state']!=v['state']}
+        d['diagnostic_changes']={k:{'previous':previous_populations.get(k),'current':populations.get(k)} for k in ['current_diagnostics','current_signal_coverage','current_target_profile','current_source_comuna_profile'] if previous_populations.get(k)!=populations.get(k)}
+        d['limitations']=['new eligible targets/physical units not inferred from diagnostic profiles','new address/unit coverage requires row-level evidence; absence remains unknown','changed extraction scopes require independent review before interpreting net differences']
+    # Densities and source/comuna comparisons are descriptive, no price-selected strata/grouping.
+    source_comuna_counts=Counter(r['comuna'] for r in modern);concentration=sum((n/len(modern))**2 for n in source_comuna_counts.values())
+    documents=reports(result,populations,sampleframes,capacity,d,agg,concentration,obs_diagnostics)
+    source_totals=Counter(r['source'] for r in modern)
+    smallest=sorted(source_comuna_counts.items(),key=lambda x:(x[1],x[0]))[:5]
+    largest=sorted(source_comuna_counts.items(),key=lambda x:(-x[1],x[0]))[:5]
+    documents['split_feasibility.md']+='\nCenso moderno del 2 octubre (892, población distinta): fuentes '+json.dumps(dict(source_totals))+', comunas con menor presencia '+json.dumps(smallest,ensure_ascii=False)+', mayor presencia '+json.dumps(largest,ensure_ascii=False)+'. La baja presencia es descriptiva; no se inventa un corte universal de suficiencia. `group_stratum_capacity.csv` detalla grupos históricos por fuente×comuna, singleton/concentración y aritmética K; no certifica potencia ni grupos físicos actuales.\n'
+    if obs_diagnostics is not None:
+        files_extra={'current_observation_diagnostics.json':json.dumps(obs_diagnostics,indent=2).encode()}
+    else:files_extra={}
+    files={name:content.encode('utf-8') for name,content in documents.items()}
+    files.update(files_extra)
+    files.update({'readiness_gates.json':json.dumps(result,indent=2,ensure_ascii=False).encode(),
+                  'population_counts.json':json.dumps(populations,indent=2).encode(),'readiness_delta.json':json.dumps(d,indent=2).encode(),
+                  'accumulation_status.csv':csv_bytes(acc),'grouping_sensitivity.csv':csv_bytes(sens),'target_quality.csv':csv_bytes(tq),
+                  'feature_quality.csv':csv_bytes(fq),'source_comuna_coverage.csv':csv_bytes(sc),'split_capacity.csv':csv_bytes(capacity),
+                  'group_stratum_capacity.csv':csv_bytes(strata),
+                  'feature_source_comuna_quality.csv':csv_bytes(feature_strata),
+                  'blind_adjudication_sample.json':json.dumps({'method':'price-blind deterministic stratified candidate sample','pairs':samples,'no_price':True},indent=2,ensure_ascii=False).encode(),
+                  'adjudication_frames.csv':csv_bytes(sampleframes),'independent_review.md':(HERE/'independent_review.md').read_bytes(),
+                  'README.md':(HERE/'README.md').read_bytes()})
+    return files,result
+
+def reports(result,pop,frames,capacity,d,agg,hhi,obs_diag):
+    metrics=pop['latest_history'];states='\n'.join(f"| {k} | {v['state']} | {'; '.join(v['blockers']) or 'Sin bloqueo en su alcance'} |" for k,v in result['gates'].items())
+    source_note='El cached aggregate del 8 de octubre tenía casi 21 horas al comenzar la revisión (21:46 UTC). Un cuarto ciclo sería esperable si siguió la pauta diaria; no está observado en estos archivos.' if obs_diag is None else 'Se leyó un nuevo export local; los ciclos requieren catálogo explícito y asociación de observations. No se realizó acceso a producción.'
+    summary=f'''# Readiness — MODIFY acotado; AVM_NOT_READY
+
+Última evidencia local: {agg['at_utc']} UTC. No es una comprobación de producción actual. Oracle no se consultó. {source_note}
+
+{metrics['observations']} observations, {metrics['publications']} publicaciones source/external_id, {metrics['publications_reobserved']} reobservadas y {metrics['repeat_observations']} observations adicionales respecto de la primera por publicación. Cobertura de reobservación: {metrics['reobservation_coverage']:.2%}. {metrics['publications_in_three_cycles']} publicaciones en 3 ciclos/días acreditados. Ciclos válidos conocidos: {metrics['valid_cycles']}/7. El conteo exacto actual de listings canónicos y unidades físicas es {'desconocido' if metrics['canonical_listings'] is None else str(metrics['canonical_listings'])+' listings; unidades físicas desconocidas'}.
+
+{metrics['listing_multiple_publications']} listings con varias publicaciones; {metrics['url_variants_publications']} publicaciones con variantes URL (si no exportado: null). No son errores de identidad confirmados. No se reparó ninguna asociación. Crecimiento elegible neto desconocido: los agregados no contienen labels/atributos actuales.
+
+| Gate | Estado | Bloqueo |
+|---|---|---|
+{states}
+
+Investigación exploratoria: CONDITIONAL (diagnóstico local permitido; entrenamiento requiere aprobación y controles). Benchmark confirmatorio: NOT_READY. Producto: NOT_READY. No se creó holdout/folds ni se entrenó con datos reales.
+
+El bloqueo más rápido de resolver es disponer de un snapshot local de observations completo, con ciclo/provenance/fecha de extracción. La exportación desde Oracle requiere autorización separada. Después, adjudicación de dependencias y contrato de A real; seguir esperando cards sin señales de unidad no garantiza resolver cross-source.
+
+Siguiente experimento recomendado, no ejecutado: una vez aprobada cohorte y control de dependencia, A vs C1 fijo sobre UF nativa confiable, con universo común/cobertura y diagnóstico por fuente/comuna. Flex/C2 se conservan para la comparación completa. No inferir valor de cierre desde labels de oferta.
+'''
+    identity=f'''# Identidad y dependencia
+
+Publicación: source+external_id y URL estable; listing: clave canónica del pipeline; observation: estado inmutable con tiempo; identidad física: evidencia de unidad respaldada; dependencia estadística: registros que no deben cruzar validación. Son objetos distintos.
+
+Histórico 1.179: 635 componentes al incorporar property_id; 0 grupos antiguos respaldados, 133 ambiguos y 39 contradichos. G1=1.179; G2/G3=1.178 con una pareja provisional y sin cross-source confirmado. Se reutilizan sin recalcular como diagnóstico histórico, no como política válida de producción actual. La modificación moderna que degrada pin de fuente invalida extrapolar sus labels address.
+
+Moderno 2 octubre: 892 candidatos, 1.387 pares investigados, 1.066 cannot-links, 0 strong links y 1 medium no agrupado. No se construyen nuevos G1/G2/G3 sobre datos actuales incompletos. Ningún grouping usa precio, UF/m², residuo, predicción, property_id o fingerprint. El evaluador de lineage solo conecta publicación/URL/listing explícitos y mantiene contradicciones aparte; no implica unidad física.
+
+Contaminación detectada: dependencias por publicaciones/listings que existen y contradicciones históricas; todavía no hay folds con una tasa de cruces medible. Potencial: parejas similares, edificios/stock images y cross-source en el marco de candidatos. No identificable: duplicados sin dirección/unidad/evidencia suficiente y fuera del marco de blocking. No asignar una tasa global de contaminación ni N efectivo físico.
+
+Muestra reproducible: {sum(x['sampled_pairs'] for x in frames)} pares, ciega al precio, con títulos monetarios neutralizados y claves de dirección/unidad pseudonimizadas. 12 por frame es carga de revisión, no threshold de identidad. El frame republicaciones modernas queda explícitamente sin muestra porque faltan documentos. Una revisión sin errores de m pares solo permitiría un límite binomial dentro de ese frame y bajo muestreo/independencia adecuados; no certifica todos los singletons ni el mercado.
+
+Nueva información preservada: IDs/URLs/imágenes y a veces descripción/coords/seller metadata. Esas coberturas no acreditan address precision, seller ID estable, imagen única por unidad ni vínculo cross-source. No se corrigieron los 4 casos del trial ni los 6 conteos posteriores.
+'''
+    split='''# Factibilidad de validación — sin asignaciones
+
+`split_capacity.csv` contiene aritmética de grupos declarados para K=3/4/5 y inner=3. No genera membresías, IDs de folds ni reserva un 20%. Los 1.178 grupos conservadores no son 1.178 unidades físicas demostradas. El escenario 635 está documentado como inválido físicamente; no se recomienda volver a usarlo.
+
+Preferiría K=3 para un piloto inicial aprobado: bloques test más amplios y menor costo, aceptando menos train y un pool A menor. K=4 es compromiso; K=5 preserva más train pero reduce grupos por test/estrato. No fijaría K confirmatorio hasta conocer grupos respaldados y precisión deseada. No hay potencia identificable sin un tamaño de efecto preregistrado y dependencia estimable; no inferirla de N publicaciones o de la desviación entre folds.
+
+Grouped CV: CONDITIONAL para explorar, NOT_READY para certificar. Comunas históricas de baja representación y source×comuna muy concentrado impiden claims por estrato aunque el N global parezca grande. `source_comuna_coverage.csv` publica el censo descriptivo; no se exige artificialmente cada comuna en cada fold.
+
+Spatial stress: técnicamente diseñable dejando comunas fuera, pero evalúa extrapolación y puede provocar abstención de A por diseño. No sustituye la validación principal en comunas conocidas, ni elimina republicaciones con coordenadas imprecisas. Bloques finos requieren precisión geo adecuada y política sin precios; no se dibujaron microzonas.
+
+Temporal: NOT_READY con los snapshots legacy mutables. History ya registra raw/parsed/persisted, pero los agregados no permiten demostrar availability de cada campo/label. Una cohorte prospectiva nueva necesita purga de grupos/republicaciones; dividir por fecha solamente no basta. No reactivar detail refresh ni Portal para obtenerla aquí.
+
+Holdout: no congelado. ~20% es proporción propuesta de grupos/unidades de evaluación, no de inmuebles certificados. Histórico ya explorado no puede producir un holdout virgen retrospectivo. Aprobar universo/grupos/cutoff/criterios y custodia de labels antes de abrir una reserva prospectiva. La reserva no se ha creado.
+'''
+    harness='''# Revisión estática de contratos del harness
+
+| Contrato | Evidencia | Evaluación |
+|---|---|---|
+| mismos targets A/C | misma lista test y truth en run_split/compare | garantizado sintéticamente; falta projection real certificada |
+| pool de A solo train | FrozenA.fit(train_ids), filtro available_at/price_available_at | garantizado en entrada validada |
+| grupos test fuera de índices | validate_split cruces + ningún repositorio remoto en A | conocido en sintético; ignorado si grouping omite vínculo real |
+| preprocessing fold-local | Pipeline.fit únicamente train_ids | garantizado en runner validado |
+| agregados de precios locales | canonical engine recibe exclusivamente candidates train | garantizado sintéticamente; no conectar índices globales en real adapter |
+| tuning aislado | nested_tune valida outer y inner | funciona en ruta principal; inner_folds directo no valida outer |
+| holdout preservado | reserva por row_id y config hash | falta reserva por lineage/grupo aun si row_id relacionado no está enumerado; no custody de labels |
+| predicciones y procedencia | trace train/pool/snapshot + engine/version | real metadata/UF/coords todavía reconstruidos sintéticamente |
+| cobertura común | per_engine/common/pairs + abstenciones explícitas | cubierto; no comparar éxito con elegibles distintos |
+| reproducibilidad | seeds/pins/hashes, tests 45 AVM-01 | reproducibilidad sintética, no aprobación real |
+
+Defectos concretos a proponer, sin modificar AVM-01:
+
+1. FrozenA usa tasa toy 41040.82, title synthetic y fingerprint=grupo; no preserva RAW precio, conversión, coordenadas ni señales originales. Corregir solo en un adapter real aprobado con roundtrip, nunca quitar require_synthetic para reutilizarlo tal cual.
+2. Reserva holdout: validar dependencias contra todo el conjunto reservado, no solo membresías row_id. Un relacionado puede entrar en train/tuning si su fila reservada no participa en ese split. Hash match no demuestra custodia.
+3. `inner_folds` público: validar outer y global reserve en la frontera, además de la validación externa actual.
+4. Fit directo recibe cualquier subconjunto sintético y no puede conocer el fold/cutoff. Mantener ejecución real cerrada y exigir contexto de partición validado antes de habilitarla.
+5. Enforce observation índice/projection de elegibilidad y timestamps por campo antes del real run. La presencia de float positivo no certifica label.
+6. El guard de área 10–1000 existe en la definición moderna y DTO; no demuestra semántica útil. El corte segmental de 30 grupos y grids son decisiones provisionales, no umbrales de potencia ni de READY.
+
+No se cambió A, Consensus, Tasar ni el harness anterior. Se añaden tests aislados para reproducir límites de la reserva y del inner entrypoint; los fallos quedan documentados, no convertidos en aprobaciones.
+'''
+    delta_doc='# Delta de readiness\n\n'+json.dumps(d,indent=2)+'\n\nLos conteos de History son acumulados comparables del mismo pipeline, según artefactos. No comparar 1.179 históricos con 892 modernos como una mejora temporal: son universos y reglas distintos. No conocemos crecimiento de targets elegibles ni nuevas unidades físicas. 226 cambios de representación monetaria del trial no equivalen a 226 cambios reales de precio; el diagnóstico previo identificó una diferencia numérica UF. No se recalculó una cifra moderna con agregados.\n'
+    freeze='''# Recomendación de congelación — todavía no aprobable
+
+No hay una cohorte READY ni holdout definido. Propuesta condicionada, no materializada:
+
+1. Exportación local completa hasta un cutoff UTC declarado: documents listing_seen y refresh_result, IDs source/external_id/listing/observation, timestamps observed_at/created_at, raw_state/parsed_state/persisted_state/provenance/safety policy, hashes parser/normalizer y journal de ciclos normales. Evitar secrets/contacts ajenos al fin del experimento; no exportar env ni credenciales. No limitar silenciosamente filas. Mantener eventos y tipos separados.
+2. Autorizar una tarea separada de exportación **solo lectura** desde Oracle: transacción READ ONLY, statement_timeout, cutoff estable, checksums origen/destino, salida privada local; sin dumps secretos, scrapeadas, deploy, migraciones ni timers. Ese acceso NO se ejecutó aquí. La CLI de readiness nunca usa SSH o base de datos.
+3. Mantener labels UF nativas trazables en diagnóstico inicial; CLP separado hasta acreditar importe/currency raw y fecha/tasa de UF sin recuperar legacy. Política de inclusión e índice temporal antes de rendimiento.
+4. Adjudicación ciega al precio de marco de pares; política de dependencia conservadora y sensibilidad, no identity resolver productivo. Registrar riesgos fuera del marco y aprobar tolerancia residual/alcance inferencial.
+5. Contrato de A real preservando entradas y pool/price surface fold-local, reserva por grupos/lineage, custody de labels y guardrails de abstención/composición. Test roundtrip sin fit real.
+6. Fijar K/grid/seed/features/target/grupos/source scope, margen práctico y guardrails. Solo entonces proponer particiones agrupadas y holdout prospectivo ~20%, con aprobación humana. Ningún split definitivo en esta tarea.
+
+NOT_READY acumulación: dejar pipeline existente. NOT_READY identidad: distinguir evidencia recuperable de carencia estructural; nuevas cards iguales no justifican espera ilimitada. NOT_READY target: preservar procedencia faltante; sin reparación histórica. NOT_READY harness: cambios aislados propuestos, no integrados. READY futuro: producir propuesta/hash/decisiones y esperar aprobación; nunca arrancar entrenamiento automáticamente.
+'''
+    limitation='''# Límites explícitos de los outputs
+
+Los CSV de target/features/source/comuna describen dos snapshots históricos locales, no las últimas observations. Cuando llega un export local completo, una tercera scope se calcula sin mezclarlas. El cached aggregate del 8 octubre permite acumulación/cobertura de señales; no listing count exacto, target revisions, cambios de atributos, identidad física ni composición comunal. Esos campos son null/unknown y el manifest identifica esa ausencia.
+
+G1/G2/G3 se reutilizan como censo histórico; no se ejecutan nuevos matchers ni groupings físicos con datos incompletos. La muestra monetariamente ciega no utiliza errores/predicciones, que nunca se cargan. El script lee solo metadata del manifiesto AVM, no synthetic-results ni benchmarks de performance. Concentración por comuna moderna histórica HHI='''+str(hhi)+'''; no es N efectivo de inmuebles ni un peso de población.
+'''
+    return {'readiness_summary.md':summary,'identity_status.md':identity,'split_feasibility.md':split,'harness_leakage_review.md':harness,
+            'readiness_delta.md':delta_doc,'freeze_recommendation.md':freeze,'limitations.md':limitation}
+
+def verify_run(out):
+    if (out/'output_manifest.sha256').exists():
+        if file_sha(out/'output_manifest.csv')!=(out/'output_manifest.sha256').read_text().strip():raise InvalidSnapshot('Immutable manifest was altered')
+    manifest=read_csv(out/'output_manifest.csv')
+    for r in manifest:
+        if r['sha256'] and file_sha(out/r['path'])!=r['sha256']:raise InvalidSnapshot('Existing immutable run was altered')
+
+def execute(observation_path=None,previous_run=None):
+    config=read_json(HERE/'inputs.json');snapshot=None;external=None
+    for k,v in config['files'].items():
+        if file_sha(WORKSPACE/v['path'])!=v['sha256']:raise InvalidSnapshot('Input hash changed: '+k)
+    if observation_path:
+        p=Path(observation_path)
+        if str(p).startswith('\\\\') or '://' in str(p):raise InvalidSnapshot('Only local filesystem snapshots allowed')
+        snapshot=read_json(p);external={'path':str(p.resolve()),'sha256':file_sha(p)}
+    previous_populations=previous_gates=None;previous=None
+    if previous_run:
+        p=Path(previous_run).resolve()
+        if not p.is_relative_to((HERE/'runs').resolve()):raise InvalidSnapshot('Previous run must be an immutable run in this sandbox')
+        verify_run(p);previous_populations=read_json(p/'population_counts.json');previous_gates=read_json(p/'readiness_gates.json')
+        provenance=read_json(p/'input_provenance.json')
+        if provenance['inputs']['thresholds']!=config['thresholds']:raise InvalidSnapshot('Previous thresholds differ; cannot claim comparable readiness')
+        if snapshot is not None and stamp(snapshot['captured_at'])<stamp(previous_gates['evidence_cutoff_utc']):raise InvalidSnapshot('New snapshot predates previous readiness cutoff')
+        previous={'path':str(p),'manifest_sha256':file_sha(p/'output_manifest.csv')}
+    codehashes={str(p.relative_to(HERE)):file_sha(p) for p in [HERE/'readiness_core.py',HERE/'run_readiness.py',HERE/'frozen_identity.py',HERE/'independent_review.md',HERE/'README.md',HERE/'tests/test_readiness.py']}
+    runtime={'python':sys.version,'platform':platform.platform(),'evaluator_dependencies':'stdlib + byte-frozen identity matcher'}
+    runkey=sha({'inputs':config,'code':codehashes,'runtime':runtime,'local_observation_snapshot':external,'previous_run':previous})[:20];out=HERE/'runs'/runkey
+    if out.exists():
+        verify_run(out)
+        return out,read_json(out/'readiness_gates.json'),False
+    files,result=build(config,snapshot,previous_populations,previous_gates)
+    files['input_provenance.json']=json.dumps({'inputs':config,'code_sha256':codehashes,'runtime':runtime,'additional_local_snapshot':external,'previous_run':previous,'oracle_accessed':False,'models_trained':False},indent=2).encode()
+    output_rows=[{'path':name,'bytes':len(body),'sha256':hashlib.sha256(body).hexdigest(),'availability':'generated','limitation':''} for name,body in sorted(files.items())]
+    unavailable_items=['certified_physical_units','modern_republication_adjudication']
+    if snapshot is None:unavailable_items+=['current_row_level_targets','current_feature_revisions','current_exact_listing_count']
+    else:unavailable_items+=['current_certified_eligible_targets']
+    for unavailable in unavailable_items:
+        output_rows.append({'path':'NOT_GENERATED:'+unavailable,'bytes':None,'sha256':'','availability':'unavailable_without_approved_local_observation_export','limitation':'no empty placeholder fabricated; see limitations.md'})
+    files['output_manifest.csv']=csv_bytes(output_rows)
+    files['output_manifest.sha256']=(hashlib.sha256(files['output_manifest.csv']).hexdigest()+'\n').encode()
+    out.mkdir(parents=True)
+    for name,body in files.items():(out/name).write_bytes(body)
+    return out,result,True
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser(description='Local-only readiness, no model training or splits')
+    p.add_argument('--observations',help='Optional approved immutable local JSON observation export')
+    p.add_argument('--previous-run',help='Optional previous immutable run directory in this sandbox, for cycle delta')
+    args=p.parse_args()
+    out,result,created=execute(args.observations,args.previous_run)
+    indicator={'NOT_READY':'AVM_NOT_READY','CONDITIONAL':'AVM_CONDITIONAL_READINESS','READY':'AVM_READY_FOR_FREEZE_PROPOSAL'}[result['global']]
+    print(json.dumps({'result':indicator,'global':result['global'],'new_immutable_run':created,'output':str(out),'oracle_accessed':False,'real_training':False}))

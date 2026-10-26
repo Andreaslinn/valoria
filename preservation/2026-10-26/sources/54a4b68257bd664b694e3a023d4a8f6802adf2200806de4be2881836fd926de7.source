@@ -1,0 +1,10 @@
+# Integridad y accesos
+Todo el trabajo persistente nuevo está dentro de research/tasar_modern_ingestion_20261002. Lista completa y SHA256: output_manifest.csv. No se modificó ningún archivo original de producto ni de las dos investigaciones anteriores. HEAD 5288dded72df3608d495eb9b2bedb3e1839996dc; 857 hashes y 60 entradas de git status preexistentes iguales antes/después.
+
+Local: consulta SELECT a contenedor dev PostgreSQL en READ ONLY/ROLLBACK. Oracle: docker ps, lectura de 9 hashes de código dentro del API, is-enabled/is-active de timers, y SELECT de listings activos en READ ONLY/ROLLBACK. Ningún comando de escritura/restauración/migración/deploy/restart/timer/configuración. Hashes del código Oracle = local normalizando LF; sondas antes/después idénticas; Yapo enabled/active, Portal disabled/inactive. Esto demuestra igualdad de lo inspeccionado y ausencia de acciones nuestras de modificación; no pretende demostrar inmovilidad de toda la BD bajo procesos productivos concurrentes.
+
+Yapo: un intento sin HTTP por restricción de conexión y una solicitud efectiva 403; parada inmediata, sin evasión. Portal: cero solicitudes. Imágenes: cero descargas. Ningún secreto/configuración de conexión fue impreso; variables POSTGRES_USER/DB se resuelven dentro de los contenedores. Los snapshots de listings con metadata pública/textos/ubicación se conservan en private/, no en los informes.
+
+16 pruebas finales OK; igualdad de la salida original del parser y de la propuesta sobre 20 cards reales; 10 outputs de análisis regenerados byte por byte iguales. Un test inicial de append-only encontró una restricción ACL del Temp de Windows; se movió el test al sandbox y pasó. Un fallo inicial de instrumentación (clave de resultado high) fue corregido antes de resultados finales. No se modificaron reglas para aumentar matches.
+
+No se entrenaron A/C1/C1-flex/C2/Consensus ni se calcularon métricas predictivas. No se ejecutaron normalización microzonas/H3/residual correction; solo se inventariaron campos históricos. No se reconstruyeron precios legacy, no hubo cambios productivos de identidad ni migraciones. Patch aislado pendiente de aprobación.

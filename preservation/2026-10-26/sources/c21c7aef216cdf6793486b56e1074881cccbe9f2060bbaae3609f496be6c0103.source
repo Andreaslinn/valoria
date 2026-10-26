@@ -1,0 +1,92 @@
+"""Validated SII-only geographic selector; the original estimator remains intact."""
+from __future__ import annotations
+import hashlib,json,math,os,sqlite3
+from functools import lru_cache
+from pathlib import Path
+from contextlib import closing
+from services.sii.closing_knn import ClosingKNN
+from services.sii.geographic_knn import GeographicKNN,GeoParameters,load_geography,historical_filter,usable
+from services.sii.geocoding import distance
+
+
+def _sha(path):
+    h=hashlib.sha256()
+    with Path(path).open('rb') as f:
+        for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
+    return h.hexdigest()
+
+
+def _valuation_geography(root):
+    # Audit evidence stays on disk; prediction only needs these small columns.
+    # Filtering cadastral kind cannot change the residential estimator's inputs.
+    with closing(sqlite3.connect((root/'geography.sqlite').resolve().as_uri()+'?mode=ro',uri=True)) as c:
+        c.row_factory=sqlite3.Row
+        c.execute('ATTACH DATABASE ? AS cat',((root/'address-index.sqlite').resolve().as_uri()+'?mode=ro',))
+        return {r['rol']:dict(r) for r in c.execute('''SELECT g.rol,g.source_id,g.lat,g.lon,
+            g.method,g.precision_m,g.quality,g.source FROM geo g JOIN cat.role r
+            ON r.rol=g.rol AND r.source=g.source_id
+            WHERE r.comuna=15160 AND r.kind IN ('casa','depto')''')}
+
+
+@lru_cache(maxsize=4)
+def _bundle(root,stamps):
+    root=Path(root)
+    policy=json.loads((root/'geographic-policy.json').read_text(encoding='utf8'))
+    for name in ['closings.json','geography.sqlite','historical-controls.json','address-index.sqlite']:
+        if _sha(root/name)!=policy['hashes'][name]:raise ValueError('stale_geographic_artifact')
+    repo=Path(__file__).parents[2]
+    for key,file in [('baseline_code','closing_knn.py'),('geographic_code','geographic_knn.py')]:
+        if _sha(repo/'services/sii'/file)!=policy['hashes'][key]:raise ValueError('unvalidated_model_code')
+    raw=json.loads((root/'closings.json').read_text(encoding='utf8'))
+    controls=json.loads((root/'historical-controls.json').read_text(encoding='utf8'))['controls']
+    return historical_filter(raw,controls),_valuation_geography(root),policy
+
+
+@lru_cache(maxsize=8)
+def _models(root,stamps,as_of,kind):
+    rows,geo,policy=_bundle(root,stamps)
+    available=[r for r in rows if r['date']<as_of and r.get('fi',r['date'])<as_of]
+    params=GeoParameters(**policy['types'][kind]['parameters'])
+    return ClosingKNN(available),GeographicKNN(available,geo,params),geo,policy
+
+
+def select_prediction(target,baseline,root):
+    root=Path(os.getenv('SII_GEOGRAPHY_DATA_DIR') or root)
+    files=['closings.json','geography.sqlite','historical-controls.json','address-index.sqlite','geographic-policy.json']
+    try:
+        # Include the actual model code in the cache key; changed code cannot keep
+        # using a previously validated in-memory bundle.
+        code_paths=[Path(__file__).parent/n for n in ['closing_knn.py','geographic_knn.py']]
+        stamps=tuple((p.stat().st_mtime_ns,p.stat().st_size) for p in [*(root/f for f in files),*code_paths])
+        bm,gm,geo,policy=_models(str(root.resolve()),stamps,target['date'],target['kind'])
+        if target.get('source_id') and geo.get(target['rol'],{}).get('source_id',target['source_id'])!=target['source_id']:
+            raise ValueError('subject_catastro_version_mismatch')
+        safe_baseline=bm.estimate(target)
+        shadow=gm.estimate(target)
+        promoted=policy['types'][target['kind']]['model']=='geographic'
+        chosen=shadow if promoted else safe_baseline
+        selected_geography=promoted and shadow.get('model_used')=='geographic'
+        chosen={**chosen,'model_used':'geographic' if selected_geography else 'baseline'}
+        subject=geo.get(target['rol'])
+        comps=[]
+        for n,c in enumerate(chosen.get('comparables',[]),1):
+            g=geo.get(c['rol']);meters=None
+            if usable(subject) and usable(g):meters=round(distance((subject['lat'],subject['lon']),(g['lat'],g['lon'])),1)
+            comps.append({'label':f'Comparable SII {n}','raw_id':str(c['raw_id']),
+                'fecha':c['fecha'],'m2':c['m2'],'uf':round(c['uf_m2']*c['m2'],2),
+                'uf_m2':round(c['uf_m2'],2),'distance_m':meters,
+                'geo_method':g['method'] if g else None,'geo_quality':g['quality'] if g else 'unlocated',
+                'precision_m':g['precision_m'] if g else None})
+        changed_input=baseline.get('value_uf')!=safe_baseline.get('value_uf')
+        return chosen,{'model_used':chosen['model_used'],
+            'baseline_value_uf':safe_baseline.get('value_uf'),'original_baseline_value_uf':baseline.get('value_uf'),
+            'geographic_candidate_value_uf':shadow.get('value_uf') if shadow.get('model_used')=='geographic' else None,
+            'geographic_reason':shadow.get('geographic_reason') if promoted else 'baseline_retained_after_validation',
+            'geographic_policy_version':policy['version'],'historical_feature_guard_changed_baseline':changed_input,
+            'subject_location':{k:subject[k] for k in ['method','quality','precision_m']} if subject else None,
+            'selected_comparables':comps,'validation':policy['types'][target['kind']],
+            'confidence_override':selected_geography or changed_input}
+    except (OSError,ValueError,KeyError,TypeError,sqlite3.Error):
+        return baseline,{'model_used':'baseline','geographic_reason':'geographic_validation_unavailable',
+            'baseline_value_uf':baseline.get('value_uf'),'selected_comparables':[],
+            'confidence_override':False}

@@ -1,0 +1,14 @@
+"""Existing price-blind sanitizer, reused unchanged; no identity grouping code."""
+import re,unicodedata
+
+def sanitize(text):
+    text=unicodedata.normalize('NFKC',str(text or ''))
+    number=r'\d+(?:[.,]\d+)*(?:\s\d{3}(?=\s|[.,]|$))*'
+    patterns=[rf'(?:M\s*\$|\$|CLP(?=\W|\d|$)|UF(?=\W|\d|$)|CLF(?=\W|\d|$))\s*[:=]?\s*{number}',
+              rf'{number}\s*(?:UF\b|CLP\b|CLF\b|pesos?\b|mill[oó]n(?:es)?\b)',
+              rf'\b(?:precio|valor|venta\s+por|desde|rebajad[oa]\s+a)\s*[:=]?\s*(?:\$|UF|CLP)?\s*{number}(?:\s*(?:mill[oó]n(?:es)?|pesos?|UF|CLP))?',
+              r'\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b',
+              r'\b(?:whatsapp|wsp|telefono|tel|contacto|celular)\s*[:+]?\s*[\d\s()+-]{7,}',
+              r'(?<!\d)\+?56[\s()-]*9(?:[\s()-]*\d){8}(?!\d)']
+    for p in patterns: text=re.sub(p,' ',text,flags=re.I)
+    return re.sub(r'\s+',' ',text).strip()

@@ -1,0 +1,265 @@
+"use client";
+
+import { ExternalLink, Loader2, MoreVertical, Trash2, WalletCards } from "lucide-react";
+import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { StatusNote } from "@/components/ui/status-note";
+import { ApiError } from "@/lib/api/client";
+import { ufUnavailableMessage } from "@/lib/api/uf-error";
+import { listWatchlist, removeFromWatchlist } from "@/lib/api/watchlist";
+import { formatClp, formatDate, formatM2, formatNumber, formatPropertyType, formatText, formatUf } from "@/lib/formatters";
+import type { WatchlistItem } from "@/types/watchlist";
+
+export function PortfolioWorkspace() {
+  const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      setItems(await listWatchlist());
+    } catch (caught) {
+      setError(errorText(caught, "No pudimos cargar tu watchlist."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeItem(item: WatchlistItem) {
+    setRemovingId(item.listing_id);
+    setError(null);
+    setMessage(null);
+    try {
+      await removeFromWatchlist(item.listing_id);
+      setItems((current) => current.filter((candidate) => candidate.listing_id !== item.listing_id));
+      setMessage("Propiedad quitada de la watchlist.");
+    } catch (caught) {
+      setError(errorText(caught, "No pudimos quitar esta propiedad."));
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  return (
+    <div className="grid gap-5">
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="lg:hidden">
+              <CardTitle>Lo que estas vigilando</CardTitle>
+            </div>
+            <div className="hidden lg:block">
+              <CardTitle>Watchlist</CardTitle>
+            </div>
+            <CardDescription>
+              Propiedades guardadas para seguimiento. Portfolio avanzado queda para una fase posterior.
+            </CardDescription>
+          </div>
+          <span className="rounded-lg border border-brand-500/25 bg-brand-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-violet-100">
+            {loading ? "Cargando" : `${items.length} guardada(s)`}
+          </span>
+        </div>
+        <div className="mt-5 hidden gap-3 lg:grid lg:grid-cols-3">
+          <SummaryFact label="Estado" value={loading ? "Actualizando" : "Actualizado"} />
+          <SummaryFact label="Escritura" value="Guardar / quitar" />
+          <SummaryFact label="Portfolio avanzado" value="Pendiente" />
+        </div>
+      </Card>
+
+      {message ? <StatusNote tone="success">{message}</StatusNote> : null}
+      {error ? <StatusNote tone="warning">{error}</StatusNote> : null}
+
+      {loading ? (
+        <Card>
+          <div className="flex min-h-56 items-center justify-center gap-3 text-sm text-muted">
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+            Cargando watchlist...
+          </div>
+        </Card>
+      ) : items.length ? (
+        <section className="grid gap-4 xl:grid-cols-2">
+          {items.map((item) => (
+            <WatchlistCard
+              item={item}
+              key={item.id}
+              onRemove={() => removeItem(item)}
+              removing={removingId === item.listing_id}
+            />
+          ))}
+        </section>
+      ) : (
+        <Card>
+          <div className="flex min-h-64 items-center justify-center rounded-lg border border-dashed border-line bg-black/20 p-8 text-center">
+            <div>
+              <WalletCards className="mx-auto h-9 w-9 text-brand-500" aria-hidden />
+              <h3 className="mt-4 text-lg font-semibold text-ink">Watchlist vacia</h3>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
+                Guarda una publicacion desde Analizar URL cuando este disponible para seguimiento.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function WatchlistCard({
+  item,
+  onRemove,
+  removing,
+}: {
+  item: WatchlistItem;
+  onRemove: () => void;
+  removing: boolean;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <Card className="flex min-h-80 flex-col">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-base font-semibold leading-6 text-ink">{item.title || "Propiedad guardada"}</h3>
+          <p className="mt-1 text-sm text-muted">{item.comuna || "Comuna no disponible"}</p>
+        </div>
+        <span className="rounded-lg border border-line bg-white/[0.05] px-3 py-1 text-xs text-muted">
+          {formatPropertyType(item.property_type)}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-2 rounded-lg border border-line bg-black/20 p-3 lg:hidden">
+        <Fact label="Estado" value={formatText(item.listing_status)} />
+        <Fact label="Cambio a vigilar" value={formatText(item.price_data_quality || item.price_display_basis)} />
+      </div>
+
+      <div className="mt-5 hidden gap-3 sm:grid-cols-2 lg:grid">
+        <Fact label="Precio UF" value={formatUf(item.price_uf_display ?? item.price_uf ?? item.saved_price_uf)} />
+        <Fact label="Precio CLP" value={formatClp(item.price_clp_display ?? item.price_clp)} />
+        <Fact label="Superficie" value={formatM2(item.m2)} />
+        <Fact label="Programa" value={programLabel(item.dormitorios, item.banos, item.estacionamientos)} />
+        <Fact label="Fuente" value={formatText(item.source)} />
+        <Fact label="Guardada" value={formatDate(item.saved_at)} />
+        <Fact label="Estado publicacion" value={formatText(item.listing_status)} />
+        <Fact label="Calidad precio" value={formatText(item.price_data_quality || item.price_display_basis)} />
+      </div>
+
+      <div className="mt-auto hidden flex-wrap gap-3 pt-5 lg:flex">
+        {item.url ? (
+          <a
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line bg-white/[0.06] px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand-500/45 hover:bg-brand-500/10"
+            href={item.url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ExternalLink className="h-4 w-4" aria-hidden />
+            Abrir publicacion
+          </a>
+        ) : null}
+        <Button disabled={removing} onClick={onRemove} type="button" variant="secondary">
+          {removing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+          Quitar
+        </Button>
+      </div>
+      <div className="relative mt-auto flex items-center justify-between gap-3 pt-5 lg:hidden">
+        {item.url ? (
+          <a
+            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-line bg-white/[0.06] px-4 py-2 text-sm font-semibold text-ink transition active:bg-white/[0.1]"
+            href={item.url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ExternalLink className="h-4 w-4" aria-hidden />
+            Abrir
+          </a>
+        ) : (
+          <span className="min-h-11 flex-1 rounded-lg border border-line bg-white/[0.035] px-4 py-3 text-center text-sm text-muted">
+            Sin URL
+          </span>
+        )}
+        <button
+          aria-expanded={menuOpen}
+          aria-label="Abrir opciones de propiedad"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-line bg-white/[0.06] text-ink"
+          onClick={() => setMenuOpen((current) => !current)}
+          type="button"
+        >
+          <MoreVertical className="h-5 w-5" aria-hidden />
+        </button>
+        {menuOpen ? (
+          <div className="absolute bottom-14 right-0 z-10 w-48 rounded-lg border border-line bg-[#050914]/95 p-2 shadow-soft backdrop-blur-xl">
+            <button
+              className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-ink active:bg-white/[0.08]"
+              disabled={removing}
+              onClick={() => {
+                setMenuOpen(false);
+                onRemove();
+              }}
+              type="button"
+            >
+              {removing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+              Quitar
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
+function SummaryFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-white/[0.04] p-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-white/[0.04] p-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+      <p className="mt-2 break-words text-sm font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function errorText(error: unknown, fallback: string): string {
+  const ufMessage = ufUnavailableMessage(error);
+  if (ufMessage) return ufMessage;
+  if (!(error instanceof ApiError)) return fallback;
+  if (error.status === 401 || error.status === 403) return "Tu sesion no esta vigente o no tiene permisos.";
+  if (error.status === 404) return "La propiedad no existe o ya no esta disponible.";
+  if (error.status === 422) return "No pudimos procesar esta accion.";
+  if (error.status >= 500) return "No pudimos actualizar la watchlist.";
+  return error.message;
+}
+
+function programLabel(
+  dormitorios: number | null | undefined,
+  banos: number | null | undefined,
+  estacionamientos: number | null | undefined,
+): string {
+  const parts = [
+    positiveNumberLabel(dormitorios, "D"),
+    positiveNumberLabel(banos, "B"),
+    positiveNumberLabel(estacionamientos, "E"),
+  ].filter((part) => part !== null);
+  return parts.length ? parts.join(" / ") : "No disponible";
+}
+
+function positiveNumberLabel(value: number | null | undefined, suffix: string): string | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? `${formatNumber(value, 0)}${suffix}`
+    : null;
+}

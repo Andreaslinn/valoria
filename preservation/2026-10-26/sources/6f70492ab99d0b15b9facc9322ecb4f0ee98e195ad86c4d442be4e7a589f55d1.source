@@ -1,0 +1,115 @@
+"""Evidence capture experiment. No product identity writes or AVM imports."""
+import json,math,re,hashlib
+from datetime import datetime,timezone
+from pathlib import Path
+from urllib.parse import urlsplit
+
+VERSION='identity-evidence-v1'
+MODERN_PARSERS={'yapo_search_payload','yapo_search_dom','yapo_detail_payload'}
+def positive(v):
+    try: return not isinstance(v,bool) and math.isfinite(float(v)) and float(v)>0
+    except (TypeError,ValueError): return False
+def cohort(record):
+    """Modern provenance != price usability. No date, model, price recovery or imputation."""
+    m=record.get('raw_metadata') or {}
+    source=record.get('source'); marker=m.get('parser_source')
+    experimental=source in {'yapo','portalinmobiliario'} and record.get('stage') in {'live_card','live_detail'} and record.get('evidence_parser_version')==VERSION and bool(record.get('raw_sha256')) and bool(record.get('parser_build_sha256'))
+    modern=(source=='yapo' and marker in MODERN_PARSERS) or (source=='portalinmobiliario' and bool(m.get('portal_card_first') or m.get('accepted_rm')))
+    modern=modern or experimental
+    currency=record.get('price_currency') or m.get('currency_original')
+    recovered=record.get('price_uf_source') or m.get('price_uf_source')
+    legacy=(recovered=='legacy_unrecoverable' or (currency in ('UF','CLF') and not positive(record.get('price_uf') or m.get('price_uf'))))
+    if recovered and ('recovered' in recovered or recovered=='estimated'): monetary=False
+    elif currency in ('UF','CLF'): monetary=positive(record.get('price_uf') or m.get('price_uf'))
+    elif currency=='CLP':
+        clp=record.get('price_clp') or (record.get('price') or {}).get('clp')
+        monetary=positive(clp) and float(clp)>=10000000 # Existing MIN_SALE_PRICE_CLP, not a fitted threshold.
+    else: monetary=False
+    area=record.get('usable_area_m2') or record.get('built_area_m2') or record.get('m2')
+    physical=positive(area) and 10<=float(area)<=1000 and positive(record.get('bathrooms')) and (positive(record.get('bedrooms')) or m.get('explicit_studio') is True)
+    identity=bool(record.get('source') and record.get('external_id') and record.get('url'))
+    status='modern' if modern and not legacy else 'legacy' if legacy else 'unverified'
+    fixture=str(record.get('stage','')).startswith('fixture_')
+    return dict(status=status,modern=modern and not legacy,canonical_native_price=monetary and not legacy,physical_usable=physical,modern_avm_usable=modern and not legacy and monetary and physical and identity and not fixture,
+        reason='verified current parser evidence' if modern and not legacy else 'legacy monetary gap' if legacy else 'no retained parser provenance')
+def is_modern_ingestion(record): return cohort(record)['modern']
+def digest(value): return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False,default=str).encode()).hexdigest()
+def geo(lat,lon):
+    try:
+        a,b=float(lat),float(lon)
+        return [a,b] if not isinstance(lat,bool) and not isinstance(lon,bool) and math.isfinite(a) and math.isfinite(b) and -90<=a<=90 and -180<=b<=180 and (a,b)!=(0,0) else None
+    except (TypeError,ValueError): return None
+def address_parts(raw):
+    # No guessed street numbers, no price tokens; only explicit road + number / explicit unit.
+    s=str(raw or '')
+    street=re.search(r'\b(calle|avenida|av\.?|pasaje|camino)\s+([A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,60}?)\s+(\d{1,5})(?!\d)\b',s,re.I)
+    unit=re.search(r'\b(?:departamento|depto|dpto|unidad)\s*(?:n[°ºo]?\.?|numero)\s*(\d+[a-z]?)\b',s,re.I)
+    return dict(street=street.group(1)+' '+street.group(2).strip() if street else None,street_number=street.group(3) if street else None,unit=unit.group(1) if unit else None)
+def evidence_yapo(item):
+    loc=item.get('location') or {}
+    images=[v for v in item.get('images',[]) if isinstance(v,str) and urlsplit(v).scheme in ('http','https')]
+    if item.get('principalImage') and item['principalImage'] not in images: images.insert(0,item['principalImage'])
+    rawaddress=loc.get('address') or item.get('address')
+    return dict(title_raw=item.get('title'),description_raw=item.get('description'),address_raw=rawaddress,
+        address_parsed=address_parts(rawaddress),location_raw=loc,coordinates=geo(loc.get('lat'),loc.get('lon')),
+        coordinate_origin='yapo.location',coordinate_precision='source_pin_unverified',
+        surfaces_raw={k:item.get(k) for k in ('square','lotSize','usableArea')},
+        physical_raw={k:item[k] for k in ('rooms','bathrooms','parking','floor','storage','year','amenities','condition') if k in item},
+        images_raw=item.get('images'),image_urls=images,image_ids=[urlsplit(x).path.rsplit('/',1)[-1] for x in images],
+        seller_raw={k:item[k] for k in ('seller','sellerId','agencyId','brokerId','userId') if k in item},
+        publication_date=item.get('publishedAt') or item.get('datePublished'),updated_date=item.get('updatedAt'),
+        building_project=item.get('building') or item.get('project'),listing_ids={k:item[k] for k in ('id','externalId','publicationId') if k in item})
+def evidence_portal(soup,state,components):
+    gallery=components.get('gallery') or {}; pictures=gallery.get('pictures') or []
+    location=components.get('location') or {}
+    rows=location.get('content_rows') or []
+    text=[(r.get('title') or {}).get('text') for r in rows if isinstance(r,dict)]
+    rawaddress=' | '.join(str(t) for t in text if t) or None
+    attrs=components.get('bookmark') or {}; attr_nodes=[]
+    def visit(v):
+        if isinstance(v,dict):
+            if v.get('id') in {'UNIT_NAME','MODEL_NAME','UNIT_FLOOR','BALCONY_AREA','TOTAL_AREA','COVERED_AREA','PARKING_LOTS','FULL_BATHROOMS','BEDROOMS','FACING'}: attr_nodes.append(v)
+            for x in v.values(): visit(x)
+        elif isinstance(v,list):
+            for x in v: visit(x)
+    visit(attrs)
+    seller=components.get('seller_profile') or state.get('seller_profile') or {}
+    seller_ids={}
+    # Component id=seller_profile is a UI id, not the seller's platform id.
+    def ids(v,path='seller'):
+        if isinstance(v,dict):
+            for k,x in v.items():
+                if k in {'seller_id','sellerId','user_id','agency_id','broker_id'} and isinstance(x,(str,int)): seller_ids[path+'.'+k]=x
+                elif isinstance(x,(dict,list)): ids(x,path+'.'+k)
+        elif isinstance(v,list):
+            for j,x in enumerate(v): ids(x,path+f'[{j}]')
+    ids(seller)
+    desc=(components.get('description') or {}).get('content')
+    image_urls=[str(x.get('url')) for x in pictures if isinstance(x,dict) and x.get('url')]
+    return dict(title_raw=(components.get('header') or {}).get('title'),description_raw=desc,address_raw=rawaddress,
+        address_parsed=address_parts(rawaddress),location_raw=location,physical_raw=attr_nodes,
+        technical_specs_raw=components.get('technical_specifications'),quotable_models_raw=components.get('quotable_models'),
+        images_raw=pictures,image_ids=[x['id'] for x in pictures if isinstance(x,dict) and x.get('id')],image_urls=image_urls,
+        image_config_raw=gallery.get('picture_config'),seller_raw=seller,seller_ids=seller_ids,
+        listing_ids={'platform_id':state.get('id')},
+        publication_date=None,updated_date=None,coordinate_precision='source_pin_unverified',
+        building_project=(components.get('header') or {}).get('title') if components.get('quotable_models') else None,
+        project_listing=bool(components.get('quotable_models')))
+def append_observation(folder,record,raw_bytes,*,source_url,observed_at,build_hash,stage):
+    """Content-addressed RAW + append-only PARSED. Replays are separate events."""
+    folder=Path(folder); rawfolder=folder/'raw'; rawfolder.mkdir(parents=True,exist_ok=True)
+    rawhash=hashlib.sha256(raw_bytes).hexdigest(); path=rawfolder/(rawhash+'.bin')
+    if not path.exists():
+        with path.open('xb') as f: f.write(raw_bytes)
+    else: assert hashlib.sha256(path.read_bytes()).hexdigest()==rawhash
+    row=dict(record,observation_time=observed_at,source_url=source_url,raw_sha256=rawhash,
+        parser_build_sha256=build_hash,evidence_parser_version=VERSION,stage=stage)
+    row['observation_id']=digest([row.get('source'),row.get('external_id'),observed_at,rawhash,stage])
+    row['parse_revision_id']=digest([row['observation_id'],build_hash,VERSION])
+    log=folder/'observations.jsonl'
+    if log.exists():
+        for line in log.read_text(encoding='utf-8').splitlines():
+            previous=json.loads(line)
+            if previous.get('parse_revision_id')==row['parse_revision_id']: return previous
+    with log.open('a',encoding='utf-8') as f: f.write(json.dumps(row,ensure_ascii=False,allow_nan=False,default=str)+'\n')
+    return row

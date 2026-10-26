@@ -1,0 +1,163 @@
+"""Downloadable user report generation."""
+from __future__ import annotations
+
+import math
+import re
+from datetime import UTC, datetime
+from typing import Any
+
+from ui.components.risk_report_html import (
+    build_investment_intelligence_report_data,
+    build_listing_risk_report_data,
+    build_risk_report_html,
+)
+
+SUPPORTED_REPORT_FORMATS = {"html"}
+
+
+class ReportGenerationError(ValueError):
+    """Raised when a report cannot be generated from the provided real data."""
+
+
+def build_property_valuation_report_html(
+    *,
+    valuation_result: dict[str, Any],
+    valuation_payload: dict[str, Any],
+) -> str:
+    _require_estimate(valuation_result)
+    report_data = build_investment_intelligence_report_data(
+        valuation_result=valuation_result,
+        valuation_payload=valuation_payload,
+        lookup_result={},
+    )
+    return build_risk_report_html(report_data)
+
+
+def build_listing_analysis_report_html(*, analysis: dict[str, Any]) -> str:
+    listing = _dict(analysis.get("listing"))
+    valuation = _dict(analysis.get("valuation"))
+    price_analysis = _dict(analysis.get("price_analysis"))
+    _require_estimate(valuation, uf_key="estimated_value_uf", clp_key="estimated_value_clp")
+
+    valuation_result = {
+        "estimated_price_uf": valuation.get("estimated_value_uf"),
+        "estimated_price_clp": valuation.get("estimated_value_clp"),
+        "price_range_low_uf": valuation.get("range_low_uf"),
+        "price_range_high_uf": valuation.get("range_high_uf"),
+        "confidence": valuation.get("confidence_label"),
+        "confidence_label": valuation.get("confidence_label"),
+        "confidence_score": valuation.get("confidence_score"),
+        "comparable_count": valuation.get("comparables_used"),
+        "warnings": valuation.get("warnings") or [],
+        "comparables": valuation.get("comparables") or [],
+        "valuation_strategy": valuation.get("valuation_strategy"),
+        "consensus_used": valuation.get("consensus_used"),
+        "consensus_unavailable_reason": valuation.get("consensus_unavailable_reason"),
+        "fallback_engine_used": valuation.get("fallback_engine_used"),
+    }
+    valuation_payload = {
+        "comuna": listing.get("comuna"),
+        "property_type": listing.get("property_type"),
+        "m2": listing.get("m2") or listing.get("built_area_m2") or listing.get("usable_area_m2"),
+        "built_area_m2": listing.get("built_area_m2") or listing.get("m2"),
+        "land_area_m2": listing.get("land_area_m2"),
+        "usable_area_m2": listing.get("usable_area_m2"),
+        "dormitorios": listing.get("bedrooms") or listing.get("dormitorios"),
+        "banos": listing.get("bathrooms") or listing.get("banos"),
+        "estacionamientos": listing.get("parking") or listing.get("estacionamientos"),
+        "precio_publicado_uf": price_analysis.get("published_price_uf") or listing.get("price_uf"),
+        "precio_publicado_clp": listing.get("price_clp"),
+        "url": listing.get("url"),
+        "source": listing.get("source"),
+        "listing_id": listing.get("listing_id"),
+        "discount_pct": _listing_discount_pct(
+            published_uf=price_analysis.get("published_price_uf") or listing.get("price_uf"),
+            estimated_uf=valuation.get("estimated_value_uf"),
+        ),
+        "title": listing.get("title"),
+    }
+    lookup_result = {
+        "status": "analyzed",
+        "url": listing.get("url"),
+        "source": listing.get("source"),
+        "listing_id": listing.get("listing_id"),
+        "listing_data": listing,
+        "warnings": valuation.get("warnings") or [],
+    }
+    report_data = build_listing_risk_report_data(
+        valuation_result=valuation_result,
+        valuation_payload=valuation_payload,
+        lookup_result=lookup_result,
+    )
+    return build_risk_report_html(report_data)
+
+
+def property_valuation_filename(valuation_payload: dict[str, Any]) -> str:
+    comuna = _filename_part(valuation_payload.get("comuna")) or "propiedad"
+    return f"valoria-tasacion-{comuna}-{_today_token()}.html"
+
+
+def listing_analysis_filename(analysis: dict[str, Any]) -> str:
+    listing = _dict(analysis.get("listing"))
+    listing_id = listing.get("listing_id")
+    suffix = str(listing_id) if isinstance(listing_id, int) else (_filename_part(listing.get("comuna")) or "publicacion")
+    return f"valoria-analisis-publicacion-{suffix}-{_today_token()}.html"
+
+
+def _require_estimate(
+    payload: dict[str, Any],
+    *,
+    uf_key: str = "estimated_price_uf",
+    clp_key: str = "estimated_price_clp",
+) -> None:
+    if payload.get(uf_key) is None and payload.get(clp_key) is None:
+        raise ReportGenerationError("La estimacion Valoria es requerida para generar el informe.")
+    for key in (uf_key, clp_key):
+        value = payload.get(key)
+        if value is None:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            raise ReportGenerationError("La estimacion Valoria debe ser un numero finito y positivo.") from None
+        if isinstance(value, bool) or not math.isfinite(number) or number <= 0:
+            raise ReportGenerationError("La estimacion Valoria debe ser un numero finito y positivo.")
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _listing_discount_pct(*, published_uf: Any, estimated_uf: Any) -> float | None:
+    published = _to_float(published_uf)
+    estimated = _to_float(estimated_uf)
+    if published is None or estimated is None or published <= 0 or estimated <= 0:
+        return None
+    return ((estimated - published) / estimated) * 100
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _filename_part(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = (
+        text.replace("ñ", "n")
+        .replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
+    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    return text[:48]
+
+
+def _today_token() -> str:
+    return datetime.now(tz=UTC).strftime("%Y%m%d")

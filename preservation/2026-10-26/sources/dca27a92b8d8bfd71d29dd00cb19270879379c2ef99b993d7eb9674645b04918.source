@@ -1,0 +1,32 @@
+"""Three official historic UF tables only. No database writes or SII rejoin."""
+import json,hashlib,calendar
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+import httpx
+from bs4 import BeautifulSoup
+OUT=Path(__file__).resolve().parent.parent/'outputs/house-rules'
+rates=[];sources=[]
+with httpx.Client(timeout=30,follow_redirects=True) as client:
+    for year in [2010,2011,2012]:
+        url=f'https://www.sii.cl/pagina/valores/uf/uf{year}.htm'
+        response=client.get(url);response.raise_for_status();html=response.content
+        path=OUT/f'uf{year}.htm';path.write_bytes(html)
+        parsed={}
+        for tr in BeautifulSoup(html,'html.parser').find_all('tr'):
+            cells=tr.find_all(['td','th'],recursive=False)
+            if len(cells)!=13:continue
+            day=cells[0].get_text(strip=True)
+            if not day.isdecimal():continue
+            for month,cell in enumerate(cells[1:],1):
+                text=cell.get_text(strip=True).replace('\xa0','')
+                if not text:continue
+                try:d=date(year,month,int(day));value=Decimal(text.replace('.','').replace(',','.'))
+                except (ValueError,ArithmeticError):continue
+                if value.is_finite() and 1000<value<1000000:parsed[d.isoformat()]=float(value)
+        assert len(parsed)==365+calendar.isleap(year),(year,len(parsed))
+        rates.extend({'date':d,'value':v} for d,v in sorted(parsed.items()))
+        sources.append({'url':url,'file':path.name,'sha256':hashlib.sha256(html).hexdigest(),'days':len(parsed)})
+payload={'calendar':rates,'sources':sources,'purpose':'Complete exact-date CLP-to-UF for existing2010-2012 training records. No valuation or geographic service query.'}
+(OUT/'historical-uf.json').write_text(json.dumps(payload,indent=2),encoding='utf8')
+print(json.dumps(sources,indent=2))

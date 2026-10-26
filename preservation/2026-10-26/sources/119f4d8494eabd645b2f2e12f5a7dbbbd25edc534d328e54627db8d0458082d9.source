@@ -1,0 +1,62 @@
+import json, secrets, urllib.request, urllib.error, urllib.parse, os
+from sqlalchemy import create_engine, text
+from api.main import app
+from services import reports, radar, patrimony, listing_analysis
+
+assert '@reconcile-db:' in os.environ['SYNC_DATABASE_URL']
+assert os.environ['REDIS_URL'].startswith('redis://reconcile-redis:')
+engine=create_engine(os.environ['SYNC_DATABASE_URL'])
+with engine.connect() as connection:
+    assert connection.execute(text('select version_num from alembic_version')).scalar()=='0020'
+results={'schema':'0020','imports':'ok'}
+token=None
+def request(name,path,method='GET',payload=None,form=False,expected=200):
+    headers={}
+    if token: headers['Authorization']='Bearer '+token
+    data=None
+    if payload is not None:
+        data=(urllib.parse.urlencode(payload) if form else json.dumps(payload)).encode()
+        headers['Content-Type']='application/x-www-form-urlencoded' if form else 'application/json'
+    req=urllib.request.Request('http://127.0.0.1:8000'+path,data=data,headers=headers,method=method)
+    try:
+        response=urllib.request.urlopen(req,timeout=180)
+    except urllib.error.HTTPError as exc: response=exc
+    body=response.read()
+    results[name]={'status':response.status,'expected':expected,'ok':response.status==expected}
+    if response.status!=expected:
+        results[name]['diagnostic']=json.loads(body).get('detail') if name=='valuation' else 'status mismatch'
+        return None
+    return json.loads(body) if 'json' in response.headers.get('Content-Type','') else body
+
+request('health','/health')
+request('openapi','/openapi.json')
+request('unauthenticated','/api/v1/patrimony/properties',expected=401)
+email='reconcile-'+secrets.token_hex(6)+'@example.test'
+password=secrets.token_urlsafe(24)+'A1!'
+request('register','/api/v1/auth/register','POST',{'email':email,'password':password},expected=201)
+login=request('login','/api/v1/auth/login','POST',{'username':email,'password':password},form=True)
+assert login, 'Test authentication failed'
+token=login['access_token']
+request('me','/api/v1/auth/me')
+request('uf','/api/v1/market/uf')
+request('radar_summary','/api/v1/radar/summary')
+request('radar_opportunities','/api/v1/radar/opportunities?limit=2')
+request('patrimony_list','/api/v1/patrimony/properties')
+asset=request('patrimony_create','/api/v1/patrimony/properties','POST',{'name':'Isolated smoke fixture','comuna':'providencia','property_type':'apartment','m2':60},expected=201)
+if asset: request('patrimony_read','/api/v1/patrimony/properties/'+str(asset['id']))
+request('portfolio','/api/v1/portfolio/summary')
+request('alerts','/api/v1/alerts')
+request('watchlist','/api/v1/watchlist')
+request('report','/api/v1/reports/valuation','POST',{'valuation_result':{'estimated_price_uf':5000,'estimated_price_clp':205000000,'comparable_count':8},'valuation_payload':{'comuna':'providencia','m2':60}})
+request('valuation','/api/v1/valuations','POST',{'comuna':'providencia','property_type':'apartment','m2':60})
+with engine.connect() as connection:
+    listing=connection.execute(text("select id, url from listings where url is not null and property_type='apartment' and comuna='providencia' order by id limit 1")).first()
+if listing:
+    request('analyze_url','/api/v1/listings/analyze-url','POST',{'url':listing.url})
+    request('watchlist_save','/api/v1/watchlist/'+str(listing.id),'POST',expected=201)
+    request('watchlist_status','/api/v1/watchlist/'+str(listing.id)+'/status')
+    request('watchlist_remove','/api/v1/watchlist/'+str(listing.id),'DELETE')
+if 'reconciled' in os.environ.get('RECONCILIATION_SMOKE_STAGE',''):
+    proxy=urllib.request.urlopen('http://reconcile-caddy:8080/health',timeout=10)
+    results['caddy_proxy']={'status':proxy.status,'ok':proxy.status==200}
+print(json.dumps(results))

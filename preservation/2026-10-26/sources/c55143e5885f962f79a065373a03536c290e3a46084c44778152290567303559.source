@@ -1,0 +1,18 @@
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent/"valoria"))
+from psycopg.rows import dict_row
+from services.sii.jobs import connect
+from services.sii.settings import Settings
+
+with connect(Settings.load()) as conn:
+    conn.row_factory=dict_row
+    files=conn.execute("SELECT id,tipo,nombre,semestre,fecha,comuna,hash,filas,filas_seleccionadas,line_source_file_id FROM sii.source_file ORDER BY tipo,comuna,id").fetchall()
+    codes=conn.execute("SELECT s.nombre,p.comuna,count(*) AS roles FROM sii.predio p JOIN sii.source_file s ON s.id=p.source_file_id GROUP BY s.nombre,p.comuna ORDER BY s.nombre,p.comuna").fetchall()
+    errors=conn.execute("SELECT error,count(*) AS n FROM sii.transferencia_raw r CROSS JOIN LATERAL unnest(r.errores_parseo) error GROUP BY error ORDER BY error").fetchall()
+    examples=conn.execute("SELECT id,source_file_id,fila,comuna,manzana,predio,campos,errores_parseo FROM sii.transferencia_raw WHERE cardinality(errores_parseo)>0 ORDER BY id LIMIT 5").fetchall()
+    calendar=conn.execute("SELECT count(*) AS dias,min(date) AS desde,max(date) AS hasta FROM public.ingestion_uf_calendar").fetchone()
+path=Path(__file__).parent/"source-profile.json"
+path.write_text(json.dumps({"files":files,"codes_read_from_role_files":codes,"raw_parse_errors":errors,"raw_error_examples":examples,"existing_calendar":calendar},default=str,indent=2,ensure_ascii=False),encoding="utf8")
+print(json.dumps({"files":len(files),"errors":errors,"calendar":calendar},default=str))

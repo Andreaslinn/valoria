@@ -1,0 +1,29 @@
+import subprocess,tarfile,io,json,hashlib,shlex
+from pathlib import Path
+r=Path(r'C:\Users\heiko\Documents\Codex\2026-09-05\vamos-a-ped\valoria-reconciled');w=Path(r'C:\Users\heiko\Documents\Codex\2026-10-12\files-pasted-by-the-user-valoria\work');out=w/'release-overlay';out.mkdir(exist_ok=True)
+paths=json.loads((w/'overlay-paths.json').read_text())
+manifest={'production_base_image':'sha256:3342a667c071319097e6c6aed23bfd03ec231f6bf44cd17434d6a0de13187f15','source_checkout_head':'5288dde','kind':'reviewed API overlay; no scraper/worker/config/volume replacements','files':{}}
+for name in paths:
+ data=(r/name).read_bytes();p=out/'overlay'/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data);manifest['files'][name]=hashlib.sha256(data).hexdigest()
+(out/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+(out/'Dockerfile').write_text('FROM valoria-portal-geo:0ceeb1e-20261011\nCOPY overlay/ /app/\n',encoding='utf-8')
+for args in [['git','init'],['git','config','user.name','Codex remediation snapshot'],['git','config','user.email','codex-remediation@example.invalid'],['git','add','overlay','manifest.json','Dockerfile'],['git','commit','-m','Snapshot reviewed Valoria API remediation overlay']]:
+ p=subprocess.run(args,cwd=out,capture_output=True,text=True);assert p.returncode==0,p.stderr
+commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=out,text=True).strip();(w/'candidate-overlay-commit.txt').write_text(commit);print('Candidate overlay commit',commit)
+buf=io.BytesIO()
+with tarfile.open(fileobj=buf,mode='w:gz') as t:
+ for name in ['overlay','manifest.json','Dockerfile']:t.add(out/name,arcname=name)
+(w/'release-overlay.tar.gz').write_bytes(buf.getvalue())
+remote='''import pathlib,tarfile,sys,io,subprocess,json
+root=pathlib.Path('/home/ubuntu/apps/valoria/deploy/remediation-candidate-20261012')
+assert not root.exists(),'Candidate directory already exists; refuse overwrite'
+base=json.loads(subprocess.check_output(['docker','inspect','valoria_oracle_beta-api-1']))[0]
+assert base['Image']=='sha256:3342a667c071319097e6c6aed23bfd03ec231f6bf44cd17434d6a0de13187f15','Runtime changed'
+root.mkdir(mode=0o700)
+with tarfile.open(fileobj=io.BytesIO(sys.stdin.buffer.read()),mode='r:gz') as t:t.extractall(root,filter='data')
+r=subprocess.run(['docker','build','--label','org.opencontainers.image.revision=COMMIT','-t','valoria-remediation:candidate-20261012',str(root)],capture_output=True,text=True,timeout=90)
+print(r.stdout[-3000:]);print(r.stderr[-1000:] if r.returncode else '')
+sys.exit(r.returncode)
+'''.replace('COMMIT',commit)
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+p=subprocess.run(ssh+['python3 -c '+shlex.quote(remote)],input=buf.getvalue(),capture_output=True,timeout=110);(w/'candidate-image-build.log').write_bytes(p.stdout+p.stderr);print(p.stdout.decode(errors='replace'));print(p.stderr.decode(errors='replace') if p.returncode else '');p.check_returncode()

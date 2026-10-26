@@ -1,0 +1,17 @@
+from pathlib import Path
+import json,urllib.request
+scope={};exec(Path('work/create_resilience_pr.py').read_text(encoding='utf8').split('tip=api(')[0],scope)
+api=scope['api'];pr=api('/pulls/6');head='f8109193877593d72e6b4589f9d57fc8dde2a077'
+assert pr['head']['sha']==head and pr['base']['ref']=='release/canonical-only-reproducible-20261013'
+assert pr['base']['sha']=='80bd8a9aae5c1af733778f524ce880efcb5d815e'
+if not pr['merged']:
+ if pr['draft']:
+  query='mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}'
+  req=urllib.request.Request('https://api.github.com/graphql',data=json.dumps({'query':query,'variables':{'id':pr['node_id']}}).encode(),headers={'Authorization':'Bearer '+scope['token'],'User-Agent':'Valoria-Approved-Release','Content-Type':'application/json'})
+  with urllib.request.urlopen(req,timeout=30) as response: ready=json.load(response)
+  assert not ready.get('errors')
+ result=api('/pulls/6/merge',{'sha':head,'merge_method':'merge','commit_title':'Merge PR #6: discovery same-day source fields'},method='PUT')
+ assert result.get('merged');commit=result['sha']
+else:commit=pr['merge_commit_sha']
+proof={'commit':commit,'head':head,'base':pr['base']['ref'],'pr':pr['html_url']}
+Path('outputs/discovery-deploy-20261016/merge-proof.json').write_text(json.dumps(proof,indent=2));print(json.dumps(proof))

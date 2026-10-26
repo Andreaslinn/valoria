@@ -1,0 +1,55 @@
+from lab import *
+from models import *
+from temporal_prepare import temporal_data
+from am import FoldModel,BASE,cfg,clear_price_surface_cache
+from avm01.isolation import LabelCustody,dependency_hash
+from avm01.splits import Split,inner_folds
+from avm01.engines import FrozenA
+from analyze import metrics,interval
+NAMES=['A','AM','R0','Rsource','Flex','Trees','Adjusted','AdjustedPre','LocalResidual','Hybrid','HybridSupported','MedianA','GeoMeanA']
+def config(c,seed):return {'seed':seed,'target':'log_uf_total','geo_ablation':False,'real_execution_enabled':True,'engines':NAMES,'index_policy':'first_observation_v1','uf_reference':c['uf_reference'],'experiment_protocol_sha256':sha(HERE/'temporal_protocol.json')}
+def supported(t,train):
+ local=[r for r in train if r.features['comuna']==t.features['comuna']]
+ return len(local)>=5 and min(r.features['log_area'] for r in local)<=t.features['log_area']<=max(r.features['log_area'] for r in local)
+def run():
+ verify();out=HERE/'temporal_predictions.json.dpapi';assert not out.exists(),'No overwrite'
+ c=read(HERE/'temporal_protocol.json');assert sha(HERE/'temporal_protocol.json')==(HERE/'temporal_protocol.sha256').read_text()
+ for name,h in read(HERE/'temporal_code_seal.json').items():assert sha(HERE/name)==h,name
+ ds,trainids,testids,audit=temporal_data();assert ds.hash()==c['dataset_sha256']['temporal']
+ seed=20261009;split=Split(trainids,testids,'temporal',seed,ds.hash(),dependency_hash(ds));custody=LabelCustody(ds,());batch=custody.issue(ds,split,config(c,seed),())
+ targets=list(batch.targets);models={'R0':Model(batch,'R0'),'Rsource':Model(batch,'R0',True),'Flex':Model(batch,'Flex'),'Trees':Model(batch,'Trees')};logs={n:dict(zip(testids,m.predict_log(targets))) for n,m in models.items()}
+ residual={};ic=LabelCustody(ds,())
+ for k,s in enumerate(inner_folds(ds,split,seed=seed)):
+  print(json.dumps({'phase':'inner-residual','fold':k}),flush=True)
+  ib=ic.issue(ds,s,config(c,seed),(),outer=split);im=Model(ib,'Flex');ts=list(ib.targets);lv=im.predict_log(ts);iv={n:{t.row_id:None for t in ts} for n in NAMES}
+  for t,v in zip(ts,lv):iv['Flex'][t.row_id]=math.exp(float(v))
+  ic.record_predictions(ib,iv);truth=ic.complete(iv,s.test);residual.update({t.row_id:math.log(truth[t.row_id])-float(v) for t,v in zip(ts,lv)})
+ train={r.row_id:r for r in batch.rows};lt=dict(zip(train,models['R0'].train_log()));native=FrozenA().fit(batch);am=FoldModel(batch,c['uf_reference']['value']);adaptive=cfg('AM',selector='adaptive',compat=True,min_neff=4.5,retrieval=8)
+ vals={n:{} for n in NAMES};traces={};parity=0
+ for j,t in enumerate(targets):
+  clear_price_surface_cache();nativeA=native.predict(t);clear_price_surface_cache();bundle=am.bundle(t);a=bundle.predict(BASE)
+  assert a['prediction']==nativeA.value_uf;assert sorted(a['selected_ids'])==sorted(nativeA.trace['selected_ids']);parity+=1
+  z=bundle.predict(adaptive);assert (set(z['selected_ids'])|set(z['surface_pool_ids']))<=set(train)
+  vals['A'][t.row_id]=a['prediction'];vals['AM'][t.row_id]=z['prediction']
+  for n in models:vals[n][t.row_id]=math.exp(float(logs[n][t.row_id]))
+  post,pre,factor=adjusted(a,t,train,logs['R0'][t.row_id],lt);vals['Adjusted'][t.row_id]=post;vals['AdjustedPre'][t.row_id]=pre
+  corr,k=local_residual(t,list(batch.rows),residual,batch.components);vals['LocalResidual'][t.row_id]=vals['Flex'][t.row_id]*math.exp(corr)
+  vals['Hybrid'][t.row_id]=a['prediction'] if a['prediction'] is not None else vals['Flex'][t.row_id]
+  vals['HybridSupported'][t.row_id]=a['prediction'] if a['prediction'] is not None else vals['Flex'][t.row_id] if supported(t,list(batch.rows)) else None
+  vals['MedianA'][t.row_id]=None;vals['GeoMeanA'][t.row_id]=None
+  if a['prediction'] is not None:
+   from domain.valuation.scoring import similarity_score
+   from avm01.canonical_io import target_from_payload,listing_from_payload
+   tt=target_from_payload(t.canonical_target);selected=[train[i] for i in a['selected_ids']];w=np.array([similarity_score(tt,listing_from_payload(r.canonical_listing)).value for r in selected]);w/=w.sum()
+   ppm=np.array([r.price_uf/math.exp(r.features['log_area']) for r in selected]);order=np.argsort(ppm);med=float(ppm[order][np.searchsorted(np.cumsum(w[order]),.5)])
+   surface=a['prediction']/a['pre'];area=math.exp(t.features['log_area']);vals['MedianA'][t.row_id]=med*area*surface;vals['GeoMeanA'][t.row_id]=math.exp(float(w@np.log(ppm)))*area*surface
+  traces[t.row_id]={'supported':supported(t,list(batch.rows)),'AM_fallback':z['fallback'],'AM_selected':z['selected_ids'],'A_selected':a['selected_ids'],'A_pre':a['pre'],'A_post':a['prediction'],'adjustment_factor':factor,'local_residual_log':corr,'local_n':k}
+  if j%25==0:print(json.dumps({'phase':'prediction','done':j+1,'total':len(targets)}),flush=True)
+ custody.record_predictions(batch,vals);truth=custody.complete(vals,testids)
+ rows=[{'row_id':t.row_id,'group':batch.components[t.row_id],'source':t.features['source'],'comuna':t.features['comuna'],'area':math.exp(t.features['log_area']),'geo':t.latitude is not None,'date':t.prediction_at[:10],'target_uf':truth[t.row_id],'predictions':{n:vals[n][t.row_id] for n in NAMES},'trace':traces[t.row_id]} for t in targets]
+ h=encrypt(out,rows);summary={}
+ for label,subset in [('all',rows),('supported',[r for r in rows if r['trace']['supported']]),('unsupported',[r for r in rows if not r['trace']['supported']]),('geo',[r for r in rows if r['geo']]),('no_geo',[r for r in rows if not r['geo']]),('A_abstentions',[r for r in rows if r['predictions']['A'] is None])]:
+  summary[label]={'n':len(subset),'full':{n:metrics(subset,n) for n in NAMES},'paired':{n:interval(subset,'A',n) for n in NAMES if n!='A'}}
+ summary['validation']={'native_A_exact_parity':parity,'train_ids':len(trainids),'modern_test':len(testids),'native_pool_is_old_only':True,'no_price_or_future_join':True,'identity':audit,'predictions_plaintext_sha256':h,'code_sha256':{f.name:sha(f) for f in HERE.glob('*.py')}}
+ write(HERE/'temporal_summary.json',summary);print(json.dumps({'all':summary['all']['full'],'paired':{n:{k:v for k,v in z.items() if k not in ['A','B']} if z else None for n,z in summary['all']['paired'].items()}},ensure_ascii=False))
+if __name__=='__main__':run()

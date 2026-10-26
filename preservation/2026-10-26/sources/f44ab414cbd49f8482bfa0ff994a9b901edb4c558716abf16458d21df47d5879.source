@@ -1,0 +1,178 @@
+from __future__ import annotations
+
+import csv
+import gzip
+import hashlib
+import json
+import subprocess
+from collections import Counter
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parent
+REPO = BASE/'valoria'
+DATA = BASE/'closing-validation-final'
+OUT = BASE.parent/'outputs'
+REPORTS = REPO/'reports'/'sii'/'closing_layer_20261019'
+
+
+def text(path):
+    return path.read_text(encoding='utf-8-sig')
+
+
+def fmt(value):
+    return '—' if value is None else f'{value:.2f}'
+
+
+def write_csv(path,rows,fields):
+    with path.open('w',encoding='utf-8-sig',newline='') as f:
+        w = csv.DictWriter(f,fieldnames=fields,extrasaction='ignore')
+        w.writeheader()
+        w.writerows(rows)
+
+
+def failure_reason(row):
+    if row['status']!='ok':
+        return {'missing_target_or_pool_fields':'Falta edad, superficie cerrada positiva o dirección base interpretable.',
+                'fewer_than_10_comparables':'Menos de 10 cierres elegibles después de exclusiones de rol, fecha, tipo y área.'}.get(row.get('reason'),row.get('reason'))
+    comps = row['comparables']
+    target_price = row['actual_uf']/row['area']
+    estimate_price = row['uf_m2']
+    buildings = {c['building'] for c in comps}
+    return (f"UF/m² real {target_price:.2f}; mediana ponderada {estimate_price:.2f}; "
+            f"{len(buildings)} edificios base entre los 10 vecinos. La similitud de área, "
+            "ubicación y edad no explica esa diferencia de precio; no se verificó su causa económica o registral.")
+
+
+def main():
+    summary = json.loads(text(DATA/'summary.json'))
+    addresses = json.loads(text(DATA/'address-validation.json'))
+    holdout = json.loads(text(DATA/'holdout-validation.json'))
+    REPORTS.mkdir(parents=True,exist_ok=True)
+    OUT.mkdir(parents=True,exist_ok=True)
+    regressions = text(BASE/'closing-all-tests.log').strip().splitlines()[-1]
+    # Product path equality is checked byte for byte against the requested base.
+    unchanged = {}
+    paths = ['api/v1/valuations.py','api/v1/tasar.py','services/valuation.py',
+             'frontend/src/features/valuation/ValuationResult.tsx',
+             'frontend/src/features/valuation/ValuationForm.tsx',
+             'frontend-v2/src/features/valuation/result.tsx',
+             'frontend-v2/src/features/valuation/property-form.tsx']
+    for path in paths:
+        before = subprocess.check_output(['git','show','24b56dc:'+path],cwd=REPO)
+        after = (REPO/path).read_bytes().replace(b'\r\n',b'\n')
+        assert before.replace(b'\r\n',b'\n')==after,path
+        unchanged[path] = hashlib.sha256(after).hexdigest()
+    preds = holdout['predictions']
+    targets = {r['rol'] for r in preds}
+    for r in preds:
+        if r['status']=='ok':
+            assert len(r['comparables'])==10
+            assert r['p25_uf']<=r['value_uf']<=r['p75_uf']
+            assert all(c['rol'] not in targets and c['fecha']<r['date'] for c in r['comparables'])
+    summary['verification'] = {'regression_tests':regressions,
+                               'product_sources_unchanged_sha256':unchanged,
+                               'all_prediction_role_date_leakage_checks_pass':True,
+                               'flag_default':'off','product_integration':'stopped_before_step_4',
+                               'osm':'No local extract supplied; adapter interface tested, fallback not evaluated.'}
+    # JSON with full comparable sets is downloadable; no database or source dump is published.
+    for name,value in [('summary.json',summary),('address-validation.json',addresses),
+                       ('holdout-validation.json',holdout)]:
+        encoded = json.dumps(value,ensure_ascii=False,indent=2,default=str)
+        if name=='holdout-validation.json':
+            (REPORTS/(name+'.gz')).write_bytes(gzip.compress(encoded.encode('utf8'),mtime=0))
+        else:
+            (REPORTS/name).write_text(encoded,encoding='utf8')
+        (OUT/name).write_text(encoded,encoding='utf8')
+    write_csv(REPORTS/'address-sample.csv',addresses['cases'],
+              ['rol','comuna','raw','query','building_correct','status','reason','unit_correct','candidate_count'])
+    write_csv(REPORTS/'holdout-predictions.csv',preds,
+              ['rol','comuna','date','year','age_band','area','actual_uf','value_uf','p25_uf','p75_uf','ape_pct','status','reason'])
+    lines = [
+        '# Segunda capa SII — evaluación detenida',
+        '',
+        '**No cumple el criterio de salida. PR en borrador, sin merge ni deploy. Tasar sin cambios.**',
+        '',
+        f"Corte local: `{summary['metadata']['as_of_utc']}`. Base `24b56dc6fe626d19834bcd6707a9b77d1d3d44c7` "
+        '(release/canonical-only-reproducible-20261013, incluye PR #9). '
+        'Rama `feature/sii-closing-layer-20261019`.',
+        '',
+        '## Resultado por comuna',
+        '',
+        '| Comuna | Dirección n | Edificio correcto % | Holdout n | Predichos | MdAPE % | P95 error % |',
+        '|---|---:|---:|---:|---:|---:|---:|',
+    ]
+    a_by = {r['comuna']:r for r in addresses['by_commune']}
+    for r in holdout['by_commune']:
+        a = a_by[r['comuna']]
+        lines.append(f"| {r['name']} | {a['n']} | {fmt(a['resolution_pct'])} | {r['n']} | {r['predicted']} | {fmt(r['mdape_pct'])} | {fmt(r['p95_ape_pct'])} |")
+    lines += ['',f"Resolución global: **{sum(r['building_correct'] for r in addresses['cases'])}/300 = {addresses['resolution_pct']:.2f}%**. "
+              'Cumple el umbral global de 90%; Estación Central y Ñuñoa quedan bajo 90% en el desglose. '
+              'MdAPE y P95 se calculan sobre predicciones disponibles; se muestran todas las abstenciones en el denominador del holdout. '
+              'Ñuñoa y La Florida cumplen MdAPE ≤10%; las otras seis comunas no cumplen.',
+              '',
+              '## Método congelado antes de medir',
+              '',
+              '- Índice SQLite desechable de **1.673.327 roles**, tomado del último par N/NL completo por comuna; lectura PostgreSQL `REPEATABLE READ READ ONLY`. No se escribieron tablas, migraciones ni configuración en la base.',
+              '- Parseo desde `direccion_raw`: tildes, puntuación, abreviaturas, prefijos y número cívico. La dirección base excluye unidad; la identidad conserva comuna SII y manzana. Coincidencias en varias manzanas devuelven candidatos. Piso solo no identifica unidad: el catastro no ofrece el piso individual.',
+              '- 300 roles aleatorios estratificados (38/37 por comuna), semilla 20261019; incluye auxiliares, direcciones vacías y direcciones sin número. Variantes generadas sobre la cadena original, con abreviaturas, sin tildes y con/sin departamento. No se filtraron casos difíciles.',
+              '- Limitación del ensayo: reescrituras automáticas de estilo humano; no hubo un panel humano independiente. El edificio esperado se obtiene de la manzana y la dirección original parseada, no de inspección física. El porcentaje es consistencia contra el catastro y no acredita por sí solo precisión física independiente.',
+              '- OSM: interfaz de respaldo únicamente después de un fallo de texto, probada para no cambiar comuna ni número. No había extracto OSM local configurado, por lo que no se evaluó recuperación OSM; no se llamó a servicios públicos ni se asignaron coordenadas supuestas.',
+              '- Cierres `cierre_comparable=true`, casas y departamentos separados. Superficie = `m2_H − m2_H_abierta`; UF/m² se calcula desde `monto_uf / m2_cerrado`, sin sustituir por superficie H total.',
+              '- Similitud = 0,30·área + 0,30·ubicación + 0,30·edad + 0,10·fecha. Área: `max(0,1−abs(log(m²_comp/m²_obj))/log(1,5))`, con elegibilidad entre 0,5 y 1,5. Ubicación: edificio 1, manzana 0,7, comuna 0,2. Edad: `max(0,1−abs(año_comp−año_obj)/20)`. Fecha: `max(0,1−días_transcurridos/730,5)`. K=10; desempate por raw_id, sin mirar el precio.',
+              '- Valor: cuantil empírico ponderado 0,5 de UF/m² × m² de la unidad; P25 y P75 con la misma ponderación. Son dispersión de comparables, no intervalos calibrados de predicción.',
+              f"- Holdout: todos los cierres con fecha efectiva (FE, o FI si no existe FE) en 2026. **{holdout['holdout_roles']} roles**; se excluyen íntegramente de los **{holdout['pool_rows']} cierres 2024–2025** del pool. El estimador también exige fecha anterior al objetivo y rol distinto. La ausencia de dirección, edad o diez vecinos produce abstención, sin imputación.",
+              '- No se ajustaron pesos ni umbrales contra el holdout. Se corrigieron límites de palabra del parser para no confundir DEPARTAMENTAL/ESTRELLA con DEP/EST; se volvió a crear todo el snapshot y sus métricas.',
+              '',
+              '## Error por tramo de edad',
+              '',
+              '| Comuna | Edad en 2026 | n | Predichos | MdAPE % | P95 % |',
+              '|---|---|---:|---:|---:|---:|']
+    for r in holdout['by_commune']:
+        for band,m in r['by_age'].items():
+            lines.append(f"| {r['name']} | {band} | {m['n']} | {m['predicted']} | {fmt(m['mdape_pct'])} | {fmt(m['p95_ape_pct'])} |")
+    lines += ['', '## Cinco fallos de valoración por comuna y su diagnóstico', '',
+              'Se muestran las cinco discrepancias porcentuales más altas con predicción por comuna. '
+              'Las abstenciones se contabilizan por causa después de cada tabla. '
+              'La explicación es un diagnóstico observable, no una atribución causal verificada. '
+              'El archivo local `holdout-validation.json` contiene cada predicción, su rango y sus diez comparables con rol, fecha, m² y UF/m². La evidencia por rol se entrega localmente y no se publica en GitHub.', '']
+    for r in holdout['by_commune']:
+        lines += [f"### {r['name']}",'','| Rol | Fecha | m² cerrados | UF real | UF estimada | Error % | Por qué falla |',
+                  '|---|---|---:|---:|---:|---:|---|']
+        available = [p for p in preds if p['comuna']==r['comuna'] and p['status']=='ok' and p['ape_pct']>10]
+        available.sort(key=lambda p:p['ape_pct'],reverse=True)
+        for p in available[:5]:
+            lines.append(f"| {p['rol']} | {p['date']} | {fmt(p['area'])} | {fmt(p['actual_uf'])} | {fmt(p['value_uf'])} | {fmt(p['ape_pct'])} | {failure_reason(p)} |")
+        counts = Counter(p.get('reason') for p in preds if p['comuna']==r['comuna'] and p['status']!='ok')
+        lines += ['', 'Abstenciones: '+', '.join(f'`{k}`: {v}' for k,v in counts.items())+'.', '']
+    lines += ['## Fallos de resolución de dirección por comuna', '',
+              'Hasta cinco casos reales fallidos de la muestra por comuna; cuando hay menos de cinco, se muestran todos, sin inventar ejemplos.', '']
+    causes = {'multiple_buildings':'La misma calle y número aparecen en varias manzanas; se devuelven candidatos, no se elige.',
+              'missing_building_number':'Dirección vacía o formato de bloque/torre/sufijo no interpretable; no se obtiene un número cívico seguro.',
+              'no_text_match':'No hay coincidencia textual en la comuna; falta un extracto OSM local para probar el respaldo.'}
+    for r in addresses['by_commune']:
+        lines += [f"### {r['name']}: {r['failure_count']} fallos de {r['n']}", '', '| Rol | Dirección original | Consulta | Motivo |','|---|---|---|---|']
+        for p in r['failed_examples']:
+            raw = p['raw'].replace('|','/'); query = p['query'].replace('|','/')
+            lines.append(f"| {p['rol']} | {raw or '(vacía)'} | {query or '(vacía)'} | {causes.get(p['reason'],p['reason'])} |")
+        lines.append('')
+    lines += ['## Pruebas y preservación de Tasar', '',
+              f'- Pruebas de índice, kNN, ingesta SII, valoración canónica, guardia release, endpoint, servicio real y camino compartido Radar: **{regressions}**.',
+              '- Ruff y `git diff --check` correctos. Verificación automática de todos los comparables: diez por predicción, roles del holdout ausentes y fechas estrictamente anteriores; P25 ≤ valor ≤ P75.',
+              '- Endpoints, servicio de valoración, formulario y resultado de ambas interfaces idénticos byte a byte respecto de `24b56dc` (normalizando CRLF); hashes en `summary.json`. No se conectó el motor experimental a la ejecución de Tasar, por lo que las respuestas actuales, con flag apagado o sin dirección, conservan el mismo camino de ejecución.',
+              '- Flag `sii_closing_layer` declarado y apagado por defecto. **Paso 4 detenido: encenderlo todavía no muestra una segunda opinión**. La falta de aprobación de los controles impide certificar o integrar el experimento en producto.',
+              '- No hubo merge, deploy, escrituras en producción, instalación de jobs, scrapers ni llamadas OSM.',
+              '', '## Estado y pendientes', '',
+              'Se detuvo el avance funcional al fallar los controles. El borrador deja índice, estimador y auditoría reproducibles para revisión. '
+              'Quedan pendientes la anotación independiente de edificios, el tratamiento seguro de formatos de bloque/torre y candidatos, '
+              'el respaldo OSM con datos locales y una investigación separada de los residuos de precio antes de repetir el holdout. '
+              'No corresponde presentar este modelo como una segunda opinión validada en Tasar.', '']
+    report = '\n'.join(lines)
+    (REPORTS/'report.md').write_text(report,encoding='utf8')
+    (OUT/'SII_SEGUNDA_CAPA_RESULTADOS.md').write_text(report,encoding='utf8')
+    for name in ('address-sample.csv','holdout-predictions.csv'):
+        (OUT/name).write_bytes((REPORTS/name).read_bytes())
+    print(json.dumps({'report':str(OUT/'SII_SEGUNDA_CAPA_RESULTADOS.md'),'passed':summary['passed'],'predictions':len(preds)}))
+
+
+if __name__=='__main__':
+    main()

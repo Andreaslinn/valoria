@@ -1,0 +1,25 @@
+import subprocess,json
+from pathlib import Path
+ssh=[r'C:\Windows\System32\OpenSSH\ssh.exe','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-i',r'C:\Users\heiko\Downloads\ssh-key-2026-07-07 (1).key','ubuntu@161.153.201.245']
+
+inner="""import asyncio,json
+from sqlalchemy import text
+from infrastructure.db.database import get_session_factory
+from services.listing_url_lookup import lookup_listing_url,find_existing_listing_by_url
+from api.v1.listings import _raise_upstream_lookup_error
+from fastapi import HTTPException
+async def main():
+ async with get_session_factory()() as session:
+  await session.execute(text('SET TRANSACTION READ ONLY'))
+  async def existing(url):return await find_existing_listing_by_url(session,url)
+  result=await lookup_listing_url('https://www.portalinmobiliario.com/MLC-123456789-publicacion-no-disponible-_JM',listing_lookup=existing)
+  assert result.status=='upstream_unavailable' and 'portal_listing_unavailable' in result.warnings
+  try:_raise_upstream_lookup_error(result)
+  except HTTPException as exc:
+   assert exc.status_code==404 and exc.detail['code']=='portal_listing_unavailable'
+   print(json.dumps({'deployed_new_unavailable_status':exc.status_code,'code':exc.detail['code'],'false_active_listing':False}))
+  else:raise AssertionError('Unavailable listing not mapped')
+asyncio.run(main())
+"""
+code="import subprocess\np=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",capture_output=True,text=True,timeout=40);print(p.stdout);assert p.returncode==0,'Read-only deployed unavailable lifecycle gate failed; sensitive diagnostics withheld'"
+r=subprocess.run(ssh+['python3 -B -'],input=code,text=True,capture_output=True,timeout=50);Path(__file__).with_name('portal-final-unavailable-smoke.json').write_text(r.stdout+r.stderr);print(r.stdout);print(r.stderr);r.check_returncode()

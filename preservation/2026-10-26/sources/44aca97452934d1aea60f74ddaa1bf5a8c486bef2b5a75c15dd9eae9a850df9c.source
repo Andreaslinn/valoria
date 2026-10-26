@@ -1,0 +1,73 @@
+# Valoria thumbnail sandbox
+
+**THUMBNAIL_PIPELINE_READY**. Pipeline experimental completo, validado y listo
+para revisión de integración. NO desplegado. No se tocó Oracle ni el trial.
+
+Elección: WebP q60, máximo ancho320, una ref activa/listing, filesystem por hash,
+SQLite sidecar, generación selectiva por superficie, worker fuera del request.
+Mediana11.468 B/p95 muestra17.941 B (cinco imágenes reales). 58 tests offline,
+40 casos de benchmark, tsc y 11 checks de navegador verdes. La muestra es pequeña;
+ARM64 tiene wheel inspeccionada, no CPU/RSS ni runtime nativo medido.
+
+## Reproducción local
+
+Este árbol contiene código baseline como contexto. NO ejecutar docker-compose,
+api.main, workers originales, scraper, migrations ni scripts deploy/trial.
+Solo thumbnail_lab y el frontend /sandbox están autorizados por este experimento.
+No configurar .env ni credenciales productivas. No requiere base externa.
+
+```sh
+# Desde la raíz del sandbox, Python 3.11–3.13
+python -m venv .sandbox-venv
+# Activar venv según plataforma; instalar desde requirements del experimento
+python -m pip install -r thumbnail_lab/requirements.txt
+python -m unittest thumbnail_lab.test_pipeline -v
+python -m thumbnail_lab.server
+```
+
+API offline solo en http://127.0.0.1:8105. Genera lazy desde cuerpos locales.
+En otra terminal:
+
+```sh
+cd frontend
+npm ci
+node sandbox-dev.cjs
+# http://127.0.0.1:3105/sandbox
+node node_modules/typescript/bin/tsc --noEmit
+```
+
+UI fixture: portfolio/Watchlist, radar → Buscar oportunidades, detail →
+https://www.yapo.cl/replay/1 → Analizar URL. NO usar Analizar publicacion/reporte
+para thumbnails; esa ruta intencionalmente no existe en la API offline.
+
+Benchmark offline (NumPy solo tooling, no worker dependency):
+
+```sh
+python -m pip install -r thumbnail_lab/requirements-benchmark.txt
+python -m thumbnail_lab.benchmark
+python -m thumbnail_lab.performance
+python -m thumbnail_lab.reports
+```
+
+Node UI test necesita playwright y Edge instalado:
+`npm install --no-save --package-lock=false playwright`, luego
+`node sandbox-ui-test.cjs` mientras ambos servidores están activos. Usa perfil
+nuevo, restringe tráfico a loopback y deja capturas/resultados en results.
+PLAYWRIGHT_MODULE permite usar una instalación existente sin alterar package.json.
+Suite unittest/bench principal no necesita internet. El comando sample es tooling
+opcional online: no ejecutar para validar; las cinco fuentes ya están incluidas.
+
+## Entregables y límites
+
+THUMBNAIL_ARCHITECTURE.md, IMAGE_SOURCE_AUDIT.md, FORMAT_BENCHMARK.csv,
+SECURITY_MODEL.md, STORAGE_PROJECTION.md, PERFORMANCE.md, LIFECYCLE.md,
+TEST_RESULTS.md, INTEGRATION_PLAN.md. results tiene JSON métricos, capturas y
+contact sheet. fixture manifest fija procedencia y hashes de originales.
+SOURCE_MANIFEST fija baseline; SAFETY_PROOF fija módulos protegidos sin cambios.
+
+El ZIP reproducible contiene el árbol sin deps, state, .env ni perfiles de
+navegador. El git bundle incluye baseline local y branch sandbox/thumbnail-pipeline;
+se puede clonar offline con `git clone thumbnail-sandbox.bundle sandbox`.
+thumbnail-pipeline.patch se aplica al baseline local incluido, no afirma tener
+como parent un commit actual de producción. package verification comprueba git
+apply --check, bytes protegidos y manifiestos, sin conexión remota.

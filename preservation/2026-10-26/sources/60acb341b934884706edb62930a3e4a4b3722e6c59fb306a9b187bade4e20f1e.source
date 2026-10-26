@@ -1,0 +1,7 @@
+import type { RadarItem } from "./model";
+export const radarFixture: RadarItem[] = [
+ { id: 1, title: "Plaza Egaña", commune: "Ñuñoa", price: 5180, estimate: 5760, discount: 10.1, area: 74, beds: 2, baths: 2, lat: -33.453, lon: -70.571, confidence: "medium", comparables: 12, photo: "/images/plaza-egana.jpg" },
+ { id: 2, title: "Los Leones", commune: "Providencia", price: 6240, estimate: 6590, discount: 5.3, area: 68, beds: 2, baths: 2, lat: -33.419, lon: -70.606, confidence: "high", comparables: 18, photo: "/images/los-leones.jpg" },
+ { id: 3, title: "Escuela Militar", commune: "Las Condes", price: 6850, estimate: 6920, discount: 1, area: 90, beds: 3, baths: 2, lat: -33.411, lon: -70.585, confidence: "medium", comparables: 15, photo: "/images/plaza-egana.jpg" },
+ { id: 4, title: "Príncipe de Gales", commune: "La Reina", price: 4890, estimate: 5310, discount: 7.9, area: 65, beds: 2, baths: 2, lat: -33.439, lon: -70.555, confidence: "medium", comparables: 10, photo: "/images/los-leones.jpg" },
+].map(item => ({ ...item, thumbnail: null, seen: "2026-09-28T10:00:00Z", url: null, evidence: "Fixture visual de desarrollo. Precios, ubicaciones y fotografías ilustrativos." }));

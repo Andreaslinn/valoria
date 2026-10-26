@@ -1,0 +1,41 @@
+import subprocess,json,pathlib,hashlib,shutil,datetime
+B=pathlib.Path('/home/ubuntu/apps/valoria/private/discovery-final-redeploy-20261016');ROOT=B.parent.parent;API='valoria_oracle_beta-api-1'
+def run(args):return subprocess.check_output(args,text=True,timeout=90)
+release=json.loads((B/'release.json').read_text());deploy=json.loads((B/'deployment-state.json').read_text());backup=json.loads((B/'backup-proof.json').read_text())
+assert backup['restore_verified'] and hashlib.sha256((B/'postgres-before.dump').read_bytes()).hexdigest()==backup['backup_sha256']
+api=json.loads(run(['docker','inspect',API]))[0]
+assert api['Config']['Labels']['org.opencontainers.image.revision']==release['commit']
+guard=json.loads(run(['docker','exec',API,'python','-B','-c',"import json;from pathlib import Path;from services.release_guard import verify_release_tree;print(json.dumps(verify_release_tree(Path('/app'))))"]))
+assert guard['source_tree_match'] and guard['commit']==release['commit']
+current=json.loads((B/'cycles-current.json').read_text());first=json.loads((B.parent/'discovery-redeploy-20261016/cycles-current.json').read_text());second=json.loads((B/'cycle-2-result.json').read_text())
+assert current['health']['status']=='ok'
+for value in [first,second,current]:
+ for source in value['sources'].values():
+  assert 'ActiveState=inactive' in source['service'] and 'ExecMainStatus=0' in source['service']
+  assert source['ledger']['successful'] and source['ledger_launcher_coherent']
+  assert all(source['ledger']['counters'].get('http_'+str(code))==0 for code in [302,403,429])
+for source in current['sources'].values():
+ assert source['new_apartments']>0 and source['capture_percent']>=90
+assert any(v['external_id']=='32747182' and v['detail_stage']=='detail' and v['reference']['value']=='176620' for v in current['pocuro_current_rows'])
+manifest=json.loads((B/'build/app/release-manifest.json').read_text())
+for name in ['run_portal_session.py','run_yapo_session.py','run_ingestion_uf_refresh.py','ingestion_launcher.py']:
+ assert hashlib.sha256((ROOT/'scripts'/name).read_bytes()).hexdigest()==manifest['files']['scripts/'+name]
+timer_hashes={}
+for name in ['uf-calendar','portal-discovery','yapo-discovery']:
+ unit='valoria-'+name
+ original=(B/(name+'-units-before.txt')).read_text();marker='# /etc/systemd/system/'+unit+'.timer'
+ previous=original[original.index(marker):];now=run(['systemctl','cat',unit+'.timer'])
+ assert previous==now,'Timer file changed'
+ assert run(['systemctl','is-active',unit+'.timer']).strip()=='active'
+ assert 'VALORIA_INGESTION_IMAGE='+release['image'] in run(['systemctl','show',unit+'.service','--property=Environment'])
+ timer_hashes[unit]=hashlib.sha256(now.encode()).hexdigest()
+before=json.loads((B/'production-references-before.json').read_text());after=json.loads((B/'production-references-after.json').read_text())
+facts=lambda value:[(r['comuna'],r['estimated_uf'],r['uf_rate'],r['debug']['comparable_calculation']) for r in value['cases']]
+assert facts(before)==facts(after)
+proof={'verified_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'commit':release['commit'],'source_guard':guard,'health':'ok','alarms':[],'cycles_per_source':3,'cycles':[first,second,current],
+ 'cohort':{k:{'new_unique_apartments':v['new_apartments'],'complete':v['with_detail'],'percent':v['capture_percent']} for k,v in current['sources'].items()},
+ 'references_same_db_uf':[{'comuna':r['comuna'],'estimated_uf':r['estimated_uf'],'uf_rate':r['uf_rate']} for r in before['cases']],
+ 'references_identical':True,'backup':backup,'disk_before_bytes':json.loads((B/'preflight.json').read_text())['disk_free_bytes'],'disk_after_bytes':shutil.disk_usage(ROOT).free,
+ 'timer_files_unchanged':True,'timer_sha256':timer_hashes,'pocuro':current['pocuro_current_rows'],'disk_alarm':'explicitly_excluded','rollback':'ready_80bd8a9_not_required','accepted':True}
+p=B/'acceptance-proof.json';p.write_text(json.dumps(proof,indent=2));p.chmod(0o600)
+print(json.dumps({k:v for k,v in proof.items() if k not in {'cycles','backup','timer_sha256'}}))

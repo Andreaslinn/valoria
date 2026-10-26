@@ -1,0 +1,174 @@
+# Hoja de vida — trabajo local
+
+La implementación está en la rama local `feature/property-life` de esta copia aislada.
+La base procede de la copia `local-complete` del usuario: commit de origen `08fab1b`
+más sus cambios locales de código. Se conservó un snapshot inicial, sin copiar `.env`,
+credenciales ni bases de datos. Este repositorio de trabajo no tiene remoto configurado.
+
+## Qué contiene
+
+- Motor independiente en `domain/property_life`, con parsers SII y reloj inyectable.
+- Importación con SHA-256, fecha de versión, conteo de filas y transacción atómica.
+- `transfer_raw` guarda todas las filas, incluso duplicadas, roles fuera del catastro y
+  filas mal formadas. La deduplicación se aplica solo al reconstruir.
+- Tablas y migraciones independientes dentro de `property_life`.
+- Reconstrucciones versionadas: conservan fuentes, fecha de referencia, confianza,
+  motivo de exclusión y enlaces a auxiliares atribuibles. No se borran versiones previas.
+- `POST /property/life`, montado solo con `PROPERTY_LIFE_ENABLED=true`.
+- Servidor de humo independiente, sin iniciar los servicios del backend existente.
+
+La URL se valida antes de conectar: solo `postgresql+psycopg` hacia
+`localhost` o `127.0.0.1`, puerto `55439`, base `property_life_local` y sin parámetros
+que puedan reemplazar el host. El módulo nunca toma la URL del backend existente.
+Una URL externa heredada en las variables generales detiene el arranque del módulo.
+
+## Reproducir en la máquina de Andy
+
+Usar Python 3.11 o superior y Docker Desktop funcionando. Desde la raíz de esta copia:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+Copy-Item .env.local.example .env.local
+docker compose -f docker-compose.local.yml up -d --wait
+```
+
+Descomprimir `sii_fuentes_vitacura_lascondes.zip` en una carpeta local y definir la
+ruta al directorio `sii_fuentes`, que debe contener `catastro`, `f2890` y `uf`.
+
+```powershell
+$env:PROPERTY_LIFE_DATA_DIR="C:\ruta\sii_fuentes"
+$env:DATABASE_URL="sqlite+aiosqlite:///:memory:"
+$env:SYNC_DATABASE_URL="sqlite:///:memory:"
+$env:JWT_SECRET_KEY="[REDACTED]"
+```
+
+Primero ejecutar la prueba de migración y persistencia sobre la base dedicada vacía.
+Comprueba upgrade → downgrade → upgrade, importación idempotente, conservación de
+duplicados y filas mal formadas, y versiones de reconstrucción. Rechaza hacer downgrade
+si encuentra datos previamente importados.
+
+```powershell
+$env:PROPERTY_LIFE_TEST_PG="true"
+python -m pytest tests/property_life/test_postgres.py -q
+Remove-Item Env:PROPERTY_LIFE_TEST_PG
+python -m alembic -c alembic.property-life.ini upgrade head
+```
+
+Importar ambas comunas. El F2890 compartido y los archivos UF se importan una sola vez
+por contenido, aunque el comando se ejecute varias veces:
+
+```powershell
+$sii=$env:PROPERTY_LIFE_DATA_DIR
+$f=Get-ChildItem "$sii\f2890\F2890*.txt" | Select-Object -First 1
+foreach ($cod in 15160,15108) {
+  python -m scripts.property_life import `
+    --n "$sii\catastro\BRTMPCATASN_2026_2_$cod" `
+    --l "$sii\catastro\BRTMPCATASNL_2026_2_$cod" `
+    --f2890 $f.FullName --uf-dir "$sii\uf" --version-date 2026-10-01
+}
+python -m pytest tests/property_life -q
+python -m scripts.property_life audit --comuna Vitacura --today 2026-10-16
+python -m scripts.property_life audit --comuna "Las Condes" --today 2026-10-16
+$env:PROPERTY_LIFE_TEST_REAL_PG="true"
+python -m pytest tests/property_life/test_postgres_goldens.py -q
+Remove-Item Env:PROPERTY_LIFE_TEST_REAL_PG
+```
+
+Los golden se verifican con fecha fija **2026-10-16**, inferida también de sus pesos
+temporales. El servicio HTTP usa la fecha actual de Chile; en fechas posteriores los
+pesos y las ventanas móviles cambiarán. Para informes reproducibles por CLI:
+
+```powershell
+python -m scripts.property_life report --direccion "Samotracia 2071" --comuna Vitacura --today 2026-10-16
+python -m scripts.property_life report --direccion "Los Lagares 7282" --comuna Vitacura --today 2026-10-16
+python -m scripts.property_life report --direccion "Brasilia 750 DP 123" --comuna "Las Condes" --today 2026-10-16
+```
+
+Prueba HTTP en una terminal y llamadas desde otra:
+
+```powershell
+$env:PROPERTY_LIFE_ENABLED="true"
+python -m uvicorn api.property_life_local:app --host 127.0.0.1 --port 8019
+```
+
+```powershell
+foreach ($caso in @(
+  @{direccion="Samotracia 2071";comuna="Vitacura"},
+  @{direccion="Los Lagares 7282";comuna="Vitacura"},
+  @{direccion="Brasilia 750 DP 123";comuna="Las Condes"}
+)) {
+  Invoke-RestMethod -Uri http://127.0.0.1:8019/property/life `
+    -Method Post -ContentType "application/json" -Body ($caso | ConvertTo-Json)
+}
+```
+
+La app existente también monta la ruta exacta `/property/life` cuando el flag está
+encendido. Con el flag apagado no importa el router ni su servicio. Para comprobarlo:
+
+```powershell
+$env:PROPERTY_LIFE_ENABLED="false"
+python -m pytest tests --ignore=tests/property_life -q
+$env:PROPERTY_LIFE_ENABLED="true"
+python -m pytest tests --ignore=tests/property_life -q
+```
+
+## Diferencias y decisiones frente al prototipo
+
+- Se sustituyen rutas absolutas, reloj global y caché CSV por entradas explícitas,
+  importación versionada y reconstrucciones persistidas. El índice se ajusta con las
+  fuentes seleccionadas; el CSV entregado no se usa para fabricar resultados.
+- Se mantienen las reglas numéricas, incluso los detalles no evidentes del resumen:
+  UF `asof` (último valor disponible hasta FE/FI), años desconocidos tratados como cero,
+  respaldo a m² actuales si ninguna línea histórica suma superficie positiva, montos
+  repetidos detectados al redondear a UF entera y ventanas de vecinos de 730 días.
+- El índice mantiene los filtros exactos del prototipo: confianza, precio/avalúo y
+  rango 15–500 UF/m². El prototipo no aplica el marcador de atípicas por vecinos al
+  ajuste del índice. Cambiarlo alteraría el contrato golden.
+- La reconstrucción usa agregaciones para evitar crear un DataFrame por operación;
+  se conserva `ventas_reference` para comparación fila a fila. Los tests comparan
+  también confianza, superficie histórica, orden de filas y montos contra esa función.
+- Las búsquedas de atípicas se particionan por edificio/manzana, conservando exactamente
+  la población y el umbral de la referencia.
+- JSON HTTP convierte valores no finitos y fechas ausentes en `null`, y fechas válidas a ISO 8601. Las direcciones inválidas
+  producen HTTP 422, en lugar de terminar el proceso con `SystemExit`.
+- El servicio usa el día de referencia a medianoche para que una reconstrucción
+  persistida no cambie según la hora de la consulta. Los golden se prueban con ese día fijo.
+- No se atribuyen auxiliares de grupos `multiple`, `monto_repetido` o `aux_incierto`.
+  Las filas originales permanecen disponibles en `transfer_raw`.
+- No se modificaron Tasar ni Radar. No se ejecutó push, merge ni despliegue.
+
+## Validación y limitaciones
+
+Los tres casos y las dos auditorías pasan desde los archivos SII reales. Las estimaciones
+son 22.900 UF (27 comparables), 29.600 UF (55) y 11.900 UF (6). Casas/deptos usables:
+Vitacura 4.813 / 10.114; Las Condes 10.837 / 33.713.
+
+Resultado final del módulo: **29 pruebas aprobadas y 7 omitidas**, estas últimas por
+requerir PostgreSQL. La suite existente da **1.675 aprobadas y 8 fallos** tanto con el
+flag apagado como encendido; los ocho fallos se reproducen también con el archivo
+original de la app. Ruff y la comprobación de whitespace de Git pasan para el cambio.
+
+Consultar `property_life_new_tests.txt`, `property_life_suite_off.txt`,
+`property_life_suite_on.txt` y `property_life_baseline_tests.txt` para los resultados
+observados. Los fallos preexistentes no se corrigen en esta rama porque pertenecen a
+otras funciones del backend.
+
+La prueba PostgreSQL y el humo con Uvicorn requieren que Docker arranque correctamente.
+En esta máquina Docker presentó un error previo al iniciar el socket temporal
+`AppData\Local\Docker\run\dockerInference`. No se reemplazan estas pruebas por SQLite:
+hasta ejecutar esa validación, la entrega no satisface todos los criterios de aceptación.
+
+### Intento de desbloqueo autorizado
+
+El usuario autorizó renombrar únicamente `dockerInference` como respaldo y reiniciar
+Docker. Windows rechazó los tres métodos empleados: `Rename-Item`, `MoveFileExW` y
+apertura del propio reparse point con `CreateFileW` para renombrarlo por handle.
+Todos devolvieron **error 1920: «El sistema no tiene acceso al archivo»**.
+No se renombró ni eliminó el socket y no se modificaron sus permisos, los metadatos
+del enlace, la configuración de Docker ni sus volúmenes. Docker quedó detenido
+después del intento. Las siete pruebas PostgreSQL y el humo HTTP continúan pendientes.
+La reparación del acceso a ese archivo queda fuera del renombrado autorizado.
+
+La transición a Oracle queda fuera de esta entrega y la decide Andy después.

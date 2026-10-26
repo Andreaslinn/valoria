@@ -1,0 +1,12 @@
+from pathlib import Path
+import subprocess,json,hashlib
+exec(Path('work/portal_runtime_inventory.py').read_text().split('inner=')[0])
+inner="import pathlib,json,hashlib\nr=pathlib.Path('/app');print(json.dumps({str(p.relative_to(r)):hashlib.sha256(p.read_text().replace('\\r\\n','\\n').encode()).hexdigest() for p in r.rglob('*.py') if not any(x in p.parts for x in ['.venv','node_modules','__pycache__','tests'])}))"
+remote="import subprocess\nr=subprocess.run(['docker','exec','-i','valoria_oracle_beta-api-1','python','-B','-'],input="+repr(inner)+",text=True,capture_output=True,timeout=30)\nassert r.returncode==0,r.stderr;print(r.stdout)"
+r=subprocess.run(ssh+['python3 -B -'],input=remote,text=True,encoding='utf-8',capture_output=True,timeout=50);r.check_returncode();data=json.loads(r.stdout)
+root=Path('work/github-release');differences=[]
+for p,h in data.items():
+ q=root/p
+ if not q.exists():differences.append({'path':p,'state':'missing_in_repo'})
+ elif hashlib.sha256(q.read_text(encoding='utf-8').encode()).hexdigest()!=h:differences.append({'path':p,'state':'different'})
+Path('work/canonical-release-runtime-inventory.json').write_text(json.dumps({'runtime_hashes':data,'differences':differences},indent=2),encoding='utf-8');print(json.dumps(differences))

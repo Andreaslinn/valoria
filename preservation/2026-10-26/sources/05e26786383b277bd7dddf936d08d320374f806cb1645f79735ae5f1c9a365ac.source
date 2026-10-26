@@ -1,0 +1,90 @@
+"""Reproduce frozen temporal micromarket comparison without external access."""
+import argparse,hashlib,json,math
+from collections import Counter,defaultdict
+from pathlib import Path
+import numpy as np
+from scripts.validate_sii_geographic import folds,evaluate,metrics,save,digest,guards,paired_summary
+from services.sii.closing_knn import ClosingKNN
+from services.sii.geographic_knn import historical_filter
+from services.sii.geographic_opinion import _valuation_geography
+from services.sii.micromarket import MicromarketKNN,load_land,precise
+
+def extended(rows):
+    m=metrics(rows);good=[r for r in rows if r['prediction']['status']=='ok']
+    ape=np.array([abs(r['prediction']['value_uf']/r['actual_uf']-1)*100 for r in good])
+    return {**m,'p95_ape_pct':float(np.percentile(ape,95)) if len(ape) else None,
+        'p99_ape_pct':float(np.percentile(ape,99)) if len(ape) else None,
+        'ape_over_50_count':int(sum(ape>50)),'ape_over_100_count':int(sum(ape>100)),
+        'local_predictions':sum(r['prediction'].get('model_used')=='micromarket' for r in good),
+        'fallback_reasons':dict(Counter(r['prediction'].get('geographic_reason') for r in rows)),
+        'median_comparables':float(np.median([len(r['prediction'].get('comparables',[])) for r in good])) if good else None,
+        'latency_p95_ms':float(np.percentile([r['elapsed_ms'] for r in rows],95)) if rows else None}
+
+def sector(g):
+    if not precise(g):return 'uncertain_location'
+    return '%d:%d'%(math.floor((g['lon']+70.66)*111320*math.cos(math.radians(-33.4))/1000),
+                       math.floor((g['lat']+33.45)*111320/1000))
+
+def breakdown(b,c,geo,raw,pool):
+    lookup={r['raw_id']:r for r in raw};cuts={k:np.quantile([r['uf'] for r in pool if r['kind']==k],[.25,.5,.75]) for k in ['casa','depto']}
+    result={}
+    for dim in ['sector','block','price_quartile','geo_quality','kind_price','kind_sector']:
+        groups=defaultdict(lambda:[[],[]])
+        for br,cr in zip(b,c,strict=True):
+            assert br['raw_id']==cr['raw_id'];r=lookup[br['raw_id']];g=geo.get(r['rol'])
+            quartile='Q'+str(1+int(np.searchsorted(cuts[r['kind']],r['uf'],side='right')))
+            key={'sector':sector(g),'block':r['block'],'price_quartile':quartile,
+                'geo_quality':g['quality'] if g else 'unlocated','kind_price':r['kind']+':'+quartile,
+                'kind_sector':r['kind']+':'+sector(g)}[dim]
+            groups[str(key)][0].append(br);groups[str(key)][1].append(cr)
+        result[dim]={k:{'baseline':extended(x),'candidate':extended(y),'small_n':len(x)<20} for k,(x,y) in sorted(groups.items())}
+    result['training_price_quartiles_uf']={k:v.tolist() for k,v in cuts.items()}
+    return result
+
+def main():
+    p=argparse.ArgumentParser();p.add_argument('--data',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--phase',choices=['development','evaluation'],required=True);a=p.parse_args();a.output.mkdir(exist_ok=True,parents=True)
+    protocol=json.loads((a.output/'protocol.json').read_text());raw=json.loads((a.data/'closings.json').read_text())
+    controls=json.loads((a.data/'historical-controls.json').read_text())['controls'];geo=_valuation_geography(a.data);land=load_land(a.data)
+    hashes={f:digest(a.data/f) for f in ['closings.json','geography.sqlite','historical-controls.json','address-index.sqlite','address-details.sqlite']}
+    hashes.update({f:digest(Path(__file__).parents[1]/'services/sii'/f) for f in ['closing_knn.py','micromarket.py']});hashes['protocol']=digest(a.output/'protocol.json')
+    start,end=protocol['evaluation'];outer={r['rol'] for r in raw if start<=r['date']<end}
+    if a.phase=='development':
+        bas=[];variants={str(radius):[] for radius in protocol['candidates']};attrs=[];audit=[]
+        for lo,hi in protocol['development_folds']:
+            pool,targets,counts=folds(raw,controls,lo,hi,outer);audit.append(counts)
+            bas+=evaluate(ClosingKNN(pool),targets);attrs+=evaluate(MicromarketKNN(pool,geo,land,spatial=False),targets)
+            for radius in protocol['candidates']:variants[str(radius)]+=evaluate(MicromarketKNN(pool,geo,land,radius),targets)
+        selection={};summary={}
+        for kind in ['casa','depto']:
+            def objective(rs):return float(np.mean([metrics([r for r in rs if r['kind']==kind and lo<=r['date']<hi])['mdape_pct'] for lo,hi in protocol['development_folds']]))
+            score={k:objective(v) for k,v in variants.items()};best=min(score,key=score.get)
+            bm=extended([r for r in bas if r['kind']==kind]);cm=extended([r for r in variants[best] if r['kind']==kind])
+            selection[kind]={'radius_m':int(best),'development_pass':guards({**bm,'mdape_pct':objective(bas)},{**cm,'mdape_pct':score[best]}),
+                'baseline_mean_fold_mdape':objective(bas),'candidate_mean_fold_mdape':score[best]}
+            summary[kind]={'baseline':bm,'attributes_only':extended([r for r in attrs if r['kind']==kind]),
+                'variants':{k:extended([r for r in v if r['kind']==kind]) for k,v in variants.items()}}
+        save(a.output/'development.json',{'summary':summary,'audit':audit,'selection':selection,'hashes':hashes})
+        save(a.output/'sealed.json',{'hashes':hashes,'selection':selection,'development_sha':digest(a.output/'development.json')})
+        print(json.dumps(selection));return
+    sealed=json.loads((a.output/'sealed.json').read_text());assert hashes==sealed['hashes'],'Frozen inputs/code changed'
+    pool,targets,audit=folds(raw,controls,start,end,set());bas=evaluate(ClosingKNN(pool),targets);cand=[];attrs=[];shuffled=[]
+    rng=np.random.default_rng(20261025);keys=sorted(geo);permuted=rng.permutation(keys);fake={k:geo[v] for k,v in zip(keys,permuted,strict=True)}
+    for kind in ['casa','depto']:
+        ts=[r for r in targets if r['kind']==kind];radius=sealed['selection'][kind]['radius_m']
+        cand+=evaluate(MicromarketKNN(pool,geo,land,radius),ts)
+        attrs+=evaluate(MicromarketKNN(pool,geo,land,radius,False),ts)
+        shuffled+=evaluate(MicromarketKNN(pool,fake,land,radius),ts)
+    def align(rs):
+        ix={r['raw_id']:r for r in rs};return [ix[r['raw_id']] for r in bas]
+    cand,attrs,shuffled=map(align,[cand,attrs,shuffled])
+    report={'warning':protocol['warning'],'hashes':hashes,'sealed_sha':digest(a.output/'sealed.json'),'audit':audit,
+        'overall':{'baseline':extended(bas),'candidate':extended(cand),'attributes_only':extended(attrs),'shuffled_geography':extended(shuffled)},
+        'by_kind':{k:{'baseline':extended([r for r in bas if r['kind']==k]),'candidate':extended([r for r in cand if r['kind']==k]),
+            'attributes_only':extended([r for r in attrs if r['kind']==k]),'shuffled_geography':extended([r for r in shuffled if r['kind']==k]),
+            'paired':paired_summary([r for r in bas if r['kind']==k],[r for r in cand if r['kind']==k])} for k in ['casa','depto']},
+        'territory':breakdown(bas,cand,geo,raw,pool),'policy':'Baseline retained: new independent temporal holdout unavailable.'}
+    save(a.output/'evaluation.json',report);save(a.output/'predictions.json',{'baseline':bas,'candidate':cand,'attributes':attrs,'shuffled':shuffled})
+    print(json.dumps({k:{m:extended(rs)['mdape_pct'] for m,rs in [('baseline',[r for r in bas if r['kind']==k]),('candidate',[r for r in cand if r['kind']==k])]} for k in ['casa','depto']}))
+
+if __name__=='__main__':main()

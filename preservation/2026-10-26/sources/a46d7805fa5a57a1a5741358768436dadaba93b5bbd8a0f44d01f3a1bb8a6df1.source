@@ -1,0 +1,134 @@
+"""Phase2: deterministic composition of frozen phase1 results, no fitting."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import time
+from collections import Counter
+from pathlib import Path
+import numpy as np
+
+from services.sii.house_rules import load_snapshot, prepare, point_kind
+from services.sii.house_hybrid import hybrid_prediction, target_quality
+from services.sii.geographic_opinion import _valuation_geography
+from scripts.validate_house_rules import metrics
+
+
+def save(path, data):
+    path.write_text(json.dumps(data, indent=2, allow_nan=False), encoding='utf-8')
+
+
+def summary(r):
+    return {k:r.get(k) for k in ['status','value_uf','p25_uf','p75_uf','effective_n',
+                                 'model_used','motivo','confianza','reason']}
+
+
+def evaluate(phase1, geo_root, out):
+    protocol=json.loads((out/'protocol.json').read_text())
+    code=Path(__file__).parents[1]/'services/sii'
+    frozen={'phase1_predictions':phase1/'predictions.json', 'phase1_evaluation':phase1/'evaluation.json',
+        'snapshot':phase1/'existing-sii.json','historical_uf':phase1/'historical-uf.json',
+        'frozen_house_model':code/'house_rules.py','frozen_baseline':code/'closing_knn.py',
+        'frozen_geography':geo_root/'geography.sqlite','phase2_code':code/'house_hybrid.py'}
+    assert {k:hashlib.sha256(v.read_bytes()).hexdigest() for k,v in frozen.items()}==protocol['hashes']
+    preds=json.loads((phase1/'predictions.json').read_text())
+    old_eval=json.loads((phase1/'evaluation.json').read_text())
+    seal=json.loads((phase1/'sealed.json').read_text())
+    rows,facts,lines,_=prepare(load_snapshot(phase1))
+    geo=_valuation_geography(geo_root)
+    targets=[r for r in rows if not r['block_known_at'] and '2024-01-01'<=r['date']<'2026-01-01']
+    ids=[r['raw_id'] for r in targets]
+    assert len(ids)==818 and len(set(ids))==818
+    assert all([r['raw_id'] for r in preds[name]]==ids for name in ['baseline','published_baseline','candidate'])
+    assert all(r['uf']==b['actual_uf'] for r,b in zip(targets,preds['baseline'],strict=True))
+    records={name:list(preds[name]) for name in ['baseline','candidate']}
+    records['hybrid']=[]
+    labels=[]; route_ms=[]
+    for i,t in enumerate(targets):
+        start=time.perf_counter()
+        h=hybrid_prediction(t,preds['candidate'][i]['prediction'],preds['baseline'][i]['prediction'],geo)
+        elapsed=1000*(time.perf_counter()-start); route_ms.append(elapsed)
+        records['hybrid'].append({**{k:v for k,v in preds['baseline'][i].items() if k not in ['prediction','elapsed_ms']},
+                                  'prediction':h,'elapsed_ms':elapsed})
+        # No historical fiscal valuation exists in the verified phase1 input.
+        # The criterion is null, not silently substituted by current2026-2 appraisal.
+        labels.append(target_quality(t,rows,geo,appraisal_history=()))
+        if (i+1)%200==0: print('annotated',i+1,'/818',flush=True)
+    for name in ['baseline','candidate']:
+        original=old_eval['models'][name]
+        assert all(metrics(records[name])[k]==original[k] for k in [
+            'predicted','mdape_pct','mean_bias_pct','median_bias_pct','within_10_pct','within_20_pct','p95_ape_pct'])
+    def tables(ix):
+        return {name:metrics([rs[i] for i in ix]) for name,rs in records.items()}
+    all_ix=list(range(len(targets)))
+    clean=[i for i,x in enumerate(labels) if not x['monto_sospechoso']]
+    subsets={'all':all_ix,'without_confirmed_suspicious':clean}
+    dimensions={}
+    for dimension in ['route','land_tertile','price_tertile','year']:
+        groups={}
+        for i,t in enumerate(targets):
+            if dimension=='route':
+                p=records['hybrid'][i]['prediction']; key=p['model_used']+':'+p['motivo']
+            elif dimension=='year':key=t['date'][:4]
+            else:
+                value=t['land'] if dimension=='land_tertile' else t['uf']
+                cuts=seal['land_tertiles' if dimension=='land_tertile' else 'price_tertiles']
+                key='missing' if not value else 'T'+str(1+int(np.searchsorted(cuts,value,side='right')))
+            groups.setdefault(key,[]).append(i)
+        dimensions[dimension]={key:{subset:tables([i for i in ix if i in selected])
+                                   for subset,selected in subsets.items()} for key,ix in groups.items()}
+    all_models=tables(all_ix)
+    checks={
+      'mdape_lower_than_baseline':all_models['hybrid']['mdape_pct']<all_models['baseline']['mdape_pct'],
+      'absolute_median_bias_at_most_3pct':abs(all_models['hybrid']['median_bias_pct'])<=3,
+      'coverage_at_least_published_baseline':all_models['hybrid']['coverage_pct']>=old_eval['models']['published_baseline']['coverage_pct'],
+      'no_land_tertile_mdape_worse_than_1pp':all(
+          group['all']['hybrid']['mdape_pct']<=group['all']['baseline']['mdape_pct']+1
+          for key,group in dimensions['land_tertile'].items() if key!='missing')}
+    suspicious_by_price={}
+    for key in ['T1','T2','T3']:
+        ix=[i for i,t in enumerate(targets) if 'T'+str(1+int(np.searchsorted(seal['price_tertiles'],t['uf'],side='right')))==key]
+        suspicious_by_price[key]={'total':len(ix),'suspicious':sum(labels[i]['monto_sospechoso'] for i in ix),
+            'p10_flag':sum(labels[i]['uf_m2_below_prior_p10'] is True for i in ix),
+            'appraisal_flag':sum(labels[i]['near_historical_fiscal_appraisal'] is True for i in ix),
+            'appraisal_unknown':sum(labels[i]['near_historical_fiscal_appraisal'] is None for i in ix)}
+    result={'version':protocol['version'],'frozen_protocol_sha256':hashlib.sha256((out/'protocol.json').read_bytes()).hexdigest(),
+        'models':all_models,'without_confirmed_suspicious':tables(clean), 'segments':dimensions,
+        'same_target_count':len(ids),'same_target_ids_sha256':hashlib.sha256(json.dumps(ids).encode()).hexdigest(),
+        'suspicious':{'total':len(ids)-len(clean),'by_price_tertile':suspicious_by_price,
+            'complete_labels':sum(x['quality_label_complete'] for x in labels),
+            'p10_unknown':sum(x['uf_m2_below_prior_p10'] is None for x in labels),
+            'appraisal_unknown':sum(x['near_historical_fiscal_appraisal'] is None for x in labels),
+            'limitation':'Filtered subset excludes only confirmed low-P10 flags; historical fiscal-appraisal branch unavailable, so non-suspicious labels are provisional.'},
+        'promotion_checks':checks,'eligible_for_promotion':all(checks.values()),'approved':False,'published_model_changed':False,
+        'published_baseline_coverage_pct':old_eval['models']['published_baseline']['coverage_pct'],
+        'frozen_tertiles':{'land':seal['land_tertiles'],'price':seal['price_tertiles']},
+        'route_confidence_counts':dict(Counter(r['prediction']['model_used']+':'+r['prediction']['motivo']+':'+r['prediction']['confianza'] for r in records['hybrid'])),
+        'routing_latency_ms':{'median':float(np.median(route_ms)),'p95':float(np.percentile(route_ms,95))},
+        'limitations':[protocol['exposure'],protocol['appraisal_history_evidence'],
+            '2026-2 catastro/land and NL years are retrospective, unchanged from frozen phase1. No target-quality flags removed from training.',
+            'Candidate metrics use433 predictions; hybrid and primary baseline use818. Coverage shown; paired results available by route.']}
+    save(out/'evaluation.json',result)
+    save(out/'predictions.json',[{'raw_id':t['raw_id'],'rol':t['rol'],'date':t['date'],'actual_uf':t['uf'],
+        'quality':labels[i],**{name:summary(rs[i]['prediction']) for name,rs in records.items()}}
+        for i,t in enumerate(targets)])
+    cases=[]
+    for old in json.loads((phase1/'cases.json').read_text()):
+        t=old['target']; h=hybrid_prediction(t,old['prediction'],{'status':'unavailable'},geo)
+        assert h['model_used']=='house_rules' # these examples must never steer routing thresholds
+        top=max(h['comparables'],key=lambda c:c['weight_share'])
+        cases.append({'target':t,**summary(h),'highest_weight_comparable':top,'comparables':h['comparables']})
+    save(out/'cases.json',cases)
+    save(out/'decision.json',{'eligible_for_promotion':all(checks.values()),'checks':checks,
+        'approval_pending':True,'published_unchanged':True,'department_model':'baseline',
+        'label_limitation':result['suspicious']['limitation']})
+    print(json.dumps({'models':result['models'],'without_confirmed_suspicious':result['without_confirmed_suspicious'],
+        'suspicious':result['suspicious'],'routes':result['route_confidence_counts'],'promotion_checks':checks,
+        'eligible_for_promotion':all(checks.values()),'cases':[{k:v for k,v in r.items() if k not in ['comparables','target']} for r in cases]},indent=2))
+
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser();p.add_argument('--phase1',type=Path,required=True)
+    p.add_argument('--geography',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    a=p.parse_args();evaluate(a.phase1,a.geography,a.output)

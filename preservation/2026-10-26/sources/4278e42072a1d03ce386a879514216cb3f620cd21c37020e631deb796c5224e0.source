@@ -1,0 +1,29 @@
+"""Bootstrap the fixed audit target; reads only local source snapshots."""
+import sys,json,sqlite3
+from pathlib import Path
+from datetime import date
+ROOT=Path(__file__).resolve().parent;OUT=ROOT.parent/'outputs/auditoria-vitacura-1261-6'
+sys.path.insert(0,str(ROOT/'valoria'))
+from services.sii.closing_address import AddressIndex
+from services.sii.role_lookup import resolve_role
+from services.sii.address_details import address_details
+from services.sii.closing_knn import ClosingKNN
+from services.sii.closing_opinion import build_opinion
+from scripts.validate_sii_closing import connect
+DATA=ROOT/'closing-validation-final'
+OUT.mkdir(exist_ok=True)
+def save(n,o):(OUT/n).write_text(json.dumps(o,indent=2,ensure_ascii=False,default=str),encoding='utf8')
+index=AddressIndex(DATA/'address-index.sqlite')
+try:resolution=resolve_role(index,15160,'1261-6')
+finally:index.close()
+facts=address_details(rol='1261-6',comuna='vitacura',data_dir=str(DATA));role=resolution['role']
+target={'rol':role['rol'],'comuna':15160,'block':role['block'],'kind':role['kind'],'date':'2026-10-20','area':role['area'],'year':role['year'],'building':'|'.join(map(str,resolution['building']))}
+model=ClosingKNN(json.loads((DATA/'closings.json').read_text(encoding='utf8')))
+save('target.json',{'resolution':resolution,'facts':facts})
+save('sii-target-prediction.json',{'target':target,'prediction':model.estimate(target),'opinion':build_opinion(address='',rol='1261-6',comuna='vitacura',property_type='house',area=221,as_of=date(2026,10,20),data_dir=str(DATA))})
+with connect('postgresql+psycopg://[USER]:[PASSWORD]@127.0.0.1:55432/valoria_sii_local') as c:
+    c.execute('SET TRANSACTION READ ONLY')
+    assert c.execute('SHOW transaction_read_only').fetchone()['transaction_read_only']=='on'
+    save('source-schema.json',c.execute("SELECT table_schema,table_name,column_name,data_type FROM information_schema.columns WHERE table_schema='sii' OR (table_schema='public' AND table_name='ingestion_uf_calendar') ORDER BY table_schema,table_name,ordinal_position").fetchall())
+    c.rollback()
+print('Fixed audit target ready')
