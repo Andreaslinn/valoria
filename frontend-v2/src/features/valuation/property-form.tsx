@@ -8,6 +8,7 @@ import { consumeTasarPrefill } from "./prefill";
 
 import { useSiiClosingCapability } from "./sii-closing-opinion";
 import { AddressAutofillNote, PropertySearch, useAddressDetails, type SearchMode } from "./address-autofill";
+import { NearbySales } from "./nearby-sales";
 
 const communes=["santiago","providencia","nunoa","las_condes","vitacura","lo_barnechea","la_reina","macul","san_miguel","estacion_central","independencia","recoleta","san_joaquin","la_florida"];
 const types=[{value:"apartment",label:"Depto.",icon:Building2},{value:"house",label:"Casa",icon:House},{value:"office",label:"Oficina",icon:BriefcaseBusiness}] as const;
@@ -51,6 +52,7 @@ export function PropertyForm({busy,hasResult,onChange,onSubmit}:{busy:boolean;ha
       <label className="tasar-field"><span><MapPin size={14}/> Comuna</span><select required value={values.comuna} onChange={e=>update("comuna",e.target.value)}><option value="">Selecciona una comuna</option>{Array.from(new Set([...communes,...(values.comuna?[values.comuna]:[])])).map(c=><option key={c} value={c}>{formatCommuneName(c)}</option>)}</select></label>
       {siiEnabled&&<PropertySearch mode={searchMode} onModeChange={mode=>{if(mode===searchMode)return;setSearchMode(mode);update(mode==="rol"?"rol":"address",mode==="rol"?values.rol:values.address);}} address={values.address} onAddressChange={value=>update("address",value)} rol={values.rol} onRoleChange={value=>update("rol",value)}/>}
       <AddressAutofillNote lookup={lookup}/>
+      <NearbySales enabled={siiEnabled&&!busy} comuna={values.comuna} address={searchMode==="address"?values.address:""} rol={searchMode==="rol"?values.rol:undefined}/>
       {siiEnabled&&lookup.data?.status==="resolved"&&<div className="address-section-title">Superficies <span>Puedes corregirlas</span></div>}
       <div className="tasar-surface">
         <label className="tasar-field"><span>{autoArea.current!==null?"Construcción":type==="apartment"?"Superficie útil":"Superficie construida"}{autoArea.current!==null&&<b className="address-field-source">SII</b>}</span><div className="tasar-unit"><input aria-label={autoArea.current!==null?"Superficie cerrada SII":type==="apartment"?"Superficie útil":"Superficie construida"} required type="number" min="0.1" step="any" placeholder="Ej. 75" value={values.area} onChange={e=>update("area",e.target.value)}/><span>m²</span></div>{autoArea.current!==null&&<small className="address-field-caption">Superficie cerrada</small>}</label>

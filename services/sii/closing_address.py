@@ -41,7 +41,7 @@ ALIASES = {
 }
 PREFIXES = {"AVENIDA", "CALLE", "PASAJE", "CAMINO", "DIAGONAL"}
 UNIT = re.compile(
-    r"\b(?:DEPARTAMENTO|DEPTO|DPTO|DEPT|DTO|DP|DEP|APTO|APT|ESTACIONAMIENTO|ESTAC|EST|BODEGA|BOD|BD|BOX|OFICINA|OF|LOCAL|CASA)\b\s+([A-Z0-9]+(?:\s+[A-Z])?)\b"
+    r"\b(?:DEPARTAMENTO|DEPTO|DPTO|DEPT|DTO|DP[A-Z]?|DEP|APTO|APT|ESTACIONAMIENTO|ESTAC|EST|BODEGA|BOD|BD|BOX|OFICINA|OF|LOCAL|CASA)\b\s+([A-Z0-9]+(?:\s+[A-Z])?)\b"
 )
 FLOOR = re.compile(r"\b(?:PISO|PIS)\s*([0-9]+)\b")
 TOWER = re.compile(r"\b(?:TORRE|BLOCK|BLOQUE|BL|EDIFICIO|EDIF)\s+([A-Z0-9]+)\b")
@@ -65,6 +65,12 @@ def street_key(text: str) -> str:
 
 def parse_address(raw: str) -> Address:
     text = normalize(raw)
+    # Cadastral compact labels DPA/DPD identify a tower, not a new street.
+    compact = re.search(r"\bDP([A-Z])\s+([A-Z0-9]+)\b", text)
+    implicit = re.fullmatch(r"(.+?)\s+(\d+)\s+([A-Z])\s+(\d+)", text)
+    if implicit:
+        return Address(street_key(implicit[1]),str(int(implicit[2])),
+                       str(int(implicit[4])),tower=implicit[3])
     unit, floor, tower = UNIT.search(text), FLOOR.search(text), TOWER.search(text)
     end = min((m.start() for m in (unit, floor, tower) if m), default=len(text))
     base = text[:end].strip()
@@ -73,14 +79,14 @@ def parse_address(raw: str) -> Address:
     # Streets such as 11 DE SEPTIEMBRE retain their initial number.
     street = base[: match.start()].strip() if match else base
     number = str(int(match[1])) + (match[2] or "") if match else None
-    if not street:
+    if not street or re.search(r"\d$",street):
         number = None
     return Address(
         street_key(street),
         number,
         re.sub(r"\s+", "", unit[1]) if unit else None,
         int(floor[1]) if floor else None,
-        tower[1] if tower else None,
+        tower[1] if tower else compact[1] if compact else None,
     )
 
 
@@ -108,6 +114,18 @@ class AddressIndex:
             (comuna, address.street, address.number),
         ).fetchall()
         method = "catastro_text"
+        if not rows and osm_fallback is None:
+            from services.sii.local_geography import street_matches
+            names = {r[0] for r in self.db.execute(
+                "SELECT DISTINCT street FROM role WHERE comuna=? AND number=?", (comuna,address.number))}
+            found = {}
+            for street in street_matches(address.street,names):
+                for row in self.db.execute(
+                    "SELECT * FROM role WHERE comuna=? AND street=? AND number=? ORDER BY rol",
+                    (comuna,street,address.number)):
+                    found[row['rol']] = row
+            rows = [found[k] for k in sorted(found)]
+            method = "catastro_local_alias"
         if not rows and osm_fallback is not None:
             # Offline/injected adapter returns alternative street names for the
             # same commune and civic number, never arbitrary nearby buildings.

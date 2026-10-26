@@ -9,7 +9,7 @@ import { errorText } from "@/features/summary/use-summary";
 import { opportunity, savedProperty, type RadarItem } from "./model";
 export function useRadar() {
  const [requested,setRequested]=useState(false);
- const [fixture,setFixture]=useState(false),[items,setItems]=useState<RadarItem[]>([]),[saved,setSaved]=useState<RadarItem[]>([]),[savedReady,setSavedReady]=useState(false),[user,setUser]=useState("tu espacio"),[uf,setUf]=useState<number|null>(null),[error,setError]=useState(""),[saveError,setSaveError]=useState(""),[phase,setPhase]=useState("loading"),[busy,setBusy]=useState(false),[revision,setRevision]=useState(0);
+ const [fixture,setFixture]=useState(false),[items,setItems]=useState<RadarItem[]>([]),[saved,setSaved]=useState<RadarItem[]>([]),[savedReady,setSavedReady]=useState(false),[user,setUser]=useState("tu espacio"),[uf,setUf]=useState<number|null>(null),[error,setError]=useState(""),[saveError,setSaveError]=useState(""),[phase,setPhase]=useState("initializing"),[busy,setBusy]=useState(false),[revision,setRevision]=useState(0);
  const fixtureRef=useRef(false), lock=useRef(false);
  const refresh=useCallback(()=>setRevision(value=>value+1),[]);
  useEffect(()=>{

@@ -22,3 +22,6 @@ logs
 releases
 reports
 users.json
+
+# Inert source variants retained only for backup review
+preservation/

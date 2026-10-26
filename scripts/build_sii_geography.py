@@ -1,0 +1,117 @@
+"""Only geography: subset existing artifacts, read audit, reuse legacy locations."""
+import sys, json, sqlite3, zipfile, io, hashlib, shutil, datetime
+from pathlib import Path
+from collections import Counter
+import pandas as pd
+
+import argparse
+REPO=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(REPO))
+from services.sii.local_geography import locate_osm, block_fallback, write_geography
+from services.sii.closing_address import SCHEMA,parse_address
+from scripts.validate_sii_closing import connect
+p=argparse.ArgumentParser(description=__doc__)
+p.add_argument('--source-dir',type=Path,required=True,help='Existing validated SII export; no F2890 rebuild')
+p.add_argument('--legacy-zip',type=Path,required=True)
+p.add_argument('--osm-json',type=Path,required=True)
+p.add_argument('--output',type=Path,required=True)
+p.add_argument('--local-db-url',required=True,help='Guarded loopback SII database; read-only audit')
+p.add_argument('--reference-json',type=Path)
+args=p.parse_args()
+OLD=args.source_dir
+OUT=args.output
+DATA=OUT/'vitacura'
+DATA.mkdir(exist_ok=True,parents=True)
+def sha(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+audit={}
+with connect(args.local_db_url) as c:
+    c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    audit['db']=c.execute('SELECT current_database(),current_setting(\'transaction_read_only\') AS read_only').fetchone()
+    audit['geo_predio']=c.execute('SELECT count(*) FROM sii.geo_predio').fetchone()
+    audit['n_source']=c.execute("SELECT id,hash,semestre,nombre FROM sii.source_file WHERE id=9").fetchone()
+    audit['valid_sales']=c.execute("SELECT count(*) FROM sii.transferencia WHERE comuna=15160 AND cierre_comparable AND tipo IN ('casa','depto') AND fecha>=DATE '2024-01-01'").fetchone()
+    c.rollback()
+
+src=sqlite3.connect(OLD/'address-index.sqlite')
+src.row_factory=sqlite3.Row
+rows=[dict(r) for r in src.execute('SELECT * FROM role WHERE comuna=15160')]
+src.close()
+for r in rows:
+    a=parse_address(r['raw'])
+    r.update(street=a.street,number=a.number,unit=a.unit,tower=a.tower)
+idx=DATA/'address-index.sqlite'
+with sqlite3.connect(idx) as db:
+    db.execute('DROP TABLE IF EXISTS role')
+    db.executescript(SCHEMA)
+    db.executemany('INSERT INTO role VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',[tuple(r.values()) for r in rows])
+    db.execute('CREATE INDEX number_lookup ON role(comuna,number,street)')
+    db.commit()
+shutil.copyfile(OLD/'address-details.sqlite',DATA/'address-details.sqlite')
+sales=[s for s in json.loads((OLD/'closings.json').read_text(encoding='utf8')) if s['comuna']==15160]
+assert len(sales)==audit['valid_sales']['count']
+(DATA/'closings.json').write_text(json.dumps(sales),encoding='utf8')
+
+archive=args.legacy_zip
+with zipfile.ZipFile(archive) as z:
+    member=next(n for n in z.namelist() if n.endswith('processed/predios.parquet'))
+    blob=z.read(member)
+    old=pd.read_parquet(io.BytesIO(blob),columns=['c','mz','pr','dir','lat','lon','geo_method'])
+    old=old[old.c==15160]
+    prov=json.loads(z.read(next(n for n in z.namelist() if n.endswith('data/provenance.json'))))
+    # Do not join old positions to changed cadastral versions.
+    cat=prov['sii_catastro_2026_2']['files']
+    assert any('CATASN_' in name and '15160' in name and audit['n_source']['hash'].startswith(h)
+               for name,h in cat.items())
+    legacy_source={'archive':archive.name,'sha256':sha(archive),'member':member,
+                   'member_sha256':hashlib.sha256(blob).hexdigest()}
+
+by_role={r['rol']:r for r in rows}
+legacy={}
+for r in old.itertuples():
+    rol=f'15160-{r.mz}-{r.pr}'
+    current=by_role.get(rol)
+    if current is None or current['raw'].strip()!=r.dir.strip() or pd.isna(r.lat) or pd.isna(r.lon):
+        continue
+    if r.geo_method not in {'direccion_osm','interpolacion_calle'}:
+        continue
+    legacy[rol]={'lat':r.lat,'lon':r.lon,'method':'legacy_'+r.geo_method,
+        'precision_m':25 if r.geo_method=='direccion_osm' else 100,
+        'quality':'legacy_unvalidated','source':legacy_source['member_sha256'],
+        'source_id':current['source'],'evidence':{'archive':archive.name,'method_original':r.geo_method}}
+osm_path=args.osm_json
+fresh={}
+if osm_path.exists():
+    fresh=locate_osm(rows,json.loads(osm_path.read_text(encoding='utf8')),sha(osm_path))
+located={**legacy,**fresh}
+direct_count=len(located)
+block_fallback(rows,located)
+# Reuse the previous small official-point audit as a quality control, not a
+# replacement geocoder. An OSM/SII discrepancy remains visible to the caller.
+reference_path=args.reference_json
+from services.sii.geocoding import distance
+reference_checks=[]
+if reference_path and reference_path.exists():
+    for ref in json.loads(reference_path.read_text(encoding='utf8')):
+        g=located.get(ref['role'])
+        if not g or not ref.get('coordinate_valid'):
+            continue
+        delta=distance((g['lat'],g['lon']),(ref['ubicacionX'],ref['ubicacionY']))
+        reference_checks.append({'rol':ref['role'],'discrepancy_m':round(delta,1)})
+        if delta>100:
+            g['quality']='reference_disagreement'
+            g['precision_m']=max(g['precision_m'],delta)
+            g['evidence']['reference_check']={'source_sha256':sha(reference_path),
+                'distance_m':round(delta,1),'source':'previous cached SII point; no new request'}
+meta={'built_at':datetime.datetime.now(datetime.UTC).isoformat(),'scope':'Vitacura SII 15160',
+      'audit':audit,'legacy':legacy_source,'osm_sha256':sha(osm_path) if osm_path.exists() else None,
+      'index_source_sha256':sha(OLD/'address-index.sqlite'),'sales_source_sha256':sha(OLD/'closings.json'),
+      'sales_policy':'Unmodified cierre_comparable export, casa/depto, fecha >= 2024-01-01',
+      'counts':{'roles':len(rows),'old_valid_points':len(legacy),'fresh_osm':len(fresh),
+                'before_block':direct_count,'located':len(located),'sales':len(sales),
+                'methods':dict(Counter(g['method'] for g in located.values()))},
+      'precision':'All precision_m values are estimates, never certified bounds.',
+      'external_per_request':0,'nominatim_requests':0}
+meta['reference_checks']=reference_checks
+write_geography(DATA/'geography.sqlite',located,sales,meta)
+(OUT/'audit-and-coverage.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2,default=str),encoding='utf8')
+print(json.dumps(meta['counts']))

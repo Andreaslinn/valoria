@@ -30,6 +30,34 @@ class RoleDetailsRequest(BaseModel):
     comuna: str = Field(min_length=1, max_length=64)
 
 
+class NearbySalesRequest(BaseModel):
+    address: str = Field(default="", max_length=512)
+    rol: str | None = Field(default=None, max_length=64)
+    comuna: str = Field(default="vitacura", max_length=64)
+    radius_m: float = Field(default=800, gt=0, le=5000, allow_inf_nan=False)
+    limit: int = Field(default=30, ge=1, le=200)
+
+
+@router.post("/nearby-sales")
+async def nearby_sales(payload: NearbySalesRequest, current_user: CurrentUser):
+    import os
+    import sqlite3
+    from services.sii.local_geography import LocalGeography
+
+    if not sii_closing_layer_enabled():
+        raise HTTPException(status_code=404, detail="Capa SII no habilitada")
+    if payload.comuna.strip().lower() != "vitacura":
+        return {"status":"outside_coverage", "message":"Piloto geográfico disponible en Vitacura."}
+    root = os.getenv("SII_GEOGRAPHY_DATA_DIR")
+    if not root:
+        return {"status":"unavailable", "message":"Índice geográfico local no disponible."}
+    try:
+        return await run_in_threadpool(LocalGeography(root).nearby,
+            address=payload.address,rol=payload.rol,radius_m=payload.radius_m,limit=payload.limit)
+    except (OSError, sqlite3.Error, ValueError):
+        return {"status":"unavailable", "message":"No pudimos consultar la geografía local."}
+
+
 class AddressFieldsOut(BaseModel):
     closed_area_m2: float | None = None
     land_area_m2: float | None = None

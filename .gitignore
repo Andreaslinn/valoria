@@ -116,3 +116,13 @@ private/
 **/sii-tasar-cases-local.json
 **/tasar-api-records-local.json
 **/address-details.sqlite
+
+# Snapshot: local datasets and generated artifacts
+*.sqlite*
+*.parquet
+*.tsbuildinfo
+**/.next*/
+**/node_modules/
+.env
+.env.local
+.env.production

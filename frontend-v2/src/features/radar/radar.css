@@ -93,6 +93,9 @@
 .radar-error button { text-decoration:underline; margin-left:8px; }
 .radar-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .radar-analysis-links { display:grid; gap:15px; margin-top:15px; overflow-wrap:anywhere; }
+.radar-loading-icon { flex-shrink:0; color:var(--color-accent); animation:radar-loading-spin 1s linear infinite; }
+@keyframes radar-loading-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .radar-loading-icon { animation:none; } }
 @media(max-width:1300px){.radar-heading h1{font-size:35px}.radar-prices{flex-wrap:wrap;gap:8px}.radar-prices .badge{margin-left:0}.radar-prices > div:first-child strong{font-size:31px}.radar-filters{left:8px;right:8px}.radar-filters > *{font-size:11px;padding:0 6px}.radar-focus h2{font-size:21px}.radar-evidence{gap:7px}.radar-workspace{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}.radar-focus{min-height:540px}.radar-photo{height:184px}}
 @media(max-width:900px){.radar-workspace{grid-template-columns:1fr}.radar-heading{padding-left:10px}.radar-heading .badge{display:none}.radar-map-panel{min-height:450px}.radar-focus{min-height:0}.radar-photo{height:260px}.radar-ticker{margin-left:10px}.radar-results-heading{flex-wrap:wrap}}
 
