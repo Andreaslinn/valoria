@@ -9,5 +9,7 @@
     "services/sii/closing_knn.py": "0e29cf44711c2cab8da612ca42ade263ca4f6aa10c4914c57a8ccd75423bd54f",
     "services/sii/closing_opinion.py": "5adedbac620e9bf04b895ceca7f261c9a3456ac89203331bdef63d7424a13ac0",
     "netlify.toml": "26660353c35959bbd2f7290445934c376261a64b55d7ed959df95b401e2557a2"
-  }
+  },
+  "git_index_source_hashes_verified": true,
+  "git_checkout_source_bytes_protected_by_gitattributes": true
 }
